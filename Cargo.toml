@@ -1,0 +1,20 @@
+[package]
+name = "tgv"
+version = "0.0.1"
+edition = "2021"
+
+[dependencies]
+ratatui = "0.28.0"
+noodles = "0.91.0"
+noodles-bam = "0.76.0"
+noodles-core = "0.16.0"
+noodles-sam = "0.72.0"
+crossterm = "0.28.1"
+clap = { version = "4.4", features = ["derive"] }
+sqlx = { version = "0.7", features = ["mysql", "runtime-tokio-native-tls"] }
+tokio = { version = "1", features = ["full"] }
+serde = { version = "1.0", features = ["derive"] }
+reqwest = { version = "0.12", features = ["json"] }
+
+[dev-dependencies]
+rstest = "0.25.0"
