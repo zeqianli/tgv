@@ -32,6 +32,8 @@ cargo install --path .
 
 ## Usage
 
+Currently, TGV only supports BAM files (sorted and indexed) for hg19 / hg38 genomes.
+
 ```bash
 # Help
 tgv -h
