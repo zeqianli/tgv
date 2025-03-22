@@ -23,6 +23,8 @@ pub enum StateMessage {
 
     GoToGene(String),
 
+    GoToDefault, // Calculate a default location based on the genome context
+
     ZoomIn(usize),
     ZoomOut(usize),
 
