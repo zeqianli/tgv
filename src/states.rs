@@ -20,7 +20,7 @@ use std::result::Result;
 
 pub struct State {
     /// Viewing window.
-    pub viewing_window: ViewingWindow,
+    viewing_window: Option<ViewingWindow>,
 
     pub input_mode: InputMode,
 
@@ -48,16 +48,13 @@ pub struct State {
 
 /// Basics
 impl State {
-    pub async fn new(
-        initial_window: ViewingWindow,
-        settings: Settings,
-    ) -> Result<Self, sqlx::Error> {
+    pub async fn new(settings: Settings) -> Result<Self, sqlx::Error> {
         let contigs =
             load_contigs_from_bam(&settings.bam_path.clone().unwrap(), &settings.reference)
                 .unwrap();
 
         Ok(Self {
-            viewing_window: initial_window,
+            viewing_window: None,
             input_mode: InputMode::Normal,
             exit: false,
             debug_message: String::new(),
@@ -78,43 +75,54 @@ impl State {
         self.current_frame_area = Some(area);
     }
 
-    pub fn viewing_region(&self) -> Region {
-        Region {
-            contig: self.viewing_window.contig.clone(),
-            start: self.viewing_window.left(),
+    /// Returns the viewing window. Return Err if the viewing window is not set.
+    pub fn viewing_window(&self) -> Result<&ViewingWindow, ()> {
+        self.viewing_window.as_ref().ok_or(())
+    }
+
+    pub fn viewing_region(&self) -> Result<Region, ()> {
+        Ok(Region {
+            contig: self.viewing_window()?.contig.clone(),
+            start: self.viewing_window()?.left(),
             end: self
                 .viewing_window
                 .right(self.current_frame_area.as_ref().unwrap()),
-        }
+        })
     }
 
-    pub fn contig(&self) -> Contig {
-        self.viewing_window.contig.clone()
+    pub fn contig(&self) -> Result<Contig, ()> {
+        self.viewing_window()?.contig.clone().ok_or(())
     }
 
     /// Start coordinate of bases displayed on the screen.
     /// 1-based, inclusive.
-    pub fn start(&self) -> usize {
-        self.viewing_window.left()
+    pub fn start(&self) -> Result<usize, ()> {
+        self.viewing_window()?.left().ok_or(())
     }
 
     /// End coordinate of bases displayed on the screen.
     /// 1-based, inclusive.
-    pub fn end(&self) -> usize {
-        self.viewing_window
+    pub fn end(&self) -> Result<usize, ()> {
+        self.viewing_window()?
             .right(self.current_frame_area.as_ref().unwrap())
+            .ok_or(())
     }
 
     /// Middle coordinate of bases displayed on the screen.
     /// 1-based, inclusive.
-    pub fn middle(&self) -> usize {
-        self.viewing_window
+    pub fn middle(&self) -> Result<usize, ()> {
+        self.viewing_window()?
             .middle(self.current_frame_area.as_ref().unwrap())
+            .ok_or(())
     }
 
     /// Reference to the command mode register.
     pub fn command_mode_register(&self) -> &CommandModeRegister {
         &self.command_mode_register
+    }
+
+    pub fn initialized(&self) -> bool {
+        self.viewing_window.is_some()
     }
 }
 
@@ -193,6 +201,16 @@ impl State {
         }
     }
 
+    pub async fn handle_messages(&mut self, messages: Vec<StateMessage>) -> Vec<DataMessage> {
+        let mut data_messages: Vec<DataMessage> = Vec::new();
+
+        for message in messages {
+            data_messages.extend(self.handle_message(message).await);
+        }
+
+        data_messages
+    }
+
     pub async fn handle_message(&mut self, messages: Vec<StateMessage>) -> Vec<DataMessage> {
         let mut data_messages: Vec<DataMessage> = Vec::new();
 
@@ -269,17 +287,17 @@ impl State {
     fn get_data_requirements(&self) -> Vec<DataMessage> {
         let mut data_messages = Vec::new();
 
-        if self.viewing_window.zoom() <= Self::MAX_ZOOM_TO_DISPLAY_FEATURES {
+        if self.viewing_window().zoom() <= Self::MAX_ZOOM_TO_DISPLAY_FEATURES {
             data_messages.push(DataMessage::RequiresCompleteFeatures(self.viewing_region()));
         }
 
-        if self.viewing_window.zoom() <= Self::MAX_ZOOM_TO_DISPLAY_ALIGNMENTS {
+        if self.viewing_window().zoom() <= Self::MAX_ZOOM_TO_DISPLAY_ALIGNMENTS {
             data_messages.push(DataMessage::RequiresCompleteAlignments(
                 self.viewing_region(),
             ));
         }
 
-        if self.viewing_window.is_basewise() {
+        if self.viewing_window().is_basewise() {
             data_messages.push(DataMessage::RequiresCompleteSequences(
                 self.viewing_region(),
             ));
@@ -297,37 +315,37 @@ impl State {
         match message {
             // TODO: bound handling
             StateMessage::MoveLeft(n) => {
-                self.viewing_window.set_left(
+                self.viewing_window().set_left(
                     self.viewing_window
                         .left()
-                        .saturating_sub(n * self.viewing_window.zoom()),
+                        .saturating_sub(n * self.viewing_window().zoom()),
                 );
             }
             StateMessage::MoveRight(n) => {
-                self.viewing_window.set_left(
+                self.viewing_window().set_left(
                     self.viewing_window
                         .left()
-                        .saturating_add(n * self.viewing_window.zoom()),
+                        .saturating_add(n * self.viewing_window().zoom()),
                 );
             }
             StateMessage::MoveUp(n) => {
                 self.viewing_window
-                    .set_top(self.viewing_window.top().saturating_sub(n));
+                    .set_top(self.viewing_window().top().saturating_sub(n));
             }
             StateMessage::MoveDown(n) => {
                 self.viewing_window
-                    .set_top(self.viewing_window.top().saturating_add(n));
+                    .set_top(self.viewing_window().top().saturating_add(n));
             }
             StateMessage::GotoCoordinate(n) => {
                 self.viewing_window
                     .set_middle(self.current_frame_area.as_ref().unwrap(), n);
-                self.viewing_window.set_top(0);
+                self.viewing_window().set_top(0);
             }
             StateMessage::GotoContigCoordinate(contig, n) => {
-                self.viewing_window.contig = contig;
+                self.viewing_window().contig = contig;
                 self.viewing_window
                     .set_middle(self.current_frame_area.as_ref().unwrap(), n);
-                self.viewing_window.set_top(0);
+                self.viewing_window().set_top(0);
             }
 
             _ => {}

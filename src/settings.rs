@@ -1,5 +1,8 @@
 use crate::models::contig::Contig;
-use crate::models::{services::tracks::TrackService, window::ViewingWindow};
+use crate::models::{
+    message::StateMessage, reference::Reference, services::tracks::TrackService,
+    window::ViewingWindow,
+};
 use clap::Parser;
 use core::str::FromStr;
 use noodles_core::region::Region as NoodlesRegion;
@@ -25,9 +28,9 @@ pub struct Settings {
     pub bam_path: Option<String>,
     pub vcf_path: Option<String>,
     pub bed_path: Option<String>,
-    pub reference: String,
+    pub reference: Option<Reference>,
 
-    initial_region_str: String,
+    initial_state_messages: Vec<StateMessage>,
 }
 
 impl Settings {
@@ -38,14 +41,11 @@ impl Settings {
             return Err(format!("Unsupported reference: {}", cli.reference));
         }
 
-        let mut settings = Self {
-            bam_path: None,
-            vcf_path: None,
-            bed_path: None,
-            initial_region_str: cli.region,
-            reference: cli.reference,
-        };
+        let mut initial_state_messages = Vec::new();
 
+        let mut bam_path = None;
+        let mut vcf_path = None;
+        let mut bed_path = None;
         for path in cli.paths {
             if path.ends_with(".bam") && settings.bam_path.is_none() {
                 settings.bam_path = Some(path.clone());
@@ -58,39 +58,58 @@ impl Settings {
             }
         }
 
-        Ok(settings)
+        // Referennce
+        let reference = match Reference::from_str(&cli.reference) {
+            Ok(reference) => Some(reference),
+            Err(e) => {
+                initial_state_messages.push(StateMessage::Error(e));
+                None
+            }
+        };
+
+        // Initial region
+        match Self::translate_initial_region(&cli.region) {
+            Ok(state_message) => initial_state_messages.push(state_message),
+            Err(e) => initial_state_messages.push(StateMessage::CommandModeRegisterError(e)),
+        }
+
+        Ok(Self {
+            bam_path,
+            vcf_path,
+            bed_path,
+            reference,
+            initial_state_messages,
+        })
     }
 
-    pub async fn initial_window(
-        &self,
-        track_service: &TrackService,
-    ) -> Result<ViewingWindow, String> {
-        // Option 1: interprete as a genome region
-        let parsed_region: Result<NoodlesRegion, noodles_core::region::ParseError> =
-            NoodlesRegion::from_str(self.initial_region_str.as_str());
-        if let Ok(parsed_region) = parsed_region {
-            if let Some(start) = parsed_region.interval().start() {
-                return Ok(ViewingWindow::new_basewise_window(
-                    Contig::chrom(&parsed_region.name().to_string()), // TODO: length is not used yet.
-                    start.get(),
-                    0,
-                ));
+    fn translate_initial_region(&region_string: &String) -> Result<StateMessage, String> {
+        let region_string = region_string.trim();
+
+        // Interpretation 1: empty input (go to a default location)
+        if region_string.is_empty() {
+            return Ok(StateMessage::GoToDefault);
+        }
+
+        /// Check format
+        let split = region_string.split(":").collect::<Vec<&str>>();
+        if split.len() > 2 {
+            return Err(format!("Cannot interpret the region: {}", region_string));
+        }
+
+        // Interpretation 2: genome:position
+        if split.len() == 2 {
+            match split[1].parse::<usize>() {
+                Ok(n) => {
+                    return Ok(StateMessage::GotoContigCoordinate(
+                        Contig::chrom(&split[0].to_string()),
+                        n,
+                    ))
+                }
+                Err(_) => return Err(format!("Invalid genome region: {}", region_string)),
             }
         }
 
-        // Option 2: interprete as a gene name
-        let gene = track_service
-            .query_gene_name(&self.initial_region_str)
-            .await;
-        if let Ok(gene) = gene {
-            let initial_window = ViewingWindow::new_basewise_window(gene.contig(), gene.start(), 0);
-            return Ok(initial_window);
-        }
-
-        // Failed to interpret the region
-        Err(format!(
-            "Cannot interpret the region {}",
-            self.initial_region_str
-        ))
+        // Interpretation 3: gene name
+        return Ok(StateMessage::GoToGene(region_string.to_string()));
     }
 }
