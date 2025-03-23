@@ -6,21 +6,23 @@ use clap::Parser;
 #[derive(Parser)]
 #[command(author, version, about, long_about = None)]
 pub struct Cli {
-    /// File paths (Currently supports: BAM (sorted and indexed))
+    /// BAM file path. Must be sorted and indexed (with .bai file in the same directory).
+    /// If not provided, only reference genome will be displayed.
     #[arg(value_name = "PATHS")]
     paths: Vec<String>,
 
-    /// Region to view (Currently supports: "12:25398142", "TP53")
-    /// If not provided, TGV will find a default region (the first contig).
+    /// Starting region. Supported formats: [chr]:[pos] (e.g. 12:25398142); [gene] (e.g. TP53).
+    /// If not provided, TGV will find a default starting region.
     #[arg(short = 'r', long = "region", default_value = "")]
     region: String,
 
-    /// Reference genome (Currently supports: "hg19", "hg38")
+    /// Reference genome. Supported values: hg38; hg19.
     #[arg(short = 'g', long = "reference", default_value = Reference::HG38)]
     reference: String,
 
-    /// Flag on whether to show the reference genome
-    #[arg(short, long)]
+    /// Do not display the reference genome.
+    /// This flag cannot be used when no BAM file is provided.
+    #[arg(long)]
     no_reference: bool,
 }
 

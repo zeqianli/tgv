@@ -11,11 +11,13 @@ Light, fast, in terminal, vim motion.
 ### Prerequisites
 
 1. Install Rust:
+
    ```bash
    curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
    ```
 
 2. Add Rust to your path (or restart your terminal):
+
    ```bash
    source "$HOME/.cargo/env"
    ```
@@ -32,13 +34,17 @@ cargo install --path .
 
 ## Usage
 
-Currently, TGV only supports BAM files (sorted and indexed) for hg19 / hg38 genomes.
-
 ```bash
 # Help
 tgv -h
 
-# Start by a coordinate
+# Browse hg38 genome
+tgv
+
+# Brwose a BAM file (sorted and indexed) aligned to the hg19 human reference genome
+tgv sorted.bam -g hg19
+
+# Start at a coordinate
 tgv sorted.bam -r 12:25398142 -g hg19
 
 # Start at a gene
@@ -50,6 +56,7 @@ tgv sorted.bam -r TP53 -g hg19
 Quit: `:q`
 
 Normal mode
+
 | Command  | Notes | Example |
 |---------|-------------|---------|
 | `:` | Enter command mode | |
@@ -72,8 +79,6 @@ Command mode:
 | `:_gene_` | Go to `_gene_`.| `:KRAS`|
 | `Esc` | Switch to Normal Mode | |
 
-
-
 Compare TGV and Vim concepts:
 
 |Command|TGV|Vim|Notes|
@@ -82,12 +87,12 @@ Compare TGV and Vim concepts:
 |`y/p`|Fast horizontal movement|NA|`y/p` do different things in Vim|
 |`w/b/e/ge`|Exon|word||
 | `W/B/E/gE` | Gene |WORD||
-|`j/k/gg/G`|Alignment track|Line||
+|`j/k`|Alignment track|Line||
 |`z/o`| Zoom | NA | Note that `o` does a different thing in Vim.|
 
 See `ROADMAP.md` for future key bindings ideas.
 
-# FAQ
+## FAQ
 
 - **How to quit TGV?**  
   [Just like vim :)](https://stackoverflow.com/questions/11828270/how-do-i-exit-vim) Press `Esc` to ensure you're in normal mode, then type `:q` and press Enter.
@@ -98,10 +103,9 @@ See `ROADMAP.md` for future key bindings ideas.
   Future plans: BED, VCF, S3 BAM files, HTTP BAM files. See `ROADMAP.md`.
 
 - **Where does the reference genome data come from?**  
-  - Reference sequences: [UCSC Genome Browser API](https://genome.ucsc.edu/goldenPath/help/api.html) 
+  - Reference sequences: [UCSC Genome Browser API](https://genome.ucsc.edu/goldenPath/help/api.html)
     - Uses endpoint: `https://api.genome.ucsc.edu/getData/sequence`
   - Gene annotations: [UCSC MariaDB](https://genome.ucsc.edu/goldenPath/help/mysql.html)
     - Server: `genome-mysql.soe.ucsc.edu`
     - Database: `hg19` / `hg38`
     - Table: `ncbiRefSeqSelect` (same as IGV's default)
-
