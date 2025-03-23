@@ -81,18 +81,18 @@ impl Alignment {
         }
     }
 
-    pub fn from_bam_path(bam_path: String, region: Region) -> io::Result<Self> {
-        let mut reader = bam::io::indexed_reader::Builder::default().build_from_path(&bam_path)?;
+    pub fn from_bam_path(bam_path: &String, region: &Region) -> io::Result<Self> {
+        let mut reader = bam::io::indexed_reader::Builder::default().build_from_path(bam_path)?;
         let header = reader.read_header()?;
 
-        let query_str = Self::get_query_str(&header, &region)
+        let query_str = Self::get_query_str(&header, region)
             .map_err(|_| io::Error::new(io::ErrorKind::InvalidInput, "Invalid region format"))?;
         let noodles_region: NoodlesRegion = query_str
             .parse()
             .map_err(|e| io::Error::new(io::ErrorKind::InvalidInput, e))?; // noodles region
 
         let records = reader.query(&header, &noodles_region)?;
-        Alignment::from_records(records, &region)
+        Alignment::from_records(records, region)
     }
 
     pub fn from_records<I>(records: I, region: &Region) -> io::Result<Self>

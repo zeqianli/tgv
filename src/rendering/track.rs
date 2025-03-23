@@ -13,16 +13,17 @@ use ratatui::{
 /// TODO: zoomed view
 pub fn render_track(area: &Rect, buf: &mut Buffer, window: &ViewingWindow, track: &Track) {
     // coordinates
-    buf.set_string(
-        area.x,
-        area.y + 1,
-        format!("{}", window.left()),
-        Style::default(),
+    let left_coord_str = format!("{}:{}", window.contig.full_name(), window.left());
+    let right_coord_str = format!(
+        "{}:{}",
+        window.contig.full_name(),
+        window.left() + area.width as usize
     );
+    buf.set_string(area.x, area.y + 1, left_coord_str, Style::default());
     buf.set_string(
-        area.x + area.width - format!("{}", window.left() + area.width as usize).len() as u16,
+        area.x + area.width - right_coord_str.len() as u16,
         area.y + 1,
-        format!("{}", window.left() + area.width as usize),
+        right_coord_str,
         Style::default(),
     );
 

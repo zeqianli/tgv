@@ -11,11 +11,13 @@ Light, fast, in terminal, vim motion.
 ### Prerequisites
 
 1. Install Rust:
+
    ```bash
    curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
    ```
 
 2. Add Rust to your path (or restart your terminal):
+
    ```bash
    source "$HOME/.cargo/env"
    ```
@@ -30,19 +32,33 @@ cd tgv
 cargo install --path .
 ```
 
-## Usage
+## Supported formats
 
-Currently, TGV only supports BAM files (sorted and indexed) for hg19 / hg38 genomes.
+- BAM (index and sorted. The `.bai` file must be in the same directory.)
+- Internet connection is required if reference genomes are used.
+
+## Usage
 
 ```bash
 # Help
 tgv -h
 
-# Start by a coordinate
+# Browse hg38 genome
+tgv
+
+# View BAM file aligned to the hg19 human reference genome
+tgv sorted.bam -g hg19
+
+# Start at a coordinate
 tgv sorted.bam -r 12:25398142 -g hg19
 
 # Start at a gene
 tgv sorted.bam -r TP53 -g hg19
+
+# Use --no-reference for non-human alignments
+# (Sequence / feature display not supported yet)
+tgv non_human.bam -r 1:123 --no-reference
+
 ```
 
 ## Key bindings
@@ -50,6 +66,7 @@ tgv sorted.bam -r TP53 -g hg19
 Quit: `:q`
 
 Normal mode
+
 | Command  | Notes | Example |
 |---------|-------------|---------|
 | `:` | Enter command mode | |
@@ -60,19 +77,18 @@ Normal mode
 | `W/B` | Begining of the next / last gene | |
 | `E/gE` | End of the next / last gene | |
 | `z/o` | Zoom in / out | |
-| `_number_` + `_movement_` | Move by `_number_` steps | `20h`: left by 20 bases; `2z`: Zoom-in twice |
+| `_number_` + `_movement_` | Move by `_number_` steps | `20h`: left by 20 bases|
 
 Command mode:
 
 |Command |Notes| Example|
 |---------|-------------|---------|
 | `:q` | Quit | |
+| `:h` | Help | |
 | `:_pos_` | Go to position on same contig | `:1000` |
 | `:_contig_:_pos_` | Go to position on specific contig | `:17:7572659` |
 | `:_gene_` | Go to `_gene_`.| `:KRAS`|
 | `Esc` | Switch to Normal Mode | |
-
-
 
 Compare TGV and Vim concepts:
 
@@ -82,12 +98,12 @@ Compare TGV and Vim concepts:
 |`y/p`|Fast horizontal movement|NA|`y/p` do different things in Vim|
 |`w/b/e/ge`|Exon|word||
 | `W/B/E/gE` | Gene |WORD||
-|`j/k/gg/G`|Alignment track|Line||
-|`z/o`| Zoom | NA | Note that `o` does a different thing in Vim.|
+|`j/k`|Alignment track|Line||
+|`z/o`| Zoom | NA |`o` does a different thing in Vim.|
 
 See `ROADMAP.md` for future key bindings ideas.
 
-# FAQ
+## FAQ
 
 - **How to quit TGV?**  
   [Just like vim :)](https://stackoverflow.com/questions/11828270/how-do-i-exit-vim) Press `Esc` to ensure you're in normal mode, then type `:q` and press Enter.
@@ -98,10 +114,9 @@ See `ROADMAP.md` for future key bindings ideas.
   Future plans: BED, VCF, S3 BAM files, HTTP BAM files. See `ROADMAP.md`.
 
 - **Where does the reference genome data come from?**  
-  - Reference sequences: [UCSC Genome Browser API](https://genome.ucsc.edu/goldenPath/help/api.html) 
+  - Reference sequences: [UCSC Genome Browser API](https://genome.ucsc.edu/goldenPath/help/api.html)
     - Uses endpoint: `https://api.genome.ucsc.edu/getData/sequence`
   - Gene annotations: [UCSC MariaDB](https://genome.ucsc.edu/goldenPath/help/mysql.html)
     - Server: `genome-mysql.soe.ucsc.edu`
     - Database: `hg19` / `hg38`
     - Table: `ncbiRefSeqSelect` (same as IGV's default)
-
