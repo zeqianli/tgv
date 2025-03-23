@@ -1,3 +1,4 @@
+use crate::error::TGVError;
 use crate::models::{contig::Contig, mode::InputMode, region::Region};
 
 /// State messages
@@ -40,6 +41,8 @@ pub enum StateMessage {
     MoveCursorLeft(usize),
     MoveCursorRight(usize),
     CommandModeRegisterError(String),
+
+    Error(TGVError),
 
     Quit,
 }

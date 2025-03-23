@@ -1,3 +1,4 @@
+use crate::error::TGVError;
 use crate::models::{
     alignment::Alignment,
     message::DataMessage,
@@ -7,8 +8,7 @@ use crate::models::{
     track::Track,
 };
 use crate::settings::Settings;
-use std::io;
-
+use std::path::Path;
 /// Holds all data in the session.
 pub struct Data {
     /// Alignment segments.
@@ -26,24 +26,35 @@ pub struct Data {
 }
 
 impl Data {
-    pub async fn new(settings: &Settings) -> Self {
-        let bam_path = settings.bam_path.clone();
-
-        let track_service;
-        let sequence_service;
-
-        match settings.reference.as_ref() {
-            Some(reference) => {
-                track_service = Some(TrackService::new(reference.clone()).await.unwrap());
-                sequence_service = Some(SequenceService::new(reference.clone()).unwrap());
+    pub async fn new(settings: &Settings) -> Result<Self, TGVError> {
+        let bam_path = match settings.bam_path.clone() {
+            Some(bam_path) => {
+                if !Path::new(&bam_path).exists() {
+                    return Err(TGVError::IOError(format!(
+                        "BAM file {} not found",
+                        bam_path
+                    )));
+                }
+                if !Path::new(&format!("{}.bai", bam_path)).exists() {
+                    return Err(TGVError::IOError(format!(
+                        "BAM index file {} not found. Only indexed BAM files are supported.",
+                        bam_path
+                    )));
+                }
+                Some(bam_path)
             }
-            None => {
-                track_service = None;
-                sequence_service = None;
-            }
-        }
+            None => None,
+        };
 
-        Self {
+        let (track_service, sequence_service) = match settings.reference.as_ref() {
+            Some(reference) => (
+                Some(TrackService::new(reference.clone()).await.unwrap()),
+                Some(SequenceService::new(reference.clone()).unwrap()),
+            ),
+            None => (None, None),
+        };
+
+        Ok(Self {
             alignment: None,
             track: None,
             sequence: None,
@@ -51,13 +62,13 @@ impl Data {
             bam_path,
             track_service: track_service,
             sequence_service: sequence_service,
-        }
+        })
     }
 
     pub async fn handle_data_messages(
         &mut self,
         data_messages: Vec<DataMessage>,
-    ) -> Result<bool, ()> {
+    ) -> Result<bool, TGVError> {
         let mut loaded_data = false;
         for data_message in data_messages {
             loaded_data = self.handle_data_message(data_message).await?;
@@ -66,13 +77,16 @@ impl Data {
     }
 
     // TODO: async
-    pub async fn handle_data_message(&mut self, data_message: DataMessage) -> Result<bool, ()> {
+    pub async fn handle_data_message(
+        &mut self,
+        data_message: DataMessage,
+    ) -> Result<bool, TGVError> {
         let mut loaded_data = false;
 
         match data_message {
             DataMessage::RequiresCompleteAlignments(region) => {
                 if self.bam_path.is_none() {
-                    return Err(());
+                    return Err(TGVError::IOError("BAM file not found".to_string()));
                 }
 
                 let bam_path = self.bam_path.as_ref().unwrap();
@@ -86,7 +100,7 @@ impl Data {
             }
             DataMessage::RequiresCompleteFeatures(region) => {
                 if self.track_service.is_none() {
-                    return Err(());
+                    return Err(TGVError::IOError("Track service not found".to_string()));
                 }
                 let track_service = self.track_service.as_ref().unwrap();
 
@@ -103,7 +117,7 @@ impl Data {
             }
             DataMessage::RequiresCompleteSequences(region) => {
                 if self.sequence_service.is_none() {
-                    return Err(());
+                    return Err(TGVError::IOError("Sequence service not found".to_string()));
                 }
                 let sequence_service = self.sequence_service.as_ref().unwrap();
 
@@ -115,7 +129,7 @@ impl Data {
                             loaded_data = true;
                         }
                         Err(_) => {
-                            return Err(());
+                            return Err(TGVError::IOError("Sequence service error".to_string()));
                         }
                     }
                 }
@@ -125,19 +139,16 @@ impl Data {
         Ok(loaded_data)
     }
 
-    pub async fn load_all_data(&mut self, region: Region) -> io::Result<bool> {
+    pub async fn load_all_data(&mut self, region: Region) -> Result<bool, TGVError> {
         let loaded_alignment = self
             .handle_data_message(DataMessage::RequiresCompleteAlignments(region.clone()))
-            .await
-            .unwrap();
+            .await?;
         let loaded_track = self
             .handle_data_message(DataMessage::RequiresCompleteFeatures(region.clone()))
-            .await
-            .unwrap();
+            .await?;
         let loaded_sequence = self
             .handle_data_message(DataMessage::RequiresCompleteSequences(region.clone()))
-            .await
-            .unwrap();
+            .await?;
         Ok(loaded_alignment || loaded_track || loaded_sequence)
     }
 

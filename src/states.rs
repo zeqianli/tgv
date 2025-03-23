@@ -1,3 +1,4 @@
+use crate::error::TGVError;
 use crate::models::{
     contig::Contig,
     message::{DataMessage, StateMessage},
@@ -13,23 +14,20 @@ use crate::settings::Settings;
 use crossterm::event::{KeyCode, KeyEvent};
 use noodles_bam as bam;
 use ratatui::layout::Rect;
-use std::io;
-use std::result::Result;
 
 /// Genome region displayed in the window.
 /// Holds states of the application.
 
 pub struct State {
     /// Viewing window.
-    pub viewing_window: Option<ViewingWindow>,
+    window: Option<ViewingWindow>,
+    area: Option<Rect>,
 
     pub input_mode: InputMode,
 
     pub exit: bool,
 
     pub debug_message: String,
-
-    current_frame_area: Option<Rect>,
 
     // Handle feature movements
     feature_query_service: Option<TrackService>,
@@ -41,7 +39,7 @@ pub struct State {
     command_mode_register: CommandModeRegister,
 
     /// Contigs in the BAM header
-    pub contigs: Vec<Contig>,
+    pub contigs: Option<Vec<Contig>>,
 
     /// Settings
     pub settings: Settings,
@@ -49,21 +47,31 @@ pub struct State {
 
 /// Basics
 impl State {
-    pub async fn new(settings: Settings) -> Result<Self, sqlx::Error> {
-        let contigs = load_contigs_from_bam(
-            &settings.bam_path.clone().unwrap(),
-            &settings.reference.clone().unwrap(),
-        )
-        .unwrap();
+    pub async fn new(settings: Settings) -> Result<Self, TGVError> {
+        let contigs = match settings.bam_path.clone() {
+            Some(bam_path) => Some(load_contigs_from_bam(
+                &bam_path,
+                settings.reference.as_ref(),
+            )?),
+            None => None,
+        };
 
         Ok(Self {
-            viewing_window: None,
+            window: None,
             input_mode: InputMode::Normal,
             exit: false,
             debug_message: String::new(),
-            current_frame_area: None,
+            area: None,
             feature_query_service: match settings.reference.as_ref() {
-                Some(reference) => Some(TrackService::new(reference.clone()).await?),
+                Some(reference) => match TrackService::new(reference.clone()).await {
+                    Ok(service) => Some(service),
+                    Err(_) => {
+                        return Err(TGVError::IOError(format!(
+                            "Failed to create track service for reference {}",
+                            reference
+                        )));
+                    }
+                },
                 None => None,
             },
             exon_track_cache: None,
@@ -78,68 +86,66 @@ impl State {
     }
 
     pub fn update_frame_area(&mut self, area: Rect) {
-        self.current_frame_area = Some(area);
+        self.area = Some(area);
     }
 
-    pub fn viewing_region(&self) -> Result<Region, ()> {
-        if self.viewing_window.is_none() {
-            return Err(());
+    pub fn viewing_window(&self) -> Result<&ViewingWindow, TGVError> {
+        if self.window.is_none() {
+            return Err(TGVError::StateError(
+                "Viewing window is not initialized".to_string(),
+            ));
         }
+        Ok(self.window.as_ref().unwrap())
+    }
 
-        let viewing_window = self.viewing_window.as_ref().unwrap();
+    pub fn viewing_window_mut(&mut self) -> Result<&mut ViewingWindow, TGVError> {
+        if self.window.is_none() {
+            return Err(TGVError::StateError(
+                "Viewing window is not initialized".to_string(),
+            ));
+        }
+        Ok(self.window.as_mut().unwrap())
+    }
+
+    pub fn current_frame_area(&self) -> Result<&Rect, TGVError> {
+        if self.area.is_none() {
+            return Err(TGVError::StateError(
+                "Current frame area is not initialized".to_string(),
+            ));
+        }
+        Ok(self.area.as_ref().unwrap())
+    }
+
+    pub fn viewing_region(&self) -> Result<Region, TGVError> {
+        let viewing_window = self.viewing_window()?;
 
         Ok(Region {
             contig: viewing_window.contig.clone(),
             start: viewing_window.left(),
-            end: viewing_window.right(self.current_frame_area.as_ref().unwrap()),
+            end: viewing_window.right(self.current_frame_area()?),
         })
     }
 
-    pub fn contig(&self) -> Result<Contig, ()> {
-        if self.viewing_window.is_none() {
-            return Err(());
-        }
-
-        let viewing_window = self.viewing_window.as_ref().unwrap();
-
-        Ok(viewing_window.contig.clone())
+    pub fn contig(&self) -> Result<Contig, TGVError> {
+        Ok(self.viewing_window()?.contig.clone())
     }
 
     /// Start coordinate of bases displayed on the screen.
     /// 1-based, inclusive.
-    pub fn start(&self) -> Result<usize, ()> {
-        if self.viewing_window.is_none() {
-            return Err(());
-        }
-
-        let viewing_window = self.viewing_window.as_ref().unwrap();
-        Ok(viewing_window.left())
+    pub fn start(&self) -> Result<usize, TGVError> {
+        Ok(self.viewing_window()?.left())
     }
 
     /// End coordinate of bases displayed on the screen.
     /// 1-based, inclusive.
-    pub fn end(&self) -> Result<usize, ()> {
-        if self.viewing_window.is_none() || self.current_frame_area.is_none() {
-            return Err(());
-        }
-
-        let viewing_window = self.viewing_window.as_ref().unwrap();
-        let current_frame_area = self.current_frame_area.as_ref().unwrap();
-
-        Ok(viewing_window.right(current_frame_area)) // TODO: better handling
+    pub fn end(&self) -> Result<usize, TGVError> {
+        Ok(self.viewing_window()?.right(self.current_frame_area()?))
     }
 
     /// Middle coordinate of bases displayed on the screen.
     /// 1-based, inclusive.
-    pub fn middle(&self) -> Result<usize, ()> {
-        if self.viewing_window.is_none() || self.current_frame_area.is_none() {
-            return Err(());
-        }
-
-        let viewing_window = self.viewing_window.as_ref().unwrap();
-        let current_frame_area = self.current_frame_area.as_ref().unwrap();
-
-        Ok(viewing_window.middle(current_frame_area))
+    pub fn middle(&self) -> Result<usize, TGVError> {
+        Ok(self.viewing_window()?.middle(self.current_frame_area()?))
     }
 
     /// Reference to the command mode register.
@@ -148,28 +154,40 @@ impl State {
     }
 
     pub fn initialized(&self) -> bool {
-        self.viewing_window.is_some()
+        self.window.is_some()
     }
 }
 
 /// Load contigs from a BAM file header
-fn load_contigs_from_bam(path: &str, reference: &Reference) -> io::Result<Vec<Contig>> {
+fn load_contigs_from_bam(
+    path: &str,
+    reference: Option<&Reference>,
+) -> Result<Vec<Contig>, TGVError> {
     // Use the indexed_reader::Builder pattern as shown in alignment.rs
-    let mut reader = bam::io::indexed_reader::Builder::default().build_from_path(path)?;
-    let header = reader.read_header()?;
+    let mut reader = match bam::io::indexed_reader::Builder::default().build_from_path(path) {
+        Ok(reader) => reader,
+        Err(e) => return Err(TGVError::IOError(format!("Failed to open BAM file: {}", e))),
+    };
+    let header = match reader.read_header() {
+        Ok(header) => header,
+        Err(e) => {
+            return Err(TGVError::IOError(format!(
+                "Failed to read BAM header: {}",
+                e
+            )))
+        }
+    };
 
     // Extract contigs from the header
     let mut contigs = Vec::new();
     for (contig_name, _) in header.reference_sequences().iter() {
         match reference {
-            Reference::Hg19 => contigs.push(Contig::chrom(&contig_name.to_string())),
-            Reference::Hg38 => contigs.push(Contig::chrom(&contig_name.to_string())),
-            _ => {
-                return Err(io::Error::new(
-                    io::ErrorKind::InvalidInput,
-                    "Unsupported reference",
-                ));
-            }
+            // If the reference is human, interpret contig names as chromosomes. This allows abbreviated matching (chr1 <-> 1).
+            Some(Reference::Hg19) => contigs.push(Contig::chrom(&contig_name.to_string())),
+            Some(Reference::Hg38) => contigs.push(Contig::chrom(&contig_name.to_string())),
+
+            // Otherwise, interpret contig names as contigs. This does not allow abbreviated matching.
+            _ => contigs.push(Contig::contig(&contig_name.to_string())),
         }
     }
 
@@ -233,7 +251,7 @@ impl State {
     pub async fn handle_messages(
         &mut self,
         messages: Vec<StateMessage>,
-    ) -> Result<Vec<DataMessage>, ()> {
+    ) -> Result<Vec<DataMessage>, TGVError> {
         let mut data_messages: Vec<DataMessage> = Vec::new();
 
         for message in messages {
@@ -244,7 +262,10 @@ impl State {
     }
 
     /// Main function to route state message handling.
-    pub async fn handle_message(&mut self, message: StateMessage) -> Result<Vec<DataMessage>, ()> {
+    pub async fn handle_message(
+        &mut self,
+        message: StateMessage,
+    ) -> Result<Vec<DataMessage>, TGVError> {
         let mut data_messages: Vec<DataMessage> = Vec::new();
 
         match message {
@@ -316,14 +337,11 @@ impl State {
     const MAX_ZOOM_TO_DISPLAY_FEATURES: usize = 64;
     const MAX_ZOOM_TO_DISPLAY_ALIGNMENTS: usize = 32;
 
-    fn get_data_requirements(&self) -> Result<Vec<DataMessage>, ()> {
+    fn get_data_requirements(&self) -> Result<Vec<DataMessage>, TGVError> {
         let mut data_messages = Vec::new();
 
-        if self.viewing_window.is_none() || self.current_frame_area.is_none() {
-            return Err(());
-        }
-        let viewing_window = self.viewing_window.as_ref().unwrap();
-        let viewing_region = self.viewing_region().unwrap();
+        let viewing_window = self.viewing_window()?;
+        let viewing_region = self.viewing_region()?;
 
         if viewing_window.zoom() <= Self::MAX_ZOOM_TO_DISPLAY_FEATURES {
             data_messages.push(DataMessage::RequiresCompleteFeatures(
@@ -349,16 +367,15 @@ impl State {
 
 // Movement handling
 impl State {
-    fn handle_movement_message(&mut self, message: StateMessage) -> Result<Vec<DataMessage>, ()> {
+    fn handle_movement_message(
+        &mut self,
+        message: StateMessage,
+    ) -> Result<Vec<DataMessage>, TGVError> {
         let mut data_messages = Vec::new();
-
         match message {
             // TODO: bound handling
             StateMessage::MoveLeft(n) => {
-                if self.viewing_window.is_none() {
-                    return Err(());
-                }
-                let viewing_window = self.viewing_window.as_mut().unwrap();
+                let viewing_window = self.viewing_window_mut()?;
 
                 viewing_window.set_left(
                     viewing_window
@@ -367,10 +384,7 @@ impl State {
                 );
             }
             StateMessage::MoveRight(n) => {
-                if self.viewing_window.is_none() {
-                    return Err(());
-                }
-                let viewing_window = self.viewing_window.as_mut().unwrap();
+                let viewing_window = self.viewing_window_mut()?;
 
                 viewing_window.set_left(
                     viewing_window
@@ -379,39 +393,35 @@ impl State {
                 );
             }
             StateMessage::MoveUp(n) => {
-                if self.viewing_window.is_none() {
-                    return Err(());
-                }
-                let viewing_window = self.viewing_window.as_mut().unwrap();
+                let viewing_window = self.viewing_window_mut()?;
 
                 viewing_window.set_top(viewing_window.top().saturating_sub(n));
             }
             StateMessage::MoveDown(n) => {
-                if self.viewing_window.is_none() {
-                    return Err(());
-                }
-                let viewing_window = self.viewing_window.as_mut().unwrap();
+                let viewing_window = self.viewing_window_mut()?;
 
                 viewing_window.set_top(viewing_window.top().saturating_add(n));
             }
             StateMessage::GotoCoordinate(n) => {
-                if self.viewing_window.is_none() || self.current_frame_area.is_none() {
-                    return Err(());
-                }
-                let viewing_window = self.viewing_window.as_mut().unwrap();
+                let current_frame_area: Rect = self.current_frame_area()?.clone();
+                let viewing_window = self.viewing_window_mut()?;
 
-                viewing_window.set_middle(self.current_frame_area.as_ref().unwrap(), n);
+                viewing_window.set_middle(&current_frame_area, n);
             }
-            StateMessage::GotoContigCoordinate(contig, n) => match self.viewing_window {
-                Some(ref mut window) => {
-                    window.contig = contig;
-                    window.set_middle(self.current_frame_area.as_ref().unwrap(), n);
-                    window.set_top(0);
+            StateMessage::GotoContigCoordinate(contig, n) => {
+                let current_frame_area: Rect = self.current_frame_area()?.clone();
+
+                match self.window {
+                    Some(ref mut window) => {
+                        window.contig = contig;
+                        window.set_middle(&current_frame_area, n);
+                        window.set_top(0);
+                    }
+                    None => {
+                        self.window = Some(ViewingWindow::new_basewise_window(contig, n, 0));
+                    }
                 }
-                None => {
-                    self.viewing_window = Some(ViewingWindow::new_basewise_window(contig, n, 0));
-                }
-            },
+            }
 
             _ => {}
         }
@@ -423,27 +433,19 @@ impl State {
 
 /// Zoom handling
 impl State {
-    fn handle_zoom_out(&mut self, r: usize) -> Result<Vec<DataMessage>, ()> {
-        if self.viewing_window.is_none() || self.current_frame_area.is_none() {
-            return Err(());
-        }
-        let viewing_window = self.viewing_window.as_mut().unwrap();
+    fn handle_zoom_out(&mut self, r: usize) -> Result<Vec<DataMessage>, TGVError> {
+        let current_frame_area = self.current_frame_area()?.clone();
+        let viewing_window = self.viewing_window_mut()?;
 
-        viewing_window
-            .zoom_out(r, self.current_frame_area.as_ref().unwrap())
-            .unwrap();
+        viewing_window.zoom_out(r, &current_frame_area).unwrap();
         self.get_data_requirements()
     }
 
-    fn handle_zoom_in(&mut self, r: usize) -> Result<Vec<DataMessage>, ()> {
-        if self.viewing_window.is_none() || self.current_frame_area.is_none() {
-            return Err(());
-        }
-        let viewing_window = self.viewing_window.as_mut().unwrap();
+    fn handle_zoom_in(&mut self, r: usize) -> Result<Vec<DataMessage>, TGVError> {
+        let current_frame_area: Rect = self.current_frame_area()?.clone();
+        let viewing_window = self.viewing_window_mut()?;
 
-        viewing_window
-            .zoom_in(r, self.current_frame_area.as_ref().unwrap())
-            .unwrap();
+        viewing_window.zoom_in(r, &current_frame_area).unwrap();
         self.get_data_requirements()
     }
 }
@@ -502,7 +504,7 @@ impl State {
     async fn handle_feature_movement_message(
         &mut self,
         message: StateMessage,
-    ) -> Result<Vec<DataMessage>, ()> {
+    ) -> Result<Vec<DataMessage>, TGVError> {
         let mut state_messages = Vec::new();
 
         match message {
@@ -740,11 +742,13 @@ impl State {
     async fn handle_goto_feature_message(
         &mut self,
         message: StateMessage,
-    ) -> Result<Vec<DataMessage>, ()> {
+    ) -> Result<Vec<DataMessage>, TGVError> {
         let mut state_messages = Vec::new();
 
         if self.feature_query_service.is_none() {
-            return Err(());
+            return Err(TGVError::StateError(
+                "Feature query service not initialized".to_string(),
+            ));
         }
         let feature_query_service = self.feature_query_service.as_ref().unwrap();
 
