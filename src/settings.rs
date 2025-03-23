@@ -1,11 +1,7 @@
+use crate::error::TGVError;
 use crate::models::contig::Contig;
-use crate::models::{
-    message::StateMessage, reference::Reference, services::tracks::TrackService,
-    window::ViewingWindow,
-};
+use crate::models::{message::StateMessage, reference::Reference};
 use clap::Parser;
-use core::str::FromStr;
-use noodles_core::region::Region as NoodlesRegion;
 
 #[derive(Parser)]
 #[command(author, version, about, long_about = None)]
@@ -15,102 +11,119 @@ pub struct Cli {
     paths: Vec<String>,
 
     /// Region to view (Currently supports: "12:25398142", "TP53")
-    #[arg(short = 'r', long = "region", required = true)]
+    /// If not provided, TGV will find a default region (the first contig).
+    #[arg(short = 'r', long = "region", default_value = "")]
     region: String,
 
     /// Reference genome (Currently supports: "hg19", "hg38")
-    #[arg(short = 'g', long = "reference", required = true)]
+    #[arg(short = 'g', long = "reference", default_value = Reference::HG38)]
     reference: String,
+
+    /// Flag on whether to show the reference genome
+    #[arg(short, long)]
+    no_reference: bool,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Eq, PartialEq)]
 pub struct Settings {
     pub bam_path: Option<String>,
-    pub vcf_path: Option<String>,
-    pub bed_path: Option<String>,
+    // pub vcf_path: Option<String>,
+    // pub bed_path: Option<String>,
     pub reference: Option<Reference>,
 
     pub initial_state_messages: Vec<StateMessage>,
 }
 
 impl Settings {
-    const SUPPORTED_REFERENCES: [&str; 2] = ["hg19", "hg38"];
-
-    pub fn new(cli: Cli) -> Result<Self, String> {
-        if !Self::SUPPORTED_REFERENCES.contains(&cli.reference.as_str()) {
-            return Err(format!("Unsupported reference: {}", cli.reference));
-        }
-
-        let mut initial_state_messages = Vec::new();
-
+    pub fn new(cli: Cli) -> Result<Self, TGVError> {
         let mut bam_path = None;
-        let mut vcf_path = None;
-        let mut bed_path = None;
+        // let mut vcf_path = None;
+        // let mut bed_path = None;
         for path in cli.paths {
             if path.ends_with(".bam") {
                 bam_path = Some(path.clone());
-            }
-            if path.ends_with(".vcf") {
-                vcf_path = Some(path.clone());
-            }
-            if path.ends_with(".bed") {
-                bed_path = Some(path.clone());
+            } else {
+                return Err(TGVError::CliError(format!(
+                    "Unsupported file type: {}",
+                    path
+                )));
             }
         }
 
-        // Referennce
-        let reference = match Reference::from_str(&cli.reference) {
-            Ok(reference) => Some(reference),
-            Err(e) => {
-                initial_state_messages.push(StateMessage::NormalModeRegisterError(e));
-                None
-            }
+        // Reference
+        let reference = if cli.no_reference {
+            None
+        } else {
+            Some(Reference::from_str(&cli.reference)?)
         };
 
-        // Initial region
-        match Self::translate_initial_state_messages(&cli.region) {
-            Ok(state_message) => initial_state_messages.push(state_message),
-            Err(e) => initial_state_messages.push(StateMessage::CommandModeRegisterError(e)),
+        // Initial messages
+        let initial_state_messages = Self::translate_initial_state_messages(&cli.region)?;
+
+        // Additional validations:
+        // 1. If no reference is provided, the initial state messages cannot contain GoToGene
+        if reference.is_none() {
+            for m in initial_state_messages.iter() {
+                match m {
+                    StateMessage::GoToGene(gene_name) => {
+                        return Err(TGVError::CliError(format!(
+                            "The initial region cannot not be a gene name {} when no reference is provided. ",
+                            gene_name
+                        )));
+                    }
+                    _ => {}
+                }
+            }
         }
 
         Ok(Self {
             bam_path,
-            vcf_path,
-            bed_path,
+            // vcf_path,
+            // bed_path,
             reference,
             initial_state_messages,
         })
     }
 
-    fn translate_initial_state_messages(region_string: &String) -> Result<StateMessage, String> {
+    fn translate_initial_state_messages(
+        region_string: &String,
+    ) -> Result<Vec<StateMessage>, TGVError> {
         let region_string = region_string.trim();
 
         // Interpretation 1: empty input (go to a default location)
         if region_string.is_empty() {
-            return Ok(StateMessage::GoToDefault);
+            return Ok(vec![StateMessage::GoToDefault]);
         }
 
-        /// Check format
+        // Check format
         let split = region_string.split(":").collect::<Vec<&str>>();
         if split.len() > 2 {
-            return Err(format!("Cannot interpret the region: {}", region_string));
+            return Err(TGVError::CliError(format!(
+                "Cannot interpret the region: {}",
+                region_string
+            )));
         }
 
         // Interpretation 2: genome:position
         if split.len() == 2 {
             match split[1].parse::<usize>() {
                 Ok(n) => {
-                    return Ok(StateMessage::GotoContigCoordinate(
+                    return Ok(vec![StateMessage::GotoContigCoordinate(
                         Contig::chrom(&split[0].to_string()),
                         n,
-                    ))
+                    )]);
                 }
-                Err(_) => return Err(format!("Invalid genome region: {}", region_string)),
+                Err(_) => {
+                    return Err(TGVError::CliError(format!(
+                        "Invalid genome region: {}",
+                        region_string
+                    )))
+                }
             }
         }
 
         // Interpretation 3: gene name
-        return Ok(StateMessage::GoToGene(region_string.to_string()));
+        Ok(vec![StateMessage::GoToGene(region_string.to_string())])
     }
 }
 
@@ -120,98 +133,57 @@ mod tests {
     use crate::models::contig::Contig;
     use crate::models::message::StateMessage;
     use crate::models::reference::Reference;
+    use rstest::rstest;
+    use shlex;
 
-    #[test]
-    fn test_cli_parsing_with_valid_inputs() {
-        let cli = Cli {
-            paths: vec![
-                "test.bam".to_string(),
-                "test.vcf".to_string(),
-                "test.bed".to_string(),
-            ],
-            region: "chr1:12345".to_string(),
-            reference: "hg38".to_string(),
-        };
+    #[rstest]
+    #[case("tgv", Ok(Settings {
+        bam_path: None,
+        reference: Some(Reference::Hg38),
+        initial_state_messages: vec![StateMessage::GoToDefault],
+    }))] // empty input: no bam file and no reference: browse hg38
+    #[case("tgv input.bam", Ok(Settings {
+        bam_path: Some("input.bam".to_string()),
+        reference: Some(Reference::Hg38),
+        initial_state_messages: vec![StateMessage::GoToDefault],
+    }))]
+    #[case("tgv wrong.extension", Err(TGVError::CliError("".to_string())))]
+    #[case("tgv input.bam -r chr1:12345", Ok(Settings {
+        bam_path: Some("input.bam".to_string()),
+        reference: Some(Reference::Hg38),
+        initial_state_messages: vec![StateMessage::GotoContigCoordinate(Contig::chrom(&"chr1".to_string()), 12345)],
+    }))]
+    #[case("tgv input.bam -r chr1:invalid", Err(TGVError::CliError("".to_string())))]
+    #[case("tgv input.bam -r chr1:12:12345", Err(TGVError::CliError("".to_string())))]
+    #[case("tgv input.bam -r TP53", Ok(Settings {
+        bam_path: Some("input.bam".to_string()),
+        reference: Some(Reference::Hg38),
+        initial_state_messages: vec![StateMessage::GoToGene("TP53".to_string())],
+    }))]
+    #[case("tgv input.bam -r TP53 -g hg19", Ok(Settings {
+        bam_path: Some("input.bam".to_string()),
+        reference: Some(Reference::Hg19),
+        initial_state_messages: vec![StateMessage::GoToGene("TP53".to_string())],
+    }))]
+    #[case("tgv input.bam -r TP53 -g hg100", Err(TGVError::CliError("".to_string())))]
+    #[case("tgv input.bam -r 1:12345 --no-reference", Ok(Settings {
+        bam_path: Some("input.bam".to_string()),
+        reference: None,
+        initial_state_messages: vec![StateMessage::GotoContigCoordinate(Contig::chrom(&"1".to_string()), 12345)],
+    }))]
+    #[case("tgv input.bam -r TP53 -g hg19 --no-reference", Err(TGVError::CliError("".to_string())))]
 
-        let settings = Settings::new(cli).unwrap();
+    fn test_cli_parsing(
+        #[case] command_line: &str,
+        #[case] expected_settings: Result<Settings, TGVError>,
+    ) {
+        let cli = Cli::parse_from(shlex::split(command_line).unwrap());
+        println!("{:?}", cli.paths);
 
-        assert_eq!(settings.bam_path, Some("test.bam".to_string()));
-        assert_eq!(settings.vcf_path, Some("test.vcf".to_string()));
-        assert_eq!(settings.bed_path, Some("test.bed".to_string()));
-        assert_eq!(
-            settings.reference,
-            Some(Reference::from_str("hg38").unwrap())
-        );
-
-        // Check that the initial state message is correct
-        assert!(matches!(
-            settings.initial_state_messages[0],
-            StateMessage::GotoContigCoordinate(contig, pos)
-            if contig == Contig::chrom(&"chr1".to_string()) && pos == 12345
-        ));
-    }
-
-    #[test]
-    fn test_cli_with_invalid_reference() {
-        let cli = Cli {
-            paths: vec!["test.bam".to_string()],
-            region: "chr1:12345".to_string(),
-            reference: "invalid_ref".to_string(),
-        };
-
-        let result = Settings::new(cli);
-        assert!(result.is_err());
-        assert_eq!(result.unwrap_err(), "Unsupported reference: invalid_ref");
-    }
-
-    #[test]
-    fn test_translate_initial_state_messages_empty() {
-        let result = Settings::translate_initial_state_messages(&"".to_string());
-        assert!(matches!(result.unwrap(), StateMessage::GoToDefault));
-    }
-
-    #[test]
-    fn test_translate_initial_state_messages_contig_coordinate() {
-        let result = Settings::translate_initial_state_messages(&"chr1:12345".to_string());
-        assert!(matches!(
-            result.unwrap(),
-            StateMessage::GotoContigCoordinate(contig, pos)
-            if contig == Contig::chrom(&"chr1".to_string()) && pos == 12345
-        ));
-    }
-
-    #[test]
-    fn test_translate_initial_state_messages_invalid_format() {
-        let result = Settings::translate_initial_state_messages(&"chr1:pos:extra".to_string());
-        assert!(result.is_err());
-    }
-
-    #[test]
-    fn test_translate_initial_state_messages_invalid_position() {
-        let result = Settings::translate_initial_state_messages(&"chr1:not_a_number".to_string());
-        assert!(result.is_err());
-    }
-
-    #[test]
-    fn test_translate_initial_state_messages_gene_name() {
-        let result = Settings::translate_initial_state_messages(&"TP53".to_string());
-        assert!(matches!(
-            result.unwrap(),
-            StateMessage::GoToGene(gene) if gene == "TP53"
-        ));
-    }
-
-    #[test]
-    fn test_file_path_parsing() {
-        let cli = Cli {
-            paths: vec!["data.txt".to_string(), "sample.bam".to_string()],
-            region: "chr1:12345".to_string(),
-            reference: "hg19".to_string(),
-        };
-
-        let settings = Settings::new(cli).unwrap();
-        assert_eq!(settings.bam_path, Some("sample.bam".to_string()));
-        assert_eq!(settings.vcf_path, None);
-        assert_eq!(settings.bed_path, None);
+        match (Settings::new(cli), expected_settings) {
+            (Ok(settings), Ok(expected)) => assert_eq!(settings, expected),
+            (Err(e), Err(expected)) => assert!(e.is_same_type(&expected)),
+            _ => assert!(false),
+        }
     }
 }
