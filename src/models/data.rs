@@ -65,6 +65,16 @@ impl Data {
         })
     }
 
+    pub async fn close(&mut self) -> Result<(), TGVError> {
+        if self.track_service.is_some() {
+            self.track_service.as_ref().unwrap().close().await?;
+        }
+        if self.sequence_service.is_some() {
+            self.sequence_service.as_ref().unwrap().close().await?;
+        }
+        Ok(())
+    }
+
     pub async fn handle_data_messages(
         &mut self,
         data_messages: Vec<DataMessage>,

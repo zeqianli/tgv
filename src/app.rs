@@ -109,6 +109,13 @@ impl App {
         }
         Ok(())
     }
+
+    /// close connections
+    pub async fn close(&mut self) -> Result<(), TGVError> {
+        self.data.close().await?;
+        self.state.close().await?;
+        Ok(())
+    }
 }
 
 impl Widget for &App {
@@ -132,13 +139,15 @@ impl Widget for &App {
             ])
             .areas(area);
 
-        match &self.data.alignment {
-            Some(alignment) => {
-                render_coverage(&coverage_area, buf, &viewing_window, alignment).unwrap();
+        if self.state.settings.bam_path.is_some() {
+            match &self.data.alignment {
+                Some(alignment) => {
+                    render_coverage(&coverage_area, buf, &viewing_window, alignment).unwrap();
 
-                render_alignment(&alignment_area, buf, &viewing_window, alignment);
+                    render_alignment(&alignment_area, buf, &viewing_window, alignment);
+                }
+                None => {} // TODO: handle error
             }
-            None => {} // TODO: handle error
         }
 
         if self.state.settings.reference.is_some() {

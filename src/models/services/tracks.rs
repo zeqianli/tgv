@@ -1,3 +1,4 @@
+use crate::error::TGVError;
 use crate::models::{
     contig::Contig,
     reference::Reference,
@@ -51,6 +52,11 @@ impl TrackService {
             Ok(track) => Ok(track),
             Err(_) => Err(sqlx::Error::RowNotFound), // TODO: proper error type
         }
+    }
+
+    pub async fn close(&self) -> Result<(), TGVError> {
+        self.pool.close().await;
+        Ok(())
     }
 
     pub async fn query_genes_between(

@@ -17,6 +17,8 @@ async fn main() -> Result<(), TGVError> {
 
     let mut terminal = ratatui::init();
 
+    // TODO: initialize UCSC connections here to ensure that they are properly closed in case of errors.
+
     let mut app = match App::new(settings).await {
         Ok(app) => app,
         Err(e) => {
@@ -27,6 +29,7 @@ async fn main() -> Result<(), TGVError> {
     let app_result = app.run(&mut terminal).await;
 
     ratatui::restore();
+    app.close().await?;
     app_result
 }
 
