@@ -60,7 +60,8 @@ impl Settings {
         };
 
         // Initial messages
-        let initial_state_messages = Self::translate_initial_state_messages(&cli.region)?;
+        let initial_state_messages =
+            Self::translate_initial_state_messages(&cli.region, reference.as_ref())?;
 
         // Additional validations:
         // 1. If no reference is provided, the initial state messages cannot contain GoToGene
@@ -110,6 +111,7 @@ impl Settings {
 
     fn translate_initial_state_messages(
         region_string: &String,
+        reference: Option<&Reference>,
     ) -> Result<Vec<StateMessage>, TGVError> {
         let region_string = region_string.trim();
 
@@ -132,7 +134,7 @@ impl Settings {
             match split[1].parse::<usize>() {
                 Ok(n) => {
                     return Ok(vec![StateMessage::GotoContigCoordinate(
-                        Contig::chrom(&split[0].to_string()),
+                        split[0].to_string(),
                         n,
                     )]);
                 }
@@ -174,7 +176,7 @@ mod tests {
     #[case("tgv input.bam -r chr1:12345", Ok(Settings {
         bam_path: Some("input.bam".to_string()),
         reference: Some(Reference::Hg38),
-        initial_state_messages: vec![StateMessage::GotoContigCoordinate(Contig::chrom(&"chr1".to_string()), 12345)],
+        initial_state_messages: vec![StateMessage::GotoContigCoordinate("chr1".to_string(), 12345)],
     }))]
     #[case("tgv input.bam -r chr1:invalid", Err(TGVError::CliError("".to_string())))]
     #[case("tgv input.bam -r chr1:12:12345", Err(TGVError::CliError("".to_string())))]
@@ -192,7 +194,7 @@ mod tests {
     #[case("tgv input.bam -r 1:12345 --no-reference", Ok(Settings {
         bam_path: Some("input.bam".to_string()),
         reference: None,
-        initial_state_messages: vec![StateMessage::GotoContigCoordinate(Contig::chrom(&"1".to_string()), 12345)],
+        initial_state_messages: vec![StateMessage::GotoContigCoordinate("1".to_string(), 12345)],
     }))]
     #[case("tgv input.bam -r TP53 -g hg19 --no-reference", Err(TGVError::CliError("".to_string())))]
     #[case("tgv --no-reference", Err(TGVError::CliError("".to_string())))]
