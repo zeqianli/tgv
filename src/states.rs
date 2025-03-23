@@ -79,7 +79,7 @@ impl ContigCollection {
             }
         }
 
-        Ok(Self::new(contigs)?)
+        Self::new(contigs)
     }
 
     pub fn contains(&self, contig: &Contig) -> bool {
@@ -426,12 +426,10 @@ impl State {
         let viewing_window = self.viewing_window()?;
         let viewing_region = self.viewing_region()?;
 
-        if self.settings.bam_path.is_some() {
-            if viewing_window.zoom() <= Self::MAX_ZOOM_TO_DISPLAY_ALIGNMENTS {
-                data_messages.push(DataMessage::RequiresCompleteAlignments(
-                    viewing_region.clone(),
-                ));
-            }
+        if self.settings.bam_path.is_some() && viewing_window.zoom() <= Self::MAX_ZOOM_TO_DISPLAY_ALIGNMENTS {
+            data_messages.push(DataMessage::RequiresCompleteAlignments(
+                viewing_region.clone(),
+            ));
         }
 
         if self.settings.reference.is_some() {
@@ -491,7 +489,7 @@ impl State {
             }
 
             StateMessage::GotoCoordinate(n) => {
-                let current_frame_area: Rect = self.current_frame_area()?.clone();
+                let current_frame_area: Rect = *self.current_frame_area()?;
                 let viewing_window = self.viewing_window_mut()?;
 
                 viewing_window.set_middle(&current_frame_area, n);
@@ -512,7 +510,7 @@ impl State {
                     }
                 }
 
-                let current_frame_area: Rect = self.current_frame_area()?.clone();
+                let current_frame_area: Rect = *self.current_frame_area()?;
 
                 match self.window {
                     Some(ref mut window) => {
@@ -537,7 +535,7 @@ impl State {
 /// Zoom handling
 impl State {
     fn handle_zoom_out(&mut self, r: usize) -> Result<Vec<DataMessage>, TGVError> {
-        let current_frame_area = self.current_frame_area()?.clone();
+        let current_frame_area = *self.current_frame_area()?;
         let viewing_window = self.viewing_window_mut()?;
 
         viewing_window.zoom_out(r, &current_frame_area).unwrap();
@@ -545,7 +543,7 @@ impl State {
     }
 
     fn handle_zoom_in(&mut self, r: usize) -> Result<Vec<DataMessage>, TGVError> {
-        let current_frame_area: Rect = self.current_frame_area()?.clone();
+        let current_frame_area: Rect = *self.current_frame_area()?;
         let viewing_window = self.viewing_window_mut()?;
 
         viewing_window.zoom_in(r, &current_frame_area).unwrap();
@@ -904,9 +902,9 @@ impl State {
                 .await
             }
             (None, None) => {
-                return Err(TGVError::StateError(
+                Err(TGVError::StateError(
                     "Neither a reference nor a BAM file is provided. Cannot identify the default region.".to_string(),
-                ));
+                ))
             }
         }
     }

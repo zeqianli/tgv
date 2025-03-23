@@ -1,5 +1,4 @@
 use crate::error::TGVError;
-use crate::models::contig::Contig;
 use crate::models::{message::StateMessage, reference::Reference};
 use clap::Parser;
 
@@ -67,14 +66,11 @@ impl Settings {
         // 1. If no reference is provided, the initial state messages cannot contain GoToGene
         if reference.is_none() {
             for m in initial_state_messages.iter() {
-                match m {
-                    StateMessage::GoToGene(gene_name) => {
-                        return Err(TGVError::CliError(format!(
-                            "The initial region cannot not be a gene name {} when no reference is provided. ",
-                            gene_name
-                        )));
-                    }
-                    _ => {}
+                if let StateMessage::GoToGene(gene_name) = m {
+                    return Err(TGVError::CliError(format!(
+                        "The initial region cannot not be a gene name {} when no reference is provided. ",
+                        gene_name
+                    )));
                 }
             }
         }
@@ -82,13 +78,10 @@ impl Settings {
         // 2. If no bam file is provided, the initial state message cannot be GoToContigCoordinate
         if bam_path.is_none() {
             for m in initial_state_messages.iter() {
-                match m {
-                    StateMessage::GotoContigCoordinate(_, _) => {
-                        return Err(TGVError::CliError(
-                            "Bam file is required to go to a contig coordinate".to_string(),
-                        ));
-                    }
-                    _ => {}
+                if let StateMessage::GotoContigCoordinate(_, _) = m {
+                    return Err(TGVError::CliError(
+                        "Bam file is required to go to a contig coordinate".to_string(),
+                    ));
                 }
             }
         }
@@ -155,11 +148,11 @@ impl Settings {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::models::contig::Contig;
+    
     use crate::models::message::StateMessage;
     use crate::models::reference::Reference;
     use rstest::rstest;
-    use shlex;
+    
 
     #[rstest]
     #[case("tgv", Ok(Settings {

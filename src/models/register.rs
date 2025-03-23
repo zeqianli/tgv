@@ -1,4 +1,4 @@
-use crate::models::{contig::Contig, message::StateMessage, mode::InputMode};
+use crate::models::{message::StateMessage, mode::InputMode};
 use crossterm::event::KeyCode;
 
 #[derive(Clone)]

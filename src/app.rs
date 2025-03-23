@@ -14,7 +14,7 @@ use ratatui::{
 use crate::error::TGVError;
 use crate::models::{
     data::Data,
-    message::{DataMessage, StateMessage},
+    message::StateMessage,
     mode::InputMode,
 };
 use crate::rendering::{
@@ -142,9 +142,9 @@ impl Widget for &App {
         if self.state.settings.bam_path.is_some() {
             match &self.data.alignment {
                 Some(alignment) => {
-                    render_coverage(&coverage_area, buf, &viewing_window, alignment).unwrap();
+                    render_coverage(&coverage_area, buf, viewing_window, alignment).unwrap();
 
-                    render_alignment(&alignment_area, buf, &viewing_window, alignment);
+                    render_alignment(&alignment_area, buf, viewing_window, alignment);
                 }
                 None => {} // TODO: handle error
             }
@@ -169,7 +169,7 @@ impl Widget for &App {
         }
 
         if self.state.input_mode == InputMode::Command {
-            render_console(&console_area, buf, &self.state.command_mode_register())
+            render_console(&console_area, buf, self.state.command_mode_register())
         }
 
         render_error(&error_area, buf, &self.state.errors);
