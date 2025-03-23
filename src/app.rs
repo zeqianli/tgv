@@ -18,7 +18,8 @@ use crate::models::{
     mode::InputMode,
 };
 use crate::rendering::{
-    render_alignment, render_console, render_coverage, render_help, render_sequence, render_track,
+    render_alignment, render_console, render_coverage, render_error, render_help, render_sequence,
+    render_track,
 };
 use crate::settings::Settings;
 use crate::states::State;
@@ -120,14 +121,14 @@ impl Widget for &App {
         let viewing_window = self.state.viewing_window().unwrap();
         let viewing_region = self.state.viewing_region().unwrap();
 
-        let [coverage_area, alignment_area, sequence_area, track_area, console_area] =
+        let [coverage_area, alignment_area, sequence_area, track_area, console_area, error_area] =
             Layout::vertical([
                 Length(6), // coverage
                 Fill(1),   // alignment
                 Length(1), // sequence
                 Length(2), // track
                 Length(2), // console
-                           //Length(1), // debug
+                Length(2), // error
             ])
             .areas(area);
 
@@ -140,25 +141,29 @@ impl Widget for &App {
             None => {} // TODO: handle error
         }
 
-        if viewing_window.is_basewise() {
-            match &self.data.sequence {
-                Some(sequence) => {
-                    render_sequence(&sequence_area, buf, &viewing_region, sequence).unwrap();
+        if self.state.settings.reference.is_some() {
+            if viewing_window.is_basewise() {
+                match &self.data.sequence {
+                    Some(sequence) => {
+                        render_sequence(&sequence_area, buf, &viewing_region, sequence).unwrap();
+                    }
+                    None => {} // TODO: handle error
+                }
+            }
+
+            match &self.data.track {
+                Some(track) => {
+                    render_track(&track_area, buf, viewing_window, track);
                 }
                 None => {} // TODO: handle error
             }
         }
 
-        match &self.data.track {
-            Some(track) => {
-                render_track(&track_area, buf, viewing_window, track);
-            }
-            None => {} // TODO: handle error
-        }
-
         if self.state.input_mode == InputMode::Command {
             render_console(&console_area, buf, &self.state.command_mode_register())
         }
+
+        render_error(&error_area, buf, &self.state.errors);
 
         // TODO: a proper debug widget
     }
