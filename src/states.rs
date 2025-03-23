@@ -165,6 +165,13 @@ impl State {
     pub fn add_error_message(&mut self, error: TGVError) {
         self.errors.push(format!("{}", error));
     }
+
+    pub async fn close(&mut self) -> Result<(), TGVError> {
+        if self.feature_query_service.is_some() {
+            self.feature_query_service.as_ref().unwrap().close().await?;
+        }
+        Ok(())
+    }
 }
 
 /// Load contigs from a BAM file header
@@ -348,6 +355,11 @@ impl State {
                 data_messages.extend(self.handle_goto_feature_message(message).await?);
             },
 
+            // Find the default region
+            StateMessage::GoToDefault => {
+                data_messages.extend(self.handle_goto_default_message().await?);
+            },
+
             // Error messages
             StateMessage::Error(e) => self.add_error_message(e),
 
@@ -367,10 +379,12 @@ impl State {
         let viewing_window = self.viewing_window()?;
         let viewing_region = self.viewing_region()?;
 
-        if viewing_window.zoom() <= Self::MAX_ZOOM_TO_DISPLAY_ALIGNMENTS {
-            data_messages.push(DataMessage::RequiresCompleteAlignments(
-                viewing_region.clone(),
-            ));
+        if self.settings.bam_path.is_some() {
+            if viewing_window.zoom() <= Self::MAX_ZOOM_TO_DISPLAY_ALIGNMENTS {
+                data_messages.push(DataMessage::RequiresCompleteAlignments(
+                    viewing_region.clone(),
+                ));
+            }
         }
 
         if self.settings.reference.is_some() {
@@ -802,5 +816,31 @@ impl State {
         }
 
         Ok(data_messages)
+    }
+}
+
+/// Looking for the default region
+impl State {
+    const DEFAULT_GENE: &str = "KRAS";
+    async fn handle_goto_default_message(&mut self) -> Result<Vec<DataMessage>, TGVError> {
+        match (
+            self.settings.reference.as_ref(),
+            self.settings.bam_path.as_ref(),
+        ) {
+            (Some(_), Some(_)) | (None, Some(_)) => self.handle_movement_message(
+                StateMessage::GotoContigCoordinate(self.contigs.as_ref().unwrap()[0].clone(), 1),
+            ),
+            (Some(_), None) => {
+                self.handle_goto_feature_message(StateMessage::GoToGene(
+                    Self::DEFAULT_GENE.to_string(),
+                ))
+                .await
+            }
+            (None, None) => {
+                return Err(TGVError::StateError(
+                    "Neither a reference nor a BAM file is provided. Cannot identify the default region.".to_string(),
+                ));
+            }
+        }
     }
 }

@@ -48,6 +48,7 @@ pub enum StateMessage {
 }
 
 impl StateMessage {
+    /// Whether the message requires a reference genome.
     pub fn requires_reference(&self) -> bool {
         match self {
             StateMessage::GotoNextExonsStart(_)

@@ -76,6 +76,27 @@ impl Settings {
             }
         }
 
+        // 2. If no bam file is provided, the initial state message cannot be GoToContigCoordinate
+        if bam_path.is_none() {
+            for m in initial_state_messages.iter() {
+                match m {
+                    StateMessage::GotoContigCoordinate(_, _) => {
+                        return Err(TGVError::CliError(
+                            "Bam file is required to go to a contig coordinate".to_string(),
+                        ));
+                    }
+                    _ => {}
+                }
+            }
+        }
+
+        // 3. bam file and reference cannot both be none
+        if bam_path.is_none() && reference.is_none() {
+            return Err(TGVError::CliError(
+                "Bam file and reference cannot both be none".to_string(),
+            ));
+        }
+
         Ok(Self {
             bam_path,
             // vcf_path,
@@ -172,7 +193,8 @@ mod tests {
         initial_state_messages: vec![StateMessage::GotoContigCoordinate(Contig::chrom(&"1".to_string()), 12345)],
     }))]
     #[case("tgv input.bam -r TP53 -g hg19 --no-reference", Err(TGVError::CliError("".to_string())))]
-
+    #[case("tgv --no-reference", Err(TGVError::CliError("".to_string())))]
+    #[case("tgv -r 1:12345", Err(TGVError::CliError("".to_string())))]
     fn test_cli_parsing(
         #[case] command_line: &str,
         #[case] expected_settings: Result<Settings, TGVError>,

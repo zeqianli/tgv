@@ -1,3 +1,4 @@
+use crate::error::TGVError;
 use crate::models::{contig::Contig, reference::Reference, region::Region, sequence::Sequence};
 use reqwest::Client;
 use serde::Deserialize;
@@ -18,6 +19,11 @@ impl SequenceService {
             client: Client::new(),
             reference,
         })
+    }
+
+    pub async fn close(&self) -> Result<(), TGVError> {
+        // Reqwest client does not need to be closed.
+        Ok(())
     }
 
     pub async fn query_sequence(&self, region: &Region) -> reqwest::Result<Sequence> {
