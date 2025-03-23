@@ -1,3 +1,4 @@
+use crate::error::TGVError;
 use crate::models::{
     alignment::Alignment,
     message::DataMessage,
@@ -7,62 +8,116 @@ use crate::models::{
     track::Track,
 };
 use crate::settings::Settings;
-use std::io;
-
+use std::path::Path;
 /// Holds all data in the session.
 pub struct Data {
     /// Alignment segments.
     pub alignment: Option<Alignment>,
-    pub bam_path: String,
+    pub bam_path: Option<String>,
 
     /// Tracks.
     pub track: Option<Track>,
-    pub track_service: TrackService,
+    pub track_service: Option<TrackService>,
 
     /// Sequences.
     pub sequence: Option<Sequence>,
-    pub sequence_service: SequenceService,
+    pub sequence_service: Option<SequenceService>,
     // TODO: in the first implementation, refresh all data when the viewing window is near the boundary.
 }
 
 impl Data {
-    pub async fn new(settings: &Settings) -> Self {
-        let bam_path = settings.bam_path.clone().unwrap();
-        let sequence_service = SequenceService::new(settings.reference.clone()).unwrap();
+    pub async fn new(settings: &Settings) -> Result<Self, TGVError> {
+        let bam_path = match settings.bam_path.clone() {
+            Some(bam_path) => {
+                if !Path::new(&bam_path).exists() {
+                    return Err(TGVError::IOError(format!(
+                        "BAM file {} not found",
+                        bam_path
+                    )));
+                }
+                if !Path::new(&format!("{}.bai", bam_path)).exists() {
+                    return Err(TGVError::IOError(format!(
+                        "BAM index file {} not found. Only indexed BAM files are supported.",
+                        bam_path
+                    )));
+                }
+                Some(bam_path)
+            }
+            None => None,
+        };
 
-        Self {
+        let (track_service, sequence_service) = match settings.reference.as_ref() {
+            Some(reference) => (
+                Some(TrackService::new(reference.clone()).await.unwrap()),
+                Some(SequenceService::new(reference.clone()).unwrap()),
+            ),
+            None => (None, None),
+        };
+
+        Ok(Self {
             alignment: None,
             track: None,
             sequence: None,
 
             bam_path,
-            track_service: TrackService::new(settings.reference.clone()).await.unwrap(),
+            track_service,
             sequence_service,
+        })
+    }
+
+    pub async fn close(&mut self) -> Result<(), TGVError> {
+        if self.track_service.is_some() {
+            self.track_service.as_ref().unwrap().close().await?;
         }
+        if self.sequence_service.is_some() {
+            self.sequence_service.as_ref().unwrap().close().await?;
+        }
+        Ok(())
+    }
+
+    pub async fn handle_data_messages(
+        &mut self,
+        data_messages: Vec<DataMessage>,
+    ) -> Result<bool, TGVError> {
+        let mut loaded_data = false;
+        for data_message in data_messages {
+            loaded_data = self.handle_data_message(data_message).await?;
+        }
+        Ok(loaded_data)
     }
 
     // TODO: async
-    pub async fn has_complete_data_or_load(
+    pub async fn handle_data_message(
         &mut self,
         data_message: DataMessage,
-    ) -> io::Result<bool> {
+    ) -> Result<bool, TGVError> {
         let mut loaded_data = false;
 
         match data_message {
             DataMessage::RequiresCompleteAlignments(region) => {
+                if self.bam_path.is_none() {
+                    return Err(TGVError::IOError("BAM file not found".to_string()));
+                }
+
+                let bam_path = self.bam_path.as_ref().unwrap();
+
                 if !self.has_complete_alignment(&region) {
                     let cache_region = Self::cache_region(region); // TODO: calculated three times. Not efficient.
-                    self.alignment = Some(
-                        Alignment::from_bam_path(self.bam_path.clone(), cache_region).unwrap(),
-                    );
+                    self.alignment =
+                        Some(Alignment::from_bam_path(bam_path, &cache_region).unwrap());
                     loaded_data = true;
                 }
             }
             DataMessage::RequiresCompleteFeatures(region) => {
+                if self.track_service.is_none() {
+                    return Err(TGVError::IOError("Track service not found".to_string()));
+                }
+                let track_service = self.track_service.as_ref().unwrap();
+
                 if !self.has_complete_track(&region) {
                     let cache_region = Self::cache_region(region);
                     self.track = Some(
-                        self.track_service
+                        track_service
                             .query_feature_track(&cache_region)
                             .await
                             .unwrap(),
@@ -71,16 +126,20 @@ impl Data {
                 }
             }
             DataMessage::RequiresCompleteSequences(region) => {
+                if self.sequence_service.is_none() {
+                    return Err(TGVError::IOError("Sequence service not found".to_string()));
+                }
+                let sequence_service = self.sequence_service.as_ref().unwrap();
+
                 if !self.has_complete_sequence(&region) {
                     let cache_region = Self::cache_region(region);
-                    match self.sequence_service.query_sequence(&cache_region).await {
+                    match sequence_service.query_sequence(&cache_region).await {
                         Ok(sequence) => {
                             self.sequence = Some(sequence);
                             loaded_data = true;
                         }
-                        Err(e) => {
-                            eprintln!("Failed to query sequence: {}", e);
-                            return Err(io::Error::new(io::ErrorKind::Other, e.to_string()));
+                        Err(_) => {
+                            return Err(TGVError::IOError("Sequence service error".to_string()));
                         }
                     }
                 }
@@ -90,19 +149,16 @@ impl Data {
         Ok(loaded_data)
     }
 
-    pub async fn load_all_data(&mut self, region: Region) -> io::Result<bool> {
+    pub async fn load_all_data(&mut self, region: Region) -> Result<bool, TGVError> {
         let loaded_alignment = self
-            .has_complete_data_or_load(DataMessage::RequiresCompleteAlignments(region.clone()))
-            .await
-            .unwrap();
+            .handle_data_message(DataMessage::RequiresCompleteAlignments(region.clone()))
+            .await?;
         let loaded_track = self
-            .has_complete_data_or_load(DataMessage::RequiresCompleteFeatures(region.clone()))
-            .await
-            .unwrap();
+            .handle_data_message(DataMessage::RequiresCompleteFeatures(region.clone()))
+            .await?;
         let loaded_sequence = self
-            .has_complete_data_or_load(DataMessage::RequiresCompleteSequences(region.clone()))
-            .await
-            .unwrap();
+            .handle_data_message(DataMessage::RequiresCompleteSequences(region.clone()))
+            .await?;
         Ok(loaded_alignment || loaded_track || loaded_sequence)
     }
 

@@ -3,6 +3,7 @@ pub mod contig;
 pub mod data;
 pub mod message;
 pub mod mode;
+pub mod reference;
 pub mod region;
 pub mod register;
 pub mod sequence;

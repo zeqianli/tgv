@@ -1,4 +1,4 @@
-use crate::models::{contig::Contig, message::StateMessage, mode::InputMode};
+use crate::models::{message::StateMessage, mode::InputMode};
 use crossterm::event::KeyCode;
 
 #[derive(Clone)]
@@ -30,7 +30,7 @@ impl NormalModeRegister {
 
     const ZOOM_STEP: usize = 2;
 
-    const VALID_MOVEMENT_SUFFIXES: [&str; 16] = [
+    const VALID_MOVEMENT_SUFFIXES: [&str; 18] = [
         "ge", // previous exon end
         "gE", // previous exon start,g1
         "w",  // next exon start
@@ -47,6 +47,8 @@ impl NormalModeRegister {
         "p",  // large right
         "z",  // zoom out
         "o",  // zoom in
+        "{",  // previous contig
+        "}",  // next contig
     ];
 
     /// Translate key input to a state message. This does not mute states. States are muted downstream by handling state messages.
@@ -187,10 +189,18 @@ impl NormalModeRegister {
                         StateMessage::ZoomOut(Self::ZOOM_STEP * n_movements),
                         StateMessage::ClearNormalModeRegisters,
                     ]),
+                    "{" => Ok(vec![
+                        StateMessage::GotoPreviousContig(n_movements),
+                        StateMessage::ClearNormalModeRegisters,
+                    ]),
+                    "}" => Ok(vec![
+                        StateMessage::GotoNextContig(n_movements),
+                        StateMessage::ClearNormalModeRegisters,
+                    ]),
                     _ => Err(format!("Invalid normal mode input: {}", string)),
                 }
             }
-            _ => Err("Invalid input".to_string()),
+            _ => Err(format!("Invalid input: {}{}", self.input, c)),
         }
     }
 }
@@ -285,7 +295,7 @@ impl CommandModeRegister {
             },
             2 => match split[1].parse::<usize>() {
                 Ok(n) => Ok(vec![StateMessage::GotoContigCoordinate(
-                    Contig::chrom(&split[0].to_string()),
+                    split[0].to_string(),
                     n,
                 )]),
                 Err(_) => Err(format!("Invalid command mode input: {}", self.input)),
@@ -304,8 +314,8 @@ mod tests {
     #[rstest]
     #[case("q", Ok(vec![StateMessage::Quit]))]
     #[case("1234", Ok(vec![StateMessage::GotoCoordinate(1234)]))]
-    #[case("chr1:1000", Ok(vec![StateMessage::GotoContigCoordinate(Contig::chrom(&"chr1".to_string()), 1000)]))]
-    #[case("17:7572659", Ok(vec![StateMessage::GotoContigCoordinate(Contig::chrom(&"17".to_string()), 7572659)]))]
+    #[case("chr1:1000", Ok(vec![StateMessage::GotoContigCoordinate("chr1".to_string(), 1000)]))]
+    #[case("17:7572659", Ok(vec![StateMessage::GotoContigCoordinate("17".to_string(), 7572659)]))]
     #[case("TP53", Ok(vec![StateMessage::GoToGene("TP53".to_string())]))]
     #[case("invalid:command:format", Err("Invalid command mode input: invalid:command:format".to_string()))]
     #[case("chr1:invalid", Err("Invalid command mode input: chr1:invalid".to_string()))]
@@ -334,6 +344,8 @@ mod tests {
     #[case("", KeyCode::Char('k'), Ok(vec![StateMessage::MoveUp(1), StateMessage::ClearNormalModeRegisters]))]
     #[case("", KeyCode::Char('z'), Ok(vec![StateMessage::ZoomIn(2), StateMessage::ClearNormalModeRegisters]))]
     #[case("", KeyCode::Char('o'), Ok(vec![StateMessage::ZoomOut(2), StateMessage::ClearNormalModeRegisters]))]
+    #[case("", KeyCode::Char('{'), Ok(vec![StateMessage::GotoPreviousContig(1), StateMessage::ClearNormalModeRegisters]))]
+    #[case("", KeyCode::Char('}'), Ok(vec![StateMessage::GotoNextContig(1), StateMessage::ClearNormalModeRegisters]))]
     #[case("g", KeyCode::Char('e'), Ok(vec![StateMessage::GotoPreviousExonsEnd(1), StateMessage::ClearNormalModeRegisters]))]
     #[case("g", KeyCode::Char('E'), Ok(vec![StateMessage::GotoPreviousGenesEnd(1), StateMessage::ClearNormalModeRegisters]))]
     #[case("3", KeyCode::Char('w'), Ok(vec![StateMessage::GotoNextExonsStart(3), StateMessage::ClearNormalModeRegisters]))]

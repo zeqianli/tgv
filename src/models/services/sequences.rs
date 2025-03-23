@@ -1,4 +1,5 @@
-use crate::models::{contig::Contig, region::Region, sequence::Sequence};
+use crate::error::TGVError;
+use crate::models::{contig::Contig, reference::Reference, region::Region, sequence::Sequence};
 use reqwest::Client;
 use serde::Deserialize;
 
@@ -9,15 +10,20 @@ struct UcscResponse {
 
 pub struct SequenceService {
     client: Client,
-    reference: String,
+    reference: Reference,
 }
 
 impl SequenceService {
-    pub fn new(reference: String) -> Result<Self, ()> {
+    pub fn new(reference: Reference) -> Result<Self, ()> {
         Ok(Self {
             client: Client::new(),
             reference,
         })
+    }
+
+    pub async fn close(&self) -> Result<(), TGVError> {
+        // Reqwest client does not need to be closed.
+        Ok(())
     }
 
     pub async fn query_sequence(&self, region: &Region) -> reqwest::Result<Sequence> {
@@ -35,14 +41,14 @@ impl SequenceService {
     }
 
     fn get_api_url(&self, chrom: &Contig, start: usize, end: usize) -> Result<String, ()> {
-        match self.reference.as_str() {
-            "hg19" => Ok(format!(
+        match self.reference {
+            Reference::Hg19 => Ok(format!(
                 "https://api.genome.ucsc.edu/getData/sequence?genome=hg19;chrom={};start={};end={}",
                 chrom.full_name(),
                 start,
                 end
             )),
-            "hg38" => Ok(format!(
+            Reference::Hg38 => Ok(format!(
                 "https://api.genome.ucsc.edu/getData/sequence?genome=hg38;chrom={};start={};end={}",
                 chrom.full_name(),
                 start,
