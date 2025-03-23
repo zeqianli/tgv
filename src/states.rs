@@ -2,6 +2,7 @@ use crate::models::{
     contig::Contig,
     message::{DataMessage, StateMessage},
     mode::InputMode,
+    reference::Reference,
     region::Region,
     register::{CommandModeRegister, NormalModeRegister},
     services::tracks::TrackService,
@@ -20,7 +21,7 @@ use std::result::Result;
 
 pub struct State {
     /// Viewing window.
-    viewing_window: Option<ViewingWindow>,
+    pub viewing_window: Option<ViewingWindow>,
 
     pub input_mode: InputMode,
 
@@ -31,7 +32,7 @@ pub struct State {
     current_frame_area: Option<Rect>,
 
     // Handle feature movements
-    feature_query_service: TrackService,
+    feature_query_service: Option<TrackService>,
     exon_track_cache: Option<Track>,
     gene_track_cache: Option<Track>,
 
@@ -43,15 +44,17 @@ pub struct State {
     pub contigs: Vec<Contig>,
 
     /// Settings
-    settings: Settings,
+    pub settings: Settings,
 }
 
 /// Basics
 impl State {
     pub async fn new(settings: Settings) -> Result<Self, sqlx::Error> {
-        let contigs =
-            load_contigs_from_bam(&settings.bam_path.clone().unwrap(), &settings.reference)
-                .unwrap();
+        let contigs = load_contigs_from_bam(
+            &settings.bam_path.clone().unwrap(),
+            &settings.reference.clone().unwrap(),
+        )
+        .unwrap();
 
         Ok(Self {
             viewing_window: None,
@@ -59,7 +62,10 @@ impl State {
             exit: false,
             debug_message: String::new(),
             current_frame_area: None,
-            feature_query_service: TrackService::new(settings.reference.clone()).await?,
+            feature_query_service: match settings.reference.as_ref() {
+                Some(reference) => Some(TrackService::new(reference.clone()).await?),
+                None => None,
+            },
             exon_track_cache: None,
             gene_track_cache: None,
 
@@ -75,45 +81,65 @@ impl State {
         self.current_frame_area = Some(area);
     }
 
-    /// Returns the viewing window. Return Err if the viewing window is not set.
-    pub fn viewing_window(&self) -> Result<&ViewingWindow, ()> {
-        self.viewing_window.as_ref().ok_or(())
-    }
-
     pub fn viewing_region(&self) -> Result<Region, ()> {
+        if self.viewing_window.is_none() {
+            return Err(());
+        }
+
+        let viewing_window = self.viewing_window.as_ref().unwrap();
+
         Ok(Region {
-            contig: self.viewing_window()?.contig.clone(),
-            start: self.viewing_window()?.left(),
-            end: self
-                .viewing_window
-                .right(self.current_frame_area.as_ref().unwrap()),
+            contig: viewing_window.contig.clone(),
+            start: viewing_window.left(),
+            end: viewing_window.right(self.current_frame_area.as_ref().unwrap()),
         })
     }
 
     pub fn contig(&self) -> Result<Contig, ()> {
-        self.viewing_window()?.contig.clone().ok_or(())
+        if self.viewing_window.is_none() {
+            return Err(());
+        }
+
+        let viewing_window = self.viewing_window.as_ref().unwrap();
+
+        Ok(viewing_window.contig.clone())
     }
 
     /// Start coordinate of bases displayed on the screen.
     /// 1-based, inclusive.
     pub fn start(&self) -> Result<usize, ()> {
-        self.viewing_window()?.left().ok_or(())
+        if self.viewing_window.is_none() {
+            return Err(());
+        }
+
+        let viewing_window = self.viewing_window.as_ref().unwrap();
+        Ok(viewing_window.left())
     }
 
     /// End coordinate of bases displayed on the screen.
     /// 1-based, inclusive.
     pub fn end(&self) -> Result<usize, ()> {
-        self.viewing_window()?
-            .right(self.current_frame_area.as_ref().unwrap())
-            .ok_or(())
+        if self.viewing_window.is_none() || self.current_frame_area.is_none() {
+            return Err(());
+        }
+
+        let viewing_window = self.viewing_window.as_ref().unwrap();
+        let current_frame_area = self.current_frame_area.as_ref().unwrap();
+
+        Ok(viewing_window.right(current_frame_area)) // TODO: better handling
     }
 
     /// Middle coordinate of bases displayed on the screen.
     /// 1-based, inclusive.
     pub fn middle(&self) -> Result<usize, ()> {
-        self.viewing_window()?
-            .middle(self.current_frame_area.as_ref().unwrap())
-            .ok_or(())
+        if self.viewing_window.is_none() || self.current_frame_area.is_none() {
+            return Err(());
+        }
+
+        let viewing_window = self.viewing_window.as_ref().unwrap();
+        let current_frame_area = self.current_frame_area.as_ref().unwrap();
+
+        Ok(viewing_window.middle(current_frame_area))
     }
 
     /// Reference to the command mode register.
@@ -127,7 +153,7 @@ impl State {
 }
 
 /// Load contigs from a BAM file header
-fn load_contigs_from_bam(path: &str, reference: &str) -> io::Result<Vec<Contig>> {
+fn load_contigs_from_bam(path: &str, reference: &Reference) -> io::Result<Vec<Contig>> {
     // Use the indexed_reader::Builder pattern as shown in alignment.rs
     let mut reader = bam::io::indexed_reader::Builder::default().build_from_path(path)?;
     let header = reader.read_header()?;
@@ -135,13 +161,15 @@ fn load_contigs_from_bam(path: &str, reference: &str) -> io::Result<Vec<Contig>>
     // Extract contigs from the header
     let mut contigs = Vec::new();
     for (contig_name, _) in header.reference_sequences().iter() {
-        if reference == "hg19" || reference == "hg38" {
-            contigs.push(Contig::chrom(&contig_name.to_string()));
-        } else {
-            return Err(io::Error::new(
-                io::ErrorKind::InvalidInput,
-                "Unsupported reference",
-            ));
+        match reference {
+            Reference::Hg19 => contigs.push(Contig::chrom(&contig_name.to_string())),
+            Reference::Hg38 => contigs.push(Contig::chrom(&contig_name.to_string())),
+            _ => {
+                return Err(io::Error::new(
+                    io::ErrorKind::InvalidInput,
+                    "Unsupported reference",
+                ));
+            }
         }
     }
 
@@ -201,172 +229,219 @@ impl State {
         }
     }
 
-    pub async fn handle_messages(&mut self, messages: Vec<StateMessage>) -> Vec<DataMessage> {
+    /// Handle state messages.
+    pub async fn handle_messages(
+        &mut self,
+        messages: Vec<StateMessage>,
+    ) -> Result<Vec<DataMessage>, ()> {
         let mut data_messages: Vec<DataMessage> = Vec::new();
 
         for message in messages {
-            data_messages.extend(self.handle_message(message).await);
+            data_messages.extend(self.handle_message(message).await?);
         }
 
-        data_messages
+        Ok(data_messages)
     }
 
-    pub async fn handle_message(&mut self, messages: Vec<StateMessage>) -> Vec<DataMessage> {
+    /// Main function to route state message handling.
+    pub async fn handle_message(&mut self, message: StateMessage) -> Result<Vec<DataMessage>, ()> {
         let mut data_messages: Vec<DataMessage> = Vec::new();
 
-        for message in messages {
-            match message {
+        match message {
 
-                // Swithching modes
-                StateMessage::SwitchMode(mode) => {
-                    self.input_mode = mode;
+            // Swithching modes
+            StateMessage::SwitchMode(mode) => {
+                self.input_mode = mode;
 
-                    // match self.input_mode {
-                    //     InputMode::Help => {
-                    //         panic!("test");
-                    //     }
-                    //     _ => {}
-                    // }
-                }
-                StateMessage::Quit => self.exit = true,
-
-                // Command mode handling
-                StateMessage::AddCharToCommandModeRegisters(c) => self.command_mode_register.add_char(c),
-                StateMessage::CommandModeRegisterError(error_message) => self.debug_message = error_message,
-                StateMessage::ClearCommandModeRegisters => self.command_mode_register.clear(),
-                StateMessage::BackspaceCommandModeRegisters => self.command_mode_register.backspace(),
-                StateMessage::MoveCursorLeft(amount) => self.command_mode_register.move_cursor_left(amount),
-                StateMessage::MoveCursorRight(amount) => self.command_mode_register.move_cursor_right(amount),
-
-                // Normal mode handling
-                StateMessage::AddCharToNormalModeRegisters(c) => self.normal_mode_register.add_char(c),
-                StateMessage::NormalModeRegisterError(error_message) => self.debug_message = error_message,
-                StateMessage::ClearNormalModeRegisters => self.normal_mode_register.clear(),
-
-                // Movement handling
-                StateMessage::MoveLeft(_) |
-                StateMessage::MoveRight(_) |
-                StateMessage::MoveUp(_) |
-                StateMessage::MoveDown(_) |
-                StateMessage::GotoCoordinate(_) |
-                StateMessage::GotoContigCoordinate(_, _) => {
-                    data_messages.extend(self.handle_movement_message(message));
-                },
-
-                // Zoom handling
-                StateMessage::ZoomOut(r) => data_messages.extend(self.handle_zoom_out(r)),
-                StateMessage::ZoomIn(r) => data_messages.extend(self.handle_zoom_in(r)),
-
-                // Relative feature movement handling
-                StateMessage::GotoNextExonsStart(_) |
-                StateMessage::GotoNextExonsEnd(_) |
-                StateMessage::GotoPreviousExonsStart(_) |
-                StateMessage::GotoPreviousExonsEnd(_) | // TODO: this is broken
-                StateMessage::GotoNextGenesStart(_) |
-                StateMessage::GotoNextGenesEnd(_) |
-                StateMessage::GotoPreviousGenesStart(_) |
-                StateMessage::GotoPreviousGenesEnd(_) => { // TODO: this is broken
-                    data_messages.extend(self.handle_feature_movement_message(message).await);
-                },
-
-                // Absolute feature handling
-                StateMessage::GoToGene(_) => {
-                    data_messages.extend(self.handle_goto_feature_message(message).await);
-                },
-
-                // Others
-                _ => {}
+                // match self.input_mode {
+                //     InputMode::Help => {
+                //         panic!("test");
+                //     }
+                //     _ => {}
+                // }
             }
+            StateMessage::Quit => self.exit = true,
+
+            // Command mode handling
+            StateMessage::AddCharToCommandModeRegisters(c) => self.command_mode_register.add_char(c),
+            StateMessage::CommandModeRegisterError(error_message) => self.debug_message = error_message,
+            StateMessage::ClearCommandModeRegisters => self.command_mode_register.clear(),
+            StateMessage::BackspaceCommandModeRegisters => self.command_mode_register.backspace(),
+            StateMessage::MoveCursorLeft(amount) => self.command_mode_register.move_cursor_left(amount),
+            StateMessage::MoveCursorRight(amount) => self.command_mode_register.move_cursor_right(amount),
+
+            // Normal mode handling
+            StateMessage::AddCharToNormalModeRegisters(c) => self.normal_mode_register.add_char(c),
+            StateMessage::NormalModeRegisterError(error_message) => self.debug_message = error_message,
+            StateMessage::ClearNormalModeRegisters => self.normal_mode_register.clear(),
+
+            // Movement handling
+            StateMessage::MoveLeft(_) |
+            StateMessage::MoveRight(_) |
+            StateMessage::MoveUp(_) |
+            StateMessage::MoveDown(_) |
+            StateMessage::GotoCoordinate(_) |
+            StateMessage::GotoContigCoordinate(_, _) => {
+                data_messages.extend(self.handle_movement_message(message)?);
+            },
+
+            // Zoom handling
+            StateMessage::ZoomOut(r) => data_messages.extend(self.handle_zoom_out(r)?),
+            StateMessage::ZoomIn(r) => data_messages.extend(self.handle_zoom_in(r)?),
+
+            // Relative feature movement handling
+            StateMessage::GotoNextExonsStart(_) |
+            StateMessage::GotoNextExonsEnd(_) |
+            StateMessage::GotoPreviousExonsStart(_) |
+            StateMessage::GotoPreviousExonsEnd(_) | // TODO: this is broken
+            StateMessage::GotoNextGenesStart(_) |
+            StateMessage::GotoNextGenesEnd(_) |
+            StateMessage::GotoPreviousGenesStart(_) |
+            StateMessage::GotoPreviousGenesEnd(_) => { // TODO: this is broken
+                data_messages.extend(self.handle_feature_movement_message(message).await?);
+            },
+
+            // Absolute feature handling
+            StateMessage::GoToGene(_) => {
+                data_messages.extend(self.handle_goto_feature_message(message).await?);
+            },
+
+            // Others
+            _ => {}
         }
-        data_messages
+
+        Ok(data_messages)
     }
 
     const MAX_ZOOM_TO_DISPLAY_FEATURES: usize = 64;
     const MAX_ZOOM_TO_DISPLAY_ALIGNMENTS: usize = 32;
 
-    fn get_data_requirements(&self) -> Vec<DataMessage> {
+    fn get_data_requirements(&self) -> Result<Vec<DataMessage>, ()> {
         let mut data_messages = Vec::new();
 
-        if self.viewing_window().zoom() <= Self::MAX_ZOOM_TO_DISPLAY_FEATURES {
-            data_messages.push(DataMessage::RequiresCompleteFeatures(self.viewing_region()));
+        if self.viewing_window.is_none() || self.current_frame_area.is_none() {
+            return Err(());
+        }
+        let viewing_window = self.viewing_window.as_ref().unwrap();
+        let viewing_region = self.viewing_region().unwrap();
+
+        if viewing_window.zoom() <= Self::MAX_ZOOM_TO_DISPLAY_FEATURES {
+            data_messages.push(DataMessage::RequiresCompleteFeatures(
+                viewing_region.clone(),
+            ));
         }
 
-        if self.viewing_window().zoom() <= Self::MAX_ZOOM_TO_DISPLAY_ALIGNMENTS {
+        if viewing_window.zoom() <= Self::MAX_ZOOM_TO_DISPLAY_ALIGNMENTS {
             data_messages.push(DataMessage::RequiresCompleteAlignments(
-                self.viewing_region(),
+                viewing_region.clone(),
             ));
         }
 
-        if self.viewing_window().is_basewise() {
+        if viewing_window.is_basewise() {
             data_messages.push(DataMessage::RequiresCompleteSequences(
-                self.viewing_region(),
+                viewing_region.clone(),
             ));
         }
 
-        data_messages
+        Ok(data_messages)
     }
 }
 
 // Movement handling
 impl State {
-    fn handle_movement_message(&mut self, message: StateMessage) -> Vec<DataMessage> {
+    fn handle_movement_message(&mut self, message: StateMessage) -> Result<Vec<DataMessage>, ()> {
         let mut data_messages = Vec::new();
 
         match message {
             // TODO: bound handling
             StateMessage::MoveLeft(n) => {
-                self.viewing_window().set_left(
-                    self.viewing_window
+                if self.viewing_window.is_none() {
+                    return Err(());
+                }
+                let viewing_window = self.viewing_window.as_mut().unwrap();
+
+                viewing_window.set_left(
+                    viewing_window
                         .left()
-                        .saturating_sub(n * self.viewing_window().zoom()),
+                        .saturating_sub(n * viewing_window.zoom()),
                 );
             }
             StateMessage::MoveRight(n) => {
-                self.viewing_window().set_left(
-                    self.viewing_window
+                if self.viewing_window.is_none() {
+                    return Err(());
+                }
+                let viewing_window = self.viewing_window.as_mut().unwrap();
+
+                viewing_window.set_left(
+                    viewing_window
                         .left()
-                        .saturating_add(n * self.viewing_window().zoom()),
+                        .saturating_add(n * viewing_window.zoom()),
                 );
             }
             StateMessage::MoveUp(n) => {
-                self.viewing_window
-                    .set_top(self.viewing_window().top().saturating_sub(n));
+                if self.viewing_window.is_none() {
+                    return Err(());
+                }
+                let viewing_window = self.viewing_window.as_mut().unwrap();
+
+                viewing_window.set_top(viewing_window.top().saturating_sub(n));
             }
             StateMessage::MoveDown(n) => {
-                self.viewing_window
-                    .set_top(self.viewing_window().top().saturating_add(n));
+                if self.viewing_window.is_none() {
+                    return Err(());
+                }
+                let viewing_window = self.viewing_window.as_mut().unwrap();
+
+                viewing_window.set_top(viewing_window.top().saturating_add(n));
             }
             StateMessage::GotoCoordinate(n) => {
-                self.viewing_window
-                    .set_middle(self.current_frame_area.as_ref().unwrap(), n);
-                self.viewing_window().set_top(0);
+                if self.viewing_window.is_none() || self.current_frame_area.is_none() {
+                    return Err(());
+                }
+                let viewing_window = self.viewing_window.as_mut().unwrap();
+
+                viewing_window.set_middle(self.current_frame_area.as_ref().unwrap(), n);
             }
-            StateMessage::GotoContigCoordinate(contig, n) => {
-                self.viewing_window().contig = contig;
-                self.viewing_window
-                    .set_middle(self.current_frame_area.as_ref().unwrap(), n);
-                self.viewing_window().set_top(0);
-            }
+            StateMessage::GotoContigCoordinate(contig, n) => match self.viewing_window {
+                Some(ref mut window) => {
+                    window.contig = contig;
+                    window.set_middle(self.current_frame_area.as_ref().unwrap(), n);
+                    window.set_top(0);
+                }
+                None => {
+                    self.viewing_window = Some(ViewingWindow::new_basewise_window(contig, n, 0));
+                }
+            },
 
             _ => {}
         }
 
-        data_messages.extend(self.get_data_requirements());
-        data_messages
+        data_messages.extend(self.get_data_requirements()?);
+        Ok(data_messages)
     }
 }
 
 /// Zoom handling
 impl State {
-    fn handle_zoom_out(&mut self, r: usize) -> Vec<DataMessage> {
-        self.viewing_window
+    fn handle_zoom_out(&mut self, r: usize) -> Result<Vec<DataMessage>, ()> {
+        if self.viewing_window.is_none() || self.current_frame_area.is_none() {
+            return Err(());
+        }
+        let viewing_window = self.viewing_window.as_mut().unwrap();
+
+        viewing_window
             .zoom_out(r, self.current_frame_area.as_ref().unwrap())
             .unwrap();
         self.get_data_requirements()
     }
 
-    fn handle_zoom_in(&mut self, r: usize) -> Vec<DataMessage> {
-        self.viewing_window
+    fn handle_zoom_in(&mut self, r: usize) -> Result<Vec<DataMessage>, ()> {
+        if self.viewing_window.is_none() || self.current_frame_area.is_none() {
+            return Err(());
+        }
+        let viewing_window = self.viewing_window.as_mut().unwrap();
+
+        viewing_window
             .zoom_in(r, self.current_frame_area.as_ref().unwrap())
             .unwrap();
         self.get_data_requirements()
@@ -383,16 +458,18 @@ impl State {
         position: usize,
         n_genes: usize,
     ) -> Result<(Track, Track), String> {
-        let this_gene = self
-            .feature_query_service
+        if self.feature_query_service.is_none() {
+            return Err("Feature query service not initialized".to_string());
+        }
+        let feature_query_service = self.feature_query_service.as_ref().unwrap();
+
+        let this_gene = feature_query_service
             .query_gene_covering(contig, position)
             .await;
-        let next_genes = self
-            .feature_query_service
+        let next_genes = feature_query_service
             .query_genes_after(contig, position, n_genes)
             .await;
-        let previous_genes = self
-            .feature_query_service
+        let previous_genes = feature_query_service
             .query_genes_before(contig, position, n_genes)
             .await;
 
@@ -422,7 +499,10 @@ impl State {
         Ok((exon_track, gene_track))
     }
 
-    async fn handle_feature_movement_message(&mut self, message: StateMessage) -> Vec<DataMessage> {
+    async fn handle_feature_movement_message(
+        &mut self,
+        message: StateMessage,
+    ) -> Result<Vec<DataMessage>, ()> {
         let mut state_messages = Vec::new();
 
         match message {
@@ -432,8 +512,8 @@ impl State {
             | StateMessage::GotoPreviousExonsEnd(n_movements) => {
                 let n_query = usize::max(n_movements, State::DEFAULT_CACHE_N_GENES);
                 let mut need_cache_update = true;
-                let contig = self.contig();
-                let position = self.middle();
+                let contig = self.contig()?;
+                let position = self.middle()?;
 
                 need_cache_update = self.exon_track_cache.is_none()
                     || self.exon_track_cache.as_ref().unwrap().contig != contig
@@ -465,8 +545,8 @@ impl State {
             | StateMessage::GotoPreviousGenesEnd(n_movements) => {
                 let n_query = usize::max(n_movements, State::DEFAULT_CACHE_N_GENES);
                 let mut need_cache_update = true;
-                let contig = self.contig();
-                let position = self.middle();
+                let contig = self.contig()?;
+                let position = self.middle()?;
 
                 need_cache_update = self.gene_track_cache.is_none()
                     || self.gene_track_cache.as_ref().unwrap().contig != contig
@@ -495,7 +575,7 @@ impl State {
             _ => {}
         };
 
-        let position = self.middle();
+        let position = self.middle()?;
 
         match message {
             StateMessage::GotoNextExonsStart(n_movements) => {
@@ -648,21 +728,29 @@ impl State {
 
         let mut data_messages = Vec::new();
         for state_message in state_messages {
-            data_messages.extend(self.handle_movement_message(state_message));
+            data_messages.extend(self.handle_movement_message(state_message)?);
         }
 
-        data_messages
+        Ok(data_messages)
     }
 }
 
 /// Absolute feature handling
 impl State {
-    async fn handle_goto_feature_message(&mut self, message: StateMessage) -> Vec<DataMessage> {
+    async fn handle_goto_feature_message(
+        &mut self,
+        message: StateMessage,
+    ) -> Result<Vec<DataMessage>, ()> {
         let mut state_messages = Vec::new();
+
+        if self.feature_query_service.is_none() {
+            return Err(());
+        }
+        let feature_query_service = self.feature_query_service.as_ref().unwrap();
 
         if let StateMessage::GoToGene(gene_id) = message {
             let query_result: Result<Feature, sqlx::Error> =
-                self.feature_query_service.query_gene_name(&gene_id).await;
+                feature_query_service.query_gene_name(&gene_id).await;
             match query_result {
                 Ok(gene) => {
                     state_messages.push(StateMessage::GotoContigCoordinate(
@@ -680,9 +768,9 @@ impl State {
 
         let mut data_messages = Vec::new();
         for state_message in state_messages {
-            data_messages.extend(self.handle_movement_message(state_message));
+            data_messages.extend(self.handle_movement_message(state_message)?);
         }
 
-        data_messages
+        Ok(data_messages)
     }
 }

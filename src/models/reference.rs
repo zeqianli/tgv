@@ -1,3 +1,4 @@
+#[derive(Debug, Clone, Eq, PartialEq)]
 pub enum Reference {
     Hg19,
     Hg38,

@@ -65,13 +65,14 @@ impl ViewingWindow {
     /// Set the left genome coordinate of the viewing window.
     /// 1-based, inclusive.
     pub fn set_left(&mut self, left: usize) {
-        self.left = left;
+        self.left = usize::max(left, 1);
     }
 
     /// Set the middle genome coordinate of the viewing window.
     /// 1-based, inclusive.
     pub fn set_middle(&mut self, area: &Rect, middle: usize) {
-        self.left = middle.saturating_sub(self.width(area) / 2);
+        let left = middle.saturating_sub(self.width(area) / 2);
+        self.set_left(left);
     }
 
     /// Set the top track # of the viewing window.
