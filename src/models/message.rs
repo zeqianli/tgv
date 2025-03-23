@@ -47,6 +47,23 @@ pub enum StateMessage {
     Quit,
 }
 
+impl StateMessage {
+    pub fn requires_reference(&self) -> bool {
+        match self {
+            StateMessage::GotoNextExonsStart(_)
+            | StateMessage::GotoNextExonsEnd(_)
+            | StateMessage::GotoPreviousExonsStart(_)
+            | StateMessage::GotoPreviousExonsEnd(_)
+            | StateMessage::GotoNextGenesStart(_)
+            | StateMessage::GotoNextGenesEnd(_)
+            | StateMessage::GotoPreviousGenesStart(_)
+            | StateMessage::GotoPreviousGenesEnd(_)
+            | StateMessage::GoToGene(_) => true,
+            _ => false,
+        }
+    }
+}
+
 /// Communication between State and Data
 pub enum DataMessage {
     RequiresCompleteAlignments(Region),

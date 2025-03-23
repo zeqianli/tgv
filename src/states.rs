@@ -43,6 +43,9 @@ pub struct State {
 
     /// Settings
     pub settings: Settings,
+
+    /// Error messages for display.
+    pub errors: Vec<String>,
 }
 
 /// Basics
@@ -82,6 +85,8 @@ impl State {
 
             contigs,
             settings,
+
+            errors: Vec::new(),
         })
     }
 
@@ -156,6 +161,10 @@ impl State {
     pub fn initialized(&self) -> bool {
         self.window.is_some()
     }
+
+    pub fn add_error_message(&mut self, error: TGVError) {
+        self.errors.push(format!("{}", error));
+    }
 }
 
 /// Load contigs from a BAM file header
@@ -198,7 +207,7 @@ fn load_contigs_from_bam(
 impl State {
     // Translate key event to a message.
     pub fn translate_key_event(&self, key_event: KeyEvent) -> Vec<StateMessage> {
-        match self.input_mode {
+        let messages = match self.input_mode {
             InputMode::Normal => {
                 match key_event.code {
                     // Switch mode
@@ -244,7 +253,19 @@ impl State {
                 KeyCode::Esc => vec![StateMessage::SwitchMode(InputMode::Normal)],
                 _ => vec![],
             },
+        };
+
+        // Check that if there is a message that requires the reference genome, make sure it is provided.
+        // Otherwise, pass on an error message.
+        for message in messages.iter() {
+            if message.requires_reference() && self.settings.reference.is_none() {
+                return vec![StateMessage::Error(TGVError::StateError(
+                    "Reference is not provided".to_string(),
+                ))];
+            }
         }
+
+        messages
     }
 
     /// Handle state messages.
@@ -285,7 +306,7 @@ impl State {
 
             // Command mode handling
             StateMessage::AddCharToCommandModeRegisters(c) => self.command_mode_register.add_char(c),
-            StateMessage::CommandModeRegisterError(error_message) => self.debug_message = error_message,
+            StateMessage::CommandModeRegisterError(error_message) => self.add_error_message(TGVError::ParsingError(error_message)),
             StateMessage::ClearCommandModeRegisters => self.command_mode_register.clear(),
             StateMessage::BackspaceCommandModeRegisters => self.command_mode_register.backspace(),
             StateMessage::MoveCursorLeft(amount) => self.command_mode_register.move_cursor_left(amount),
@@ -293,7 +314,7 @@ impl State {
 
             // Normal mode handling
             StateMessage::AddCharToNormalModeRegisters(c) => self.normal_mode_register.add_char(c),
-            StateMessage::NormalModeRegisterError(error_message) => self.debug_message = error_message,
+            StateMessage::NormalModeRegisterError(error_message) => self.add_error_message(TGVError::ParsingError(error_message)),
             StateMessage::ClearNormalModeRegisters => self.normal_mode_register.clear(),
 
             // Movement handling
@@ -327,6 +348,9 @@ impl State {
                 data_messages.extend(self.handle_goto_feature_message(message).await?);
             },
 
+            // Error messages
+            StateMessage::Error(e) => self.add_error_message(e),
+
             // Others
             _ => {}
         }
@@ -343,22 +367,24 @@ impl State {
         let viewing_window = self.viewing_window()?;
         let viewing_region = self.viewing_region()?;
 
-        if viewing_window.zoom() <= Self::MAX_ZOOM_TO_DISPLAY_FEATURES {
-            data_messages.push(DataMessage::RequiresCompleteFeatures(
-                viewing_region.clone(),
-            ));
-        }
-
         if viewing_window.zoom() <= Self::MAX_ZOOM_TO_DISPLAY_ALIGNMENTS {
             data_messages.push(DataMessage::RequiresCompleteAlignments(
                 viewing_region.clone(),
             ));
         }
 
-        if viewing_window.is_basewise() {
-            data_messages.push(DataMessage::RequiresCompleteSequences(
-                viewing_region.clone(),
-            ));
+        if self.settings.reference.is_some() {
+            if viewing_window.zoom() <= Self::MAX_ZOOM_TO_DISPLAY_FEATURES {
+                data_messages.push(DataMessage::RequiresCompleteFeatures(
+                    viewing_region.clone(),
+                ));
+            }
+
+            if viewing_window.is_basewise() {
+                data_messages.push(DataMessage::RequiresCompleteSequences(
+                    viewing_region.clone(),
+                ));
+            }
         }
 
         Ok(data_messages)

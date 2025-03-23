@@ -1,3 +1,4 @@
+use std::error;
 use std::fmt;
 
 #[derive(Debug, Clone, Eq, PartialEq)]
@@ -21,7 +22,18 @@ impl fmt::Display for TGVError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             TGVError::CliError(e) => write!(f, "{}", e),
-            _ => write!(f, "{}", self),
+            TGVError::IOError(e) => write!(f, "{}", e),
+            TGVError::StateError(e) => write!(f, "{}", e),
+            TGVError::ParsingError(e) => write!(f, "{}", e),
         }
     }
 }
+
+// TODO: tracing
+// impl error::Error for TGVError {
+//     fn source(&self) -> Option<&(dyn error::Error + 'static)> {
+//         match self {
+//             _ => None,
+//         }
+//     }
+// }
