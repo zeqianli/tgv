@@ -866,7 +866,10 @@ impl State {
                     ));
                 }
                 _ => {
-                    self.add_error_message(TGVError::IOError("Failed to query gene".to_string()));
+                    self.add_error_message(TGVError::IOError(format!(
+                        "Failed to query gene {}",
+                        gene_id
+                    )));
                 }
             }
         }

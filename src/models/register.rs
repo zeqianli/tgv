@@ -200,7 +200,7 @@ impl NormalModeRegister {
                     _ => Err(format!("Invalid normal mode input: {}", string)),
                 }
             }
-            _ => Err("Invalid input".to_string()),
+            _ => Err(format!("Invalid input: {}{}", self.input, c)),
         }
     }
 }
