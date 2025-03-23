@@ -30,7 +30,7 @@ pub struct Settings {
     pub bed_path: Option<String>,
     pub reference: Option<Reference>,
 
-    initial_state_messages: Vec<StateMessage>,
+    pub initial_state_messages: Vec<StateMessage>,
 }
 
 impl Settings {
@@ -47,14 +47,14 @@ impl Settings {
         let mut vcf_path = None;
         let mut bed_path = None;
         for path in cli.paths {
-            if path.ends_with(".bam") && settings.bam_path.is_none() {
-                settings.bam_path = Some(path.clone());
+            if path.ends_with(".bam") {
+                bam_path = Some(path.clone());
             }
-            if path.ends_with(".vcf") && settings.vcf_path.is_none() {
-                settings.vcf_path = Some(path.clone());
+            if path.ends_with(".vcf") {
+                vcf_path = Some(path.clone());
             }
-            if path.ends_with(".bed") && settings.bed_path.is_none() {
-                settings.bed_path = Some(path.clone());
+            if path.ends_with(".bed") {
+                bed_path = Some(path.clone());
             }
         }
 
@@ -62,13 +62,13 @@ impl Settings {
         let reference = match Reference::from_str(&cli.reference) {
             Ok(reference) => Some(reference),
             Err(e) => {
-                initial_state_messages.push(StateMessage::Error(e));
+                initial_state_messages.push(StateMessage::NormalModeRegisterError(e));
                 None
             }
         };
 
         // Initial region
-        match Self::translate_initial_region(&cli.region) {
+        match Self::translate_initial_state_messages(&cli.region) {
             Ok(state_message) => initial_state_messages.push(state_message),
             Err(e) => initial_state_messages.push(StateMessage::CommandModeRegisterError(e)),
         }
@@ -82,7 +82,7 @@ impl Settings {
         })
     }
 
-    fn translate_initial_region(&region_string: &String) -> Result<StateMessage, String> {
+    fn translate_initial_state_messages(region_string: &String) -> Result<StateMessage, String> {
         let region_string = region_string.trim();
 
         // Interpretation 1: empty input (go to a default location)
@@ -111,5 +111,107 @@ impl Settings {
 
         // Interpretation 3: gene name
         return Ok(StateMessage::GoToGene(region_string.to_string()));
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::models::contig::Contig;
+    use crate::models::message::StateMessage;
+    use crate::models::reference::Reference;
+
+    #[test]
+    fn test_cli_parsing_with_valid_inputs() {
+        let cli = Cli {
+            paths: vec![
+                "test.bam".to_string(),
+                "test.vcf".to_string(),
+                "test.bed".to_string(),
+            ],
+            region: "chr1:12345".to_string(),
+            reference: "hg38".to_string(),
+        };
+
+        let settings = Settings::new(cli).unwrap();
+
+        assert_eq!(settings.bam_path, Some("test.bam".to_string()));
+        assert_eq!(settings.vcf_path, Some("test.vcf".to_string()));
+        assert_eq!(settings.bed_path, Some("test.bed".to_string()));
+        assert_eq!(
+            settings.reference,
+            Some(Reference::from_str("hg38").unwrap())
+        );
+
+        // Check that the initial state message is correct
+        assert!(matches!(
+            settings.initial_state_messages[0],
+            StateMessage::GotoContigCoordinate(contig, pos)
+            if contig == Contig::chrom(&"chr1".to_string()) && pos == 12345
+        ));
+    }
+
+    #[test]
+    fn test_cli_with_invalid_reference() {
+        let cli = Cli {
+            paths: vec!["test.bam".to_string()],
+            region: "chr1:12345".to_string(),
+            reference: "invalid_ref".to_string(),
+        };
+
+        let result = Settings::new(cli);
+        assert!(result.is_err());
+        assert_eq!(result.unwrap_err(), "Unsupported reference: invalid_ref");
+    }
+
+    #[test]
+    fn test_translate_initial_state_messages_empty() {
+        let result = Settings::translate_initial_state_messages(&"".to_string());
+        assert!(matches!(result.unwrap(), StateMessage::GoToDefault));
+    }
+
+    #[test]
+    fn test_translate_initial_state_messages_contig_coordinate() {
+        let result = Settings::translate_initial_state_messages(&"chr1:12345".to_string());
+        assert!(matches!(
+            result.unwrap(),
+            StateMessage::GotoContigCoordinate(contig, pos)
+            if contig == Contig::chrom(&"chr1".to_string()) && pos == 12345
+        ));
+    }
+
+    #[test]
+    fn test_translate_initial_state_messages_invalid_format() {
+        let result = Settings::translate_initial_state_messages(&"chr1:pos:extra".to_string());
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_translate_initial_state_messages_invalid_position() {
+        let result = Settings::translate_initial_state_messages(&"chr1:not_a_number".to_string());
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_translate_initial_state_messages_gene_name() {
+        let result = Settings::translate_initial_state_messages(&"TP53".to_string());
+        assert!(matches!(
+            result.unwrap(),
+            StateMessage::GoToGene(gene) if gene == "TP53"
+        ));
+    }
+
+    #[test]
+    fn test_file_path_parsing() {
+        let cli = Cli {
+            paths: vec!["data.txt".to_string(), "sample.bam".to_string()],
+            region: "chr1:12345".to_string(),
+            reference: "hg19".to_string(),
+        };
+
+        let settings = Settings::new(cli).unwrap();
+        assert_eq!(settings.bam_path, Some("sample.bam".to_string()));
+        assert_eq!(settings.vcf_path, None);
+        assert_eq!(settings.bed_path, None);
     }
 }

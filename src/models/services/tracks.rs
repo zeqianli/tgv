@@ -1,5 +1,6 @@
 use crate::models::{
     contig::Contig,
+    reference::Reference,
     region::Region,
     strand::Strand,
     track::{Feature, Track},
@@ -9,11 +10,11 @@ use std::sync::Arc;
 
 pub struct TrackService {
     pool: Arc<MySqlPool>,
-    reference: String,
+    reference: Reference,
 }
 
 impl TrackService {
-    pub async fn new(reference: String) -> Result<Self, sqlx::Error> {
+    pub async fn new(reference: Reference) -> Result<Self, sqlx::Error> {
         let mysql_url = TrackService::get_mysql_url(&reference).unwrap();
         let pool = MySqlPoolOptions::new()
             .max_connections(5)
@@ -26,11 +27,10 @@ impl TrackService {
         })
     }
 
-    fn get_mysql_url(reference: &str) -> Result<String, ()> {
+    fn get_mysql_url(reference: &Reference) -> Result<String, ()> {
         match reference {
-            "hg19" => Ok("mysql://genome@genome-mysql.soe.ucsc.edu/hg19".to_string()),
-            "hg38" => Ok("mysql://genome@genome-mysql.soe.ucsc.edu/hg38".to_string()),
-            _ => Err(()),
+            Reference::Hg19 => Ok("mysql://genome@genome-mysql.soe.ucsc.edu/hg19".to_string()),
+            Reference::Hg38 => Ok("mysql://genome@genome-mysql.soe.ucsc.edu/hg38".to_string()),
         }
     }
 

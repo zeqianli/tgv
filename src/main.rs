@@ -7,10 +7,9 @@ mod states;
 use app::App;
 use clap::Parser;
 use settings::{Cli, Settings};
-use std::io;
 
 #[tokio::main]
-async fn main() -> io::Result<()> {
+async fn main() -> Result<(), ()> {
     let cli = Cli::parse();
     let settings: Settings = Settings::new(cli).unwrap();
 

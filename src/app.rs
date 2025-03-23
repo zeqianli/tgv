@@ -11,7 +11,11 @@ use ratatui::{
     DefaultTerminal, Frame,
 };
 
-use crate::models::{data::Data, mode::InputMode};
+use crate::models::{
+    data::Data,
+    message::{DataMessage, StateMessage},
+    mode::InputMode,
+};
 use crate::rendering::{
     render_alignment, render_console, render_coverage, render_help, render_sequence, render_track,
 };
@@ -36,9 +40,9 @@ impl App {
 
 // event handling
 impl App {
-    pub async fn handle_events(&mut self) -> io::Result<()> {
-        match event::read()? {
-            Event::Key(key_event) if key_event.kind == KeyEventKind::Press => {
+    pub async fn handle_events(&mut self) -> Result<(), ()> {
+        match event::read() {
+            Ok(Event::Key(key_event)) if key_event.kind == KeyEventKind::Press => {
                 self.update_state_and_data(self.state.translate_key_event(key_event))
                     .await?;
             }
@@ -47,25 +51,19 @@ impl App {
         Ok(())
     }
 
-    fn key_pressed(&self) -> bool {
-        match event::read()? {
-            Event::Key(key_event) if key_event.kind == KeyEventKind::Press => true,
-            _ => false,
-        }
-    }
-
-    async fn update_state_and_data(&mut self, state_messages: Vec<StateMessage>) -> io::Result<()> {
-        let data_messages = self.state.handle_messages(state_messages).await;
-        let loaded_data = self.data.handle_data_messages(data_messages).await.unwrap();
+    async fn update_state_and_data(&mut self, state_messages: Vec<StateMessage>) -> Result<(), ()> {
+        let data_messages = self.state.handle_messages(state_messages).await?;
+        let loaded_data = self.data.handle_data_messages(data_messages).await?;
         if loaded_data {
             self.state.debug_message = "Data loaded".to_string();
         } else {
             self.state.debug_message = "Data not loaded".to_string();
         }
+        Ok(())
     }
 
     /// Main loop
-    pub async fn run(&mut self, terminal: &mut DefaultTerminal) -> io::Result<()> {
+    pub async fn run(&mut self, terminal: &mut DefaultTerminal) -> Result<(), ()> {
         let mut last_frame_mode = InputMode::Normal;
 
         while !self.state.exit {
@@ -73,13 +71,13 @@ impl App {
 
             if !self.state.initialized() {
                 /// Handle the initial messages
-                self.update_state_and_data(self.state.initial_state_messages)
+                self.update_state_and_data(self.state.settings.initial_state_messages.clone())
                     .await?;
             }
 
             terminal.draw(|frame| {
                 self.draw(frame);
-            })?;
+            });
             self.handle_events().await?;
 
             // terminal.clear() is needed when the layout changes significantly, or the last frame is burned into the new frame.
@@ -90,7 +88,7 @@ impl App {
                     && (self.state.input_mode == InputMode::Help);
 
             if need_screen_refresh {
-                terminal.clear()?;
+                terminal.clear();
             }
 
             last_frame_mode = self.state.input_mode.clone();
@@ -130,7 +128,7 @@ impl Widget for &App {
                 render_coverage(
                     &coverage_area,
                     buf,
-                    &self.state.viewing_window().unwrap(),
+                    &self.state.viewing_window.as_ref().unwrap(),
                     alignment,
                 )
                 .unwrap();
@@ -138,20 +136,20 @@ impl Widget for &App {
                 render_alignment(
                     &alignment_area,
                     buf,
-                    &self.state.viewing_window().unwrap(),
+                    &self.state.viewing_window.as_ref().unwrap(),
                     alignment,
                 );
             }
             None => {} // TODO: handle error
         }
 
-        if self.state.viewing_window().unwrap().is_basewise() {
+        if self.state.viewing_window.as_ref().unwrap().is_basewise() {
             match &self.data.sequence {
                 Some(sequence) => {
                     render_sequence(
                         &sequence_area,
                         buf,
-                        &self.state.viewing_region().unwrap(),
+                        self.state.viewing_region().as_ref().unwrap(),
                         sequence,
                     )
                     .unwrap();
@@ -165,7 +163,7 @@ impl Widget for &App {
                 render_track(
                     &track_area,
                     buf,
-                    &self.state.viewing_window().unwrap(),
+                    self.state.viewing_window.as_ref().unwrap(),
                     track,
                 );
             }
