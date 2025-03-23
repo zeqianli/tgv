@@ -32,6 +32,11 @@ cd tgv
 cargo install --path .
 ```
 
+## Supported formats
+
+- BAM (index and sorted. The `.bai` file must be in the same directory.)
+- Internet connection is required if reference genomes are used.
+
 ## Usage
 
 ```bash
@@ -41,7 +46,7 @@ tgv -h
 # Browse hg38 genome
 tgv
 
-# Brwose a BAM file (sorted and indexed) aligned to the hg19 human reference genome
+# View BAM file aligned to the hg19 human reference genome
 tgv sorted.bam -g hg19
 
 # Start at a coordinate
@@ -49,6 +54,11 @@ tgv sorted.bam -r 12:25398142 -g hg19
 
 # Start at a gene
 tgv sorted.bam -r TP53 -g hg19
+
+# Use --no-reference for non-human alignments
+# (Sequence / feature display not supported yet)
+tgv non_human.bam -r 1:123 --no-reference
+
 ```
 
 ## Key bindings
@@ -67,13 +77,14 @@ Normal mode
 | `W/B` | Begining of the next / last gene | |
 | `E/gE` | End of the next / last gene | |
 | `z/o` | Zoom in / out | |
-| `_number_` + `_movement_` | Move by `_number_` steps | `20h`: left by 20 bases; `2z`: Zoom-in twice |
+| `_number_` + `_movement_` | Move by `_number_` steps | `20h`: left by 20 bases|
 
 Command mode:
 
 |Command |Notes| Example|
 |---------|-------------|---------|
 | `:q` | Quit | |
+| `:h` | Help | |
 | `:_pos_` | Go to position on same contig | `:1000` |
 | `:_contig_:_pos_` | Go to position on specific contig | `:17:7572659` |
 | `:_gene_` | Go to `_gene_`.| `:KRAS`|
@@ -88,7 +99,7 @@ Compare TGV and Vim concepts:
 |`w/b/e/ge`|Exon|word||
 | `W/B/E/gE` | Gene |WORD||
 |`j/k`|Alignment track|Line||
-|`z/o`| Zoom | NA | Note that `o` does a different thing in Vim.|
+|`z/o`| Zoom | NA |`o` does a different thing in Vim.|
 
 See `ROADMAP.md` for future key bindings ideas.
 
