@@ -1,7 +1,6 @@
 mod alignment;
 mod console;
 mod coverage;
-mod debug;
 mod error;
 mod help;
 mod sequence;

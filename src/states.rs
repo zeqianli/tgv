@@ -14,10 +14,93 @@ use crate::settings::Settings;
 use crossterm::event::{KeyCode, KeyEvent};
 use noodles_bam as bam;
 use ratatui::layout::Rect;
+use std::collections::HashMap;
+/// A collection of contigs. This helps relative contig movements.
+struct ContigCollection {
+    contigs: Vec<Contig>,
 
-/// Genome region displayed in the window.
+    contig_index: HashMap<String, usize>,
+}
+
+impl ContigCollection {
+    pub fn new(contigs: Vec<Contig>) -> Result<Self, TGVError> {
+        // check that contigs do not have duplicated full names
+        let mut contig_index = HashMap::new();
+        for (i, contig) in contigs.iter().enumerate() {
+            if contig_index.contains_key(&contig.full_name()) {
+                return Err(TGVError::StateError(format!(
+                    "Duplicate contig names {}. Is your BAM file header correct?",
+                    contig.full_name()
+                )));
+            }
+            contig_index.insert(contig.full_name(), i);
+        }
+
+        Ok(Self {
+            contigs,
+            contig_index,
+        })
+    }
+
+    pub fn first(&self) -> Result<&Contig, TGVError> {
+        Ok(&self.contigs[0])
+    }
+
+    pub fn last(&self) -> Result<&Contig, TGVError> {
+        Ok(&self.contigs[self.contigs.len() - 1])
+    }
+
+    pub fn from_bam(path: &str, reference: Option<&Reference>) -> Result<Self, TGVError> {
+        // Use the indexed_reader::Builder pattern as shown in alignment.rs
+        let mut reader = match bam::io::indexed_reader::Builder::default().build_from_path(path) {
+            Ok(reader) => reader,
+            Err(e) => return Err(TGVError::IOError(format!("Failed to open BAM file: {}", e))),
+        };
+        let header = match reader.read_header() {
+            Ok(header) => header,
+            Err(e) => {
+                return Err(TGVError::IOError(format!(
+                    "Failed to read BAM header: {}",
+                    e
+                )))
+            }
+        };
+
+        // Extract contigs from the header
+        let mut contigs = Vec::new();
+        for (contig_name, _) in header.reference_sequences().iter() {
+            match reference {
+                // If the reference is human, interpret contig names as chromosomes. This allows abbreviated matching (chr1 <-> 1).
+                Some(Reference::Hg19) => contigs.push(Contig::chrom(&contig_name.to_string())),
+                Some(Reference::Hg38) => contigs.push(Contig::chrom(&contig_name.to_string())),
+
+                // Otherwise, interpret contig names as contigs. This does not allow abbreviated matching.
+                _ => contigs.push(Contig::contig(&contig_name.to_string())),
+            }
+        }
+
+        Ok(Self::new(contigs)?)
+    }
+
+    pub fn contains(&self, contig: &Contig) -> bool {
+        self.contig_index.contains_key(&contig.full_name())
+    }
+
+    pub fn next(&self, contig: &Contig, k: usize) -> Result<Contig, TGVError> {
+        let index = self.contig_index[&contig.full_name()];
+        let next_index = (index + k) % self.contigs.len();
+        Ok(self.contigs[next_index].clone())
+    }
+
+    pub fn previous(&self, contig: &Contig, k: usize) -> Result<Contig, TGVError> {
+        let index = self.contig_index[&contig.full_name()];
+        let previous_index =
+            (index + self.contigs.len() - k % self.contigs.len()) % self.contigs.len();
+        Ok(self.contigs[previous_index].clone())
+    }
+}
+
 /// Holds states of the application.
-
 pub struct State {
     /// Viewing window.
     window: Option<ViewingWindow>,
@@ -39,7 +122,7 @@ pub struct State {
     command_mode_register: CommandModeRegister,
 
     /// Contigs in the BAM header
-    pub contigs: Option<Vec<Contig>>,
+    contigs: Option<ContigCollection>,
 
     /// Settings
     pub settings: Settings,
@@ -52,7 +135,7 @@ pub struct State {
 impl State {
     pub async fn new(settings: Settings) -> Result<Self, TGVError> {
         let contigs = match settings.bam_path.clone() {
-            Some(bam_path) => Some(load_contigs_from_bam(
+            Some(bam_path) => Some(ContigCollection::from_bam(
                 &bam_path,
                 settings.reference.as_ref(),
             )?),
@@ -172,42 +255,6 @@ impl State {
         }
         Ok(())
     }
-}
-
-/// Load contigs from a BAM file header
-fn load_contigs_from_bam(
-    path: &str,
-    reference: Option<&Reference>,
-) -> Result<Vec<Contig>, TGVError> {
-    // Use the indexed_reader::Builder pattern as shown in alignment.rs
-    let mut reader = match bam::io::indexed_reader::Builder::default().build_from_path(path) {
-        Ok(reader) => reader,
-        Err(e) => return Err(TGVError::IOError(format!("Failed to open BAM file: {}", e))),
-    };
-    let header = match reader.read_header() {
-        Ok(header) => header,
-        Err(e) => {
-            return Err(TGVError::IOError(format!(
-                "Failed to read BAM header: {}",
-                e
-            )))
-        }
-    };
-
-    // Extract contigs from the header
-    let mut contigs = Vec::new();
-    for (contig_name, _) in header.reference_sequences().iter() {
-        match reference {
-            // If the reference is human, interpret contig names as chromosomes. This allows abbreviated matching (chr1 <-> 1).
-            Some(Reference::Hg19) => contigs.push(Contig::chrom(&contig_name.to_string())),
-            Some(Reference::Hg38) => contigs.push(Contig::chrom(&contig_name.to_string())),
-
-            // Otherwise, interpret contig names as contigs. This does not allow abbreviated matching.
-            _ => contigs.push(Contig::contig(&contig_name.to_string())),
-        }
-    }
-
-    Ok(contigs)
 }
 
 // Message handling
@@ -442,6 +489,7 @@ impl State {
 
                 viewing_window.set_top(viewing_window.top().saturating_add(n));
             }
+
             StateMessage::GotoCoordinate(n) => {
                 let current_frame_area: Rect = self.current_frame_area()?.clone();
                 let viewing_window = self.viewing_window_mut()?;
@@ -449,6 +497,21 @@ impl State {
                 viewing_window.set_middle(&current_frame_area, n);
             }
             StateMessage::GotoContigCoordinate(contig, n) => {
+                // If bam_path is provided, check that the contig is valid.
+                let contig = match self.settings.reference {
+                    Some(Reference::Hg38) | Some(Reference::Hg19) => Contig::chrom(&contig),
+                    _ => Contig::contig(&contig),
+                };
+                if let Some(contigs) = &self.contigs {
+                    if !contigs.contains(&contig) {
+                        self.add_error_message(TGVError::StateError(format!(
+                            "Contig {} not found",
+                            contig.full_name()
+                        )));
+                        return Ok(vec![]);
+                    }
+                }
+
                 let current_frame_area: Rect = self.current_frame_area()?.clone();
 
                 match self.window {
@@ -463,7 +526,7 @@ impl State {
                 }
             }
 
-            _ => {}
+            _ => {} // TOOD: GotoContig, GotoPreviousContig, GotoNextContig
         }
 
         data_messages.extend(self.get_data_requirements()?);
@@ -798,14 +861,12 @@ impl State {
             match query_result {
                 Ok(gene) => {
                     state_messages.push(StateMessage::GotoContigCoordinate(
-                        gene.contig(),
+                        gene.contig().full_name(),
                         gene.start(),
                     ));
                 }
                 _ => {
-                    state_messages.push(StateMessage::NormalModeRegisterError(
-                        "Feature parsing error".to_string(),
-                    ));
+                    self.add_error_message(TGVError::IOError("Failed to query gene".to_string()));
                 }
             }
         }
@@ -827,9 +888,12 @@ impl State {
             self.settings.reference.as_ref(),
             self.settings.bam_path.as_ref(),
         ) {
-            (Some(_), Some(_)) | (None, Some(_)) => self.handle_movement_message(
-                StateMessage::GotoContigCoordinate(self.contigs.as_ref().unwrap()[0].clone(), 1),
-            ),
+            (Some(_), Some(_)) | (None, Some(_)) => {
+                self.handle_movement_message(StateMessage::GotoContigCoordinate(
+                    self.contigs.as_ref().unwrap().first()?.full_name(),
+                    1,
+                ))
+            }
             (Some(_), None) => {
                 self.handle_goto_feature_message(StateMessage::GoToGene(
                     Self::DEFAULT_GENE.to_string(),

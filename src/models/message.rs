@@ -10,8 +10,8 @@ pub enum StateMessage {
     MoveDown(usize),
 
     GotoCoordinate(usize),
-    GotoContig(Contig),
-    GotoContigCoordinate(Contig, usize),
+    GotoContig(String), // The state object decide if "chr" prefix is needed.
+    GotoContigCoordinate(String, usize), // The state object decide if "chr" prefix is needed.
 
     GotoNextExonsStart(usize),
     GotoNextExonsEnd(usize),
@@ -21,6 +21,9 @@ pub enum StateMessage {
     GotoNextGenesEnd(usize),
     GotoPreviousGenesStart(usize),
     GotoPreviousGenesEnd(usize),
+
+    GotoNextContig(usize),
+    GotoPreviousContig(usize),
 
     GoToGene(String),
 

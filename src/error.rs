@@ -30,10 +30,3 @@ impl fmt::Display for TGVError {
 }
 
 // TODO: tracing
-// impl error::Error for TGVError {
-//     fn source(&self) -> Option<&(dyn error::Error + 'static)> {
-//         match self {
-//             _ => None,
-//         }
-//     }
-// }
