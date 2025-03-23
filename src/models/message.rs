@@ -1,5 +1,5 @@
 use crate::error::TGVError;
-use crate::models::{contig::Contig, mode::InputMode, region::Region};
+use crate::models::{mode::InputMode, region::Region};
 
 /// State messages
 #[derive(Debug, Clone, Eq, PartialEq)]

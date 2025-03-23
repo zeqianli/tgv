@@ -60,8 +60,8 @@ impl Data {
             sequence: None,
 
             bam_path,
-            track_service: track_service,
-            sequence_service: sequence_service,
+            track_service,
+            sequence_service,
         })
     }
 

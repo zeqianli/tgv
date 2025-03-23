@@ -1,4 +1,3 @@
-use std::error;
 use std::fmt;
 
 #[derive(Debug, Clone, Eq, PartialEq)]
