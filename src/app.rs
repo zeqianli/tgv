@@ -12,14 +12,10 @@ use ratatui::{
 };
 
 use crate::error::TGVError;
-use crate::models::{
-    data::Data,
-    message::StateMessage,
-    mode::InputMode,
-};
+use crate::models::{data::Data, message::StateMessage, mode::InputMode};
 use crate::rendering::{
     render_alignment, render_console, render_coverage, render_error, render_help, render_sequence,
-    render_track,
+    render_sequence_at_2x, render_track,
 };
 use crate::settings::Settings;
 use crate::states::State;
@@ -155,6 +151,14 @@ impl Widget for &App {
                 match &self.data.sequence {
                     Some(sequence) => {
                         render_sequence(&sequence_area, buf, &viewing_region, sequence).unwrap();
+                    }
+                    None => {} // TODO: handle error
+                }
+            } else if viewing_window.zoom() == 2 {
+                match &self.data.sequence {
+                    Some(sequence) => {
+                        render_sequence_at_2x(&sequence_area, buf, &viewing_region, sequence)
+                            .unwrap();
                     }
                     None => {} // TODO: handle error
                 }

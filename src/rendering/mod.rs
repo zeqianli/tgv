@@ -10,5 +10,5 @@ pub use console::render_console;
 pub use coverage::render_coverage;
 pub use error::render_error;
 pub use help::render_help;
-pub use sequence::render_sequence;
+pub use sequence::{render_sequence, render_sequence_at_2x};
 pub use track::render_track;
