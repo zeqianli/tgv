@@ -1,5 +1,6 @@
 use crate::models::{contig::Contig, region::Region};
 use noodles_bam as bam;
+use noodles_bam::bai;
 use noodles_core::Region as NoodlesRegion;
 use noodles_sam::alignment::record::cigar::op::Kind;
 use noodles_sam::header::Header;
@@ -81,8 +82,20 @@ impl Alignment {
         }
     }
 
-    pub fn from_bam_path(bam_path: &String, region: &Region) -> io::Result<Self> {
-        let mut reader = bam::io::indexed_reader::Builder::default().build_from_path(bam_path)?;
+    pub fn from_bam_path(
+        bam_path: &String,
+        bai_path: Option<&String>,
+        region: &Region,
+    ) -> io::Result<Self> {
+        let mut reader = match bai_path {
+            Some(bai_path) => {
+                let index = bai::fs::read(bai_path)?;
+                bam::io::indexed_reader::Builder::default()
+                    .set_index(index)
+                    .build_from_path(bam_path)?
+            }
+            None => bam::io::indexed_reader::Builder::default().build_from_path(bam_path)?,
+        };
         let header = reader.read_header()?;
 
         let query_str = Self::get_query_str(&header, region)
