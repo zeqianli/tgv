@@ -23,10 +23,6 @@ pub fn render_coverage(
         area.width as usize,
     )?;
 
-    // Y coordinates
-
-    let y_min = 0;
-    //let y_max = *binned_coverage.iter().max().unwrap_or(&0);
     let y_max = round_up_max_coverage(*binned_coverage.iter().max().unwrap_or(&0));
 
     let sparkline = Sparkline::default()
@@ -36,19 +32,12 @@ pub fn render_coverage(
 
     sparkline.render(*area, buf);
 
-    buf.set_string(area.x, area.y, y_max.to_string(), Style::default());
     buf.set_string(
         area.x,
-        area.bottom() - 1,
-        y_min.to_string() + " ",
+        area.y,
+        format!("[0-{}]", y_max.to_string(),),
         Style::default(),
     );
-
-    if area.height > 2 {
-        for i in 1..area.height - 1 {
-            buf.set_string(area.x, area.y + i, "  ", Style::default());
-        }
-    }
 
     Ok(())
 }

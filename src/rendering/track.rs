@@ -1,4 +1,5 @@
 use crate::models::{
+    reference::Reference,
     strand::Strand,
     track::{Feature, Track},
     window::{OnScreenCoordinate, ViewingWindow},
@@ -11,22 +12,13 @@ use ratatui::{
 
 /// Render the genome sequence and coordinates.
 /// TODO: zoomed view
-pub fn render_track(area: &Rect, buf: &mut Buffer, window: &ViewingWindow, track: &Track) {
-    // coordinates
-    let left_coord_str = format!("{}:{}", window.contig.full_name(), window.left());
-    let right_coord_str = format!(
-        "{}:{}",
-        window.contig.full_name(),
-        window.left() + area.width as usize
-    );
-    buf.set_string(area.x, area.y + 1, left_coord_str, Style::default());
-    buf.set_string(
-        area.x + area.width - right_coord_str.len() as u16,
-        area.y + 1,
-        right_coord_str,
-        Style::default(),
-    );
-
+pub fn render_track(
+    area: &Rect,
+    buf: &mut Buffer,
+    window: &ViewingWindow,
+    track: &Track,
+    reference: Option<&Reference>,
+) {
     for feature in track.features.iter() {
         let segment = OnScreenFeatureSegment::new(feature);
 
@@ -114,6 +106,25 @@ pub fn render_track(area: &Rect, buf: &mut Buffer, window: &ViewingWindow, track
                 area.x + name_onscreen_x as u16,
                 area.y + 1,
                 name.clone(),
+                Style::default(),
+            );
+        }
+    }
+
+    match reference {
+        Some(reference) => {
+            buf.set_string(
+                area.x,
+                area.y + 1,
+                format!("{}:{}", reference, window.contig.full_name()),
+                Style::default(),
+            );
+        }
+        None => {
+            buf.set_string(
+                area.x,
+                area.y + 1,
+                format!("{}", window.contig.full_name()),
                 Style::default(),
             );
         }

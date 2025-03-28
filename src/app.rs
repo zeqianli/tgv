@@ -14,8 +14,8 @@ use ratatui::{
 use crate::error::TGVError;
 use crate::models::{data::Data, message::StateMessage, mode::InputMode};
 use crate::rendering::{
-    render_alignment, render_console, render_coverage, render_error, render_help, render_sequence,
-    render_sequence_at_2x, render_track,
+    render_alignment, render_console, render_coordinates, render_coverage, render_error,
+    render_help, render_sequence, render_sequence_at_2x, render_track,
 };
 use crate::settings::Settings;
 use crate::states::State;
@@ -124,8 +124,9 @@ impl Widget for &App {
         let viewing_window = self.state.viewing_window().unwrap();
         let viewing_region = self.state.viewing_region().unwrap();
 
-        let [coverage_area, alignment_area, sequence_area, track_area, console_area, error_area] =
+        let [coordinate_area, coverage_area, alignment_area, sequence_area, track_area, console_area, error_area] =
             Layout::vertical([
+                Length(2), // coordinate
                 Length(6), // coverage
                 Fill(1),   // alignment
                 Length(1), // sequence
@@ -134,6 +135,8 @@ impl Widget for &App {
                 Length(2), // error
             ])
             .areas(area);
+
+        render_coordinates(&coordinate_area, buf, viewing_window).unwrap();
 
         if self.state.settings.bam_path.is_some() {
             match &self.data.alignment {
@@ -166,7 +169,13 @@ impl Widget for &App {
 
             match &self.data.track {
                 Some(track) => {
-                    render_track(&track_area, buf, viewing_window, track);
+                    render_track(
+                        &track_area,
+                        buf,
+                        viewing_window,
+                        track,
+                        self.state.settings.reference.as_ref(),
+                    );
                 }
                 None => {} // TODO: handle error
             }
