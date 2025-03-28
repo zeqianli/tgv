@@ -136,6 +136,7 @@ pub enum OnScreenFeatureType {
     Gene,
     Exon,
     Intron,
+    NonCDSExon,
     // Promoter,
     // UTR,
     // Other,
@@ -149,6 +150,7 @@ struct OnScreenFeatureSegment {
 
 impl OnScreenFeatureSegment {
     const EXON_BACKGROUND_COLOR: Color = tailwind::BLUE.c800;
+    const NON_CDS_EXON_BACKGROUND_COLOR: Color = tailwind::BLUE.c500;
     const EXON_ARROW_GAP: usize = 5;
     const INTRON_FOREGROUND_COLOR: Color = tailwind::BLUE.c300;
     const INTRON_ARROW_GAP: usize = 10;
@@ -160,6 +162,7 @@ impl OnScreenFeatureSegment {
                 Feature::Gene { .. } => OnScreenFeatureType::Gene,
                 Feature::Exon { .. } => OnScreenFeatureType::Exon,
                 Feature::Intron { .. } => OnScreenFeatureType::Intron,
+                Feature::NonCDSExon { .. } => OnScreenFeatureType::NonCDSExon,
             },
             length: feature.length(),
         }
@@ -198,6 +201,7 @@ impl OnScreenFeatureSegment {
                     }
                 })
                 .collect::<String>(),
+            OnScreenFeatureType::NonCDSExon => (0..self.length).map(|_| " ").collect::<String>(),
             _ => " ".to_string(),
         }
     }
@@ -206,6 +210,9 @@ impl OnScreenFeatureSegment {
         match self.feature_type {
             OnScreenFeatureType::Exon => Style::default().bg(Self::EXON_BACKGROUND_COLOR),
             OnScreenFeatureType::Intron => Style::default().fg(Self::INTRON_FOREGROUND_COLOR),
+            OnScreenFeatureType::NonCDSExon => {
+                Style::default().bg(Self::NON_CDS_EXON_BACKGROUND_COLOR)
+            }
             _ => Style::default(),
         }
     }

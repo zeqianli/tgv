@@ -9,10 +9,20 @@ pub enum Feature {
         name: String,
         strand: Strand,
         contig: Contig,
-        start: usize,            // 1-based, inclusive
-        end: usize,              // 1-based, exclusive
-        exon_starts: Vec<usize>, // 1-based, inclusive
-        exon_ends: Vec<usize>,   // 1-based, exclusive
+        transcription_start: usize, // 1-based, inclusive
+        transcription_end: usize,   // 1-based, exclusive
+        cds_start: usize,           // 1-based, inclusive
+        cds_end: usize,             // 1-based, exclusive
+        exon_starts: Vec<usize>,    // 1-based, inclusive
+        exon_ends: Vec<usize>,      // 1-based, exclusive
+    },
+    NonCDSExon {
+        id: String,
+        name: String,
+        strand: Strand,
+        contig: Contig,
+        start: usize, // 1-based, inclusive
+        end: usize,   // 1-based, exclusive
     },
     Exon {
         id: String,
@@ -34,12 +44,19 @@ pub enum Feature {
     },
 }
 
+enum ExonPosition {
+    PreCDS,
+    CDS,
+    PostCDS,
+}
+
 impl Feature {
     pub fn id(&self) -> &str {
         match self {
             Feature::Gene { id, .. } => id,
             Feature::Exon { id, .. } => id,
             Feature::Intron { id, .. } => id,
+            Feature::NonCDSExon { id, .. } => id,
         }
     }
 
@@ -48,6 +65,7 @@ impl Feature {
             Feature::Gene { name, .. } => name,
             Feature::Exon { name, .. } => name,
             Feature::Intron { name, .. } => name,
+            Feature::NonCDSExon { name, .. } => name,
         }
     }
 
@@ -56,6 +74,7 @@ impl Feature {
             Feature::Gene { strand, .. } => strand.clone(),
             Feature::Exon { strand, .. } => strand.clone(),
             Feature::Intron { strand, .. } => strand.clone(),
+            Feature::NonCDSExon { strand, .. } => strand.clone(),
         }
     }
 
@@ -64,22 +83,31 @@ impl Feature {
             Feature::Gene { contig, .. } => contig.clone(),
             Feature::Exon { contig, .. } => contig.clone(),
             Feature::Intron { contig, .. } => contig.clone(),
+            Feature::NonCDSExon { contig, .. } => contig.clone(),
         }
     }
 
     pub fn start(&self) -> usize {
         match self {
-            Feature::Gene { start, .. } => *start,
+            Feature::Gene {
+                transcription_start: start,
+                ..
+            } => *start,
             Feature::Exon { start, .. } => *start,
             Feature::Intron { start, .. } => *start,
+            Feature::NonCDSExon { start, .. } => *start,
         }
     }
 
     pub fn end(&self) -> usize {
         match self {
-            Feature::Gene { end, .. } => *end,
+            Feature::Gene {
+                transcription_end: end,
+                ..
+            } => *end,
             Feature::Exon { end, .. } => *end,
             Feature::Intron { end, .. } => *end,
+            Feature::NonCDSExon { end, .. } => *end,
         }
     }
 
@@ -100,14 +128,16 @@ impl Feature {
                 name,
                 strand,
                 contig,
-                start,
-                end,
+                transcription_start,
+                transcription_end,
+                cds_start,
+                cds_end,
                 exon_starts,
                 exon_ends,
             } => {
                 // TODO: directions
                 let mut features: Vec<Feature> = Vec::new();
-                let mut last_exon_end = *start;
+                let mut last_exon_end = *transcription_start;
 
                 // Add exon exons
                 for (i, (exon_start, exon_end)) in
@@ -126,60 +156,134 @@ impl Feature {
                     }
 
                     // Add exon
-                    features.push(Feature::Exon {
-                        id: format!("{}.exon{}", id.clone(), i + 1),
-                        name: format!("{}.{}", name.clone(), i + 1),
-                        strand: strand.clone(),
-                        contig: contig.clone(),
-                        start: *exon_start,
-                        end: *exon_end,
-                    });
+                    let exon_start_position =
+                        match (*exon_start >= *cds_start, *exon_start <= *cds_end) {
+                            (true, true) => ExonPosition::CDS,
+                            (false, _) => ExonPosition::PreCDS,
+                            (true, false) => ExonPosition::PostCDS,
+                        };
+
+                    let exon_end_position = match (*exon_end >= *cds_start, *exon_end <= *cds_end) {
+                        (true, true) => ExonPosition::CDS,
+                        (false, _) => ExonPosition::PreCDS,
+                        (true, false) => ExonPosition::PostCDS,
+                    };
+
+                    match (exon_start_position, exon_end_position) {
+                        (ExonPosition::PreCDS, ExonPosition::PreCDS) => {
+                            features.push(Feature::NonCDSExon {
+                                id: format!("{}.non_cds_exon{}", id.clone(), i + 1),
+                                name: format!("{}.{}", name.clone(), i + 1),
+                                strand: strand.clone(),
+                                contig: contig.clone(),
+                                start: *exon_start,
+                                end: *exon_end,
+                            });
+                        }
+                        (ExonPosition::PreCDS, ExonPosition::CDS) => {
+                            features.push(Feature::NonCDSExon {
+                                id: format!("{}.non_cds_exon{}", id.clone(), i + 1),
+                                name: format!("{}.{}", name.clone(), i + 1),
+                                strand: strand.clone(),
+                                contig: contig.clone(),
+                                start: *exon_start,
+                                end: *cds_start - 1,
+                            });
+                            features.push(Feature::Exon {
+                                id: format!("{}.exon{}", id.clone(), i + 1),
+                                name: format!("{}.{}", name.clone(), i + 1),
+                                strand: strand.clone(),
+                                contig: contig.clone(),
+                                start: *cds_start,
+                                end: *exon_end,
+                            });
+                        }
+                        (ExonPosition::PreCDS, ExonPosition::PostCDS) => {
+                            features.push(Feature::NonCDSExon {
+                                id: format!("{}.non_cds_exon{}", id.clone(), i + 1),
+                                name: format!("{}.{}", name.clone(), i + 1),
+                                strand: strand.clone(),
+                                contig: contig.clone(),
+                                start: *exon_start,
+                                end: *cds_start - 1,
+                            });
+                            features.push(Feature::Exon {
+                                id: format!("{}.exon{}", id.clone(), i + 1),
+                                name: format!("{}.{}", name.clone(), i + 1),
+                                strand: strand.clone(),
+                                contig: contig.clone(),
+                                start: *cds_start,
+                                end: *cds_end,
+                            });
+                            features.push(Feature::Exon {
+                                id: format!("{}.exon{}", id.clone(), i + 1),
+                                name: format!("{}.{}", name.clone(), i + 1),
+                                strand: strand.clone(),
+                                contig: contig.clone(),
+                                start: *cds_end + 1,
+                                end: *exon_end,
+                            });
+                        }
+                        (ExonPosition::CDS, ExonPosition::CDS) => {
+                            features.push(Feature::Exon {
+                                id: format!("{}.exon{}", id.clone(), i + 1),
+                                name: format!("{}.{}", name.clone(), i + 1),
+                                strand: strand.clone(),
+                                contig: contig.clone(),
+                                start: *exon_start,
+                                end: *exon_end,
+                            });
+                        }
+                        (ExonPosition::CDS, ExonPosition::PostCDS) => {
+                            features.push(Feature::Exon {
+                                id: format!("{}.exon{}", id.clone(), i + 1),
+                                name: format!("{}.{}", name.clone(), i + 1),
+                                strand: strand.clone(),
+                                contig: contig.clone(),
+                                start: *exon_start,
+                                end: *cds_end,
+                            });
+                            features.push(Feature::NonCDSExon {
+                                id: format!("{}.non_cds_exon{}", id.clone(), i + 1),
+                                name: format!("{}.{}", name.clone(), i + 1),
+                                strand: strand.clone(),
+                                contig: contig.clone(),
+                                start: *cds_end + 1,
+                                end: *exon_end,
+                            });
+                        }
+                        (ExonPosition::PostCDS, ExonPosition::PostCDS) => {
+                            features.push(Feature::NonCDSExon {
+                                id: format!("{}.non_cds_exon{}", id.clone(), i + 1),
+                                name: format!("{}.{}", name.clone(), i + 1),
+                                strand: strand.clone(),
+                                contig: contig.clone(),
+                                start: *exon_start,
+                                end: *exon_end,
+                            });
+                        }
+                        _ => {} // should not happen
+                    }
 
                     last_exon_end = *exon_end;
                 }
 
                 Ok(features)
             }
+
             Feature::Exon { .. } => Err(()),
             Feature::Intron { .. } => Err(()),
+            Feature::NonCDSExon { .. } => Err(()),
         }
     }
 
     pub fn exons(&self) -> Result<Vec<Feature>, ()> {
-        match self {
-            Feature::Gene {
-                id,
-                name,
-                strand,
-                contig,
-                start,
-                end,
-                exon_starts,
-                exon_ends,
-            } => {
-                // TODO: directions
-                let mut features: Vec<Feature> = Vec::new();
-
-                // Add exon exons
-                for (i, (exon_start, exon_end)) in
-                    exon_starts.iter().zip(exon_ends.iter()).enumerate()
-                {
-                    // Add exon
-                    features.push(Feature::Exon {
-                        id: format!("{}.exon{}", id.clone(), i + 1),
-                        name: format!("{}.{}", name.clone(), i + 1),
-                        strand: strand.clone(),
-                        contig: contig.clone(),
-                        start: *exon_start,
-                        end: *exon_end,
-                    });
-                }
-
-                Ok(features)
-            }
-            Feature::Exon { .. } => Err(()),
-            Feature::Intron { .. } => Err(()),
-        }
+        Ok(self
+            .expand()?
+            .iter()
+            .filter(|feature| matches!(feature, Feature::Exon { .. }))
+            .cloned()
+            .collect())
     }
 }
 
