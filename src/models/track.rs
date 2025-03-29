@@ -116,7 +116,7 @@ impl Feature {
     }
 
     pub fn length(&self) -> usize {
-        self.end() - self.start()
+        self.end() - self.start() + 1
     }
 
     /// Expand a parent feature into a list of child features.
@@ -150,7 +150,7 @@ impl Feature {
                             name: format!("{}.intron{}", name.clone(), i + 1),
                             strand: strand.clone(),
                             contig: contig.clone(),
-                            start: last_exon_end,
+                            start: last_exon_end + 1,
                             end: *exon_start,
                         });
                     }

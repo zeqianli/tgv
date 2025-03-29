@@ -27,7 +27,7 @@ pub fn render_track(
 
         match (
             window.onscreen_x_coordinate(feature.start(), area),
-            window.onscreen_x_coordinate(feature.end(), area),
+            window.onscreen_x_coordinate(feature.end() + 1, area), // feature is 1-based inclusive. On-screen coordinates are 0-based, exclude in the end.
         ) {
             (OnScreenCoordinate::Left(x_start), OnScreenCoordinate::OnScreen(x_end)) => {
                 if x_end == 0 {
@@ -38,7 +38,7 @@ pub fn render_track(
                 } else {
                     onscreen_string = segment.resize(x_end + x_start).string();
                 }
-                onscreen_string = onscreen_string[x_start..].to_string();
+                onscreen_string = onscreen_string.chars().skip(x_start).collect::<String>();
                 onscreen_x = 0;
             }
             (OnScreenCoordinate::OnScreen(x_start), OnScreenCoordinate::OnScreen(x_end)) => {
@@ -63,7 +63,10 @@ pub fn render_track(
                         .resize(area.width as usize - x_start + x_end)
                         .string();
                 }
-                onscreen_string = onscreen_string[..onscreen_string.len() - x_end].to_string(); // TODO: handle overflow
+                onscreen_string = onscreen_string
+                    .chars()
+                    .take(onscreen_string.len() - x_end)
+                    .collect::<String>(); // TODO: handle overflow
                 onscreen_x = x_start;
             }
 
@@ -75,8 +78,11 @@ pub fn render_track(
                         .resize(area.width as usize + x_start + x_end)
                         .string();
                 }
-                onscreen_string =
-                    onscreen_string[x_start..onscreen_string.len() - x_end].to_string(); // TODO: handle overflow
+                onscreen_string = onscreen_string
+                    .chars()
+                    .skip(x_start)
+                    .take(onscreen_string.len() - x_end - x_start)
+                    .collect::<String>(); // TODO: handle overflow
                 onscreen_x = 0;
             }
 
@@ -201,7 +207,7 @@ impl OnScreenFeatureSegment {
                     }
                 })
                 .collect::<String>(),
-            OnScreenFeatureType::NonCDSExon => (0..self.length).map(|_| " ").collect::<String>(),
+            OnScreenFeatureType::NonCDSExon => (0..self.length).map(|_| "▅").collect::<String>(),
             _ => " ".to_string(),
         }
     }
@@ -211,7 +217,7 @@ impl OnScreenFeatureSegment {
             OnScreenFeatureType::Exon => Style::default().bg(Self::EXON_BACKGROUND_COLOR),
             OnScreenFeatureType::Intron => Style::default().fg(Self::INTRON_FOREGROUND_COLOR),
             OnScreenFeatureType::NonCDSExon => {
-                Style::default().bg(Self::NON_CDS_EXON_BACKGROUND_COLOR)
+                Style::default().fg(Self::NON_CDS_EXON_BACKGROUND_COLOR)
             }
             _ => Style::default(),
         }
