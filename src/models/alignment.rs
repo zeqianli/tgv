@@ -1,24 +1,23 @@
+use crate::error::TGVError;
+use crate::helpers::is_url;
 use crate::models::{contig::Contig, region::Region};
-use noodles_bam as bam;
-use noodles_bam::bai;
-use noodles_core::Region as NoodlesRegion;
-use noodles_sam::alignment::record::cigar::op::Kind;
-use noodles_sam::header::Header;
+use rust_htslib::bam;
+use rust_htslib::bam::ext::BamRecordExtensions;
+use rust_htslib::bam::{record::Cigar, Header, IndexedReader, Read, Record};
 use std::collections::{BTreeMap, HashMap};
-use std::io;
+use url::Url;
 
 /// An aligned read with viewing coordinates.
 pub struct AlignedRead {
     /// Alignment record data
-    pub read: bam::Record,
+    pub read: Record,
 
     /// Start genome coordinate on the alignment view.
-    /// 1-based, inclusive. Same as noodles_bam.
+    /// 1-based, inclusive
     pub start: usize,
-
     /// End genome coordinate on the alignment view.
     /// Note that this includes the soft-clipped reads and differ from the built-in methods. TODO
-    /// 1-based, inclusive. Same as noodles region parsing.
+    /// 1-based, inclusive
     pub end: usize,
 
     /// Y coordinate in the alignment view
@@ -86,37 +85,46 @@ impl Alignment {
         bam_path: &String,
         bai_path: Option<&String>,
         region: &Region,
-    ) -> io::Result<Self> {
-        let mut reader = match bai_path {
+    ) -> Result<Self, TGVError> {
+        let is_remote_path = is_url(bam_path);
+        let mut bam = match bai_path {
             Some(bai_path) => {
-                let index = bai::fs::read(bai_path)?;
-                bam::io::indexed_reader::Builder::default()
-                    .set_index(index)
-                    .build_from_path(bam_path)?
+                if is_remote_path {
+                    return Err(TGVError::IOError(
+                        "Remote BAM files are not supported yet.".to_string(),
+                    ));
+                }
+                IndexedReader::from_path_and_index(bam_path, bai_path)
+                    .map_err(|e| TGVError::IOError(e.to_string()))?
             }
-            None => bam::io::indexed_reader::Builder::default().build_from_path(bam_path)?,
+            None => {
+                if is_remote_path {
+                    IndexedReader::from_url(
+                        &Url::parse(bam_path).map_err(|e| TGVError::IOError(e.to_string()))?,
+                    )
+                    .unwrap()
+                } else {
+                    IndexedReader::from_path(bam_path)
+                        .map_err(|e| TGVError::IOError(e.to_string()))?
+                }
+            }
         };
-        let header = reader.read_header()?;
 
-        let query_str = Self::get_query_str(&header, region)
-            .map_err(|_| io::Error::new(io::ErrorKind::InvalidInput, "Invalid region format"))?;
-        let noodles_region: NoodlesRegion = query_str
-            .parse()
-            .map_err(|e| io::Error::new(io::ErrorKind::InvalidInput, e))?; // noodles region
+        let header = bam::Header::from_template(bam.header());
 
-        let records = reader.query(&header, &noodles_region)?;
-        Alignment::from_records(records, region)
-    }
+        let query_contig_string = Self::get_query_contig_string(&header, region)?;
+        bam.fetch((
+            &query_contig_string,
+            region.start as i32 - 1,
+            region.end as i32,
+        ))
+        .map_err(|e| TGVError::IOError(e.to_string()))?;
 
-    pub fn from_records<I>(records: I, region: &Region) -> io::Result<Self>
-    where
-        I: Iterator<Item = io::Result<bam::Record>>,
-    {
         let mut alignment = Self::new(&region.contig);
         let mut coverage_hashmap: HashMap<usize, usize> = HashMap::new(); // First use a hashmap to store coverage, then convert to BTreeMap
 
-        for record in records {
-            let read = record?;
+        for record in bam.records() {
+            let read = record.map_err(|e| TGVError::IOError(e.to_string()))?;
             alignment.add_read(read);
             let aligned_read = alignment.reads.last().unwrap();
 
@@ -140,27 +148,26 @@ impl Alignment {
 
     /// Get the query string for a region.
     /// Look through the header to decide if the bam file chromosome names are abbreviated or full.
-    fn get_query_str(header: &Header, region: &Region) -> Result<String, ()> {
+    fn get_query_contig_string(header: &Header, region: &Region) -> Result<String, TGVError> {
         let full_chromsome_str = region.contig.full_name();
         let abbreviated_chromsome_str = region.contig.abbreviated_name();
 
-        for (reference_name, _) in header.reference_sequences().iter() {
-            if *reference_name == full_chromsome_str {
-                return Ok(format!(
-                    "{}:{}-{}",
-                    full_chromsome_str, region.start, region.end
-                ));
-            }
+        for (key, records) in header.to_hashmap().iter() {
+            for record in records {
+                if record.contains_key("SN") {
+                    let reference_name = record["SN"].to_string();
+                    if reference_name == full_chromsome_str {
+                        return Ok(full_chromsome_str);
+                    }
 
-            if *reference_name == abbreviated_chromsome_str {
-                return Ok(format!(
-                    "{}:{}-{}",
-                    abbreviated_chromsome_str, region.start, region.end
-                ));
+                    if reference_name == abbreviated_chromsome_str {
+                        return Ok(abbreviated_chromsome_str);
+                    }
+                }
             }
         }
 
-        Err(())
+        Err(TGVError::IOError("Contig not found in header".to_string()))
     }
 }
 
@@ -241,9 +248,12 @@ impl Alignment {
         self.depth()
     }
 
-    fn add_read(&mut self, read: bam::Record) {
-        let read_start = read.alignment_start().unwrap().unwrap().get();
-        let read_end = read_start + self.get_alignment_length(&read) - 1;
+    fn add_read(&mut self, read: Record) {
+        let read_start = read.pos() as usize + 1 - read.cigar().leading_softclips() as usize;
+        let read_end = read.reference_end() as usize + read.cigar().trailing_softclips() as usize;
+        // read.pos() in htslib: 0-based, inclusive, excluding leading hardclips and softclips
+        // read.reference_end() in htslib: 0-based, exclusive, excluding trailing hardclips and softclips
+
         let y = self.find_track(read_start, read_end);
 
         let aligned_read = AlignedRead {
@@ -278,20 +288,5 @@ impl Alignment {
 
         // Add to reads
         self.reads.push(aligned_read);
-    }
-
-    fn get_alignment_length(&self, read: &bam::Record) -> usize {
-        // See: https://samtools.github.io/hts-specs/SAMv1.pdf
-        let mut len = 0;
-        for op in read.cigar().iter() {
-            let op = op.unwrap();
-            match op.kind() {
-                Kind::Insertion | Kind::HardClip | Kind::Pad => continue,
-                Kind::Deletion | Kind::Skip => len += op.len(),
-                Kind::Match | Kind::SequenceMatch | Kind::SequenceMismatch => len += op.len(),
-                Kind::SoftClip => len += op.len(),
-            }
-        }
-        len
     }
 }

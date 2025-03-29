@@ -1,4 +1,5 @@
 use crate::error::TGVError;
+use crate::helpers::is_url;
 use crate::models::{
     alignment::Alignment,
     message::DataMessage,
@@ -30,27 +31,29 @@ impl Data {
     pub async fn new(settings: &Settings) -> Result<Self, TGVError> {
         let bam_path = match settings.bam_path.clone() {
             Some(bam_path) => {
-                if !Path::new(&bam_path).exists() {
-                    return Err(TGVError::IOError(format!(
-                        "BAM file {} not found",
-                        bam_path
-                    )));
-                }
-                match settings.bai_path.clone() {
-                    Some(bai_path) => {
-                        if !Path::new(&bai_path).exists() {
-                            return Err(TGVError::IOError(format!(
+                if !is_url(&bam_path) {
+                    if !Path::new(&bam_path).exists() {
+                        return Err(TGVError::IOError(format!(
+                            "BAM file {} not found",
+                            bam_path
+                        )));
+                    }
+                    match settings.bai_path.clone() {
+                        Some(bai_path) => {
+                            if !Path::new(&bai_path).exists() {
+                                return Err(TGVError::IOError(format!(
                                 "BAM index file {} not found. Only indexed BAM files are supported.",
                                 bai_path
                             )));
+                            }
                         }
-                    }
-                    None => {
-                        if !Path::new(&format!("{}.bai", bam_path)).exists() {
-                            return Err(TGVError::IOError(format!(
+                        None => {
+                            if !Path::new(&format!("{}.bai", bam_path)).exists() {
+                                return Err(TGVError::IOError(format!(
                                 "BAM index file {}.bai not found. Only indexed BAM files are supported.",
                                 bam_path
                             )));
+                            }
                         }
                     }
                 }
