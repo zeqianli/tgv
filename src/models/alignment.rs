@@ -5,7 +5,6 @@ use rust_htslib::bam;
 use rust_htslib::bam::ext::BamRecordExtensions;
 use rust_htslib::bam::{record::Cigar, Header, IndexedReader, Read, Record};
 use std::collections::{BTreeMap, HashMap};
-use std::io;
 use url::Url;
 
 /// An aligned read with viewing coordinates.
