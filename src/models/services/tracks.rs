@@ -66,7 +66,7 @@ impl TrackService {
         end: usize,
     ) -> Result<Vec<Feature>, sqlx::Error> {
         let rows = sqlx::query(
-            "SELECT name, chrom, strand, txStart, txEnd, name2, exonStarts, exonEnds 
+            "SELECT name, chrom, strand, txStart, txEnd, name2, exonStarts, exonEnds, cdsStart, cdsEnd
              FROM ncbiRefSeqSelect 
              WHERE chrom = ? AND (txStart <= ?) AND (txEnd >= ?)",
         )
@@ -83,18 +83,28 @@ impl TrackService {
             let strand_str: String = row.try_get("strand")?;
             let tx_start: u32 = row.try_get("txStart")?;
             let tx_end: u32 = row.try_get("txEnd")?;
+            let cds_start: u32 = row.try_get("cdsStart")?;
+            let cds_end: u32 = row.try_get("cdsEnd")?;
             let name2: String = row.try_get("name2")?;
             let exon_starts_blob: Vec<u8> = row.try_get("exonStarts")?;
             let exon_ends_blob: Vec<u8> = row.try_get("exonEnds")?;
+
+            // USCS coordinates are 0-based, half-open
+            // https://genome-blog.gi.ucsc.edu/blog/2016/12/12/the-ucsc-genome-browser-coordinate-counting-systems/
 
             genes.push(Feature::Gene {
                 id: name,
                 name: name2,
                 strand: Strand::from_str(strand_str).unwrap(),
                 contig: Contig::chrom(&chrom),
-                start: tx_start.try_into().unwrap(),
-                end: tx_end.try_into().unwrap(),
-                exon_starts: parse_blob_to_coords(&exon_starts_blob),
+                transcription_start: tx_start as usize + 1,
+                transcription_end: tx_end as usize,
+                cds_start: cds_start as usize + 1,
+                cds_end: cds_end as usize,
+                exon_starts: parse_blob_to_coords(&exon_starts_blob)
+                    .iter()
+                    .map(|v| v + 1)
+                    .collect(),
                 exon_ends: parse_blob_to_coords(&exon_ends_blob),
             });
         }
@@ -108,7 +118,7 @@ impl TrackService {
         coord: usize,
     ) -> Result<Option<Feature>, sqlx::Error> {
         let row = sqlx::query(
-            "SELECT name, chrom, strand, txStart, txEnd, name2, exonStarts, exonEnds 
+            "SELECT name, chrom, strand, txStart, txEnd, name2, exonStarts, exonEnds, cdsStart, cdsEnd
              FROM ncbiRefSeqSelect 
              WHERE chrom = ? AND txStart <= ? AND txEnd >= ?",
         )
@@ -124,18 +134,28 @@ impl TrackService {
             let strand_str: String = row.try_get("strand")?;
             let tx_start: u32 = row.try_get("txStart")?;
             let tx_end: u32 = row.try_get("txEnd")?;
+            let cds_start: u32 = row.try_get("cdsStart")?;
+            let cds_end: u32 = row.try_get("cdsEnd")?;
             let name2: String = row.try_get("name2")?;
             let exon_starts_blob: Vec<u8> = row.try_get("exonStarts")?;
             let exon_ends_blob: Vec<u8> = row.try_get("exonEnds")?;
+
+            // USCS coordinates are 0-based, half-open
+            // https://genome-blog.gi.ucsc.edu/blog/2016/12/12/the-ucsc-genome-browser-coordinate-counting-systems/
 
             Ok(Some(Feature::Gene {
                 id: name,
                 name: name2,
                 strand: Strand::from_str(strand_str).unwrap(),
                 contig: Contig::chrom(&chrom),
-                start: tx_start.try_into().unwrap(),
-                end: tx_end.try_into().unwrap(),
-                exon_starts: parse_blob_to_coords(&exon_starts_blob),
+                transcription_start: tx_start as usize + 1,
+                transcription_end: tx_end as usize,
+                cds_start: cds_start as usize + 1,
+                cds_end: cds_end as usize,
+                exon_starts: parse_blob_to_coords(&exon_starts_blob)
+                    .iter()
+                    .map(|v| v + 1)
+                    .collect(),
                 exon_ends: parse_blob_to_coords(&exon_ends_blob),
             }))
         } else {
@@ -150,7 +170,7 @@ impl TrackService {
         k: usize,
     ) -> Result<Vec<Feature>, sqlx::Error> {
         let rows = sqlx::query(
-            "SELECT name, chrom, strand, txStart, txEnd, name2, exonStarts, exonEnds 
+            "SELECT name, chrom, strand, txStart, txEnd, name2, exonStarts, exonEnds, cdsStart, cdsEnd
              FROM ncbiRefSeqSelect 
              WHERE chrom = ? AND txStart > ? 
              ORDER BY txStart ASC LIMIT ?",
@@ -171,15 +191,25 @@ impl TrackService {
             let name2: String = row.try_get("name2")?;
             let exon_starts_blob: Vec<u8> = row.try_get("exonStarts")?;
             let exon_ends_blob: Vec<u8> = row.try_get("exonEnds")?;
+            let cds_start: u32 = row.try_get("cdsStart")?;
+            let cds_end: u32 = row.try_get("cdsEnd")?;
+
+            // USCS coordinates are 0-based, half-open
+            // https://genome-blog.gi.ucsc.edu/blog/2016/12/12/the-ucsc-genome-browser-coordinate-counting-systems/
 
             genes.push(Feature::Gene {
                 id: name,
                 name: name2,
                 strand: Strand::from_str(strand_str).unwrap(),
                 contig: Contig::chrom(&chrom),
-                start: tx_start.try_into().unwrap(),
-                end: tx_end.try_into().unwrap(),
-                exon_starts: parse_blob_to_coords(&exon_starts_blob),
+                transcription_start: tx_start as usize + 1,
+                transcription_end: tx_end as usize,
+                cds_start: cds_start as usize + 1,
+                cds_end: cds_end as usize,
+                exon_starts: parse_blob_to_coords(&exon_starts_blob)
+                    .iter()
+                    .map(|v| v + 1)
+                    .collect(),
                 exon_ends: parse_blob_to_coords(&exon_ends_blob),
             });
         }
@@ -194,7 +224,7 @@ impl TrackService {
         k: usize,
     ) -> Result<Vec<Feature>, sqlx::Error> {
         let rows = sqlx::query(
-            "SELECT name, chrom, strand, txStart, txEnd, name2, exonStarts, exonEnds 
+            "SELECT name, chrom, strand, txStart, txEnd, name2, exonStarts, exonEnds, cdsStart, cdsEnd
              FROM ncbiRefSeqSelect 
              WHERE chrom = ? AND txStart < ? 
              ORDER BY txStart DESC LIMIT ?",
@@ -215,15 +245,25 @@ impl TrackService {
             let name2: String = row.try_get("name2")?;
             let exon_starts_blob: Vec<u8> = row.try_get("exonStarts")?;
             let exon_ends_blob: Vec<u8> = row.try_get("exonEnds")?;
+            let cds_start: u32 = row.try_get("cdsStart")?;
+            let cds_end: u32 = row.try_get("cdsEnd")?;
+
+            // USCS coordinates are 0-based, half-open
+            // https://genome-blog.gi.ucsc.edu/blog/2016/12/12/the-ucsc-genome-browser-coordinate-counting-systems/
 
             genes.push(Feature::Gene {
                 id: name,
                 name: name2,
                 strand: Strand::from_str(strand_str).unwrap(),
                 contig: Contig::chrom(&chrom),
-                start: tx_start.try_into().unwrap(),
-                end: tx_end.try_into().unwrap(),
-                exon_starts: parse_blob_to_coords(&exon_starts_blob),
+                transcription_start: tx_start as usize + 1,
+                transcription_end: tx_end as usize,
+                cds_start: cds_start as usize + 1,
+                cds_end: cds_end as usize,
+                exon_starts: parse_blob_to_coords(&exon_starts_blob)
+                    .iter()
+                    .map(|v| v + 1)
+                    .collect(),
                 exon_ends: parse_blob_to_coords(&exon_ends_blob),
             });
         }
@@ -233,7 +273,7 @@ impl TrackService {
 
     pub async fn query_gene_name(&self, gene_id: &String) -> Result<Feature, sqlx::Error> {
         let row = sqlx::query(
-            "SELECT name, name2, strand, chrom, txStart, txEnd, exonStarts, exonEnds 
+            "SELECT name, name2, strand, chrom, txStart, txEnd, exonStarts, exonEnds, cdsStart, cdsEnd
             FROM ncbiRefSeqSelect 
             WHERE name2 = ?",
         )
@@ -242,6 +282,9 @@ impl TrackService {
         .await?;
 
         if let Some(row) = row {
+            // USCS coordinates are 0-based, half-open
+            // https://genome-blog.gi.ucsc.edu/blog/2016/12/12/the-ucsc-genome-browser-coordinate-counting-systems/
+
             let name: String = row.try_get("name")?;
             let name2: String = row.try_get("name2")?;
             let strand_str: String = row.try_get("strand")?;
@@ -250,15 +293,25 @@ impl TrackService {
             let tx_end: u32 = row.try_get("txEnd")?;
             let exon_starts_blob: Vec<u8> = row.try_get("exonStarts")?;
             let exon_ends_blob: Vec<u8> = row.try_get("exonEnds")?;
+            let cds_start: u32 = row.try_get("cdsStart")?;
+            let cds_end: u32 = row.try_get("cdsEnd")?;
+
+            // USCS coordinates are 0-based, half-open
+            // https://genome-blog.gi.ucsc.edu/blog/2016/12/12/the-ucsc-genome-browser-coordinate-counting-systems/
 
             Ok(Feature::Gene {
                 id: name,
                 name: name2,
                 strand: Strand::from_str(strand_str).unwrap(),
                 contig: Contig::chrom(&chrom),
-                start: tx_start.try_into().unwrap(),
-                end: tx_end.try_into().unwrap(),
-                exon_starts: parse_blob_to_coords(&exon_starts_blob),
+                transcription_start: tx_start as usize + 1,
+                transcription_end: tx_end as usize,
+                cds_start: cds_start as usize + 1,
+                cds_end: cds_end as usize,
+                exon_starts: parse_blob_to_coords(&exon_starts_blob)
+                    .iter()
+                    .map(|v| v + 1)
+                    .collect(),
                 exon_ends: parse_blob_to_coords(&exon_ends_blob),
             })
         } else {

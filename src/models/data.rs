@@ -14,6 +14,7 @@ pub struct Data {
     /// Alignment segments.
     pub alignment: Option<Alignment>,
     pub bam_path: Option<String>,
+    pub bai_path: Option<String>,
 
     /// Tracks.
     pub track: Option<Track>,
@@ -35,11 +36,23 @@ impl Data {
                         bam_path
                     )));
                 }
-                if !Path::new(&format!("{}.bai", bam_path)).exists() {
-                    return Err(TGVError::IOError(format!(
-                        "BAM index file {} not found. Only indexed BAM files are supported.",
-                        bam_path
-                    )));
+                match settings.bai_path.clone() {
+                    Some(bai_path) => {
+                        if !Path::new(&bai_path).exists() {
+                            return Err(TGVError::IOError(format!(
+                                "BAM index file {} not found. Only indexed BAM files are supported.",
+                                bai_path
+                            )));
+                        }
+                    }
+                    None => {
+                        if !Path::new(&format!("{}.bai", bam_path)).exists() {
+                            return Err(TGVError::IOError(format!(
+                                "BAM index file {}.bai not found. Only indexed BAM files are supported.",
+                                bam_path
+                            )));
+                        }
+                    }
                 }
                 Some(bam_path)
             }
@@ -56,12 +69,12 @@ impl Data {
 
         Ok(Self {
             alignment: None,
+            bam_path: bam_path,
+            bai_path: settings.bai_path.clone(),
             track: None,
+            track_service: track_service,
             sequence: None,
-
-            bam_path,
-            track_service,
-            sequence_service,
+            sequence_service: sequence_service,
         })
     }
 
@@ -103,8 +116,10 @@ impl Data {
 
                 if !self.has_complete_alignment(&region) {
                     let cache_region = Self::cache_region(region); // TODO: calculated three times. Not efficient.
-                    self.alignment =
-                        Some(Alignment::from_bam_path(bam_path, &cache_region).unwrap());
+                    self.alignment = Some(
+                        Alignment::from_bam_path(bam_path, self.bai_path.as_ref(), &cache_region)
+                            .unwrap(),
+                    );
                     loaded_data = true;
                 }
             }

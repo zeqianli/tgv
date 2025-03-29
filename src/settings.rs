@@ -10,6 +10,11 @@ pub struct Cli {
     #[arg(value_name = "PATHS")]
     paths: Vec<String>,
 
+    /// Index file path.
+    /// If not provided, .bai in the same directory as the BAM file will be used.
+    #[arg(short = 'i', long = "index", value_name = "PATH", default_value = "")]
+    index: String,
+
     /// Starting region. Supported formats: [chr]:[pos] (e.g. 12:25398142); [gene] (e.g. TP53).
     /// If not provided, TGV will find a default starting region.
     #[arg(short = 'r', long = "region", default_value = "")]
@@ -28,6 +33,7 @@ pub struct Cli {
 #[derive(Debug, Clone, Eq, PartialEq)]
 pub struct Settings {
     pub bam_path: Option<String>,
+    pub bai_path: Option<String>,
     // pub vcf_path: Option<String>,
     // pub bed_path: Option<String>,
     pub reference: Option<Reference>,
@@ -50,6 +56,11 @@ impl Settings {
                 )));
             }
         }
+
+        let bai_path = match cli.index.is_empty() {
+            true => None,
+            false => Some(cli.index),
+        };
 
         // Reference
         let reference = if cli.no_reference {
@@ -95,6 +106,7 @@ impl Settings {
 
         Ok(Self {
             bam_path,
+            bai_path,
             // vcf_path,
             // bed_path,
             reference,
@@ -148,11 +160,10 @@ impl Settings {
 #[cfg(test)]
 mod tests {
     use super::*;
-    
+
     use crate::models::message::StateMessage;
     use crate::models::reference::Reference;
     use rstest::rstest;
-    
 
     #[rstest]
     #[case("tgv", Ok(Settings {
