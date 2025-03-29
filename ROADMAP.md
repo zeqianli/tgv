@@ -8,9 +8,10 @@
 - Bugs / testing
   - [ ] Test read display and cigar parsing
   - [x] Test coverage calculation & display
-  - [ ] Intergration tests
+  - ~~Intergration tests~~
   - [ ] Feature movements get stuck sometimes (e.g. `gE` / `ge`)
-  - [ ] Feature coloring is different from IGV
+  - [x] Feature coloring is different from IGV
+  - [ ] Exon naming
 
 ## Features / fixes that will for sure be added
 
@@ -21,7 +22,10 @@
   - [ ] Alternative reference database hosting (probably Supabase)
 - UI
   - [x] Error message view
-  - [ ] Coordinates
+  - [x] Coordinates
+  - [ ] Mis-match base display
+  - [ ] Higher read display resolution (up to 1/8 character) using unicode; better direction indicator
+  - [ ]
 - Movements
   - [ ] Navigation between VCF / BED entries
   - [ ] Navigation between reads / read clusters
