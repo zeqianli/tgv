@@ -1,4 +1,5 @@
 use crate::error::TGVError;
+use crate::helpers::is_url;
 use crate::models::{
     contig::Contig,
     message::{DataMessage, StateMessage},
@@ -12,9 +13,10 @@ use crate::models::{
 };
 use crate::settings::Settings;
 use crossterm::event::{KeyCode, KeyEvent};
-use noodles_bam as bam;
 use ratatui::layout::Rect;
+use rust_htslib::bam::{self, record::Cigar, Header, IndexedReader, Read, Record};
 use std::collections::HashMap;
+use url::Url;
 /// A collection of contigs. This helps relative contig movements.
 struct ContigCollection {
     contigs: Vec<Contig>,
@@ -50,32 +52,51 @@ impl ContigCollection {
         Ok(&self.contigs[self.contigs.len() - 1])
     }
 
-    pub fn from_bam(path: &str, reference: Option<&Reference>) -> Result<Self, TGVError> {
+    pub fn from_bam(
+        path: &String,
+        bai_path: Option<&String>,
+        reference: Option<&Reference>,
+    ) -> Result<Self, TGVError> {
         // Use the indexed_reader::Builder pattern as shown in alignment.rs
-        let mut reader = match bam::io::indexed_reader::Builder::default().build_from_path(path) {
-            Ok(reader) => reader,
-            Err(e) => return Err(TGVError::IOError(format!("Failed to open BAM file: {}", e))),
-        };
-        let header = match reader.read_header() {
-            Ok(header) => header,
-            Err(e) => {
-                return Err(TGVError::IOError(format!(
-                    "Failed to read BAM header: {}",
-                    e
-                )))
+        let is_remote_path = is_url(path);
+        let bam = match bai_path {
+            Some(bai_path) => {
+                if is_remote_path {
+                    return Err(TGVError::IOError(
+                        "Custom .bai path for remote BAM files are not supported yet.".to_string(),
+                    ));
+                }
+                IndexedReader::from_path_and_index(path, bai_path)
+                    .map_err(|e| TGVError::IOError(e.to_string()))?
+            }
+            None => {
+                if is_remote_path {
+                    IndexedReader::from_url(
+                        &Url::parse(path).map_err(|e| TGVError::IOError(e.to_string()))?,
+                    )
+                    .unwrap()
+                } else {
+                    IndexedReader::from_path(path).map_err(|e| TGVError::IOError(e.to_string()))?
+                }
             }
         };
 
-        // Extract contigs from the header
-        let mut contigs = Vec::new();
-        for (contig_name, _) in header.reference_sequences().iter() {
-            match reference {
-                // If the reference is human, interpret contig names as chromosomes. This allows abbreviated matching (chr1 <-> 1).
-                Some(Reference::Hg19) => contigs.push(Contig::chrom(&contig_name.to_string())),
-                Some(Reference::Hg38) => contigs.push(Contig::chrom(&contig_name.to_string())),
+        let header = bam::Header::from_template(bam.header());
 
-                // Otherwise, interpret contig names as contigs. This does not allow abbreviated matching.
-                _ => contigs.push(Contig::contig(&contig_name.to_string())),
+        let mut contigs = Vec::new();
+        for (key, records) in header.to_hashmap().iter() {
+            for record in records {
+                if record.contains_key("SN") {
+                    let contig_name = record["SN"].to_string();
+                    match reference {
+                        // If the reference is human, interpret contig names as chromosomes. This allows abbreviated matching (chr1 <-> 1).
+                        Some(Reference::Hg19) => contigs.push(Contig::chrom(&contig_name)),
+                        Some(Reference::Hg38) => contigs.push(Contig::chrom(&contig_name)),
+
+                        // Otherwise, interpret contig names as contigs. This does not allow abbreviated matching.
+                        _ => contigs.push(Contig::contig(&contig_name)),
+                    }
+                }
             }
         }
 
@@ -137,6 +158,7 @@ impl State {
         let contigs = match settings.bam_path.clone() {
             Some(bam_path) => Some(ContigCollection::from_bam(
                 &bam_path,
+                settings.bai_path.as_ref(),
                 settings.reference.as_ref(),
             )?),
             None => None,

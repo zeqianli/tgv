@@ -3,12 +3,12 @@ use crate::models::{
     strand::Strand,
     window::{OnScreenCoordinate, ViewingWindow},
 };
-use noodles_sam::alignment::record::cigar::op::Kind;
 use ratatui::{
     buffer::Buffer,
     layout::Rect,
     style::{palette::tailwind, Color, Style},
 };
+use rust_htslib::bam::record::Cigar;
 
 /// Render an alignment on the alignment area.
 /// TODO: multiple alignments
@@ -164,35 +164,24 @@ fn get_cigar_segments(read: &AlignedRead) -> Vec<OnScreenCigarSegment> {
     let mut pivot: usize = 0;
 
     for op in read.read.cigar().iter() {
-        let op = op.unwrap();
-
-        match op.kind() {
-            Kind::Insertion | Kind::HardClip | Kind::Pad => continue,
-            Kind::Deletion | Kind::Skip => {
-                pivot += op.len();
+        match op {
+            Cigar::Ins(l) | Cigar::HardClip(l) | Cigar::Pad(l) => continue,
+            Cigar::Del(l) | Cigar::RefSkip(l) => {
+                pivot += *l as usize;
                 continue;
             }
-            Kind::SequenceMismatch => {
+            Cigar::Match(l) | Cigar::Equal(l) | Cigar::Diff(l) => {
                 output.push(OnScreenCigarSegment {
                     pivot: pivot as u16,
-                    length: op.len() as u16,
-                    style: Style::default().bg(MISMATCH_COLOR),
-                    direction: None,
-                });
-                pivot += op.len();
-            }
-            Kind::Match | Kind::SequenceMatch => {
-                output.push(OnScreenCigarSegment {
-                    pivot: pivot as u16,
-                    length: op.len() as u16,
+                    length: *l as u16,
                     style: Style::default().bg(MATCH_COLOR),
                     direction: None,
                 });
-                pivot += op.len();
+                pivot += *l as usize;
             }
-            Kind::SoftClip => {
-                for i_softclipped_base in pivot..pivot + op.len() {
-                    let base = read.read.sequence().get(i_softclipped_base).unwrap();
+            Cigar::SoftClip(l) => {
+                for i_softclipped_base in pivot..pivot + *l as usize {
+                    let base = read.read.seq()[i_softclipped_base];
                     let base_color = match base {
                         b'A' => SOFTCLIP_A,
                         b'C' => SOFTCLIP_C,
@@ -207,14 +196,14 @@ fn get_cigar_segments(read: &AlignedRead) -> Vec<OnScreenCigarSegment> {
                         direction: None,
                     });
                 }
-                pivot += op.len();
+                pivot += *l as usize;
             }
         }
     }
 
     // direction
     if !output.is_empty() {
-        match read.read.flags().is_reverse_complemented() {
+        match read.read.is_reverse() {
             true => {
                 output.first_mut().unwrap().direction = Some(Strand::Reverse);
             }

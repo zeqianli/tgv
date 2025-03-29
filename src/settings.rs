@@ -1,6 +1,8 @@
 use crate::error::TGVError;
+use crate::helpers::is_url;
 use crate::models::{message::StateMessage, reference::Reference};
 use clap::Parser;
+use std::env;
 
 #[derive(Parser)]
 #[command(author, version, about, long_about = None)]
@@ -49,6 +51,8 @@ impl Settings {
         for path in cli.paths {
             if path.ends_with(".bam") {
                 bam_path = Some(path.clone());
+            } else if is_url(&path) {
+                bam_path = Some(path.clone());
             } else {
                 return Err(TGVError::CliError(format!(
                     "Unsupported file type: {}",
@@ -61,6 +65,17 @@ impl Settings {
             true => None,
             false => Some(cli.index),
         };
+
+        if let Some(bam_path) = &bam_path {
+            if is_url(bam_path) {
+                if env::var("CURL_CA_BUNDLE").is_err() {
+                    // Workaround for rust-htslib:
+                    // https://github.com/rust-bio/rust-htslib/issues/404
+                    // TODO: is this same for MacOS?
+                    env::set_var("CURL_CA_BUNDLE", "/etc/ssl/certs/ca-certificates.crt");
+                }
+            }
+        }
 
         // Reference
         let reference = if cli.no_reference {
@@ -168,17 +183,20 @@ mod tests {
     #[rstest]
     #[case("tgv", Ok(Settings {
         bam_path: None,
+        bai_path: None,
         reference: Some(Reference::Hg38),
         initial_state_messages: vec![StateMessage::GoToDefault],
     }))] // empty input: no bam file and no reference: browse hg38
     #[case("tgv input.bam", Ok(Settings {
         bam_path: Some("input.bam".to_string()),
+        bai_path: None,
         reference: Some(Reference::Hg38),
         initial_state_messages: vec![StateMessage::GoToDefault],
     }))]
     #[case("tgv wrong.extension", Err(TGVError::CliError("".to_string())))]
     #[case("tgv input.bam -r chr1:12345", Ok(Settings {
         bam_path: Some("input.bam".to_string()),
+        bai_path: None,
         reference: Some(Reference::Hg38),
         initial_state_messages: vec![StateMessage::GotoContigCoordinate("chr1".to_string(), 12345)],
     }))]
@@ -186,17 +204,20 @@ mod tests {
     #[case("tgv input.bam -r chr1:12:12345", Err(TGVError::CliError("".to_string())))]
     #[case("tgv input.bam -r TP53", Ok(Settings {
         bam_path: Some("input.bam".to_string()),
+        bai_path: None,
         reference: Some(Reference::Hg38),
         initial_state_messages: vec![StateMessage::GoToGene("TP53".to_string())],
     }))]
     #[case("tgv input.bam -r TP53 -g hg19", Ok(Settings {
         bam_path: Some("input.bam".to_string()),
+        bai_path: None,
         reference: Some(Reference::Hg19),
         initial_state_messages: vec![StateMessage::GoToGene("TP53".to_string())],
     }))]
     #[case("tgv input.bam -r TP53 -g hg100", Err(TGVError::CliError("".to_string())))]
     #[case("tgv input.bam -r 1:12345 --no-reference", Ok(Settings {
         bam_path: Some("input.bam".to_string()),
+        bai_path: None,
         reference: None,
         initial_state_messages: vec![StateMessage::GotoContigCoordinate("1".to_string(), 12345)],
     }))]
