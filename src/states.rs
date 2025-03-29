@@ -419,14 +419,16 @@ impl State {
 
     const MAX_ZOOM_TO_DISPLAY_FEATURES: usize = 64;
     const MAX_ZOOM_TO_DISPLAY_ALIGNMENTS: usize = 32;
-
+    const MAX_ZOOM_TO_DISPLAY_SEQUENCES: usize = 2;
     fn get_data_requirements(&self) -> Result<Vec<DataMessage>, TGVError> {
         let mut data_messages = Vec::new();
 
         let viewing_window = self.viewing_window()?;
         let viewing_region = self.viewing_region()?;
 
-        if self.settings.bam_path.is_some() && viewing_window.zoom() <= Self::MAX_ZOOM_TO_DISPLAY_ALIGNMENTS {
+        if self.settings.bam_path.is_some()
+            && viewing_window.zoom() <= Self::MAX_ZOOM_TO_DISPLAY_ALIGNMENTS
+        {
             data_messages.push(DataMessage::RequiresCompleteAlignments(
                 viewing_region.clone(),
             ));
@@ -439,7 +441,7 @@ impl State {
                 ));
             }
 
-            if viewing_window.is_basewise() {
+            if viewing_window.zoom() <= Self::MAX_ZOOM_TO_DISPLAY_SEQUENCES {
                 data_messages.push(DataMessage::RequiresCompleteSequences(
                     viewing_region.clone(),
                 ));

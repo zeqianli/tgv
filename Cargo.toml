@@ -15,6 +15,7 @@ sqlx = { version = "0.7", features = ["mysql", "runtime-tokio-native-tls"] }
 tokio = { version = "1", features = ["full"] }
 serde = { version = "1.0", features = ["derive"] }
 reqwest = { version = "0.12", features = ["json"] }
+itertools="0.14.0"
 
 [dev-dependencies]
 rstest = "0.25.0"

@@ -40,18 +40,19 @@ impl SequenceService {
         })
     }
 
+    /// start / end: 1-based, inclusive.
     fn get_api_url(&self, chrom: &Contig, start: usize, end: usize) -> Result<String, ()> {
         match self.reference {
             Reference::Hg19 => Ok(format!(
                 "https://api.genome.ucsc.edu/getData/sequence?genome=hg19;chrom={};start={};end={}",
                 chrom.full_name(),
-                start,
+                start - 1, // start is 0-based, inclusive.
                 end
             )),
             Reference::Hg38 => Ok(format!(
                 "https://api.genome.ucsc.edu/getData/sequence?genome=hg38;chrom={};start={};end={}",
                 chrom.full_name(),
-                start,
+                start - 1, // start is 0-based, inclusive.
                 end
             )),
             _ => {

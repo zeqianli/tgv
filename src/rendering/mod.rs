@@ -1,5 +1,6 @@
 mod alignment;
 mod console;
+mod coordinate;
 mod coverage;
 mod error;
 mod help;
@@ -7,6 +8,7 @@ mod sequence;
 mod track;
 pub use alignment::render_alignment;
 pub use console::render_console;
+pub use coordinate::render_coordinates;
 pub use coverage::render_coverage;
 pub use error::render_error;
 pub use help::render_help;
