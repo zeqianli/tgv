@@ -1,4 +1,5 @@
 use crate::error::TGVError;
+use crate::helpers::is_url;
 use crate::models::{
     contig::Contig,
     message::{DataMessage, StateMessage},
@@ -15,7 +16,7 @@ use crossterm::event::{KeyCode, KeyEvent};
 use ratatui::layout::Rect;
 use rust_htslib::bam::{self, record::Cigar, Header, IndexedReader, Read, Record};
 use std::collections::HashMap;
-use std::u8;
+use url::Url;
 /// A collection of contigs. This helps relative contig movements.
 struct ContigCollection {
     contigs: Vec<Contig>,
@@ -57,10 +58,27 @@ impl ContigCollection {
         reference: Option<&Reference>,
     ) -> Result<Self, TGVError> {
         // Use the indexed_reader::Builder pattern as shown in alignment.rs
+        let is_remote_path = is_url(path);
         let bam = match bai_path {
-            Some(bai_path) => IndexedReader::from_path_and_index(path, bai_path)
-                .map_err(|e| TGVError::IOError(e.to_string()))?,
-            None => IndexedReader::from_path(path).map_err(|e| TGVError::IOError(e.to_string()))?,
+            Some(bai_path) => {
+                if is_remote_path {
+                    return Err(TGVError::IOError(
+                        "Custom .bai path for remote BAM files are not supported yet.".to_string(),
+                    ));
+                }
+                IndexedReader::from_path_and_index(path, bai_path)
+                    .map_err(|e| TGVError::IOError(e.to_string()))?
+            }
+            None => {
+                if is_remote_path {
+                    IndexedReader::from_url(
+                        &Url::parse(path).map_err(|e| TGVError::IOError(e.to_string()))?,
+                    )
+                    .unwrap()
+                } else {
+                    IndexedReader::from_path(path).map_err(|e| TGVError::IOError(e.to_string()))?
+                }
+            }
         };
 
         let header = bam::Header::from_template(bam.header());

@@ -1,5 +1,6 @@
 mod app;
 mod error;
+mod helpers;
 mod models;
 mod rendering;
 mod settings;

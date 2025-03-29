@@ -2612,6 +2612,7 @@ dependencies = [
  "shlex",
  "sqlx",
  "tokio",
+ "url",
 ]
 
 [[package]]

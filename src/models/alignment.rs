@@ -1,10 +1,12 @@
 use crate::error::TGVError;
+use crate::helpers::is_url;
 use crate::models::{contig::Contig, region::Region};
 use rust_htslib::bam;
 use rust_htslib::bam::ext::BamRecordExtensions;
 use rust_htslib::bam::{record::Cigar, Header, IndexedReader, Read, Record};
 use std::collections::{BTreeMap, HashMap};
 use std::io;
+use url::Url;
 
 /// An aligned read with viewing coordinates.
 pub struct AlignedRead {
@@ -85,11 +87,27 @@ impl Alignment {
         bai_path: Option<&String>,
         region: &Region,
     ) -> Result<Self, TGVError> {
+        let is_remote_path = is_url(bam_path);
         let mut bam = match bai_path {
-            Some(bai_path) => IndexedReader::from_path_and_index(bam_path, bai_path)
-                .map_err(|e| TGVError::IOError(e.to_string()))?,
+            Some(bai_path) => {
+                if is_remote_path {
+                    return Err(TGVError::IOError(
+                        "Remote BAM files are not supported yet.".to_string(),
+                    ));
+                }
+                IndexedReader::from_path_and_index(bam_path, bai_path)
+                    .map_err(|e| TGVError::IOError(e.to_string()))?
+            }
             None => {
-                IndexedReader::from_path(bam_path).map_err(|e| TGVError::IOError(e.to_string()))?
+                if is_remote_path {
+                    IndexedReader::from_url(
+                        &Url::parse(bam_path).map_err(|e| TGVError::IOError(e.to_string()))?,
+                    )
+                    .unwrap()
+                } else {
+                    IndexedReader::from_path(bam_path)
+                        .map_err(|e| TGVError::IOError(e.to_string()))?
+                }
             }
         };
 
