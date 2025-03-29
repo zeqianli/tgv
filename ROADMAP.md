@@ -44,7 +44,7 @@
 ## Nice-to-have features
 
 - Features
-  - [ ] Stream BAM files (S3, http)
+  - [x] Stream BAM files (S3, http)
   - [ ] Allele count
   - [ ] Other reference sequences
 

@@ -34,7 +34,12 @@ cargo install --path .
 
 ## Supported formats
 
-- BAM (index and sorted. The `.bai` file must be in the same directory.)
+- BAM (index and sorted): supports local, AWS, Google Cloud, or HTTP/HTTPS files.
+  - Local: place the `.bai` file in the same directory; or specify the index file with `-i`.
+  - Remote:
+    - `s3`: set credentials in environmental variables. See: <https://www.htslib.org/doc/htslib-s3-plugin.html>
+    - `gss`: TODO not tested. Please provide feedback if it works!
+    - Note that the custom `bai` path (`-i`) is not supported for due to [rust-htslib](https://github.com/rust-bio/rust-htslib) API limitation.
 - Internet connection is required if reference genomes are used.
 
 ## Usage
@@ -52,8 +57,8 @@ tgv sorted.bam -g hg19
 # Start at a coordinate
 tgv sorted.bam -r 12:25398142 -g hg19
 
-# Start at a gene
-tgv sorted.bam -r TP53 -g hg19
+# Start at a gene; remote BAM
+tgv s3://my-bucket/sorted.bam -r TP53 -g hg19
 
 # Use --no-reference for non-human alignments
 # (Sequence / feature display not supported yet)
