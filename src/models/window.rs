@@ -177,7 +177,7 @@ impl ViewingWindow {
 
 /// Zoom
 impl ViewingWindow {
-    const MAX_ZOOM: usize = 32; // Temporary. TODO: Improve in the future.
+    const MAX_ZOOM: usize = usize::MAX; // Temporary. TODO: Improve in the future.
 
     /// Horizontal zoom out by a factor of r (1-based).
     pub fn zoom_out(&mut self, r: usize, area: &Rect) -> Result<(), ()> {

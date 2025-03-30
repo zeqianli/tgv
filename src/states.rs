@@ -439,7 +439,7 @@ impl State {
         Ok(data_messages)
     }
 
-    const MAX_ZOOM_TO_DISPLAY_FEATURES: usize = 64;
+    const MAX_ZOOM_TO_DISPLAY_FEATURES: usize = usize::MAX;
     const MAX_ZOOM_TO_DISPLAY_ALIGNMENTS: usize = 32;
     const MAX_ZOOM_TO_DISPLAY_SEQUENCES: usize = 2;
     fn get_data_requirements(&self) -> Result<Vec<DataMessage>, TGVError> {

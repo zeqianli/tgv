@@ -10,6 +10,19 @@ use ratatui::{
     style::{palette::tailwind, Color, Style},
 };
 
+// High zoom levels:
+// - If a gene's length on screen is greater than a threshold, display underlying exons / introns.
+// - Else, render a gene as one unit. Only label the gene.
+// Labeling: fix in the future. Use the auto-labeling for now. In the future, re-vise the UI to avoid text overlap.
+// Refactors needed:
+// - Overhaul the track data structure. Change to a nested structure: track, gene, exon/introns.
+// - Move track ownership to State and use one track. Otherwise, feature movement will be confusing.
+//     - State saves a currently focused feature.
+//     - At high zoom, w/b and W/B should do the same thing (next gene). Go to next/previous exons make no sense now.
+// - Chromosome bound is needed now.
+// Now it's probably a good time to move Data ownership to State.
+//
+
 /// Render the genome sequence and coordinates.
 /// TODO: zoomed view
 pub fn render_track(
