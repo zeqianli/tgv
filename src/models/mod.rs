@@ -1,5 +1,6 @@
 pub mod alignment;
 pub mod contig;
+pub mod cytoband;
 pub mod data;
 pub mod message;
 pub mod mode;
