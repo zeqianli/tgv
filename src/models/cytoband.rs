@@ -1,11 +1,14 @@
-use std::fs::File;
-use std::io::{BufRead, BufReader};
+use crate::error::TGVError;
+use crate::models::contig::Contig;
+use crate::models::reference::Reference;
+use csv::Reader;
+use std::io::BufReader;
 
 // Include the csv files directly as static strings
 static HG19_CYTOBAND: &[u8] = include_bytes!("../resources/hg19_cytoband.csv");
 static HG38_CYTOBAND: &[u8] = include_bytes!("../resources/hg38_cytoband.csv");
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Eq, PartialEq)]
 pub enum Stain {
     Gneg,
     Gpos25,
@@ -15,84 +18,127 @@ pub enum Stain {
     Acen,
     Gvar,
     Stalk,
+    Other,
 }
 
-impl From<&str> for Stain {
-    fn from(s: &str) -> Self {
+impl Stain {
+    fn from(s: &str) -> Result<Self, TGVError> {
         match s {
-            "gneg" => Stain::Gneg,
-            "gpos25" => Stain::Gpos25,
-            "gpos50" => Stain::Gpos50,
-            "gpos75" => Stain::Gpos75,
-            "gpos100" => Stain::Gpos100,
-            "acen" => Stain::Acen,
-            "gvar" => Stain::Gvar,
-            "stalk" => Stain::Stalk,
-            _ => Stain::Gneg, // Default case
+            "gneg" => Ok(Stain::Gneg),
+            "gpos25" => Ok(Stain::Gpos25),
+            "gpos50" => Ok(Stain::Gpos50),
+            "gpos75" => Ok(Stain::Gpos75),
+            "gpos100" => Ok(Stain::Gpos100),
+            "acen" => Ok(Stain::Acen),
+            "gvar" => Ok(Stain::Gvar),
+            "stalk" => Ok(Stain::Stalk),
+            _ => Err(TGVError::ValueError(format!("Invalid stain: {}", s))),
         }
     }
 }
 
 #[derive(Debug, Clone)]
 pub struct CytobandSegment {
-    pub chromosome: String,
-    pub start: u32,
-    pub end: u32,
+    pub contig: Contig,
+    pub start: usize, // 1-based, inclusive
+    pub end: usize,   // 1-based, inclusive
     pub name: String,
     pub stain: Stain,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Cytoband {
-    pub chromosome: String,
+    pub reference: Option<Reference>,
+    pub contig: Contig,
     pub segments: Vec<CytobandSegment>,
 }
 
 impl Cytoband {
-    pub fn new(chromosome: &str) -> Self {
-        Cytoband {
-            chromosome: chromosome.to_string(),
-            segments: Vec::new(),
-        }
+    pub fn start(&self) -> usize {
+        1
     }
 
-    pub fn load_from_file(assembly: &str, chromosome: &str) -> Result<Self, std::io::Error> {
-        let mut cytoband = Cytoband::new(chromosome);
+    pub fn end(&self) -> usize {
+        self.segments.last().unwrap().end
+    }
 
-        let content = match assembly {
-            "hg19" => HG19_CYTOBAND,
-            "hg38" => HG38_CYTOBAND,
-            _ => {
-                return Err(std::io::Error::new(
-                    std::io::ErrorKind::InvalidInput,
-                    "Invalid assembly",
-                ))
-            }
+    pub fn length(&self) -> usize {
+        self.end()
+    }
+}
+
+impl Cytoband {
+    pub fn from_reference(reference: &Reference) -> Result<Vec<Self>, TGVError> {
+        let mut cytobands: Vec<Cytoband> = Vec::new();
+
+        let content = match reference {
+            Reference::Hg19 => HG19_CYTOBAND,
+            Reference::Hg38 => HG38_CYTOBAND,
         };
 
         let reader = BufReader::new(content);
+        let mut csv_reader = Reader::from_reader(reader);
 
-        // Skip header
-        let mut lines = reader.lines();
-        let _ = lines.next();
+        for result in csv_reader.records() {
+            let record = result.map_err(|e| TGVError::ParsingError(e.to_string()))?;
 
-        for line in lines {
-            let line = line?;
-            let fields: Vec<&str> = line.split(',').map(|s| s.trim_matches('"')).collect();
-
-            if fields.len() >= 5 && fields[0] == chromosome {
-                let segment = CytobandSegment {
-                    chromosome: fields[0].to_string(),
-                    start: fields[1].parse().unwrap_or(0),
-                    end: fields[2].parse().unwrap_or(0),
-                    name: fields[3].to_string(),
-                    stain: Stain::from(fields[4]),
-                };
-
-                cytoband.segments.push(segment);
+            // only keep chr + digits
+            let contig_string = record[0].to_string();
+            if !(contig_string.starts_with("chr") && contig_string[3..].parse::<usize>().is_ok()) {
+                continue;
             }
-        }
 
-        Ok(cytoband)
+            let contig = Contig::chrom(&contig_string);
+            let start = record[1]
+                .parse::<usize>()
+                .map_err(|e| TGVError::ParsingError(e.to_string()))?;
+            let end = record[2]
+                .parse::<usize>()
+                .map_err(|e| TGVError::ParsingError(e.to_string()))?;
+            let name = record[3].to_string();
+            let stain =
+                Stain::from(&record[4]).map_err(|e| TGVError::ParsingError(e.to_string()))?;
+
+            let segment = CytobandSegment {
+                contig: contig,
+                start: start + 1,
+                end: end,
+                name: name,
+                stain: stain,
+            };
+
+            if cytobands.is_empty() || cytobands.last().unwrap().contig != segment.contig {
+                let cytoband = Cytoband {
+                    reference: Some(reference.clone()),
+                    contig: segment.contig.clone(),
+                    segments: Vec::new(),
+                };
+                cytobands.push(cytoband);
+            }
+
+            cytobands.last_mut().unwrap().segments.push(segment);
+        }
+        Ok(cytobands)
+    }
+
+    pub fn from_non_reference(
+        contigs: &Vec<Contig>,
+        lengths: Vec<usize>,
+    ) -> Result<Vec<Self>, TGVError> {
+        Ok(contigs
+            .iter()
+            .zip(lengths.iter())
+            .map(|(contig, length)| Cytoband {
+                reference: None,
+                contig: contig.clone(),
+                segments: vec![CytobandSegment {
+                    contig: contig.clone(),
+                    start: 1,
+                    end: *length,
+                    name: "".to_string(),
+                    stain: Stain::Other,
+                }],
+            })
+            .collect())
     }
 }
