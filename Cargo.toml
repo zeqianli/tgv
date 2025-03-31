@@ -2,6 +2,8 @@
 name = "tgv"
 version = "0.0.1"
 edition = "2021"
+description = "Terminal Genome Viewer"
+license = "MIT"
 
 [dependencies]
 ratatui = "0.28.0"
