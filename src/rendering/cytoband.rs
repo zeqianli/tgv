@@ -26,14 +26,9 @@ pub fn render_cytobands(
         return;
     }
 
-    let max_length = cytoband.length();
-
-    for (x, string, style) in get_cytoband_xs_strings_and_styles(
-        cytoband,
-        //max_length,
-        cytoband.length(),
-        area.width - CYTOBAND_TEXT_SPACING,
-    ) {
+    for (x, string, style) in
+        get_cytoband_xs_strings_and_styles(cytoband, area.width - CYTOBAND_TEXT_SPACING)
+    {
         // TODO: chromosome name
         buf.set_string(area.x + x + CYTOBAND_TEXT_SPACING, area.y, string, style);
 
@@ -50,9 +45,13 @@ pub fn render_cytobands(
 
     // Highlight the current viewing window
 
-    let viewing_window_start = linear_scale(viewing_window.left(), max_length, area.width as u16);
-    let viewing_window_end =
-        linear_scale(viewing_window.right(area), max_length, area.width as u16);
+    let viewing_window_start =
+        linear_scale(viewing_window.left(), cytoband.length(), area.width as u16);
+    let viewing_window_end = linear_scale(
+        viewing_window.right(area),
+        cytoband.length(),
+        area.width as u16,
+    );
 
     for x in viewing_window_start..viewing_window_end + 1 {
         let cell = buf.cell_mut(Position::new(area.x + x + CYTOBAND_TEXT_SPACING, area.y));
@@ -65,17 +64,14 @@ pub fn render_cytobands(
 
 fn get_cytoband_xs_strings_and_styles(
     cytoband: &Cytoband,
-    max_length: usize,
     area_width: u16,
 ) -> Vec<(u16, String, Style)> {
-    let length = cytoband.end();
-
     let mut second_centromere = false;
     let mut output = Vec::new();
     for segment in cytoband.segments.iter() {
         if let Some((x, string, style)) = get_cytoband_segment_x_string_and_style(
             segment,
-            max_length,
+            cytoband.length(),
             area_width,
             second_centromere,
         ) {
