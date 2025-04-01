@@ -1,3 +1,5 @@
+use std::fmt::Debug;
+
 /// Reference chromosomes on the top of the screen.
 ///
 use crate::models::{
@@ -45,6 +47,16 @@ pub fn render_cytobands(
             string,
             style,
         );
+
+        let description = match (&cytoband.reference, &cytoband.contig) {
+            (Some(reference), contig) => format!("{}:{}", reference, contig.full_name()),
+            (None, contig) => format!("{}", contig.full_name()),
+        }
+        .chars()
+        .take(CYTOBAND_TEXT_SPACING as usize)
+        .collect::<String>();
+
+        buf.set_string(area.x, area.y + 1, description, Style::default());
     }
 
     if current_cytoband_index > 0 {
@@ -55,6 +67,20 @@ pub fn render_cytobands(
             area.width - CYTOBAND_TEXT_SPACING,
         ) {
             buf.set_string(area.x + x + CYTOBAND_TEXT_SPACING, area.y, string, style);
+        }
+
+        match (&cytoband.reference, &cytoband.contig) {
+            (Some(reference), contig) => buf.set_string(
+                area.x,
+                area.y,
+                format!(
+                    "{}{}",
+                    " ".repeat(reference.to_string().len() + 1),
+                    contig.full_name()
+                ),
+                Style::default(),
+            ),
+            (None, contig) => buf.set_string(area.x, area.y, contig.full_name(), Style::default()),
         }
     }
 
@@ -71,6 +97,22 @@ pub fn render_cytobands(
                 string,
                 style,
             );
+
+            match (&cytoband.reference, &cytoband.contig) {
+                (Some(reference), contig) => buf.set_string(
+                    area.x,
+                    area.y + 2,
+                    format!(
+                        "{}{}",
+                        " ".repeat(reference.to_string().len() + 1),
+                        contig.full_name()
+                    ),
+                    Style::default(),
+                ),
+                (None, contig) => {
+                    buf.set_string(area.x, area.y + 2, contig.full_name(), Style::default())
+                }
+            }
         }
     }
 
