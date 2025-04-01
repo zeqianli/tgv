@@ -126,7 +126,7 @@ impl Widget for &App {
 
         let [cytoband_area, coordinate_area, coverage_area, alignment_area, sequence_area, track_area, console_area, error_area] =
             Layout::vertical([
-                Length(3), // cytobands
+                Length(1), // cytobands
                 Length(2), // coordinate
                 Length(6), // coverage
                 Fill(1),   // alignment
@@ -144,8 +144,7 @@ impl Widget for &App {
             render_cytobands(
                 &cytoband_area,
                 buf,
-                &cytobands,
-                current_cytoband_index,
+                &cytobands[current_cytoband_index],
                 &viewing_window,
             );
         }

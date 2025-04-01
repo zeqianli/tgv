@@ -19,21 +19,15 @@ const CYTOBAND_TEXT_SPACING: u16 = 12;
 pub fn render_cytobands(
     area: &Rect,
     buf: &mut Buffer,
-    cytobands: &Vec<Cytoband>,
-    current_cytoband_index: usize,
+    cytoband: &Cytoband,
     viewing_window: &ViewingWindow,
 ) {
     if area.width <= CYTOBAND_TEXT_SPACING + 1 {
         return;
     }
 
-    let max_length = cytobands
-        .iter()
-        .map(|cytoband| cytoband.length())
-        .max()
-        .unwrap();
+    let max_length = cytoband.length();
 
-    let cytoband = &cytobands[current_cytoband_index];
     for (x, string, style) in get_cytoband_xs_strings_and_styles(
         cytoband,
         //max_length,
@@ -41,12 +35,7 @@ pub fn render_cytobands(
         area.width - CYTOBAND_TEXT_SPACING,
     ) {
         // TODO: chromosome name
-        buf.set_string(
-            area.x + x + CYTOBAND_TEXT_SPACING,
-            area.y + 1,
-            string,
-            style,
-        );
+        buf.set_string(area.x + x + CYTOBAND_TEXT_SPACING, area.y, string, style);
 
         let description = match (&cytoband.reference, &cytoband.contig) {
             (Some(reference), contig) => format!("{}:{}", reference, contig.full_name()),
@@ -56,64 +45,7 @@ pub fn render_cytobands(
         .take(CYTOBAND_TEXT_SPACING as usize)
         .collect::<String>();
 
-        buf.set_string(area.x, area.y + 1, description, Style::default());
-    }
-
-    if current_cytoband_index > 0 {
-        let cytoband = &cytobands[current_cytoband_index - 1];
-        for (x, string, style) in get_cytoband_xs_strings_and_styles(
-            cytoband,
-            cytoband.length(),
-            area.width - CYTOBAND_TEXT_SPACING,
-        ) {
-            buf.set_string(area.x + x + CYTOBAND_TEXT_SPACING, area.y, string, style);
-        }
-
-        match (&cytoband.reference, &cytoband.contig) {
-            (Some(reference), contig) => buf.set_string(
-                area.x,
-                area.y,
-                format!(
-                    "{}{}",
-                    " ".repeat(reference.to_string().len() + 1),
-                    contig.full_name()
-                ),
-                Style::default(),
-            ),
-            (None, contig) => buf.set_string(area.x, area.y, contig.full_name(), Style::default()),
-        }
-    }
-
-    if current_cytoband_index < cytobands.len() - 1 {
-        let cytoband = &cytobands[current_cytoband_index + 1];
-        for (x, string, style) in get_cytoband_xs_strings_and_styles(
-            cytoband,
-            cytoband.length(),
-            area.width - CYTOBAND_TEXT_SPACING,
-        ) {
-            buf.set_string(
-                area.x + x + CYTOBAND_TEXT_SPACING,
-                area.y + 2,
-                string,
-                style,
-            );
-
-            match (&cytoband.reference, &cytoband.contig) {
-                (Some(reference), contig) => buf.set_string(
-                    area.x,
-                    area.y + 2,
-                    format!(
-                        "{}{}",
-                        " ".repeat(reference.to_string().len() + 1),
-                        contig.full_name()
-                    ),
-                    Style::default(),
-                ),
-                (None, contig) => {
-                    buf.set_string(area.x, area.y + 2, contig.full_name(), Style::default())
-                }
-            }
-        }
+        buf.set_string(area.x, area.y, description, Style::default());
     }
 
     // Highlight the current viewing window
@@ -123,10 +55,7 @@ pub fn render_cytobands(
         linear_scale(viewing_window.right(area), max_length, area.width as u16);
 
     for x in viewing_window_start..viewing_window_end + 1 {
-        let cell = buf.cell_mut(Position::new(
-            area.x + x + CYTOBAND_TEXT_SPACING,
-            area.y + 1,
-        ));
+        let cell = buf.cell_mut(Position::new(area.x + x + CYTOBAND_TEXT_SPACING, area.y));
         if let Some(cell) = cell {
             cell.set_char(' ');
             cell.set_bg(HIGHLIGHT_COLOR);
