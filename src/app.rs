@@ -14,8 +14,8 @@ use ratatui::{
 use crate::error::TGVError;
 use crate::models::{data::Data, message::StateMessage, mode::InputMode};
 use crate::rendering::{
-    render_alignment, render_console, render_coordinates, render_coverage, render_error,
-    render_help, render_sequence, render_sequence_at_2x, render_track,
+    render_alignment, render_console, render_coordinates, render_coverage, render_cytobands,
+    render_error, render_help, render_sequence, render_sequence_at_2x, render_track,
 };
 use crate::settings::Settings;
 use crate::states::State;
@@ -124,8 +124,9 @@ impl Widget for &App {
         let viewing_window = self.state.viewing_window().unwrap();
         let viewing_region = self.state.viewing_region().unwrap();
 
-        let [coordinate_area, coverage_area, alignment_area, sequence_area, track_area, console_area, error_area] =
+        let [cytoband_area, coordinate_area, coverage_area, alignment_area, sequence_area, track_area, console_area, error_area] =
             Layout::vertical([
+                Length(2), // cytobands
                 Length(2), // coordinate
                 Length(6), // coverage
                 Fill(1),   // alignment
@@ -135,6 +136,18 @@ impl Widget for &App {
                 Length(2), // error
             ])
             .areas(area);
+
+        if let (Some(cytobands), Some(current_cytoband_index)) = (
+            self.state.cytobands(),
+            self.state.current_cytoband_index().unwrap(),
+        ) {
+            render_cytobands(
+                &cytoband_area,
+                buf,
+                &cytobands[current_cytoband_index],
+                &viewing_window,
+            );
+        }
 
         render_coordinates(&coordinate_area, buf, viewing_window).unwrap();
 

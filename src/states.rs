@@ -2,6 +2,7 @@ use crate::error::TGVError;
 use crate::helpers::is_url;
 use crate::models::{
     contig::Contig,
+    cytoband::Cytoband,
     message::{DataMessage, StateMessage},
     mode::InputMode,
     reference::Reference,
@@ -150,6 +151,9 @@ pub struct State {
 
     /// Error messages for display.
     pub errors: Vec<String>,
+
+    /// Cytobands
+    cytobands: Option<Vec<Cytoband>>,
 }
 
 /// Basics
@@ -161,6 +165,11 @@ impl State {
                 settings.bai_path.as_ref(),
                 settings.reference.as_ref(),
             )?),
+            None => None,
+        };
+
+        let cytobands = match settings.reference.as_ref() {
+            Some(reference) => Some(Cytoband::from_reference(reference)?),
             None => None,
         };
 
@@ -190,7 +199,7 @@ impl State {
 
             contigs,
             settings,
-
+            cytobands,
             errors: Vec::new(),
         })
     }
@@ -276,6 +285,20 @@ impl State {
             self.feature_query_service.as_ref().unwrap().close().await?;
         }
         Ok(())
+    }
+
+    /// TODO: this is inefficient.
+    pub fn current_cytoband_index(&self) -> Result<Option<usize>, TGVError> {
+        for (i, cytoband) in self.cytobands.as_ref().unwrap().iter().enumerate() {
+            if cytoband.contig == self.contig()? {
+                return Ok(Some(i));
+            }
+        }
+        Ok(None)
+    }
+
+    pub fn cytobands(&self) -> Option<&Vec<Cytoband>> {
+        self.cytobands.as_ref()
     }
 }
 
