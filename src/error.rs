@@ -9,6 +9,8 @@ pub enum TGVError {
     StateError(String),
 
     ParsingError(String),
+
+    ValueError(String),
 }
 
 impl TGVError {
@@ -24,6 +26,7 @@ impl fmt::Display for TGVError {
             TGVError::IOError(e) => write!(f, "{}", e),
             TGVError::StateError(e) => write!(f, "{}", e),
             TGVError::ParsingError(e) => write!(f, "{}", e),
+            TGVError::ValueError(e) => write!(f, "{}", e),
         }
     }
 }
