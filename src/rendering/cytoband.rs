@@ -66,12 +66,14 @@ fn get_cytoband_xs_strings_and_styles(
     cytoband: &Cytoband,
     area_width: u16,
 ) -> Vec<(u16, String, Style)> {
+
     let mut second_centromere = false;
     let mut output = Vec::new();
     for segment in cytoband.segments.iter() {
         if let Some((x, string, style)) = get_cytoband_segment_x_string_and_style(
             segment,
             cytoband.length(),
+
             area_width,
             second_centromere,
         ) {
