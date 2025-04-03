@@ -20,17 +20,15 @@ use crate::rendering::{
 use crate::settings::Settings;
 use crate::states::State;
 pub struct App {
-    pub data: Data,
     pub state: State,
 }
 
 // initialization
 impl App {
     pub async fn new(settings: Settings) -> Result<Self, TGVError> {
-        let data = Data::new(&settings).await?;
         let state = State::new(settings).await?;
 
-        Ok(Self { data, state })
+        Ok(Self { state })
     }
 }
 
