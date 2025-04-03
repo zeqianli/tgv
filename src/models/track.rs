@@ -1,295 +1,162 @@
-use crate::models::{contig::Contig, region::Region, strand::Strand};
+use crate::{
+    error::TGVError,
+    models::{contig::Contig, region::Region, strand::Strand},
+    traits::{GenomeInterval, IntervalCollection},
+};
 
 /// A feature is a interval on a contig.
+///
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum FeatureType {
+    Exon,
+    Intron,
+}
 
 #[derive(Debug, Clone)]
-pub enum Feature {
-    Gene {
-        id: String,
-        name: String,
-        strand: Strand,
-        contig: Contig,
-        transcription_start: usize, // 1-based, inclusive
-        transcription_end: usize,   // 1-based, exclusive
-        cds_start: usize,           // 1-based, inclusive
-        cds_end: usize,             // 1-based, exclusive
-        exon_starts: Vec<usize>,    // 1-based, inclusive
-        exon_ends: Vec<usize>,      // 1-based, exclusive
-    },
-    NonCDSExon {
-        id: String,
-        name: String,
-        strand: Strand,
-        contig: Contig,
-        start: usize, // 1-based, inclusive
-        end: usize,   // 1-based, exclusive
-    },
-    Exon {
-        id: String,
-        name: String,
-        strand: Strand,
-        contig: Contig,
-        start: usize, // 1-based, inclusive
-        end: usize,   // 1-based, exclusive
-                      //parent_gene: String,
-    },
-    Intron {
-        id: String,
-        name: String,
-        strand: Strand,
-        contig: Contig,
-        start: usize, // 1-based, inclusive
-        end: usize,   // 1-based, exclusive
-                      //parent_gene: String,
-    },
+struct Feature {
+    contig: Contig,
+    start: usize,
+    end: usize,
+    feature_type: FeatureType,
 }
 
-enum ExonPosition {
-    PreCDS,
-    CDS,
-    PostCDS,
+impl GenomeInterval for Feature {
+    fn start(&self) -> usize {
+        self.start
+    }
+
+    fn end(&self) -> usize {
+        self.end
+    }
+
+    fn contig(&self) -> &Contig {
+        &self.contig
+    }
 }
 
-impl Feature {
-    pub fn id(&self) -> &str {
-        match self {
-            Feature::Gene { id, .. } => id,
-            Feature::Exon { id, .. } => id,
-            Feature::Intron { id, .. } => id,
-            Feature::NonCDSExon { id, .. } => id,
-        }
-    }
+#[derive(Debug, Clone)]
+pub struct Gene {
+    id: String,
+    name: String,
+    strand: Strand,
+    contig: Contig,
+    transcription_start: usize, // 1-based, inclusive
+    transcription_end: usize,   // 1-based, exclusive
+    cds_start: usize,           // 1-based, inclusive
+    cds_end: usize,             // 1-based, exclusive
+    exon_starts: Vec<usize>,    // 1-based, inclusive
+    exon_ends: Vec<usize>,      // 1-based, exclusive
 
-    pub fn name(&self) -> &str {
-        match self {
-            Feature::Gene { name, .. } => name,
-            Feature::Exon { name, .. } => name,
-            Feature::Intron { name, .. } => name,
-            Feature::NonCDSExon { name, .. } => name,
-        }
-    }
+    exons: Vec<Feature>,
+    introns: Vec<Feature>,
+}
 
-    pub fn strand(&self) -> Strand {
-        match self {
-            Feature::Gene { strand, .. } => strand.clone(),
-            Feature::Exon { strand, .. } => strand.clone(),
-            Feature::Intron { strand, .. } => strand.clone(),
-            Feature::NonCDSExon { strand, .. } => strand.clone(),
-        }
-    }
+impl Gene {
+    pub fn new(
+        id: String,
+        name: String,
+        strand: Strand,
+        contig: Contig,
 
-    pub fn contig(&self) -> Contig {
-        match self {
-            Feature::Gene { contig, .. } => contig.clone(),
-            Feature::Exon { contig, .. } => contig.clone(),
-            Feature::Intron { contig, .. } => contig.clone(),
-            Feature::NonCDSExon { contig, .. } => contig.clone(),
-        }
-    }
+        transcription_start: usize,
+        transcription_end: usize,
+        cds_start: usize,
+        cds_end: usize,
+        exon_starts: Vec<usize>,
+        exon_ends: Vec<usize>,
+    ) -> Self {
+        let mut exons: Vec<Feature> = Vec::new();
+        let mut introns: Vec<Feature> = Vec::new();
+        let mut last_exon_end = transcription_start;
+        let mut exon_indexes: Vec<usize> = Vec::new();
 
-    pub fn start(&self) -> usize {
-        match self {
-            Feature::Gene {
-                transcription_start: start,
-                ..
-            } => *start,
-            Feature::Exon { start, .. } => *start,
-            Feature::Intron { start, .. } => *start,
-            Feature::NonCDSExon { start, .. } => *start,
-        }
-    }
-
-    pub fn end(&self) -> usize {
-        match self {
-            Feature::Gene {
-                transcription_end: end,
-                ..
-            } => *end,
-            Feature::Exon { end, .. } => *end,
-            Feature::Intron { end, .. } => *end,
-            Feature::NonCDSExon { end, .. } => *end,
-        }
-    }
-
-    pub fn covers(&self, position: usize) -> bool {
-        self.start() <= position && self.end() > position // TODO: exlusivity
-    }
-
-    pub fn length(&self) -> usize {
-        self.end() - self.start() + 1
-    }
-
-    /// Expand a parent feature into a list of child features.
-    /// gene -> exons and introns
-    pub fn expand(&self) -> Result<Vec<Feature>, ()> {
-        match self {
-            Feature::Gene {
-                id,
-                name,
-                strand,
-                contig,
-                transcription_start,
-                transcription_end,
-                cds_start,
-                cds_end,
-                exon_starts,
-                exon_ends,
-            } => {
-                // TODO: directions
-                let mut features: Vec<Feature> = Vec::new();
-                let mut last_exon_end = *transcription_start;
-
-                // Add exon exons
-                for (i, (exon_start, exon_end)) in
-                    exon_starts.iter().zip(exon_ends.iter()).enumerate()
-                {
-                    // Add intron
-                    if *exon_start > last_exon_end {
-                        features.push(Feature::Intron {
-                            id: format!("{}.intron{}", id.clone(), i + 1),
-                            name: format!("{}.intron{}", name.clone(), i + 1),
-                            strand: strand.clone(),
-                            contig: contig.clone(),
-                            start: last_exon_end + 1,
-                            end: *exon_start,
-                        });
-                    }
-
-                    // Add exon
-                    let exon_start_position =
-                        match (*exon_start >= *cds_start, *exon_start <= *cds_end) {
-                            (true, true) => ExonPosition::CDS,
-                            (false, _) => ExonPosition::PreCDS,
-                            (true, false) => ExonPosition::PostCDS,
-                        };
-
-                    let exon_end_position = match (*exon_end >= *cds_start, *exon_end <= *cds_end) {
-                        (true, true) => ExonPosition::CDS,
-                        (false, _) => ExonPosition::PreCDS,
-                        (true, false) => ExonPosition::PostCDS,
-                    };
-
-                    match (exon_start_position, exon_end_position) {
-                        (ExonPosition::PreCDS, ExonPosition::PreCDS) => {
-                            features.push(Feature::NonCDSExon {
-                                id: format!("{}.non_cds_exon{}", id.clone(), i + 1),
-                                name: format!("{}.{}", name.clone(), i + 1),
-                                strand: strand.clone(),
-                                contig: contig.clone(),
-                                start: *exon_start,
-                                end: *exon_end,
-                            });
-                        }
-                        (ExonPosition::PreCDS, ExonPosition::CDS) => {
-                            features.push(Feature::NonCDSExon {
-                                id: format!("{}.non_cds_exon{}", id.clone(), i + 1),
-                                name: format!("{}.{}", name.clone(), i + 1),
-                                strand: strand.clone(),
-                                contig: contig.clone(),
-                                start: *exon_start,
-                                end: *cds_start - 1,
-                            });
-                            features.push(Feature::Exon {
-                                id: format!("{}.exon{}", id.clone(), i + 1),
-                                name: format!("{}.{}", name.clone(), i + 1),
-                                strand: strand.clone(),
-                                contig: contig.clone(),
-                                start: *cds_start,
-                                end: *exon_end,
-                            });
-                        }
-                        (ExonPosition::PreCDS, ExonPosition::PostCDS) => {
-                            features.push(Feature::NonCDSExon {
-                                id: format!("{}.non_cds_exon{}", id.clone(), i + 1),
-                                name: format!("{}.{}", name.clone(), i + 1),
-                                strand: strand.clone(),
-                                contig: contig.clone(),
-                                start: *exon_start,
-                                end: *cds_start - 1,
-                            });
-                            features.push(Feature::Exon {
-                                id: format!("{}.exon{}", id.clone(), i + 1),
-                                name: format!("{}.{}", name.clone(), i + 1),
-                                strand: strand.clone(),
-                                contig: contig.clone(),
-                                start: *cds_start,
-                                end: *cds_end,
-                            });
-                            features.push(Feature::Exon {
-                                id: format!("{}.exon{}", id.clone(), i + 1),
-                                name: format!("{}.{}", name.clone(), i + 1),
-                                strand: strand.clone(),
-                                contig: contig.clone(),
-                                start: *cds_end + 1,
-                                end: *exon_end,
-                            });
-                        }
-                        (ExonPosition::CDS, ExonPosition::CDS) => {
-                            features.push(Feature::Exon {
-                                id: format!("{}.exon{}", id.clone(), i + 1),
-                                name: format!("{}.{}", name.clone(), i + 1),
-                                strand: strand.clone(),
-                                contig: contig.clone(),
-                                start: *exon_start,
-                                end: *exon_end,
-                            });
-                        }
-                        (ExonPosition::CDS, ExonPosition::PostCDS) => {
-                            features.push(Feature::Exon {
-                                id: format!("{}.exon{}", id.clone(), i + 1),
-                                name: format!("{}.{}", name.clone(), i + 1),
-                                strand: strand.clone(),
-                                contig: contig.clone(),
-                                start: *exon_start,
-                                end: *cds_end,
-                            });
-                            features.push(Feature::NonCDSExon {
-                                id: format!("{}.non_cds_exon{}", id.clone(), i + 1),
-                                name: format!("{}.{}", name.clone(), i + 1),
-                                strand: strand.clone(),
-                                contig: contig.clone(),
-                                start: *cds_end + 1,
-                                end: *exon_end,
-                            });
-                        }
-                        (ExonPosition::PostCDS, ExonPosition::PostCDS) => {
-                            features.push(Feature::NonCDSExon {
-                                id: format!("{}.non_cds_exon{}", id.clone(), i + 1),
-                                name: format!("{}.{}", name.clone(), i + 1),
-                                strand: strand.clone(),
-                                contig: contig.clone(),
-                                start: *exon_start,
-                                end: *exon_end,
-                            });
-                        }
-                        _ => {} // should not happen
-                    }
-
-                    last_exon_end = *exon_end;
-                }
-
-                Ok(features)
+        let mut exon_idx = 0;
+        // Add exon exons
+        for (i, (exon_start, exon_end)) in exon_starts.iter().zip(exon_ends.iter()).enumerate() {
+            // Add intron
+            if *exon_start > last_exon_end {
+                introns.push(Feature {
+                    contig: contig.clone(),
+                    start: last_exon_end + 1,
+                    end: *exon_start,
+                    feature_type: FeatureType::Intron,
+                });
             }
 
-            Feature::Exon { .. } => Err(()),
-            Feature::Intron { .. } => Err(()),
-            Feature::NonCDSExon { .. } => Err(()),
+            // Add exon
+            exons.push(Feature {
+                contig: contig.clone(),
+                start: *exon_start,
+                end: *exon_end,
+                feature_type: FeatureType::Exon,
+            });
+
+            exon_indexes.push(exon_idx);
+            exon_idx += 1;
+
+            last_exon_end = *exon_end;
+        }
+
+        Self {
+            id,
+            name,
+            strand,
+            contig: contig.clone(),
+            transcription_start,
+            transcription_end,
+            cds_start,
+            cds_end,
+            exon_starts,
+            exon_ends,
+            exons,
+            introns,
         }
     }
+}
 
-    pub fn exons(&self) -> Result<Vec<Feature>, ()> {
-        Ok(self
-            .expand()?
-            .iter()
-            .filter(|feature| matches!(feature, Feature::Exon { .. }))
-            .cloned()
-            .collect())
+impl GenomeInterval for Gene {
+    fn start(&self) -> usize {
+        self.transcription_start
+    }
+
+    fn end(&self) -> usize {
+        self.transcription_end
+    }
+
+    fn contig(&self) -> &Contig {
+        &self.contig
+    }
+}
+
+impl IntervalCollection<Feature> for Gene {
+    fn get(&self, idx: usize) -> Option<&Feature> {
+        if idx >= self.exons.len() {
+            return None;
+        }
+
+        Some(&self.exons[idx])
+    }
+
+    fn intervals(&self) -> &Vec<Feature> {
+        return &self.exons;
+    }
+
+    fn len(&self) -> usize {
+        self.exons.len()
+    }
+}
+
+impl Gene {
+    /// Expand a parent feature into a list of child features.
+    pub fn exons(&self) -> Result<Vec<&Feature>, TGVError> {
+        Ok(self.intervals().iter().collect())
     }
 }
 
 // A track is a collections of features on a single contig.
 pub struct Track {
-    pub features: Vec<Feature>, // TODO: what about hierarchy in features? e.g. exons of a gene?
+    pub genes: Vec<Gene>, // TODO: what about hierarchy in features? e.g. exons of a gene?
     pub contig: Contig,
 
     // data_complete_left_bound: usize,
@@ -303,33 +170,64 @@ pub struct Track {
     pub most_right_bound: usize,
 }
 
+impl GenomeInterval for Track {
+    fn start(&self) -> usize {
+        self.most_left_bound
+    }
+
+    fn end(&self) -> usize {
+        self.most_right_bound
+    }
+
+    fn contig(&self) -> &Contig {
+        &self.contig
+    }
+}
+
+impl IntervalCollection<Gene> for Track {
+    fn get(&self, idx: usize) -> Option<&Gene> {
+        if idx >= self.genes.len() {
+            return None;
+        }
+        Some(&self.genes[idx])
+    }
+
+    fn intervals(&self) -> &Vec<Gene> {
+        &self.genes
+    }
+
+    fn len(&self) -> usize {
+        self.genes.len()
+    }
+}
+
 impl Track {
     /// Create a track from a list of features.
     /// Features must be sorted.
     /// TODO: unclear if feature overlapping is ok.
     pub fn from(
-        features: Vec<Feature>,
+        genes: Vec<Gene>,
         contig: Contig,
         // data_complete_left_bound: usize,
         // data_complete_right_bound: usize,
     ) -> Result<Self, String> {
-        let mut features = features;
-        features.sort_by_key(|feature| feature.start());
+        let mut genes = genes;
+        genes.sort_by_key(|gene| gene.start());
 
         let mut most_left_bound = usize::MAX;
         let mut most_right_bound = usize::MIN;
 
-        for feature in features.iter() {
-            if feature.start() < most_left_bound {
-                most_left_bound = feature.start();
+        for gene in genes.iter() {
+            if gene.start() < most_left_bound {
+                most_left_bound = gene.start();
             }
-            if feature.end() > most_right_bound {
-                most_right_bound = feature.end();
+            if gene.end() > most_right_bound {
+                most_right_bound = gene.end();
             }
         }
 
         Ok(Self {
-            features,
+            genes,
             contig,
             // data_complete_left_bound: data_complete_left_bound,
             // data_complete_right_bound: data_complete_right_bound,
@@ -338,156 +236,34 @@ impl Track {
         })
     }
 
-    pub fn is_empty(&self) -> bool {
-        self.features.is_empty()
-    }
-
     /// Check if the track has complete data in [left, right].
     /// Note that this is assuming that the track has complete data.
     /// left: 1-based, inclusive.
     /// right: 1-based, exclusive.
     pub fn has_complete_data(&self, region: &Region) -> bool {
-        (region.contig == self.contig)
-            && (region.start >= self.most_left_bound)
-            && (region.end <= self.most_right_bound)
+        self.contains(region)
+    }
+}
+
+impl Track {
+    pub fn get_exon_at(&self, position: usize) -> Option<&Feature> {
+        self.get_at(position)
+            .and_then(|(_, gene)| gene.get_at(position).and_then(|(_, exon)| Some(exon)))
     }
 
-    /// Check if the track overlaps with [left, right].
-    /// Note that this is assuming that the track has complete data.
-    /// left: 1-based, inclusive.
-    /// right: 1-based, exclusive.
-    pub fn overlaps(&self, region: &Region) -> bool {
-        (region.contig == self.contig)
-            && ((region.start <= self.most_right_bound) && (region.end >= self.most_left_bound))
-    }
-
-    /// Check if the track covers a given position.
-    /// position: 1-based.
-    pub fn covers(&self, position: usize) -> bool {
-        self.most_left_bound <= position && self.most_right_bound >= position
-    }
-
-    /// Get the feature covering a given position.
-    /// position: 1-based.
-    pub fn get_feature_at(&self, position: usize) -> Option<(usize, &Feature)> {
-        for (i, feature) in self.features.iter().enumerate() {
-            if feature.covers(position) {
-                return Some((i, feature));
-            }
-        }
-
+    pub fn get_k_exons_before(&self, position: usize, k: usize) -> Option<&Feature> {
         None
     }
 
-    pub fn get_k_features_before(&self, position: usize, k: usize) -> Option<(usize, &Feature)> {
-        if k == 0 {
-            return self.get_feature_at(position);
-        }
-
-        if self.is_empty() {
-            return None;
-        }
-
-        if position < self.most_left_bound {
-            return None;
-        }
-
-        if position > self.most_right_bound {
-            if self.features.len() < k {
-                return None;
-            }
-            let feature_index = self.features.len() - k;
-            return Some((feature_index, &self.features[feature_index]));
-        }
-
-        for (i, feature) in self.features.iter().enumerate() {
-            if feature.end() < position {
-                continue;
-            }
-            if i < k {
-                return None;
-            }
-
-            let feature_index = i - k;
-
-            return Some((feature_index, &self.features[feature_index]));
-        }
-
+    pub fn get_k_exons_after(&self, position: usize, k: usize) -> Option<&Feature> {
         None
     }
 
-    pub fn get_k_features_after(&self, position: usize, k: usize) -> Option<(usize, &Feature)> {
-        if k == 0 {
-            return self.get_feature_at(position);
-        }
-
-        if self.is_empty() {
-            return None;
-        }
-
-        if position > self.most_right_bound {
-            return None;
-        }
-
-        if position < self.most_left_bound {
-            if self.features.len() < k {
-                return None;
-            }
-            let feature_index = k - 1;
-            return Some((feature_index, &self.features[feature_index]));
-        }
-
-        for (i, feature) in self.features.iter().enumerate() {
-            if feature.start() <= position {
-                continue;
-            }
-
-            if i + k > self.features.len() {
-                return None;
-            }
-
-            let feature_index = i + k - 1;
-            return Some((feature_index, &self.features[feature_index]));
-        }
-
+    pub fn get_saturating_k_exons_before(&self, position: usize, k: usize) -> Option<&Feature> {
         None
     }
 
-    pub fn get_saturating_k_features_after(
-        &self,
-        position: usize,
-        k: usize,
-    ) -> Option<(usize, &Feature)> {
-        if k == 0 {
-            return None;
-        }
-
-        if self.is_empty() {
-            return None;
-        }
-
-        match self.get_k_features_after(position, k) {
-            Some((feature_index, feature)) => Some((feature_index, feature)),
-            _ => Some((self.features.len() - 1, self.features.last().unwrap())),
-        }
-    }
-
-    pub fn get_saturating_k_features_before(
-        &self,
-        position: usize,
-        k: usize,
-    ) -> Option<(usize, &Feature)> {
-        if k == 0 {
-            return None;
-        }
-
-        if self.is_empty() {
-            return None;
-        }
-
-        match self.get_k_features_before(position, k) {
-            Some((feature_index, feature)) => Some((feature_index, feature)),
-            _ => Some((0, self.features.first().unwrap())),
-        }
+    pub fn get_saturating_k_exons_after(&self, position: usize, k: usize) -> Option<&Feature> {
+        None
     }
 }

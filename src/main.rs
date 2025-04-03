@@ -5,7 +5,7 @@ mod models;
 mod rendering;
 mod settings;
 mod states;
-
+mod traits;
 use app::App;
 use clap::Parser;
 use error::TGVError;

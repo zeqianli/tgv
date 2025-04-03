@@ -671,13 +671,13 @@ impl State {
                         .exon_track_cache
                         .as_ref()
                         .unwrap()
-                        .get_k_features_after(position, n_query)
+                        .get_k_genes_after(position, n_query)
                         .is_none()
                     || self
                         .exon_track_cache
                         .as_ref()
                         .unwrap()
-                        .get_k_features_before(position, n_query)
+                        .get_k_genes_before(position, n_query)
                         .is_none();
                 if need_cache_update {
                     let (exon_track, gene_track) = self
@@ -704,13 +704,13 @@ impl State {
                         .gene_track_cache
                         .as_ref()
                         .unwrap()
-                        .get_k_features_after(position, n_query)
+                        .get_k_genes_after(position, n_query)
                         .is_none()
                     || self
                         .gene_track_cache
                         .as_ref()
                         .unwrap()
-                        .get_k_features_before(position, n_query + 1)
+                        .get_k_genes_before(position, n_query + 1)
                         .is_none();
                 if need_cache_update {
                     let (exon_track, gene_track) = self
@@ -733,7 +733,7 @@ impl State {
                     .exon_track_cache
                     .as_ref()
                     .unwrap()
-                    .get_saturating_k_features_after(position, n_movements)
+                    .get_saturating_k_genes_after(position, n_movements)
                 {
                     Some((_, feature)) => {
                         state_messages.push(StateMessage::GotoCoordinate(feature.start()));
@@ -751,7 +751,7 @@ impl State {
                     .exon_track_cache
                     .as_ref()
                     .unwrap()
-                    .get_saturating_k_features_after(position, n_movements)
+                    .get_saturating_k_genes_after(position, n_movements)
                 {
                     Some((_, feature)) => {
                         state_messages.push(StateMessage::GotoCoordinate(feature.end()));
@@ -769,7 +769,7 @@ impl State {
                     .exon_track_cache
                     .as_ref()
                     .unwrap()
-                    .get_saturating_k_features_before(position, n_movements)
+                    .get_saturating_k_genes_before(position, n_movements)
                 {
                     Some((_, feature)) => {
                         state_messages.push(StateMessage::GotoCoordinate(feature.start()));
@@ -787,7 +787,7 @@ impl State {
                     .exon_track_cache
                     .as_ref()
                     .unwrap()
-                    .get_saturating_k_features_before(position, n_movements)
+                    .get_saturating_k_genes_before(position, n_movements)
                 {
                     Some((_, feature)) => {
                         state_messages.push(StateMessage::GotoCoordinate(feature.end()));
@@ -805,7 +805,7 @@ impl State {
                     .gene_track_cache
                     .as_ref()
                     .unwrap()
-                    .get_saturating_k_features_after(position, n_movements)
+                    .get_saturating_k_genes_after(position, n_movements)
                 {
                     Some((_, feature)) => {
                         state_messages.push(StateMessage::GotoCoordinate(feature.start()));
@@ -823,7 +823,7 @@ impl State {
                     .gene_track_cache
                     .as_ref()
                     .unwrap()
-                    .get_saturating_k_features_after(position, n_movements)
+                    .get_saturating_k_genes_after(position, n_movements)
                 {
                     Some((_, feature)) => {
                         state_messages.push(StateMessage::GotoCoordinate(feature.end()));
@@ -841,7 +841,7 @@ impl State {
                     .gene_track_cache
                     .as_ref()
                     .unwrap()
-                    .get_saturating_k_features_before(position, n_movements)
+                    .get_saturating_k_genes_before(position, n_movements)
                 {
                     Some((_, feature)) => {
                         state_messages.push(StateMessage::GotoCoordinate(feature.start()));
@@ -859,7 +859,7 @@ impl State {
                     .gene_track_cache
                     .as_ref()
                     .unwrap()
-                    .get_saturating_k_features_before(position, n_movements + 1)
+                    .get_saturating_k_genes_before(position, n_movements + 1)
                 {
                     // TODO: fix this.
                     Some((_, feature)) => {
