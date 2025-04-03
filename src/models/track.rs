@@ -1,7 +1,7 @@
 use crate::{
     error::TGVError,
     models::{contig::Contig, region::Region, strand::Strand},
-    traits::{GenomeInterval, IntervalCollection},
+    traits::GenomeInterval,
 };
 
 /// A feature is a interval on a contig.
@@ -48,8 +48,9 @@ pub struct Gene {
     exon_starts: Vec<usize>,    // 1-based, inclusive
     exon_ends: Vec<usize>,      // 1-based, exclusive
 
-    exons: Vec<Feature>,
-    introns: Vec<Feature>,
+    features: Vec<Feature>,
+    exon_indexes: Vec<usize>,
+    intron_indexes: Vec<usize>,
 }
 
 impl Gene {
@@ -66,26 +67,29 @@ impl Gene {
         exon_starts: Vec<usize>,
         exon_ends: Vec<usize>,
     ) -> Self {
-        let mut exons: Vec<Feature> = Vec::new();
-        let mut introns: Vec<Feature> = Vec::new();
         let mut last_exon_end = transcription_start;
+        let mut features: Vec<Feature> = Vec::new();
         let mut exon_indexes: Vec<usize> = Vec::new();
+        let mut intron_indexes: Vec<usize> = Vec::new();
 
         let mut exon_idx = 0;
+        let mut intron_idx = 0;
         // Add exon exons
         for (i, (exon_start, exon_end)) in exon_starts.iter().zip(exon_ends.iter()).enumerate() {
             // Add intron
             if *exon_start > last_exon_end {
-                introns.push(Feature {
+                features.push(Feature {
                     contig: contig.clone(),
                     start: last_exon_end + 1,
                     end: *exon_start,
                     feature_type: FeatureType::Intron,
                 });
+                intron_indexes.push(intron_idx);
+                intron_idx += 1;
             }
 
             // Add exon
-            exons.push(Feature {
+            features.push(Feature {
                 contig: contig.clone(),
                 start: *exon_start,
                 end: *exon_end,
@@ -109,8 +113,9 @@ impl Gene {
             cds_end,
             exon_starts,
             exon_ends,
-            exons,
-            introns,
+            features,
+            exon_indexes,
+            intron_indexes,
         }
     }
 }
@@ -129,28 +134,62 @@ impl GenomeInterval for Gene {
     }
 }
 
-impl IntervalCollection<Feature> for Gene {
-    fn get(&self, idx: usize) -> Option<&Feature> {
-        if idx >= self.exons.len() {
+impl Gene {
+    pub fn get_exon(&self, idx: usize) -> Option<&Feature> {
+        if idx >= self.exon_indexes.len() {
             return None;
         }
 
-        Some(&self.exons[idx])
+        Some(&self.features[self.exon_indexes[idx]])
     }
 
-    fn intervals(&self) -> &Vec<Feature> {
-        return &self.exons;
+    pub fn n_exons(&self) -> usize {
+        self.exon_indexes.len()
     }
 
-    fn len(&self) -> usize {
-        self.exons.len()
+    pub fn has_exon(&self) -> bool {
+        self.exon_indexes.is_empty()
+    }
+
+    pub fn get_k_left_exons_index(&self, idx: usize, k: usize) -> Option<usize> {
+        if k > idx {
+            return None;
+        }
+
+        Some(idx - k)
+    }
+
+    pub fn get_k_right_exons_index(&self, idx: usize, k: usize) -> Option<usize> {
+        Some((idx + k).min(self.n_exons() - 1))
+    }
+
+    pub fn get_saturating_k_left_exons_index(&self, idx: usize, k: usize) -> Option<usize> {
+        Some(idx.saturating_sub(k))
+    }
+
+    pub fn get_saturating_k_right_exons_index(&self, idx: usize, k: usize) -> Option<usize> {
+        Some((idx + k).min(self.n_exons() - 1))
+    }
+
+    pub fn exons(&self) -> Vec<&Feature> {
+        self.features
+            .iter()
+            .filter(|f| f.feature_type == FeatureType::Exon)
+            .collect()
     }
 }
 
 impl Gene {
-    /// Expand a parent feature into a list of child features.
-    pub fn exons(&self) -> Result<Vec<&Feature>, TGVError> {
-        Ok(self.intervals().iter().collect())
+    pub fn get_intron(&self, idx: usize) -> Option<&Feature> {
+        if idx >= self.intron_indexes.len() {
+            return None;
+        }
+
+        Some(&self.features[self.intron_indexes[idx]])
+    }
+
+    pub fn n_introns(&self) -> usize {
+        self.intron_indexes.len()
     }
 }
 
@@ -184,20 +223,43 @@ impl GenomeInterval for Track {
     }
 }
 
-impl IntervalCollection<Gene> for Track {
-    fn get(&self, idx: usize) -> Option<&Gene> {
+impl Track {
+    pub fn get_gene(&self, idx: usize) -> Option<&Gene> {
         if idx >= self.genes.len() {
             return None;
         }
         Some(&self.genes[idx])
     }
 
-    fn intervals(&self) -> &Vec<Gene> {
-        &self.genes
+    pub fn n_genes(&self) -> usize {
+        self.genes.len()
     }
 
-    fn len(&self) -> usize {
-        self.genes.len()
+    pub fn has_gene(&self) -> bool {
+        self.genes.is_empty()
+    }
+
+    pub fn get_k_left_genes_index(&self, idx: usize, k: usize) -> Option<usize> {
+        if k > idx {
+            return None;
+        }
+        Some(idx - k)
+    }
+
+    pub fn get_k_right_genes_index(&self, idx: usize, k: usize) -> Option<usize> {
+        Some((idx + k).min(self.n_genes() - 1))
+    }
+
+    pub fn get_saturating_k_left_genes_index(&self, idx: usize, k: usize) -> Option<usize> {
+        Some(idx.saturating_sub(k))
+    }
+
+    pub fn get_saturating_k_right_genes_index(&self, idx: usize, k: usize) -> Option<usize> {
+        Some((idx + k).min(self.n_genes() - 1))
+    }
+
+    pub fn genes(&self) -> &Vec<Gene> {
+        &self.genes
     }
 }
 
@@ -246,24 +308,151 @@ impl Track {
 }
 
 impl Track {
-    pub fn get_exon_at(&self, position: usize) -> Option<&Feature> {
-        self.get_at(position)
-            .and_then(|(_, gene)| gene.get_at(position).and_then(|(_, exon)| Some(exon)))
+    pub fn get_exon(&self, idx_gene: usize, idx_exon: usize) -> Option<&Feature> {
+        self.get_gene(idx_gene)
+            .and_then(|gene| gene.get_exon(idx_exon))
     }
 
-    pub fn get_k_exons_before(&self, position: usize, k: usize) -> Option<&Feature> {
+    pub fn get_first_exon_index(&self) -> Option<(usize, usize)> {
+        for idx_gene in 0..self.genes.len() {
+            if self.genes[idx_gene].has_exon() {
+                return Some((idx_gene, 0));
+            }
+        }
         None
     }
 
-    pub fn get_k_exons_after(&self, position: usize, k: usize) -> Option<&Feature> {
+    pub fn get_last_exon_index(&self) -> Option<(usize, usize)> {
+        if self.genes.is_empty() {
+            return None;
+        }
+        for i in 0..self.genes.len() {
+            let idx_gene = self.genes.len() - 1 - i;
+            if self.genes[idx_gene].has_exon() {
+                return Some((idx_gene, self.genes[idx_gene].n_exons() - 1));
+            }
+        }
         None
     }
 
-    pub fn get_saturating_k_exons_before(&self, position: usize, k: usize) -> Option<&Feature> {
+    pub fn get_k_left_exons_index(
+        &self,
+        idx_gene: usize,
+        idx_exon: usize,
+        k: usize,
+    ) -> Option<(usize, usize)> {
+        if idx_gene >= self.genes.len() {
+            return None;
+        }
+
+        if idx_exon >= self.genes[idx_gene].n_exons() {
+            return None;
+        }
+
+        let mut idx_gene = idx_gene;
+        let mut idx_exon = idx_exon;
+
+        let mut k = k;
+
+        while k > 0 {
+            if idx_exon >= k {
+                // found the gene!
+                idx_exon -= k;
+                k = 0;
+            } else if idx_gene > 0 {
+                // move to the previous gene
+                k -= (idx_exon + 1);
+                idx_gene -= 1;
+                idx_exon = self.genes[idx_gene].n_exons() - 1;
+            } else {
+                // out of genes
+                return None;
+            }
+        }
+
+        if k == 0 {
+            return Some((idx_gene, idx_exon));
+        }
+
         None
     }
 
-    pub fn get_saturating_k_exons_after(&self, position: usize, k: usize) -> Option<&Feature> {
+    pub fn get_k_right_exons_index(
+        &self,
+        idx_gene: usize,
+        idx_exon: usize,
+        k: usize,
+    ) -> Option<(usize, usize)> {
+        if idx_gene >= self.genes.len() {
+            return None;
+        }
+
+        if idx_exon >= self.genes[idx_gene].n_exons() {
+            return None;
+        }
+
+        let mut idx_gene = idx_gene;
+        let mut idx_exon = idx_exon;
+
+        let mut k = k;
+
+        while k > 0 {
+            if idx_exon + k < self.genes[idx_gene].n_exons() {
+                // found the gene!
+                idx_exon += k;
+                k = 0;
+            } else if idx_gene < self.genes.len() - 1 {
+                // move to the next gene
+                k -= (self.genes[idx_gene].n_exons() - idx_exon);
+                idx_gene += 1;
+                idx_exon = 0;
+            } else {
+                // out of genes
+                return None;
+            }
+        }
+
+        if k == 0 {
+            return Some((idx_gene, idx_exon));
+        }
+
         None
+    }
+
+    pub fn get_saturating_k_exons_before(
+        &self,
+        idx_gene: usize,
+        idx_exon: usize,
+        k: usize,
+    ) -> Option<(usize, usize)> {
+        if idx_gene >= self.genes.len() {
+            return None;
+        }
+
+        if idx_exon >= self.genes[idx_gene].n_exons() {
+            return None;
+        }
+        match self.get_k_left_exons_index(idx_gene, idx_exon, k) {
+            Some((idx_gene, idx_exon)) => Some((idx_gene, idx_exon)),
+            None => self.get_first_exon_index(),
+        }
+    }
+
+    pub fn get_saturating_k_exons_after(
+        &self,
+        idx_gene: usize,
+        idx_exon: usize,
+        k: usize,
+    ) -> Option<(usize, usize)> {
+        if idx_gene >= self.genes.len() {
+            return None;
+        }
+        if idx_exon >= self.genes[idx_gene].n_exons() {
+            return None;
+        }
+        match self.get_k_right_exons_index(idx_gene, idx_exon, k) {
+            Some((idx_gene, idx_exon)) => Some((idx_gene, idx_exon)),
+            None => self.get_last_exon_index(),
+        }
     }
 }
