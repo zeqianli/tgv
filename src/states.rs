@@ -10,7 +10,7 @@ use crate::models::{
     region::Region,
     register::{CommandModeRegister, NormalModeRegister},
     services::tracks::TrackService,
-    track::Track,
+    track::{Feature, Gene, Track},
     window::ViewingWindow,
 };
 use crate::settings::Settings;
@@ -125,23 +125,23 @@ impl ContigCollection {
 
 /// Holds states of the application.
 pub struct State {
+    /// Basics
+    pub input_mode: InputMode,
+    pub exit: bool,
+
     /// Viewing window.
     window: Option<ViewingWindow>,
     area: Option<Rect>,
 
-    pub input_mode: InputMode,
-
-    pub exit: bool,
-
-    // Handle feature movements
+    // Data
     pub data: Data,
+
+    /// Contigs in the BAM header
+    contigs: Option<ContigCollection>,
 
     // Registers
     normal_mode_register: NormalModeRegister,
     command_mode_register: CommandModeRegister,
-
-    /// Contigs in the BAM header
-    contigs: Option<ContigCollection>,
 
     /// Settings
     pub settings: Settings,
@@ -285,10 +285,18 @@ impl State {
     }
 }
 
+impl State {
+    pub async fn handle(&mut self, key_event: KeyEvent) -> Result<bool, TGVError> {
+        let messages = self.translate_key_event(key_event);
+        let data_messages = self.handle_state_messages(messages).await?;
+        self.data.handle_data_messages(data_messages).await
+    }
+}
+
 // State message handling
 impl State {
     // Translate key event to a message.
-    pub fn translate_key_event(&self, key_event: KeyEvent) -> Vec<StateMessage> {
+    fn translate_key_event(&self, key_event: KeyEvent) -> Vec<StateMessage> {
         let messages = match self.input_mode {
             InputMode::Normal => {
                 match key_event.code {
@@ -351,7 +359,7 @@ impl State {
     }
 
     /// Handle state messages.
-    pub async fn handle_state_messages(
+    async fn handle_state_messages(
         &mut self,
         messages: Vec<StateMessage>,
     ) -> Result<Vec<DataMessage>, TGVError> {
@@ -365,7 +373,7 @@ impl State {
     }
 
     /// Main function to route state message handling.
-    pub async fn handle_state_message(
+    async fn handle_state_message(
         &mut self,
         message: StateMessage,
     ) -> Result<Vec<DataMessage>, TGVError> {
@@ -449,20 +457,6 @@ impl State {
 // Data message handling
 
 impl State {
-    pub async fn handle_data_messages(
-        &mut self,
-        data_messages: Vec<DataMessage>,
-    ) -> Result<bool, TGVError> {
-        self.data.handle_data_messages(data_messages).await
-    }
-
-    pub async fn handle_data_message(
-        &mut self,
-        data_message: DataMessage,
-    ) -> Result<bool, TGVError> {
-        self.data.handle_data_message(data_message).await
-    }
-
     const MAX_ZOOM_TO_DISPLAY_FEATURES: usize = usize::MAX;
     const MAX_ZOOM_TO_DISPLAY_ALIGNMENTS: usize = 32;
     const MAX_ZOOM_TO_DISPLAY_SEQUENCES: usize = 2;
@@ -603,52 +597,51 @@ impl State {
 impl State {
     // const DEFAULT_CACHE_N_GENES: usize = 5;
 
-    // async fn get_exon_and_gene_cache(
-    //     &self,
-    //     contig: &Contig,
-    //     position: usize,
-    //     n_genes: usize,
-    // ) -> Result<(Track, Track), String> {
-    //     if self.feature_query_service.is_none() {
-    //         return Err("Feature query service not initialized".to_string());
-    //     }
-    //     let feature_query_service = self.feature_query_service.as_ref().unwrap();
+    async fn get_exon_and_gene_cache(
+        &self,
+        contig: &Contig,
+        position: usize,
+        n_genes: usize,
+    ) -> Result<Track, TGVError> {
+        if self.data.track_service.is_none() {
+            return Err(TGVError::StateError(
+                "Feature query service not initialized".to_string(),
+            ));
+        }
+        let track_service = self.data.track_service.as_ref().unwrap();
 
-    //     let this_gene = feature_query_service
-    //         .query_gene_covering(contig, position)
-    //         .await;
-    //     let next_genes = feature_query_service
-    //         .query_genes_after(contig, position, n_genes)
-    //         .await;
-    //     let previous_genes = feature_query_service
-    //         .query_genes_before(contig, position, n_genes)
-    //         .await;
+        let this_gene = track_service.query_gene_covering(contig, position).await;
+        let next_genes = track_service
+            .query_genes_after(contig, position, n_genes)
+            .await;
+        let previous_genes = track_service
+            .query_genes_before(contig, position, n_genes)
+            .await;
 
-    //     let all_genes: Vec<Feature> = match (this_gene, next_genes, previous_genes) {
-    //         (Ok(this_gene), Ok(next_genes), Ok(previous_genes)) => {
-    //             let mut all_genes = Vec::new();
-    //             if let Some(this_gene) = this_gene {
-    //                 all_genes.push(this_gene);
-    //             }
-    //             all_genes.extend(next_genes);
-    //             all_genes.extend(previous_genes);
+        let all_genes: Vec<Gene> = match (this_gene, next_genes, previous_genes) {
+            (Ok(this_gene), Ok(next_genes), Ok(previous_genes)) => {
+                let mut all_genes = Vec::new();
+                if let Some(this_gene) = this_gene {
+                    all_genes.push(this_gene);
+                }
+                all_genes.extend(next_genes);
+                all_genes.extend(previous_genes);
 
-    //             all_genes
-    //         }
-    //         _ => return Err("Failed to get exon and gene cache".to_string()),
-    //     };
+                all_genes
+            }
+            _ => {
+                return Err(TGVError::StateError(
+                    "Failed to get exon and gene cache".to_string(),
+                ))
+            }
+        };
 
-    //     let mut exons = Vec::new();
+        let track = Track::from(all_genes, contig.clone()).unwrap();
 
-    //     for gene in all_genes.iter() {
-    //         exons.extend(gene.exons().unwrap());
-    //     }
+        let (idx_gene, idx_exon) = track.get
 
-    //     let gene_track = Track::from(all_genes, contig.clone()).unwrap();
-    //     let exon_track = Track::from(exons, contig.clone()).unwrap();
-
-    //     Ok((exon_track, gene_track))
-    // }
+        Ok(track)
+    }
 
     async fn handle_feature_movement_message(
         &mut self,

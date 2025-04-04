@@ -193,6 +193,79 @@ impl Gene {
     }
 }
 
+impl Gene {
+    pub fn get_exon_at(&self, position: usize) -> Option<usize> {
+        if self.exon_indexes.is_empty() {
+            return None;
+        }
+
+        if !self.covers(position) {
+            return None;
+        }
+
+        for (i, idx_exon) in self.exon_indexes.iter().enumerate() {
+            let exon = self.get_exon(*idx_exon).unwrap();
+            if exon.covers(position) {
+                return Some(idx_exon);
+            }
+
+            if exon.start() > position {
+                break;
+            }
+        }
+
+        None
+    }
+
+    pub fn get_nearest_left_exon(&self, position: usize) -> Option<&Feature> {
+        if self.exon_indexes.is_empty() {
+            return None;
+        }
+
+        if position < self.start() {
+            return None;
+        }
+
+        if position > self.end() {
+            return Some(self.exon_indexes.last().unwrap());
+        }
+
+        for (i, idx_exon) in self.exon_indexes.iter().enumerate() {
+            if self.exon_starts[*idx_exon] > position {
+                if i == 0 {
+                    return None;
+                }
+
+                return Some(self.exon_indexes[i - 1]);
+            }
+        }
+
+        Some(self.exon_indexes.last().unwrap())
+    }
+
+    pub fn get_nearest_right_exon(&self, position: usize) -> Option<usize> {
+        if self.exon_indexes.is_empty() {
+            return None;
+        }
+
+        if position < self.start() {
+            return Some(self.exon_indexes[0]);
+        }
+
+        if position >= self.end() {
+            return None;
+        }
+
+        for (i, idx_exon) in self.exon_indexes.iter().enumerate() {
+            if self.exon_starts[*idx_exon] > position {
+                return Some(*idx_exon);
+            }
+        }
+
+        None
+    }
+}
+
 // A track is a collections of features on a single contig.
 pub struct Track {
     pub genes: Vec<Gene>, // TODO: what about hierarchy in features? e.g. exons of a gene?
@@ -453,6 +526,14 @@ impl Track {
         match self.get_k_right_exons_index(idx_gene, idx_exon, k) {
             Some((idx_gene, idx_exon)) => Some((idx_gene, idx_exon)),
             None => self.get_last_exon_index(),
+        }
+    }
+}
+
+impl Track {
+    pub fn get_exon_at(&self, position: usize) -> Option<(usize, usize)> {
+        if self.genes.is_empty() {
+            return None;
         }
     }
 }
