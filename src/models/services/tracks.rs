@@ -4,7 +4,7 @@ use crate::models::{
     reference::Reference,
     region::Region,
     strand::Strand,
-    track::{Feature, Track},
+    track::{Feature, Gene, Track},
 };
 use sqlx::{mysql::MySqlPoolOptions, MySqlPool, Row};
 use std::sync::Arc;
@@ -163,7 +163,165 @@ impl TrackService {
         }
     }
 
-    pub async fn query_genes_after(
+    pub async fn query_k_genes_after(
+        &self,
+        contig: &Contig,
+        coord: usize,
+        k: usize,
+    ) -> Result<Gene, TGVError> {
+        let rows = sqlx::query(
+            "SELECT name, chrom, strand, txStart, txEnd, name2, exonStarts, exonEnds, cdsStart, cdsEnd
+             FROM ncbiRefSeqSelect 
+             WHERE chrom = ? AND txStart > ? 
+             ORDER BY txStart ASC LIMIT ?",
+        )
+        .bind(contig.full_name())
+        .bind(u32::try_from(coord).unwrap())
+        .bind(u32::try_from(k).unwrap())
+        .fetch_all(&*self.pool)
+        .await
+        .map_err(|_| TGVError::IOError("No genes found".to_string()))?;
+
+        if rows.is_empty() {
+            return Err(TGVError::IOError("No genes found".to_string()));
+        }
+
+        let n_rows = rows.len();
+        let row = &rows[k.min(n_rows - 1)];
+
+        let name: String = row
+            .try_get("name")
+            .map_err(|_| TGVError::IOError("Feature parsing error".to_string()))?;
+        let chrom: String = row
+            .try_get("chrom")
+            .map_err(|_| TGVError::IOError("Feature parsing error".to_string()))?;
+        let strand_str: String = row
+            .try_get("strand")
+            .map_err(|_| TGVError::IOError("Feature parsing error".to_string()))?;
+        let tx_start: u32 = row
+            .try_get("txStart")
+            .map_err(|_| TGVError::IOError("Feature parsing error".to_string()))?;
+        let tx_end: u32 = row
+            .try_get("txEnd")
+            .map_err(|_| TGVError::IOError("Feature parsing error".to_string()))?;
+        let name2: String = row
+            .try_get("name2")
+            .map_err(|_| TGVError::IOError("Feature parsing error".to_string()))?;
+        let exon_starts_blob: Vec<u8> = row
+            .try_get("exonStarts")
+            .map_err(|_| TGVError::IOError("Feature parsing error".to_string()))?;
+        let exon_ends_blob: Vec<u8> = row
+            .try_get("exonEnds")
+            .map_err(|_| TGVError::IOError("Feature parsing error".to_string()))?;
+        let cds_start: u32 = row
+            .try_get("cdsStart")
+            .map_err(|_| TGVError::IOError("Feature parsing error".to_string()))?;
+        let cds_end: u32 = row
+            .try_get("cdsEnd")
+            .map_err(|_| TGVError::IOError("Feature parsing error".to_string()))?;
+
+        // USCS coordinates are 0-based, half-open
+        // https://genome-blog.gi.ucsc.edu/blog/2016/12/12/the-ucsc-genome-browser-coordinate-counting-systems/
+
+        let gene = Gene::new(
+            name,
+            name2,
+            Strand::from_str(strand_str).unwrap(),
+            Contig::chrom(&chrom),
+            tx_start as usize + 1,
+            tx_end as usize,
+            cds_start as usize + 1,
+            cds_end as usize,
+            parse_blob_to_coords(&exon_starts_blob)
+                .iter()
+                .map(|v| v + 1)
+                .collect(),
+            parse_blob_to_coords(&exon_ends_blob),
+        );
+
+        Ok(gene)
+    }
+
+    pub async fn query_k_genes_before(
+        &self,
+        contig: &Contig,
+        coord: usize,
+        k: usize,
+    ) -> Result<Gene, TGVError> {
+        let rows = sqlx::query(
+            "SELECT name, chrom, strand, txStart, txEnd, name2, exonStarts, exonEnds, cdsStart, cdsEnd
+             FROM ncbiRefSeqSelect 
+             WHERE chrom = ? AND txStart < ? 
+             ORDER BY txStart DESC LIMIT ?",
+        )
+        .bind(contig.full_name())
+        .bind(u32::try_from(coord).unwrap())
+        .bind(u32::try_from(k).unwrap())
+        .fetch_all(&*self.pool)
+        .await
+        .map_err(|_| TGVError::IOError("No genes found".to_string()))?;
+
+        if rows.is_empty() {
+            return Err(TGVError::IOError("No genes found".to_string()));
+        }
+
+        let n_rows = rows.len();
+        let row = &rows[n_rows - 1 - k];
+
+        let name: String = row
+            .try_get("name")
+            .map_err(|_| TGVError::IOError("Feature parsing error".to_string()))?;
+        let chrom: String = row
+            .try_get("chrom")
+            .map_err(|_| TGVError::IOError("Feature parsing error".to_string()))?;
+        let strand_str: String = row
+            .try_get("strand")
+            .map_err(|_| TGVError::IOError("Feature parsing error".to_string()))?;
+        let tx_start: u32 = row
+            .try_get("txStart")
+            .map_err(|_| TGVError::IOError("Feature parsing error".to_string()))?;
+        let tx_end: u32 = row
+            .try_get("txEnd")
+            .map_err(|_| TGVError::IOError("Feature parsing error".to_string()))?;
+        let name2: String = row
+            .try_get("name2")
+            .map_err(|_| TGVError::IOError("Feature parsing error".to_string()))?;
+        let exon_starts_blob: Vec<u8> = row
+            .try_get("exonStarts")
+            .map_err(|_| TGVError::IOError("Feature parsing error".to_string()))?;
+        let exon_ends_blob: Vec<u8> = row
+            .try_get("exonEnds")
+            .map_err(|_| TGVError::IOError("Feature parsing error".to_string()))?;
+        let cds_start: u32 = row
+            .try_get("cdsStart")
+            .map_err(|_| TGVError::IOError("Feature parsing error".to_string()))?;
+        let cds_end: u32 = row
+            .try_get("cdsEnd")
+            .map_err(|_| TGVError::IOError("Feature parsing error".to_string()))?;
+
+        // USCS coordinates are 0-based, half-open
+        // https://genome-blog.gi.ucsc.edu/blog/2016/12/12/the-ucsc-genome-browser-coordinate-counting-systems/
+
+        let gene = Gene::new(
+            name,
+            name2,
+            Strand::from_str(strand_str).unwrap(),
+            Contig::chrom(&chrom),
+            tx_start as usize + 1,
+            tx_end as usize,
+            cds_start as usize + 1,
+            cds_end as usize,
+            parse_blob_to_coords(&exon_starts_blob)
+                .iter()
+                .map(|v| v + 1)
+                .collect(),
+            parse_blob_to_coords(&exon_ends_blob),
+        );
+
+        Ok(gene)
+    }
+
+    pub async fn query_k_exons_after(
         &self,
         contig: &Contig,
         coord: usize,
@@ -197,78 +355,26 @@ impl TrackService {
             // USCS coordinates are 0-based, half-open
             // https://genome-blog.gi.ucsc.edu/blog/2016/12/12/the-ucsc-genome-browser-coordinate-counting-systems/
 
-            genes.push(Feature::Gene {
-                id: name,
-                name: name2,
-                strand: Strand::from_str(strand_str).unwrap(),
-                contig: Contig::chrom(&chrom),
-                transcription_start: tx_start as usize + 1,
-                transcription_end: tx_end as usize,
-                cds_start: cds_start as usize + 1,
-                cds_end: cds_end as usize,
-                exon_starts: parse_blob_to_coords(&exon_starts_blob)
+            let gene = Gene::new(
+                name,
+                name2,
+                Strand::from_str(strand_str).unwrap(),
+                Contig::chrom(&chrom),
+                tx_start as usize + 1,
+                tx_end as usize,
+                cds_start as usize + 1,
+                cds_end as usize,
+                parse_blob_to_coords(&exon_starts_blob)
                     .iter()
                     .map(|v| v + 1)
                     .collect(),
-                exon_ends: parse_blob_to_coords(&exon_ends_blob),
-            });
+                parse_blob_to_coords(&exon_ends_blob),
+            );
         }
 
-        Ok(genes)
-    }
+        let track = Track::from(genes, contig.clone())?;
 
-    pub async fn query_genes_before(
-        &self,
-        contig: &Contig,
-        coord: usize,
-        k: usize,
-    ) -> Result<Vec<Feature>, sqlx::Error> {
-        let rows = sqlx::query(
-            "SELECT name, chrom, strand, txStart, txEnd, name2, exonStarts, exonEnds, cdsStart, cdsEnd
-             FROM ncbiRefSeqSelect 
-             WHERE chrom = ? AND txStart < ? 
-             ORDER BY txStart DESC LIMIT ?",
-        )
-        .bind(contig.full_name())
-        .bind(u32::try_from(coord).unwrap())
-        .bind(u32::try_from(k).unwrap())
-        .fetch_all(&*self.pool)
-        .await?;
-
-        let mut genes = Vec::new();
-        for row in rows {
-            let name: String = row.try_get("name")?;
-            let chrom: String = row.try_get("chrom")?;
-            let strand_str: String = row.try_get("strand")?;
-            let tx_start: u32 = row.try_get("txStart")?;
-            let tx_end: u32 = row.try_get("txEnd")?;
-            let name2: String = row.try_get("name2")?;
-            let exon_starts_blob: Vec<u8> = row.try_get("exonStarts")?;
-            let exon_ends_blob: Vec<u8> = row.try_get("exonEnds")?;
-            let cds_start: u32 = row.try_get("cdsStart")?;
-            let cds_end: u32 = row.try_get("cdsEnd")?;
-
-            // USCS coordinates are 0-based, half-open
-            // https://genome-blog.gi.ucsc.edu/blog/2016/12/12/the-ucsc-genome-browser-coordinate-counting-systems/
-
-            genes.push(Feature::Gene {
-                id: name,
-                name: name2,
-                strand: Strand::from_str(strand_str).unwrap(),
-                contig: Contig::chrom(&chrom),
-                transcription_start: tx_start as usize + 1,
-                transcription_end: tx_end as usize,
-                cds_start: cds_start as usize + 1,
-                cds_end: cds_end as usize,
-                exon_starts: parse_blob_to_coords(&exon_starts_blob)
-                    .iter()
-                    .map(|v| v + 1)
-                    .collect(),
-                exon_ends: parse_blob_to_coords(&exon_ends_blob),
-            });
-        }
-
-        Ok(genes)
+        return track.get_saturating_k_exons_after(coord, k);
     }
 
     pub async fn query_gene_name(&self, gene_id: &String) -> Result<Feature, sqlx::Error> {

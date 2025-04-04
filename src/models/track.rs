@@ -14,7 +14,7 @@ enum FeatureType {
 }
 
 #[derive(Debug, Clone)]
-struct Feature {
+pub struct Feature {
     contig: Contig,
     start: usize,
     end: usize,
@@ -194,7 +194,7 @@ impl Gene {
 }
 
 impl Gene {
-    pub fn get_exon_at(&self, position: usize) -> Option<usize> {
+    pub fn get_exon_index_at(&self, position: usize) -> Option<usize> {
         if self.exon_indexes.is_empty() {
             return None;
         }
@@ -206,7 +206,7 @@ impl Gene {
         for (i, idx_exon) in self.exon_indexes.iter().enumerate() {
             let exon = self.get_exon(*idx_exon).unwrap();
             if exon.covers(position) {
-                return Some(idx_exon);
+                return Some(*idx_exon);
             }
 
             if exon.start() > position {
@@ -217,7 +217,7 @@ impl Gene {
         None
     }
 
-    pub fn get_nearest_left_exon(&self, position: usize) -> Option<&Feature> {
+    pub fn get_nearest_left_exon_index(&self, position: usize) -> Option<usize> {
         if self.exon_indexes.is_empty() {
             return None;
         }
@@ -227,7 +227,7 @@ impl Gene {
         }
 
         if position > self.end() {
-            return Some(self.exon_indexes.last().unwrap());
+            return Some(self.exon_indexes[self.exon_indexes.len() - 1]);
         }
 
         for (i, idx_exon) in self.exon_indexes.iter().enumerate() {
@@ -240,10 +240,10 @@ impl Gene {
             }
         }
 
-        Some(self.exon_indexes.last().unwrap())
+        Some(self.exon_indexes[self.exon_indexes.len() - 1])
     }
 
-    pub fn get_nearest_right_exon(&self, position: usize) -> Option<usize> {
+    pub fn get_nearest_right_exon_index(&self, position: usize) -> Option<usize> {
         if self.exon_indexes.is_empty() {
             return None;
         }
@@ -531,9 +531,174 @@ impl Track {
 }
 
 impl Track {
-    pub fn get_exon_at(&self, position: usize) -> Option<(usize, usize)> {
+    pub fn get_exon_index_at(&self, position: usize) -> Option<(usize, usize)> {
         if self.genes.is_empty() {
             return None;
         }
+
+        // Check if position is within the track bounds
+        if !self.covers(position) {
+            return None;
+        }
+
+        // Iterate through genes to find the one containing the position
+        for (gene_idx, gene) in self.genes.iter().enumerate() {
+            if gene.covers(position) {
+                // Found the gene, now find the exon
+                if let Some(exon_idx) = gene.get_exon_index_at(position) {
+                    return Some((gene_idx, exon_idx));
+                } else {
+                    return None;
+                }
+            }
+        }
+
+        None
+    }
+
+    pub fn get_gene_index_at(&self, position: usize) -> Option<usize> {
+        if self.genes.is_empty() {
+            return None;
+        }
+
+        // Check if position is within the track bounds
+        if !self.covers(position) {
+            return None;
+        }
+
+        // Iterate through genes to find the one containing the position
+        for (gene_idx, gene) in self.genes.iter().enumerate() {
+            if gene.covers(position) {
+                return Some(gene_idx);
+            }
+        }
+
+        None
+    }
+
+    pub fn get_nearest_left_gene_index(&self, position: usize) -> Option<usize> {
+        if self.genes.is_empty() {
+            return None;
+        }
+
+        if position < self.start() {
+            return None;
+        }
+
+        if position > self.end() {
+            return Some(self.genes.len() - 1);
+        }
+
+        for (i, gene) in self.genes.iter().enumerate() {
+            if gene.start() > position {
+                if i == 0 {
+                    return None;
+                }
+
+                return Some(i - 1);
+            }
+        }
+
+        Some(self.genes.len() - 1)
+    }
+
+    pub fn get_nearest_right_gene_index(&self, position: usize) -> Option<usize> {
+        if self.genes.is_empty() {
+            return None;
+        }
+
+        if position < self.start() {
+            return Some(0);
+        }
+
+        if position >= self.end() {
+            return None;
+        }
+
+        for (i, gene) in self.genes.iter().enumerate() {
+            if gene.start() > position {
+                return Some(i);
+            }
+        }
+
+        None
+    }
+
+    pub fn get_nearest_left_exon_index(&self, position: usize) -> Option<(usize, usize)> {
+        if self.genes.is_empty() {
+            return None;
+        }
+
+        if position < self.start() {
+            return None;
+        }
+
+        if position > self.end() {
+            return self.get_last_exon_index();
+        }
+
+        if let Some(idx_gene) = self.get_gene_index_at(position) {
+            let gene = &self.genes[idx_gene];
+            if let Some(idx_exon) = gene.get_nearest_left_exon_index(position) {
+                return Some((idx_gene, idx_exon));
+            }
+        }
+
+        if let Some(idx_gene) = self.get_nearest_left_gene_index(position) {
+            let mut idx_gene = idx_gene;
+            while idx_gene >= 0 {
+                let gene = &self.genes[idx_gene];
+                if gene.has_exon() {
+                    return Some((idx_gene, gene.n_exons() - 1));
+                }
+
+                if idx_gene > 0 {
+                    idx_gene -= 1;
+                } else {
+                    break;
+                }
+            }
+        }
+
+        None
+    }
+
+    pub fn get_nearest_right_exon_index(&self, position: usize) -> Option<(usize, usize)> {
+        if self.genes.is_empty() {
+            return None;
+        }
+
+        if position < self.start() {
+            return self.get_first_exon_index();
+        }
+
+        if position > self.end() {
+            return None;
+        }
+
+        if let Some(idx_gene) = self.get_gene_index_at(position) {
+            let gene = &self.genes[idx_gene];
+            if let Some(idx_exon) = gene.get_nearest_right_exon_index(position) {
+                return Some((idx_gene, idx_exon));
+            }
+        }
+
+        if let Some(idx_gene) = self.get_nearest_right_gene_index(position) {
+            let mut idx_gene = idx_gene;
+            while idx_gene < self.genes.len() {
+                let gene = &self.genes[idx_gene];
+                if gene.has_exon() {
+                    return Some((idx_gene, 0));
+                }
+
+                if idx_gene < self.genes.len() - 1 {
+                    idx_gene += 1;
+                } else {
+                    break;
+                }
+            }
+        }
+
+        None
     }
 }
