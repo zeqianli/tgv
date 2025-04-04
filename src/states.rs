@@ -670,131 +670,62 @@ impl State {
         let message_clone = message.clone();
 
         match message {
-            StateMessage::GotoNextGenesStart(n_movements)
-            | StateMessage::GotoNextGenesEnd(n_movements)
-            | StateMessage::GotoPreviousGenesStart(n_movements)
-            | StateMessage::GotoPreviousGenesEnd(n_movements) => {
+            StateMessage::GotoNextGenesStart(n_movements) => {
                 if n_movements == 0 {
                     return Ok(self.get_data_requirements()?);
+                }
+
+                let target_gene = track.get_k_genes_after(self.middle()?, n_movements);
+                if let Some(target_gene) = target_gene {
+                    state_messages.push(StateMessage::GotoCoordinate(target_gene.start() + 1));
+                } else {
+                    // Query for the target gene
+                    let track_service = self.data.track_service.as_ref().unwrap();
+                    let gene = track_service
+                        .query_k_genes_after(&self.contig()?, self.middle()?, n_movements)
+                        .await?;
+
+                    state_messages.push(StateMessage::GotoCoordinate(gene.start() + 1));
+                }
+            }
+            StateMessage::GotoNextGenesEnd(n_movements) => {
+                if n_movements == 0 {
+                    return Ok(self.get_data_requirements()?);
+                }
+
+                let target_gene = track.get_k_genes_after(self.middle()?, n_movements);
+                if let Some(target_gene) = target_gene {
+                    state_messages.push(StateMessage::GotoCoordinate(target_gene.start() + 1));
+                } else {
+                    // Query for the target gene
+                    let track_service = self.data.track_service.as_ref().unwrap();
+                    let gene = track_service
+                        .query_k_genes_after(&self.contig()?, self.middle()?, n_movements)
+                        .await?;
+
+                    state_messages.push(StateMessage::GotoCoordinate(gene.start() + 1));
+                }
+            }
+            StateMessage::GotoPreviousGenesEnd(n_movements) => {
+                if n_movements == 0 {
+                    return Ok(self.get_data_requirements()?);
+                }
+
+                let target_gene = track.get_k_genes_before(self.middle()?, n_movements);
+                if let Some(target_gene) = target_gene {
+                    state_messages.push(StateMessage::GotoCoordinate(target_gene.start() + 1));
+                } else {
+                    // Query for the target gene
+                    let track_service = self.data.track_service.as_ref().unwrap();
+                    let gene = track_service
+                        .query_k_genes_before(&self.contig()?, self.middle()?, n_movements)
+                        .await?;
+
+                    state_messages.push(StateMessage::GotoCoordinate(gene.start() + 1));
                 }
             }
             _ => {}
         }
-
-        let current_gene_index = track.get_gene_index_at(self.middle()?);
-
-        let moved_gene_index = match (message_clone, current_gene_index) {
-            (StateMessage::GotoNextGenesStart(n_movements), Some(current_gene_index)) => {
-                track.get_k_right_genes_index(current_gene_index, n_movements)
-            }
-            (StateMessage::GotoNextGenesEnd(n_movements), Some(current_gene_index)) => {
-                track.get_k_right_genes_index(current_gene_index, n_movements)
-            }
-            (StateMessage::GotoPreviousGenesStart(n_movements), Some(current_gene_index)) => {
-                track.get_k_left_genes_index(current_gene_index, n_movements)
-            }
-            (StateMessage::GotoPreviousGenesEnd(n_movements), Some(current_gene_index)) => {
-                track.get_k_left_genes_index(current_gene_index, n_movements)
-            }
-            (StateMessage::GotoNextGenesStart(n_movements), None) => {
-                match track.get_nearest_left_gene_index(self.middle()?) {
-                    Some(idx_gene) => track.get_k_right_genes_index(idx_gene, n_movements - 1),
-                    None => None,
-                }
-            }
-            (StateMessage::GotoNextGenesEnd(n_movements), None) => {
-                match track.get_nearest_right_gene_index(self.middle()?) {
-                    Some(idx_gene) => track.get_k_right_genes_index(idx_gene, n_movements - 1),
-                    None => None,
-                }
-            }
-            (StateMessage::GotoPreviousGenesStart(n_movements), None) => {
-                match track.get_nearest_left_gene_index(self.middle()?) {
-                    Some(idx_gene) => track.get_k_left_genes_index(idx_gene, n_movements - 1),
-                    None => None,
-                }
-            }
-            (StateMessage::GotoPreviousGenesEnd(n_movements), None) => {
-                match track.get_nearest_right_gene_index(self.middle()?) {
-                    Some(idx_gene) => track.get_k_left_genes_index(idx_gene, n_movements - 1),
-                    None => None,
-                }
-            }
-            _ => {
-                return Err(TGVError::StateError(
-                    "Invalid gene movement message".to_string(),
-                ));
-            }
-        };
-
-        let coordinate;
-
-        if let Some(moved_gene_index) = moved_gene_index {
-            // Don't need to update the cache.
-
-            match message {
-                StateMessage::GotoNextGenesStart(_) => {
-                    coordinate = track.get_gene(moved_gene_index).unwrap().start() + 1;
-                }
-                StateMessage::GotoNextGenesEnd(_) => {
-                    coordinate = track.get_gene(moved_gene_index).unwrap().end() + 1;
-                }
-                StateMessage::GotoPreviousGenesStart(_) => {
-                    coordinate = track.get_gene(moved_gene_index).unwrap().start() - 1;
-                }
-                StateMessage::GotoPreviousGenesEnd(_) => {
-                    coordinate = track.get_gene(moved_gene_index).unwrap().end() - 1;
-                }
-                _ => {
-                    return Err(TGVError::StateError(
-                        "Invalid gene movement message".to_string(),
-                    ));
-                }
-            };
-        } else {
-            // need to query for the coordinate
-
-            let track_service = self.data.track_service.as_ref().unwrap();
-
-            match message {
-                StateMessage::GotoNextGenesStart(n_movements) => {
-                    let genes = track_service
-                        .query_genes_after(&self.contig()?, self.middle()?, n_movements)
-                        .await
-                        .map_err(|_| TGVError::StateError("Failed to query genes".to_string()))?;
-                    coordinate = genes.last().unwrap().start() + 1;
-                }
-                StateMessage::GotoNextGenesEnd(n_movements) => {
-                    let genes = track_service
-                        .query_genes_after(&self.contig()?, self.middle()?, n_movements)
-                        .await
-                        .map_err(|_| TGVError::StateError("Failed to query genes".to_string()))?;
-                    coordinate = genes.last().unwrap().end() + 1;
-                }
-                StateMessage::GotoPreviousGenesStart(n_movements) => {
-                    let genes = track_service
-                        .query_genes_before(&self.contig()?, self.middle()?, n_movements)
-                        .await
-                        .map_err(|_| TGVError::StateError("Failed to query genes".to_string()))?;
-                    coordinate = genes.last().unwrap().start() - 1;
-                }
-
-                StateMessage::GotoPreviousGenesEnd(n_movements) => {
-                    let genes = track_service
-                        .query_genes_before(&self.contig()?, self.middle()?, n_movements)
-                        .await
-                        .map_err(|_| TGVError::StateError("Failed to query genes".to_string()))?;
-                    coordinate = genes.last().unwrap().end() - 1;
-                }
-                _ => {
-                    return Err(TGVError::StateError(
-                        "Invalid gene movement message".to_string(),
-                    ));
-                }
-            }
-        }
-
-        state_messages.push(StateMessage::GotoCoordinate(coordinate));
 
         let mut data_messages = Vec::new();
         for state_message in state_messages {
@@ -816,139 +747,62 @@ impl State {
         };
 
         match message {
-            StateMessage::GotoNextExonsStart(n_movements)
-            | StateMessage::GotoNextExonsEnd(n_movements)
-            | StateMessage::GotoPreviousExonsStart(n_movements)
-            | StateMessage::GotoPreviousExonsEnd(n_movements) => {
+            StateMessage::GotoNextExonsStart(n_movements) => {
                 if n_movements == 0 {
                     return Ok(self.get_data_requirements()?);
+                }
+
+                let target_exon = track.get_k_exons_after(self.middle()?, n_movements);
+                if let Some(target_exon) = target_exon {
+                    state_messages.push(StateMessage::GotoCoordinate(target_exon.start() + 1));
+                } else {
+                    // Query for the target exon
+                    let track_service = self.data.track_service.as_ref().unwrap();
+                    let exon = track_service
+                        .query_k_exons_after(&self.contig()?, self.middle()?, n_movements)
+                        .await?;
+
+                    state_messages.push(StateMessage::GotoCoordinate(exon.start() + 1));
+                }
+            }
+            StateMessage::GotoNextExonsEnd(n_movements) => {
+                if n_movements == 0 {
+                    return Ok(self.get_data_requirements()?);
+                }
+
+                let target_exon = track.get_k_exons_after(self.middle()?, n_movements);
+                if let Some(target_exon) = target_exon {
+                    state_messages.push(StateMessage::GotoCoordinate(target_exon.start() + 1));
+                } else {
+                    // Query for the target exon
+                    let track_service = self.data.track_service.as_ref().unwrap();
+                    let exon = track_service
+                        .query_k_exons_after(&self.contig()?, self.middle()?, n_movements)
+                        .await?;
+
+                    state_messages.push(StateMessage::GotoCoordinate(exon.start() + 1));
+                }
+            }
+            StateMessage::GotoPreviousExonsStart(n_movements) => {
+                if n_movements == 0 {
+                    return Ok(self.get_data_requirements()?);
+                }
+
+                let target_exon = track.get_k_exons_before(self.middle()?, n_movements);
+                if let Some(target_exon) = target_exon {
+                    state_messages.push(StateMessage::GotoCoordinate(target_exon.start() + 1));
+                } else {
+                    // Query for the target exon
+                    let track_service = self.data.track_service.as_ref().unwrap();
+                    let exon = track_service
+                        .query_k_exons_before(&self.contig()?, self.middle()?, n_movements)
+                        .await?;
+
+                    state_messages.push(StateMessage::GotoCoordinate(exon.start() + 1));
                 }
             }
             _ => {}
         }
-
-        let current_exon_index = track.get_exon_index_at(self.middle()?);
-
-        let moved_exon_index = match (message, current_exon_index) {
-            (StateMessage::GotoNextExonsStart(n_movements), Some((gene_idx, exon_idx))) => {
-                track.get_k_right_exons_index(gene_idx, exon_idx, n_movements)
-            }
-            (StateMessage::GotoNextExonsEnd(n_movements), Some((gene_idx, exon_idx))) => {
-                track.get_k_right_exons_index(gene_idx, exon_idx, n_movements)
-            }
-            (StateMessage::GotoPreviousExonsStart(n_movements), Some((gene_idx, exon_idx))) => {
-                track.get_k_left_exons_index(gene_idx, exon_idx, n_movements)
-            }
-            (StateMessage::GotoPreviousExonsEnd(n_movements), Some((gene_idx, exon_idx))) => {
-                track.get_k_left_exons_index(gene_idx, exon_idx, n_movements)
-            }
-            (StateMessage::GotoNextExonsStart(n_movements), None) => {
-                match track.get_nearest_left_exon_index(self.middle()?) {
-                    Some((gene_idx, exon_idx)) => {
-                        track.get_k_right_exons_index(gene_idx, exon_idx, n_movements - 1)
-                    }
-                    None => None,
-                }
-            }
-            (StateMessage::GotoNextExonsEnd(n_movements), None) => {
-                match track.get_nearest_right_exon_index(self.middle()?) {
-                    Some((gene_idx, exon_idx)) => {
-                        track.get_k_right_exons_index(gene_idx, exon_idx, n_movements - 1)
-                    }
-                    None => None,
-                }
-            }
-            (StateMessage::GotoPreviousExonsStart(n_movements), None) => {
-                match track.get_nearest_left_exon_index(self.middle()?) {
-                    Some((gene_idx, exon_idx)) => {
-                        track.get_k_left_exons_index(gene_idx, exon_idx, n_movements - 1)
-                    }
-                    None => None,
-                }
-            }
-            (StateMessage::GotoPreviousExonsEnd(n_movements), None) => {
-                match track.get_nearest_right_exon_index(self.middle()?) {
-                    Some((gene_idx, exon_idx)) => {
-                        track.get_k_left_exons_index(gene_idx, exon_idx, n_movements - 1)
-                    }
-                    None => None,
-                }
-            }
-            _ => {
-                return Err(TGVError::StateError(
-                    "Invalid exon movement message".to_string(),
-                ));
-            }
-        };
-
-        let coordinate;
-
-        if let Some((moved_gene_idx, moved_exon_idx)) = moved_exon_index {
-            // Don't need to update the cache.
-            let gene = track.get_gene(moved_gene_idx).unwrap();
-            let exon = gene.get_exon(moved_exon_idx).unwrap();
-
-            match message {
-                StateMessage::GotoNextExonsStart(_) => {
-                    coordinate = exon.start() + 1;
-                }
-                StateMessage::GotoNextExonsEnd(_) => {
-                    coordinate = exon.end() + 1;
-                }
-                StateMessage::GotoPreviousExonsStart(_) => {
-                    coordinate = exon.start() - 1;
-                }
-                StateMessage::GotoPreviousExonsEnd(_) => {
-                    coordinate = exon.end() - 1;
-                }
-                _ => {
-                    return Err(TGVError::StateError(
-                        "Invalid exon movement message".to_string(),
-                    ));
-                }
-            };
-        } else {
-            // need to query for the coordinate
-            let track_service = self.data.track_service.as_ref().unwrap();
-
-            match message {
-                StateMessage::GotoNextExonsStart(n_movements) => {
-                    let exons = track_service
-                        .query_exons_after(&self.contig()?, self.middle()?, n_movements)
-                        .await
-                        .map_err(|_| TGVError::StateError("Failed to query exons".to_string()))?;
-                    coordinate = exons.last().unwrap().start() + 1;
-                }
-                StateMessage::GotoNextExonsEnd(n_movements) => {
-                    let exons = track_service
-                        .query_exons_after(&self.contig()?, self.middle()?, n_movements)
-                        .await
-                        .map_err(|_| TGVError::StateError("Failed to query exons".to_string()))?;
-                    coordinate = exons.last().unwrap().end() + 1;
-                }
-                StateMessage::GotoPreviousExonsStart(n_movements) => {
-                    let exons = track_service
-                        .query_exons_before(&self.contig()?, self.middle()?, n_movements)
-                        .await
-                        .map_err(|_| TGVError::StateError("Failed to query exons".to_string()))?;
-                    coordinate = exons.last().unwrap().start() - 1;
-                }
-                StateMessage::GotoPreviousExonsEnd(n_movements) => {
-                    let exons = track_service
-                        .query_exons_before(&self.contig()?, self.middle()?, n_movements)
-                        .await
-                        .map_err(|_| TGVError::StateError("Failed to query exons".to_string()))?;
-                    coordinate = exons.last().unwrap().end() - 1;
-                }
-                _ => {
-                    return Err(TGVError::StateError(
-                        "Invalid exon movement message".to_string(),
-                    ));
-                }
-            }
-        }
-
-        state_messages.push(StateMessage::GotoCoordinate(coordinate));
 
         let mut data_messages = Vec::new();
         for state_message in state_messages {
@@ -975,22 +829,11 @@ impl State {
         let track_service = self.data.track_service.as_ref().unwrap();
 
         if let StateMessage::GoToGene(gene_id) = message {
-            let query_result: Result<Feature, sqlx::Error> =
-                track_service.query_gene_name(&gene_id).await;
-            match query_result {
-                Ok(gene) => {
-                    state_messages.push(StateMessage::GotoContigCoordinate(
-                        gene.contig().full_name(),
-                        gene.start(),
-                    ));
-                }
-                _ => {
-                    self.add_error_message(TGVError::IOError(format!(
-                        "Failed to query gene {}",
-                        gene_id
-                    )));
-                }
-            }
+            let gene = track_service.query_gene_name(&gene_id).await?;
+            state_messages.push(StateMessage::GotoContigCoordinate(
+                gene.contig().full_name(),
+                gene.start(),
+            ));
         }
 
         let mut data_messages = Vec::new();
