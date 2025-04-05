@@ -54,6 +54,108 @@ pub enum OnScreenCoordinate {
     Right(usize),
 }
 
+impl OnScreenCoordinate {
+    pub fn width(&self, other: &OnScreenCoordinate, area: &Rect) -> usize {
+        match (self, other) {
+            (OnScreenCoordinate::OnScreen(a), OnScreenCoordinate::OnScreen(b))
+            | (OnScreenCoordinate::Left(a), OnScreenCoordinate::Left(b))
+            | (OnScreenCoordinate::Right(a), OnScreenCoordinate::Right(b)) => a.abs_diff(*b) + 1,
+
+            (OnScreenCoordinate::Left(a), OnScreenCoordinate::OnScreen(b))
+            | (OnScreenCoordinate::OnScreen(a), OnScreenCoordinate::Left(b)) => b + a + 1,
+
+            (OnScreenCoordinate::Left(a), OnScreenCoordinate::Right(b))
+            | (OnScreenCoordinate::Right(a), OnScreenCoordinate::Left(b)) => {
+                a + b + area.width as usize
+            }
+
+            (OnScreenCoordinate::OnScreen(a), OnScreenCoordinate::Right(b)) => {
+                area.width as usize - a + b
+            }
+            (OnScreenCoordinate::Right(a), OnScreenCoordinate::OnScreen(b)) => {
+                area.width as usize - b + a
+            }
+        }
+    }
+
+    pub fn onscreen_width(&self, other: &OnScreenCoordinate, area: &Rect) -> usize {
+        match (self, other) {
+            (OnScreenCoordinate::OnScreen(a), OnScreenCoordinate::OnScreen(b)) => {
+                a.abs_diff(*b) + 1
+            }
+
+            (OnScreenCoordinate::Left(a), OnScreenCoordinate::Right(b))
+            | (OnScreenCoordinate::Right(a), OnScreenCoordinate::Left(b)) => area.width as usize,
+
+            (OnScreenCoordinate::Left(a), OnScreenCoordinate::Left(b))
+            | (OnScreenCoordinate::Right(a), OnScreenCoordinate::Right(b)) => 0,
+
+            (OnScreenCoordinate::Left(a), OnScreenCoordinate::OnScreen(b)) => b + 1,
+
+            (OnScreenCoordinate::OnScreen(a), OnScreenCoordinate::Left(b)) => a + 1,
+
+            (OnScreenCoordinate::OnScreen(a), OnScreenCoordinate::Right(b)) => {
+                area.width as usize - a
+            }
+            (OnScreenCoordinate::Right(a), OnScreenCoordinate::OnScreen(b)) => {
+                area.width as usize - b
+            }
+        }
+    }
+
+    pub fn bounded_x(&self, area: &Rect) -> usize {
+        match self {
+            OnScreenCoordinate::Left(a) => 0,
+            OnScreenCoordinate::OnScreen(a) => *a,
+            OnScreenCoordinate::Right(a) => area.width as usize - 1,
+        }
+    }
+
+    pub fn get(&self) -> usize {
+        match self {
+            OnScreenCoordinate::Left(a) => *a,
+            OnScreenCoordinate::OnScreen(a) => *a,
+            OnScreenCoordinate::Right(a) => *a,
+        }
+    }
+
+    pub fn onscreen_start_and_length(
+        left: &OnScreenCoordinate,
+        right: &OnScreenCoordinate,
+        area: &Rect,
+    ) -> Option<(usize, usize)> {
+        match (left, right) {
+            (OnScreenCoordinate::Left(a), OnScreenCoordinate::Left(b)) => None,
+
+            (OnScreenCoordinate::Left(a), OnScreenCoordinate::OnScreen(b)) => Some((0, b + 1)),
+
+            (OnScreenCoordinate::Left(a), OnScreenCoordinate::Right(b)) => {
+                Some((0, area.width as usize))
+            }
+
+            (OnScreenCoordinate::OnScreen(a), OnScreenCoordinate::Left(b)) => {
+                return None;
+            }
+
+            (OnScreenCoordinate::OnScreen(a), OnScreenCoordinate::OnScreen(b)) => {
+                if a > b {
+                    return None;
+                }
+                Some((*a, b - a + 0))
+            }
+
+            (OnScreenCoordinate::OnScreen(a), OnScreenCoordinate::Right(b)) => {
+                Some((*a, area.width as usize - a))
+            }
+            (OnScreenCoordinate::Right(a), OnScreenCoordinate::Left(b)) => None,
+
+            (OnScreenCoordinate::Right(a), OnScreenCoordinate::OnScreen(b)) => None,
+
+            (OnScreenCoordinate::Right(a), OnScreenCoordinate::Right(b)) => None,
+        }
+    }
+}
+
 /// Horizontal coordinates
 impl ViewingWindow {
     /// Left genome coordinate of the viewing window.

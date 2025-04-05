@@ -7,9 +7,10 @@ use crate::{
 // A feature is a interval on a contig.
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-enum FeatureType {
+pub enum FeatureType {
     Exon,
     Intron,
+    NonCDSExon,
 }
 
 #[derive(Debug, Clone)]
@@ -62,6 +63,12 @@ impl GenomeInterval for Gene {
     }
 }
 
+enum ExonPosition {
+    PreCDS,
+    CDS,
+    PostCDS,
+}
+
 impl Gene {
     pub fn get_exon(&self, idx: usize) -> Option<Feature> {
         if idx >= self.exon_starts.len() {
@@ -78,6 +85,108 @@ impl Gene {
 
     pub fn n_exons(&self) -> usize {
         self.exon_starts.len()
+    }
+
+    pub fn features(&self) -> Vec<(usize, usize, FeatureType, usize)> {
+        let mut features: Vec<(usize, usize, FeatureType)> = Vec::new();
+        let mut last_exon_end = self.transcription_start;
+
+        let mut n_cds_exons = 0;
+        let mut n_introns = 0;
+
+        // Add exon exons
+        for (i, (exon_start, exon_end)) in self
+            .exon_starts
+            .iter()
+            .zip(self.exon_ends.iter())
+            .enumerate()
+        {
+            // Add intron
+            if *exon_start > last_exon_end {
+                features.push((last_exon_end + 1, *exon_start, FeatureType::Intron));
+                n_introns += 1;
+            }
+
+            // Add exon
+            let exon_start_position =
+                match (*exon_start >= self.cds_start, *exon_start <= self.cds_end) {
+                    (true, true) => ExonPosition::CDS,
+                    (false, _) => ExonPosition::PreCDS,
+                    (true, false) => ExonPosition::PostCDS,
+                };
+
+            let exon_end_position = match (*exon_end >= self.cds_start, *exon_end <= self.cds_end) {
+                (true, true) => ExonPosition::CDS,
+                (false, _) => ExonPosition::PreCDS,
+                (true, false) => ExonPosition::PostCDS,
+            };
+
+            match (exon_start_position, exon_end_position) {
+                (ExonPosition::PreCDS, ExonPosition::PreCDS) => {
+                    features.push((*exon_start, *exon_end, FeatureType::Exon));
+                    n_cds_exons += 1;
+                }
+
+                (ExonPosition::PreCDS, ExonPosition::CDS) => {
+                    features.push((*exon_start, self.cds_start - 1, FeatureType::NonCDSExon));
+                    features.push((self.cds_start, *exon_end, FeatureType::Exon));
+                    n_cds_exons += 1;
+                }
+                (ExonPosition::PreCDS, ExonPosition::PostCDS) => {
+                    features.push((*exon_start, self.cds_start - 1, FeatureType::NonCDSExon));
+                    features.push((self.cds_start, self.cds_end, FeatureType::Exon));
+                    features.push((self.cds_end + 1, *exon_end, FeatureType::NonCDSExon));
+                    n_cds_exons += 1;
+                }
+                (ExonPosition::CDS, ExonPosition::CDS) => {
+                    features.push((*exon_start, *exon_end, FeatureType::Exon));
+                    n_cds_exons += 1;
+                }
+                (ExonPosition::CDS, ExonPosition::PostCDS) => {
+                    features.push((*exon_start, self.cds_end, FeatureType::Exon));
+                    features.push((self.cds_end + 1, *exon_end, FeatureType::NonCDSExon));
+                    n_cds_exons += 1;
+                }
+                (ExonPosition::PostCDS, ExonPosition::PostCDS) => {
+                    features.push((*exon_start, *exon_end, FeatureType::NonCDSExon));
+                    n_cds_exons += 1;
+                }
+                _ => {} // should not happen
+            }
+
+            last_exon_end = *exon_end;
+        }
+
+        let mut output: Vec<(usize, usize, FeatureType, usize)> = Vec::new();
+        let mut i_cds_exon = 0;
+        let mut i_intron = 0;
+        for (start, end, feature_type) in features {
+            match feature_type {
+                FeatureType::Exon => {
+                    if self.strand == Strand::Forward {
+                        output.push((start, end, feature_type, i_cds_exon + 1));
+                        i_cds_exon += 1;
+                    } else {
+                        output.push((start, end, feature_type, n_cds_exons - i_cds_exon));
+                        i_cds_exon += 1;
+                    }
+                }
+                FeatureType::Intron => {
+                    if self.strand == Strand::Forward {
+                        output.push((start, end, feature_type, i_intron + 1));
+                        i_intron += 1;
+                    } else {
+                        output.push((start, end, feature_type, n_introns - i_intron));
+                        i_intron += 1;
+                    }
+                }
+                FeatureType::NonCDSExon => {
+                    output.push((start, end, feature_type, 0));
+                }
+            }
+        }
+
+        output
     }
 }
 
