@@ -622,54 +622,6 @@ impl State {
 
 /// Feature movement handling
 impl State {
-    // const DEFAULT_CACHE_N_GENES: usize = 5;
-
-    // async fn get_exon_and_gene_cache(
-    //     &self,
-    //     contig: &Contig,
-    //     position: usize,
-    //     n_genes: usize,
-    // ) -> Result<Track, TGVError> {
-    //     if self.data.track_service.is_none() {
-    //         return Err(TGVError::StateError(
-    //             "Feature query service not initialized".to_string(),
-    //         ));
-    //     }
-    //     let track_service = self.data.track_service.as_ref().unwrap();
-
-    //     let this_gene = track_service.query_gene_covering(contig, position).await;
-    //     let next_genes = track_service
-    //         .query_genes_after(contig, position, n_genes)
-    //         .await;
-    //     let previous_genes = track_service
-    //         .query_genes_before(contig, position, n_genes)
-    //         .await;
-
-    //     let all_genes: Vec<Gene> = match (this_gene, next_genes, previous_genes) {
-    //         (Ok(this_gene), Ok(next_genes), Ok(previous_genes)) => {
-    //             let mut all_genes = Vec::new();
-    //             if let Some(this_gene) = this_gene {
-    //                 all_genes.push(this_gene);
-    //             }
-    //             all_genes.extend(next_genes);
-    //             all_genes.extend(previous_genes);
-
-    //             all_genes
-    //         }
-    //         _ => {
-    //             return Err(TGVError::StateError(
-    //                 "Failed to get exon and gene cache".to_string(),
-    //             ))
-    //         }
-    //     };
-
-    //     let track = Track::from(all_genes, contig.clone()).unwrap();
-
-    //     let (idx_gene, idx_exon) = track.get
-
-    //     Ok(track)
-    // }
-
     async fn handle_gene_movement_message(
         &mut self,
         message: StateMessage,
@@ -680,9 +632,6 @@ impl State {
             Some(track) => track,
             None => return Err(TGVError::StateError("Track not initialized".to_string())),
         };
-
-        // Clone the message to avoid the "use of moved value" error
-        let message_clone = message.clone();
 
         match message {
             StateMessage::GotoNextGenesStart(n_movements) => {
