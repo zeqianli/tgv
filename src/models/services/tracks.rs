@@ -38,8 +38,7 @@ impl TrackService {
     pub async fn query_feature_track(&self, region: &Region) -> Result<Track, TGVError> {
         let genes = self
             .query_genes_between(&region.contig, region.start, region.end)
-            .await
-            .map_err(|_| TGVError::IOError("Failed to query genes".to_string()))?;
+            .await?;
 
         Track::from(genes, region.contig.clone())
     }
@@ -226,8 +225,7 @@ impl TrackService {
         .bind(u32::try_from(coord).unwrap())
         .bind(u32::try_from(k).unwrap())
         .fetch_all(&*self.pool)
-        .await
-        .map_err(|_| TGVError::IOError("No genes found".to_string()))?;
+        .await?;
 
         if rows.is_empty() {
             return Err(TGVError::IOError("No genes found".to_string()));
@@ -236,36 +234,16 @@ impl TrackService {
         let n_rows = rows.len();
         let row = &rows[(k - 1).min(n_rows - 1)];
 
-        let name: String = row
-            .try_get("name")
-            .map_err(|_| TGVError::IOError("Feature parsing error".to_string()))?;
-        let chrom: String = row
-            .try_get("chrom")
-            .map_err(|_| TGVError::IOError("Feature parsing error".to_string()))?;
-        let strand_str: String = row
-            .try_get("strand")
-            .map_err(|_| TGVError::IOError("Feature parsing error".to_string()))?;
-        let tx_start: u32 = row
-            .try_get("txStart")
-            .map_err(|_| TGVError::IOError("Feature parsing error".to_string()))?;
-        let tx_end: u32 = row
-            .try_get("txEnd")
-            .map_err(|_| TGVError::IOError("Feature parsing error".to_string()))?;
-        let name2: String = row
-            .try_get("name2")
-            .map_err(|_| TGVError::IOError("Feature parsing error".to_string()))?;
-        let exon_starts_blob: Vec<u8> = row
-            .try_get("exonStarts")
-            .map_err(|_| TGVError::IOError("Feature parsing error".to_string()))?;
-        let exon_ends_blob: Vec<u8> = row
-            .try_get("exonEnds")
-            .map_err(|_| TGVError::IOError("Feature parsing error".to_string()))?;
-        let cds_start: u32 = row
-            .try_get("cdsStart")
-            .map_err(|_| TGVError::IOError("Feature parsing error".to_string()))?;
-        let cds_end: u32 = row
-            .try_get("cdsEnd")
-            .map_err(|_| TGVError::IOError("Feature parsing error".to_string()))?;
+        let name: String = row.try_get("name")?;
+        let chrom: String = row.try_get("chrom")?;
+        let strand_str: String = row.try_get("strand")?;
+        let tx_start: u32 = row.try_get("txStart")?;
+        let tx_end: u32 = row.try_get("txEnd")?;
+        let name2: String = row.try_get("name2")?;
+        let exon_starts_blob: Vec<u8> = row.try_get("exonStarts")?;
+        let exon_ends_blob: Vec<u8> = row.try_get("exonEnds")?;
+        let cds_start: u32 = row.try_get("cdsStart")?;
+        let cds_end: u32 = row.try_get("cdsEnd")?;
 
         // USCS coordinates are 0-based, half-open
         // https://genome-blog.gi.ucsc.edu/blog/2016/12/12/the-ucsc-genome-browser-coordinate-counting-systems/
@@ -435,41 +413,20 @@ impl TrackService {
         .bind(u32::try_from(coord).unwrap())
         .bind(u32::try_from(k).unwrap())
         .fetch_all(&*self.pool)
-        .await
-        .map_err(|_| TGVError::IOError("No exons found".to_string()))?;
+        .await?;
 
         let mut genes = Vec::new();
         for row in rows {
-            let name: String = row
-                .try_get("name")
-                .map_err(|_| TGVError::IOError("Feature parsing error".to_string()))?;
-            let chrom: String = row
-                .try_get("chrom")
-                .map_err(|_| TGVError::IOError("Feature parsing error".to_string()))?;
-            let strand_str: String = row
-                .try_get("strand")
-                .map_err(|_| TGVError::IOError("Feature parsing error".to_string()))?;
-            let tx_start: u32 = row
-                .try_get("txStart")
-                .map_err(|_| TGVError::IOError("Feature parsing error".to_string()))?;
-            let tx_end: u32 = row
-                .try_get("txEnd")
-                .map_err(|_| TGVError::IOError("Feature parsing error".to_string()))?;
-            let name2: String = row
-                .try_get("name2")
-                .map_err(|_| TGVError::IOError("Feature parsing error".to_string()))?;
-            let exon_starts_blob: Vec<u8> = row
-                .try_get("exonStarts")
-                .map_err(|_| TGVError::IOError("Feature parsing error".to_string()))?;
-            let exon_ends_blob: Vec<u8> = row
-                .try_get("exonEnds")
-                .map_err(|_| TGVError::IOError("Feature parsing error".to_string()))?;
-            let cds_start: u32 = row
-                .try_get("cdsStart")
-                .map_err(|_| TGVError::IOError("Feature parsing error".to_string()))?;
-            let cds_end: u32 = row
-                .try_get("cdsEnd")
-                .map_err(|_| TGVError::IOError("Feature parsing error".to_string()))?;
+            let name: String = row.try_get("name")?;
+            let chrom: String = row.try_get("chrom")?;
+            let strand_str: String = row.try_get("strand")?;
+            let tx_start: u32 = row.try_get("txStart")?;
+            let tx_end: u32 = row.try_get("txEnd")?;
+            let name2: String = row.try_get("name2")?;
+            let exon_starts_blob: Vec<u8> = row.try_get("exonStarts")?;
+            let exon_ends_blob: Vec<u8> = row.try_get("exonEnds")?;
+            let cds_start: u32 = row.try_get("cdsStart")?;
+            let cds_end: u32 = row.try_get("cdsEnd")?;
 
             // USCS coordinates are 0-based, half-open
             // https://genome-blog.gi.ucsc.edu/blog/2016/12/12/the-ucsc-genome-browser-coordinate-counting-systems/
