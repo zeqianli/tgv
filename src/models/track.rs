@@ -477,7 +477,7 @@ impl Track {
                 continue;
             }
 
-            if i + k > self.genes.len() {
+            if i + k > self.exon_indexes.len() {
                 return None;
             }
 
