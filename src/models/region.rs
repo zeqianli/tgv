@@ -1,5 +1,5 @@
 use crate::models::contig::Contig;
-
+use crate::traits::GenomeInterval;
 /// A genomic region.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Region {
@@ -12,6 +12,20 @@ pub struct Region {
     /// End coordinate of a genome region.
     /// 1-based, inclusive.
     pub end: usize,
+}
+
+impl GenomeInterval for Region {
+    fn start(&self) -> usize {
+        self.start
+    }
+
+    fn end(&self) -> usize {
+        self.end
+    }
+
+    fn contig(&self) -> &Contig {
+        &self.contig
+    }
 }
 
 impl Region {
@@ -29,14 +43,6 @@ impl Region {
 
     /// Width of a genome region.
     pub fn width(&self) -> usize {
-        self.end - self.start + 1
-    }
-
-    /// Middle coordinate of a genome region.
-    /// 1-based, inclusive.
-    /// If the region has an even number of bases, this returns the right to the middle.
-    /// This is to be consistent with the ViewingWindow::middle() method.
-    pub fn middle(&self) -> usize {
-        (self.start + self.end + 1) / 2
+        self.length()
     }
 }

@@ -3,16 +3,18 @@ use crate::helpers::is_url;
 use crate::models::{
     contig::Contig,
     cytoband::Cytoband,
+    data::Data,
     message::{DataMessage, StateMessage},
     mode::InputMode,
     reference::Reference,
     region::Region,
     register::{CommandModeRegister, NormalModeRegister},
     services::tracks::TrackService,
-    track::{Feature, Track},
+    track::{Feature, Gene, Track},
     window::ViewingWindow,
 };
 use crate::settings::Settings;
+use crate::traits::GenomeInterval;
 use crossterm::event::{KeyCode, KeyEvent};
 use ratatui::layout::Rect;
 use rust_htslib::bam::{self, record::Cigar, Header, IndexedReader, Read, Record};
@@ -124,27 +126,23 @@ impl ContigCollection {
 
 /// Holds states of the application.
 pub struct State {
+    /// Basics
+    pub input_mode: InputMode,
+    pub exit: bool,
+
     /// Viewing window.
     window: Option<ViewingWindow>,
     area: Option<Rect>,
 
-    pub input_mode: InputMode,
+    // Data
+    pub data: Data,
 
-    pub exit: bool,
-
-    pub debug_message: String,
-
-    // Handle feature movements
-    feature_query_service: Option<TrackService>,
-    exon_track_cache: Option<Track>,
-    gene_track_cache: Option<Track>,
+    /// Contigs in the BAM header
+    contigs: Option<ContigCollection>,
 
     // Registers
     normal_mode_register: NormalModeRegister,
     command_mode_register: CommandModeRegister,
-
-    /// Contigs in the BAM header
-    contigs: Option<ContigCollection>,
 
     /// Settings
     pub settings: Settings,
@@ -173,26 +171,14 @@ impl State {
             None => None,
         };
 
+        let data = Data::new(&settings).await?;
+
         Ok(Self {
             window: None,
             input_mode: InputMode::Normal,
             exit: false,
-            debug_message: String::new(),
             area: None,
-            feature_query_service: match settings.reference.as_ref() {
-                Some(reference) => match TrackService::new(reference.clone()).await {
-                    Ok(service) => Some(service),
-                    Err(_) => {
-                        return Err(TGVError::IOError(format!(
-                            "Failed to create track service for reference {}",
-                            reference
-                        )));
-                    }
-                },
-                None => None,
-            },
-            exon_track_cache: None,
-            gene_track_cache: None,
+            data,
 
             normal_mode_register: NormalModeRegister::new(),
             command_mode_register: CommandModeRegister::new(),
@@ -281,9 +267,7 @@ impl State {
     }
 
     pub async fn close(&mut self) -> Result<(), TGVError> {
-        if self.feature_query_service.is_some() {
-            self.feature_query_service.as_ref().unwrap().close().await?;
-        }
+        self.data.close().await?;
         Ok(())
     }
 
@@ -302,10 +286,33 @@ impl State {
     }
 }
 
-// Message handling
+impl State {
+    pub async fn handle_key_event(&mut self, key_event: KeyEvent) -> Result<(), TGVError> {
+        let messages = self.translate_key_event(key_event);
+        let data_messages = self.handle_state_messages(messages).await?;
+        let loaded_data = self.data.handle_data_messages(data_messages).await?;
+
+        if loaded_data {
+            self.errors.push("Data loaded".to_string());
+        }
+        Ok(())
+    }
+
+    pub async fn handle(&mut self, messages: Vec<StateMessage>) -> Result<(), TGVError> {
+        let data_messages = self.handle_state_messages(messages).await?;
+        let loaded_data = self.data.handle_data_messages(data_messages).await?;
+
+        if loaded_data {
+            self.errors.push("Data loaded".to_string());
+        }
+        Ok(())
+    }
+}
+
+// State message handling
 impl State {
     // Translate key event to a message.
-    pub fn translate_key_event(&self, key_event: KeyEvent) -> Vec<StateMessage> {
+    fn translate_key_event(&self, key_event: KeyEvent) -> Vec<StateMessage> {
         let messages = match self.input_mode {
             InputMode::Normal => {
                 match key_event.code {
@@ -368,28 +375,27 @@ impl State {
     }
 
     /// Handle state messages.
-    pub async fn handle_messages(
+    async fn handle_state_messages(
         &mut self,
         messages: Vec<StateMessage>,
     ) -> Result<Vec<DataMessage>, TGVError> {
         let mut data_messages: Vec<DataMessage> = Vec::new();
 
         for message in messages {
-            data_messages.extend(self.handle_message(message).await?);
+            data_messages.extend(self.handle_state_message(message).await?);
         }
 
         Ok(data_messages)
     }
 
     /// Main function to route state message handling.
-    pub async fn handle_message(
+    async fn handle_state_message(
         &mut self,
         message: StateMessage,
     ) -> Result<Vec<DataMessage>, TGVError> {
         let mut data_messages: Vec<DataMessage> = Vec::new();
 
         match message {
-
             // Swithching modes
             StateMessage::SwitchMode(mode) => {
                 self.input_mode = mode;
@@ -404,53 +410,65 @@ impl State {
             StateMessage::Quit => self.exit = true,
 
             // Command mode handling
-            StateMessage::AddCharToCommandModeRegisters(c) => self.command_mode_register.add_char(c),
-            StateMessage::CommandModeRegisterError(error_message) => self.add_error_message(TGVError::ParsingError(error_message)),
+            StateMessage::AddCharToCommandModeRegisters(c) => {
+                self.command_mode_register.add_char(c)
+            }
+            StateMessage::CommandModeRegisterError(error_message) => {
+                self.add_error_message(TGVError::ParsingError(error_message))
+            }
             StateMessage::ClearCommandModeRegisters => self.command_mode_register.clear(),
             StateMessage::BackspaceCommandModeRegisters => self.command_mode_register.backspace(),
-            StateMessage::MoveCursorLeft(amount) => self.command_mode_register.move_cursor_left(amount),
-            StateMessage::MoveCursorRight(amount) => self.command_mode_register.move_cursor_right(amount),
+            StateMessage::MoveCursorLeft(amount) => {
+                self.command_mode_register.move_cursor_left(amount)
+            }
+            StateMessage::MoveCursorRight(amount) => {
+                self.command_mode_register.move_cursor_right(amount)
+            }
 
             // Normal mode handling
             StateMessage::AddCharToNormalModeRegisters(c) => self.normal_mode_register.add_char(c),
-            StateMessage::NormalModeRegisterError(error_message) => self.add_error_message(TGVError::ParsingError(error_message)),
+            StateMessage::NormalModeRegisterError(error_message) => {
+                self.add_error_message(TGVError::ParsingError(error_message))
+            }
             StateMessage::ClearNormalModeRegisters => self.normal_mode_register.clear(),
 
             // Movement handling
-            StateMessage::MoveLeft(_) |
-            StateMessage::MoveRight(_) |
-            StateMessage::MoveUp(_) |
-            StateMessage::MoveDown(_) |
-            StateMessage::GotoCoordinate(_) |
-            StateMessage::GotoContigCoordinate(_, _) => {
+            StateMessage::MoveLeft(_)
+            | StateMessage::MoveRight(_)
+            | StateMessage::MoveUp(_)
+            | StateMessage::MoveDown(_)
+            | StateMessage::GotoCoordinate(_)
+            | StateMessage::GotoContigCoordinate(_, _) => {
                 data_messages.extend(self.handle_movement_message(message)?);
-            },
+            }
 
             // Zoom handling
             StateMessage::ZoomOut(r) => data_messages.extend(self.handle_zoom_out(r)?),
             StateMessage::ZoomIn(r) => data_messages.extend(self.handle_zoom_in(r)?),
 
             // Relative feature movement handling
-            StateMessage::GotoNextExonsStart(_) |
-            StateMessage::GotoNextExonsEnd(_) |
-            StateMessage::GotoPreviousExonsStart(_) |
-            StateMessage::GotoPreviousExonsEnd(_) | // TODO: this is broken
-            StateMessage::GotoNextGenesStart(_) |
-            StateMessage::GotoNextGenesEnd(_) |
-            StateMessage::GotoPreviousGenesStart(_) |
-            StateMessage::GotoPreviousGenesEnd(_) => { // TODO: this is broken
-                data_messages.extend(self.handle_feature_movement_message(message).await?);
-            },
+            StateMessage::GotoNextExonsStart(_)
+            | StateMessage::GotoNextExonsEnd(_)
+            | StateMessage::GotoPreviousExonsStart(_)
+            | StateMessage::GotoPreviousExonsEnd(_) => {
+                data_messages.extend(self.handle_exon_movement_message(message).await?);
+            }
+            StateMessage::GotoNextGenesStart(_)
+            | StateMessage::GotoNextGenesEnd(_)
+            | StateMessage::GotoPreviousGenesStart(_)
+            | StateMessage::GotoPreviousGenesEnd(_) => {
+                data_messages.extend(self.handle_gene_movement_message(message).await?);
+            }
 
             // Absolute feature handling
             StateMessage::GoToGene(_) => {
                 data_messages.extend(self.handle_goto_feature_message(message).await?);
-            },
+            }
 
             // Find the default region
             StateMessage::GoToDefault => {
                 data_messages.extend(self.handle_goto_default_message().await?);
-            },
+            }
 
             // Error messages
             StateMessage::Error(e) => self.add_error_message(e),
@@ -461,8 +479,12 @@ impl State {
 
         Ok(data_messages)
     }
+}
 
-    const MAX_ZOOM_TO_DISPLAY_FEATURES: usize = 64;
+// Data message handling
+
+impl State {
+    const MAX_ZOOM_TO_DISPLAY_FEATURES: usize = usize::MAX;
     const MAX_ZOOM_TO_DISPLAY_ALIGNMENTS: usize = 32;
     const MAX_ZOOM_TO_DISPLAY_SEQUENCES: usize = 2;
     fn get_data_requirements(&self) -> Result<Vec<DataMessage>, TGVError> {
@@ -600,279 +622,149 @@ impl State {
 
 /// Feature movement handling
 impl State {
-    const DEFAULT_CACHE_N_GENES: usize = 5;
-
-    async fn get_exon_and_gene_cache(
-        &self,
-        contig: &Contig,
-        position: usize,
-        n_genes: usize,
-    ) -> Result<(Track, Track), String> {
-        if self.feature_query_service.is_none() {
-            return Err("Feature query service not initialized".to_string());
-        }
-        let feature_query_service = self.feature_query_service.as_ref().unwrap();
-
-        let this_gene = feature_query_service
-            .query_gene_covering(contig, position)
-            .await;
-        let next_genes = feature_query_service
-            .query_genes_after(contig, position, n_genes)
-            .await;
-        let previous_genes = feature_query_service
-            .query_genes_before(contig, position, n_genes)
-            .await;
-
-        let all_genes: Vec<Feature> = match (this_gene, next_genes, previous_genes) {
-            (Ok(this_gene), Ok(next_genes), Ok(previous_genes)) => {
-                let mut all_genes = Vec::new();
-                if let Some(this_gene) = this_gene {
-                    all_genes.push(this_gene);
-                }
-                all_genes.extend(next_genes);
-                all_genes.extend(previous_genes);
-
-                all_genes
-            }
-            _ => return Err("Failed to get exon and gene cache".to_string()),
-        };
-
-        let mut exons = Vec::new();
-
-        for gene in all_genes.iter() {
-            exons.extend(gene.exons().unwrap());
-        }
-
-        let gene_track = Track::from(all_genes, contig.clone()).unwrap();
-        let exon_track = Track::from(exons, contig.clone()).unwrap();
-
-        Ok((exon_track, gene_track))
-    }
-
-    async fn handle_feature_movement_message(
+    async fn handle_gene_movement_message(
         &mut self,
         message: StateMessage,
     ) -> Result<Vec<DataMessage>, TGVError> {
         let mut state_messages = Vec::new();
 
-        match message {
-            StateMessage::GotoNextExonsStart(n_movements)
-            | StateMessage::GotoNextExonsEnd(n_movements)
-            | StateMessage::GotoPreviousExonsStart(n_movements)
-            | StateMessage::GotoPreviousExonsEnd(n_movements) => {
-                let n_query = usize::max(n_movements, State::DEFAULT_CACHE_N_GENES);
-                let mut need_cache_update = true;
-                let contig = self.contig()?;
-                let position = self.middle()?;
-
-                need_cache_update = self.exon_track_cache.is_none()
-                    || self.exon_track_cache.as_ref().unwrap().contig != contig
-                    || self
-                        .exon_track_cache
-                        .as_ref()
-                        .unwrap()
-                        .get_k_features_after(position, n_query)
-                        .is_none()
-                    || self
-                        .exon_track_cache
-                        .as_ref()
-                        .unwrap()
-                        .get_k_features_before(position, n_query)
-                        .is_none();
-                if need_cache_update {
-                    let (exon_track, gene_track) = self
-                        .get_exon_and_gene_cache(&contig, position, n_movements)
-                        .await
-                        .unwrap();
-                    self.exon_track_cache = Some(exon_track);
-                    self.gene_track_cache = Some(gene_track);
-                } // TODO: this is assuming that n_query genes must have at least n_query exons. Mgiht be false sometimes?
-            }
-
-            StateMessage::GotoNextGenesStart(n_movements)
-            | StateMessage::GotoNextGenesEnd(n_movements)
-            | StateMessage::GotoPreviousGenesStart(n_movements)
-            | StateMessage::GotoPreviousGenesEnd(n_movements) => {
-                let n_query = usize::max(n_movements, State::DEFAULT_CACHE_N_GENES);
-                let mut need_cache_update = true;
-                let contig = self.contig()?;
-                let position = self.middle()?;
-
-                need_cache_update = self.gene_track_cache.is_none()
-                    || self.gene_track_cache.as_ref().unwrap().contig != contig
-                    || self
-                        .gene_track_cache
-                        .as_ref()
-                        .unwrap()
-                        .get_k_features_after(position, n_query)
-                        .is_none()
-                    || self
-                        .gene_track_cache
-                        .as_ref()
-                        .unwrap()
-                        .get_k_features_before(position, n_query + 1)
-                        .is_none();
-                if need_cache_update {
-                    let (exon_track, gene_track) = self
-                        .get_exon_and_gene_cache(&contig, position, n_movements)
-                        .await
-                        .unwrap();
-                    self.exon_track_cache = Some(exon_track);
-                    self.gene_track_cache = Some(gene_track);
-                }
-            }
-
-            _ => {}
+        let track = match self.data.track.as_ref() {
+            Some(track) => track,
+            None => return Err(TGVError::StateError("Track not initialized".to_string())),
         };
 
-        let position = self.middle()?;
+        match message {
+            StateMessage::GotoNextGenesStart(n_movements) => {
+                if n_movements == 0 {
+                    return Ok(self.get_data_requirements()?);
+                }
+
+                let target_gene = track.get_k_genes_after(self.middle()?, n_movements);
+                if let Some(target_gene) = target_gene {
+                    state_messages.push(StateMessage::GotoCoordinate(target_gene.start() + 1));
+                } else {
+                    // Query for the target gene
+                    let track_service = self.data.track_service.as_ref().unwrap();
+                    let gene = track_service
+                        .query_k_genes_after(&self.contig()?, self.middle()?, n_movements)
+                        .await?;
+
+                    state_messages.push(StateMessage::GotoCoordinate(gene.start() + 1));
+                }
+            }
+            StateMessage::GotoNextGenesEnd(n_movements) => {
+                if n_movements == 0 {
+                    return Ok(self.get_data_requirements()?);
+                }
+
+                let target_gene = track.get_k_genes_after(self.middle()?, n_movements);
+                if let Some(target_gene) = target_gene {
+                    state_messages.push(StateMessage::GotoCoordinate(target_gene.start() + 1));
+                } else {
+                    // Query for the target gene
+                    let track_service = self.data.track_service.as_ref().unwrap();
+                    let gene = track_service
+                        .query_k_genes_after(&self.contig()?, self.middle()?, n_movements)
+                        .await?;
+
+                    state_messages.push(StateMessage::GotoCoordinate(gene.start() + 1));
+                }
+            }
+            StateMessage::GotoPreviousGenesEnd(n_movements) => {
+                if n_movements == 0 {
+                    return Ok(self.get_data_requirements()?);
+                }
+
+                let target_gene = track.get_k_genes_before(self.middle()?, n_movements);
+                if let Some(target_gene) = target_gene {
+                    state_messages.push(StateMessage::GotoCoordinate(target_gene.start() + 1));
+                } else {
+                    // Query for the target gene
+                    let track_service = self.data.track_service.as_ref().unwrap();
+                    let gene = track_service
+                        .query_k_genes_before(&self.contig()?, self.middle()?, n_movements)
+                        .await?;
+
+                    state_messages.push(StateMessage::GotoCoordinate(gene.start() + 1));
+                }
+            }
+            _ => {}
+        }
+
+        let mut data_messages = Vec::new();
+        for state_message in state_messages {
+            data_messages.extend(self.handle_movement_message(state_message)?);
+        }
+
+        Ok(data_messages)
+    }
+
+    async fn handle_exon_movement_message(
+        &mut self,
+        message: StateMessage,
+    ) -> Result<Vec<DataMessage>, TGVError> {
+        let mut state_messages = Vec::new();
+
+        let track = match self.data.track.as_ref() {
+            Some(track) => track,
+            None => return Err(TGVError::StateError("Track not initialized".to_string())),
+        };
 
         match message {
             StateMessage::GotoNextExonsStart(n_movements) => {
-                match self
-                    .exon_track_cache
-                    .as_ref()
-                    .unwrap()
-                    .get_saturating_k_features_after(position, n_movements)
-                {
-                    Some((_, feature)) => {
-                        state_messages.push(StateMessage::GotoCoordinate(feature.start()));
-                    }
-                    _ => {
-                        state_messages.push(StateMessage::NormalModeRegisterError(
-                            "Feature parsing error".to_string(),
-                        ));
-                    }
+                if n_movements == 0 {
+                    return Ok(self.get_data_requirements()?);
+                }
+
+                let target_exon = track.get_k_exons_after(self.middle()?, n_movements);
+                if let Some(target_exon) = target_exon {
+                    state_messages.push(StateMessage::GotoCoordinate(target_exon.start() + 1));
+                } else {
+                    // Query for the target exon
+                    let track_service = self.data.track_service.as_ref().unwrap();
+                    let exon = track_service
+                        .query_k_exons_after(&self.contig()?, self.middle()?, n_movements)
+                        .await?;
+
+                    state_messages.push(StateMessage::GotoCoordinate(exon.start() + 1));
                 }
             }
-
             StateMessage::GotoNextExonsEnd(n_movements) => {
-                match self
-                    .exon_track_cache
-                    .as_ref()
-                    .unwrap()
-                    .get_saturating_k_features_after(position, n_movements)
-                {
-                    Some((_, feature)) => {
-                        state_messages.push(StateMessage::GotoCoordinate(feature.end()));
-                    }
-                    _ => {
-                        state_messages.push(StateMessage::NormalModeRegisterError(
-                            "Feature parsing error".to_string(),
-                        ));
-                    }
+                if n_movements == 0 {
+                    return Ok(self.get_data_requirements()?);
+                }
+
+                let target_exon = track.get_k_exons_after(self.middle()?, n_movements);
+                if let Some(target_exon) = target_exon {
+                    state_messages.push(StateMessage::GotoCoordinate(target_exon.start() + 1));
+                } else {
+                    // Query for the target exon
+                    let track_service = self.data.track_service.as_ref().unwrap();
+                    let exon = track_service
+                        .query_k_exons_after(&self.contig()?, self.middle()?, n_movements)
+                        .await?;
+
+                    state_messages.push(StateMessage::GotoCoordinate(exon.start() + 1));
                 }
             }
-
             StateMessage::GotoPreviousExonsStart(n_movements) => {
-                match self
-                    .exon_track_cache
-                    .as_ref()
-                    .unwrap()
-                    .get_saturating_k_features_before(position, n_movements)
-                {
-                    Some((_, feature)) => {
-                        state_messages.push(StateMessage::GotoCoordinate(feature.start()));
-                    }
-                    _ => {
-                        state_messages.push(StateMessage::NormalModeRegisterError(
-                            "Feature parsing error".to_string(),
-                        ));
-                    }
+                if n_movements == 0 {
+                    return Ok(self.get_data_requirements()?);
+                }
+
+                let target_exon = track.get_k_exons_before(self.middle()?, n_movements);
+                if let Some(target_exon) = target_exon {
+                    state_messages.push(StateMessage::GotoCoordinate(target_exon.start() + 1));
+                } else {
+                    // Query for the target exon
+                    let track_service = self.data.track_service.as_ref().unwrap();
+                    let exon = track_service
+                        .query_k_exons_before(&self.contig()?, self.middle()?, n_movements)
+                        .await?;
+
+                    state_messages.push(StateMessage::GotoCoordinate(exon.start() + 1));
                 }
             }
-
-            StateMessage::GotoPreviousExonsEnd(n_movements) => {
-                match self
-                    .exon_track_cache
-                    .as_ref()
-                    .unwrap()
-                    .get_saturating_k_features_before(position, n_movements)
-                {
-                    Some((_, feature)) => {
-                        state_messages.push(StateMessage::GotoCoordinate(feature.end()));
-                    }
-                    _ => {
-                        state_messages.push(StateMessage::NormalModeRegisterError(
-                            "Feature parsing error".to_string(),
-                        ));
-                    }
-                }
-            }
-
-            StateMessage::GotoNextGenesStart(n_movements) => {
-                match self
-                    .gene_track_cache
-                    .as_ref()
-                    .unwrap()
-                    .get_saturating_k_features_after(position, n_movements)
-                {
-                    Some((_, feature)) => {
-                        state_messages.push(StateMessage::GotoCoordinate(feature.start()));
-                    }
-                    _ => {
-                        state_messages.push(StateMessage::NormalModeRegisterError(
-                            "Feature parsing error".to_string(),
-                        ));
-                    }
-                }
-            }
-
-            StateMessage::GotoNextGenesEnd(n_movements) => {
-                match self
-                    .gene_track_cache
-                    .as_ref()
-                    .unwrap()
-                    .get_saturating_k_features_after(position, n_movements)
-                {
-                    Some((_, feature)) => {
-                        state_messages.push(StateMessage::GotoCoordinate(feature.end()));
-                    }
-                    _ => {
-                        state_messages.push(StateMessage::NormalModeRegisterError(
-                            "Feature parsing error".to_string(),
-                        ));
-                    }
-                }
-            }
-
-            StateMessage::GotoPreviousGenesStart(n_movements) => {
-                match self
-                    .gene_track_cache
-                    .as_ref()
-                    .unwrap()
-                    .get_saturating_k_features_before(position, n_movements)
-                {
-                    Some((_, feature)) => {
-                        state_messages.push(StateMessage::GotoCoordinate(feature.start()));
-                    }
-                    _ => {
-                        state_messages.push(StateMessage::NormalModeRegisterError(
-                            "Feature parsing error".to_string(),
-                        ));
-                    }
-                }
-            }
-
-            StateMessage::GotoPreviousGenesEnd(n_movements) => {
-                match self
-                    .gene_track_cache
-                    .as_ref()
-                    .unwrap()
-                    .get_saturating_k_features_before(position, n_movements + 1)
-                {
-                    // TODO: fix this.
-                    Some((_, feature)) => {
-                        state_messages.push(StateMessage::GotoCoordinate(feature.end() - 1));
-                    }
-                    _ => {
-                        state_messages.push(StateMessage::NormalModeRegisterError(
-                            "Feature parsing error".to_string(),
-                        ));
-                    }
-                }
-            }
-
             _ => {}
         }
 
@@ -893,30 +785,19 @@ impl State {
     ) -> Result<Vec<DataMessage>, TGVError> {
         let mut state_messages = Vec::new();
 
-        if self.feature_query_service.is_none() {
+        if self.data.track_service.is_none() {
             return Err(TGVError::StateError(
                 "Feature query service not initialized".to_string(),
             ));
         }
-        let feature_query_service = self.feature_query_service.as_ref().unwrap();
+        let track_service = self.data.track_service.as_ref().unwrap();
 
         if let StateMessage::GoToGene(gene_id) = message {
-            let query_result: Result<Feature, sqlx::Error> =
-                feature_query_service.query_gene_name(&gene_id).await;
-            match query_result {
-                Ok(gene) => {
-                    state_messages.push(StateMessage::GotoContigCoordinate(
-                        gene.contig().full_name(),
-                        gene.start(),
-                    ));
-                }
-                _ => {
-                    self.add_error_message(TGVError::IOError(format!(
-                        "Failed to query gene {}",
-                        gene_id
-                    )));
-                }
-            }
+            let gene = track_service.query_gene_name(&gene_id).await?;
+            state_messages.push(StateMessage::GotoContigCoordinate(
+                gene.contig().full_name(),
+                gene.start(),
+            ));
         }
 
         let mut data_messages = Vec::new();
