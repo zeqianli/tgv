@@ -174,7 +174,7 @@ fn get_feature_segment_string_and_style(
                 if (i + 1) % INTRON_ARROW_GAP == 0 {
                     ">"
                 } else {
-                    " "
+                    "-"
                 }
             })
             .collect::<String>(),
@@ -183,7 +183,7 @@ fn get_feature_segment_string_and_style(
                 if (i + 1) % EXON_ARROW_GAP == 0 {
                     "<"
                 } else {
-                    " "
+                    "-"
                 }
             })
             .collect::<String>(),
@@ -193,7 +193,7 @@ fn get_feature_segment_string_and_style(
                 if (i + 1) % INTRON_ARROW_GAP == 0 {
                     "<"
                 } else {
-                    " "
+                    "-"
                 }
             })
             .collect::<String>(),
