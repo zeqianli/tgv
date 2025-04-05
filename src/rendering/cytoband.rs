@@ -36,7 +36,7 @@ pub fn render_cytobands(
         buf.set_string(area.x + x, area.y, string, style);
     }
 
-    // Left: chromosome name
+    // Left label: chromosome name
     let description = match (&cytoband.reference, &cytoband.contig) {
         (Some(reference), contig) => format!("{}:{}", reference, contig.full_name()),
         (None, contig) => format!("{}", contig.full_name()),

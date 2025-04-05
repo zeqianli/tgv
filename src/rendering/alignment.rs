@@ -11,14 +11,14 @@ use ratatui::{
 use rust_htslib::bam::record::Cigar;
 
 /// Render an alignment on the alignment area.
-/// TODO: multiple alignments
 pub fn render_alignment(
     area: &Rect,
     buf: &mut Buffer,
     window: &ViewingWindow,
     alignment: &Alignment,
 ) {
-    // This iterature through all cahces reads and re-calculates coordinates for each movement. Consider improvement.
+    // This iterates through all cached reads and re-calculates coordinates for each movement.
+    // Consider improvement.
     for read in alignment.reads.iter() {
         render_read(area, buf, window, read);
     }

@@ -33,8 +33,9 @@ pub fn render_track(
     track: &Track,
     reference: Option<&Reference>,
 ) {
+    let mut right_most_label_onscreen_x = 0;
     for feature in track.genes.iter() {
-        for (track_x, track_string, track_style, label_x, track_label) in
+        for (track_x, track_string, track_style, label_info) in
             get_rendering_info(window, area, feature)
         {
             buf.set_string(
@@ -44,12 +45,18 @@ pub fn render_track(
                 track_style,
             );
 
-            buf.set_string(
-                label_x as u16 + area.x,
-                area.y + 1,
-                track_label.clone(),
-                Style::default(),
-            );
+            if let Some((label_x, label)) = label_info {
+                if label_x > right_most_label_onscreen_x + 1 {
+                    right_most_label_onscreen_x = label_x + label.len() - 1;
+
+                    buf.set_string(
+                        label_x as u16 + area.x,
+                        area.y + 1,
+                        label.clone(),
+                        Style::default(),
+                    );
+                }
+            }
         }
     }
 }
@@ -60,9 +67,7 @@ fn get_rendering_info(
     window: &ViewingWindow,
     area: &Rect,
     gene: &Gene,
-) -> Vec<(usize, String, Style, usize, String)> {
-    let mut rendering_info: Vec<(usize, String, Style, usize, String)> = Vec::new();
-
+) -> Vec<(usize, String, Style, Option<(usize, String)>)> {
     // First, check if the gene should be rendered as a single segment or multiple segments.
 
     let gene_start_x = window.onscreen_x_coordinate(gene.start(), area);
@@ -81,11 +86,15 @@ fn get_rendering_info(
             let label = format!("{}", gene.name);
             let label_x = x + (length.saturating_sub(label.len()) / 2);
 
-            rendering_info.push((x, string, style, label_x, label));
+            return vec![(x, string, style, Some((label_x, label)))];
+        } else {
+            return vec![];
         }
     } else {
         // Render each exon as a separate segment.
-
+        let mut exons_info: Vec<(usize, String, Style, Option<(usize, String)>)> = Vec::new();
+        let mut introns_info: Vec<(usize, String, Style, Option<(usize, String)>)> = Vec::new();
+        let mut right_most_label_onscreen_x = 0;
         for (feature_start, feature_end, feature_type, feature_index) in gene.features() {
             let feature_start_x = window.onscreen_x_coordinate(feature_start, area);
             let feature_end_x = window.onscreen_x_coordinate(feature_end, area);
@@ -101,20 +110,38 @@ fn get_rendering_info(
                     &feature_type,
                 );
 
-                let label = match feature_type {
-                    FeatureType::Exon => format!("{}:exon{}", gene.name, feature_index),
-                    FeatureType::Intron => format!("{}:intron{}", gene.name, feature_index),
-                    FeatureType::NonCDSExon => "".to_string(),
-                };
+                match feature_type {
+                    FeatureType::Exon => {
+                        let label = format!("{}:exon{}", gene.name, feature_index);
 
-                let label_x = x + (length.saturating_sub(label.len()) / 2);
+                        let label_x = x + (length.saturating_sub(label.len()) / 2);
+                        let label_right_coordinate = label_x + label.len() - 1; // inclusive
 
-                rendering_info.push((x, string, style, label_x, label));
+                        exons_info.push((
+                            x,
+                            string,
+                            style,
+                            if label_x > right_most_label_onscreen_x + 1 {
+                                right_most_label_onscreen_x = label_right_coordinate;
+
+                                Some((label_x, label))
+                            } else {
+                                None
+                            },
+                        ));
+                    }
+                    FeatureType::NonCDSExon => {
+                        exons_info.push((x, string, style, None));
+                    }
+                    FeatureType::Intron => {
+                        introns_info.push((x, string, style, None));
+                    }
+                }
             }
         }
-    }
 
-    rendering_info
+        return vec![introns_info, exons_info].concat(); // Exons are rendered after introns. In this way, when zoom is high, exons are always shown on top of introns.
+    }
 }
 
 const EXON_ARROW_GAP: usize = 5;
@@ -129,22 +156,10 @@ const INTRON_FOREGROUND_COLOR: Color = tailwind::BLUE.c300;
 fn get_gene_segment_string_and_style(length: usize, strand: Strand) -> (String, Style) {
     let string = match strand {
         Strand::Forward => (0..length)
-            .map(|i| {
-                if (i + 1) % GENE_ARROW_GAP == 0 {
-                    ">"
-                } else {
-                    " "
-                }
-            })
+            .map(|i| if i % GENE_ARROW_GAP == 0 { ">" } else { " " })
             .collect::<String>(),
         Strand::Reverse => (0..length)
-            .map(|i| {
-                if (i + 1) % GENE_ARROW_GAP == 0 {
-                    "<"
-                } else {
-                    " "
-                }
-            })
+            .map(|i| if i % GENE_ARROW_GAP == 0 { "<" } else { " " })
             .collect::<String>(),
     };
 
@@ -160,42 +175,18 @@ fn get_feature_segment_string_and_style(
 ) -> (String, Style) {
     let string = match (strand, feature_type) {
         (Strand::Forward, FeatureType::Exon) => (0..length)
-            .map(|i| {
-                if (i + 1) % EXON_ARROW_GAP == 0 {
-                    ">"
-                } else {
-                    " "
-                }
-            })
+            .map(|i| if i % EXON_ARROW_GAP == 0 { ">" } else { " " })
             .collect::<String>(),
         (Strand::Forward, FeatureType::NonCDSExon) => (0..length).map(|_| "▅").collect::<String>(),
         (Strand::Forward, FeatureType::Intron) => (0..length)
-            .map(|i| {
-                if (i + 1) % INTRON_ARROW_GAP == 0 {
-                    ">"
-                } else {
-                    "-"
-                }
-            })
+            .map(|i| if i % INTRON_ARROW_GAP == 0 { ">" } else { "-" })
             .collect::<String>(),
         (Strand::Reverse, FeatureType::Exon) => (0..length)
-            .map(|i| {
-                if (i + 1) % EXON_ARROW_GAP == 0 {
-                    "<"
-                } else {
-                    "-"
-                }
-            })
+            .map(|i| if i % EXON_ARROW_GAP == 0 { "<" } else { "-" })
             .collect::<String>(),
         (Strand::Reverse, FeatureType::NonCDSExon) => (0..length).map(|_| "▅").collect::<String>(),
         (Strand::Reverse, FeatureType::Intron) => (0..length)
-            .map(|i| {
-                if (i + 1) % INTRON_ARROW_GAP == 0 {
-                    "<"
-                } else {
-                    "-"
-                }
-            })
+            .map(|i| if i % INTRON_ARROW_GAP == 0 { "<" } else { "-" })
             .collect::<String>(),
     };
 

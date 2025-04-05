@@ -144,7 +144,7 @@ impl OnScreenCoordinate {
                 if a > b {
                     return None;
                 }
-                Some((*a, b - a + 0))
+                Some((*a, b - a + 1))
             }
 
             (OnScreenCoordinate::OnScreen(a), OnScreenCoordinate::Right(b)) => {

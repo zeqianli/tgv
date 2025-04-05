@@ -47,15 +47,6 @@ fn calculate_coordinates(
     let (intermarker_distance, power) = calculate_intermarker_distance(viewing_window.zoom());
 
     let mut pivot = (viewing_window.left() / intermarker_distance + 1) * intermarker_distance; // First marker
-
-    // panic!(
-    //     "{},{},{},{}",
-    //     pivot,
-    //     intermarker_distance,
-    //     power,
-    //     viewing_window.left()
-    // );
-
     let mut markers_onscreen_x: Vec<u16> = Vec::new();
     let mut coordinate_texts: Vec<String> = Vec::new();
     let mut coordinate_texts_xs: Vec<u16> = Vec::new();
@@ -128,6 +119,9 @@ fn get_abbreviated_coordinate_text(coordinate: usize, power: usize) -> String {
 }
 
 fn to_thousand_separated(number: usize) -> String {
+    if number < 1000 {
+        return format!("{}", number);
+    }
     let mut number = number;
     let mut reminder = number % 1000;
     let mut output = format!("{:03}", reminder);
