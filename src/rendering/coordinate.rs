@@ -6,9 +6,10 @@ pub fn render_coordinates(
     area: &Rect,
     buf: &mut Buffer,
     viewing_window: &ViewingWindow,
+    contig_length: Option<usize>,
 ) -> Result<(), ()> {
     let (coordinate_texts, coordinate_texts_xs, markers_onscreen_x) =
-        calculate_coordinates(viewing_window, area);
+        calculate_coordinates(viewing_window, area, contig_length);
 
     for (text, text_x, marker_x) in izip!(
         coordinate_texts.iter(),
@@ -41,6 +42,7 @@ const MIN_SPACING_BETWEEN_MARKERS: u16 = 15;
 fn calculate_coordinates(
     viewing_window: &ViewingWindow,
     area: &Rect,
+    contig_length: Option<usize>,
 ) -> (Vec<String>, Vec<u16>, Vec<u16>) {
     let (intermarker_distance, power) = calculate_intermarker_distance(viewing_window.zoom());
 
@@ -58,7 +60,12 @@ fn calculate_coordinates(
     let mut coordinate_texts: Vec<String> = Vec::new();
     let mut coordinate_texts_xs: Vec<u16> = Vec::new();
 
-    while pivot < viewing_window.right(area) {
+    let render_bound = match contig_length {
+        Some(length) => usize::min(viewing_window.right(area), length),
+        None => viewing_window.right(area),
+    };
+
+    while pivot < render_bound {
         let marker_text = get_abbreviated_coordinate_text(pivot, power);
 
         let onscreen_marker_coordinate = viewing_window.onscreen_x_coordinate(pivot, area);

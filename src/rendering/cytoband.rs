@@ -14,60 +14,68 @@ use ratatui::{
 };
 
 const HIGHLIGHT_COLOR: Color = tailwind::RED.c800;
-const CYTOBAND_TEXT_SPACING: u16 = 12;
+const CYTOBAND_TEXT_LEFT_SPACING: u16 = 12;
+const CYTOBAND_TEXT_RIGHT_SPACING: u16 = 7;
 
 pub fn render_cytobands(
     area: &Rect,
     buf: &mut Buffer,
     cytoband: &Cytoband,
     viewing_window: &ViewingWindow,
+    contig_length: Option<usize>,
 ) {
-    if area.width <= CYTOBAND_TEXT_SPACING + 1 {
+    if area.width <= CYTOBAND_TEXT_LEFT_SPACING + CYTOBAND_TEXT_RIGHT_SPACING + 1 {
         return;
     }
 
-    for (x, string, style) in
-        get_cytoband_xs_strings_and_styles(cytoband, area.width - CYTOBAND_TEXT_SPACING)
-    {
-        // TODO: chromosome name
-        let band_x = x + CYTOBAND_TEXT_SPACING;
-        buf.set_stringn(
-            area.x + band_x,
-            area.y,
-            string,
-            area.width as usize - band_x as usize,
-            style,
-        );
-
-        let description = match (&cytoband.reference, &cytoband.contig) {
-            (Some(reference), contig) => format!("{}:{}", reference, contig.full_name()),
-            (None, contig) => format!("{}", contig.full_name()),
-        }
-        .chars()
-        .take(CYTOBAND_TEXT_SPACING as usize)
-        .collect::<String>();
-
-        buf.set_stringn(
-            area.x,
-            area.y,
-            description,
-            area.width as usize,
-            Style::default(),
-        );
+    for (x, string, style) in get_cytoband_xs_strings_and_styles(
+        cytoband,
+        CYTOBAND_TEXT_LEFT_SPACING,
+        area.width - CYTOBAND_TEXT_RIGHT_SPACING,
+    ) {
+        buf.set_string(area.x + x, area.y, string, style);
     }
+
+    // Left: chromosome name
+    let description = match (&cytoband.reference, &cytoband.contig) {
+        (Some(reference), contig) => format!("{}:{}", reference, contig.full_name()),
+        (None, contig) => format!("{}", contig.full_name()),
+    }
+    .chars()
+    .take(CYTOBAND_TEXT_LEFT_SPACING as usize)
+    .collect::<String>();
+
+    buf.set_string(area.x, area.y, description, Style::default());
+
+    // Right label: total length
+
+    buf.set_string(
+        area.width - CYTOBAND_TEXT_RIGHT_SPACING + 1,
+        area.y,
+        get_cytoband_total_length_text(cytoband.length()),
+        Style::default(),
+    );
 
     // Highlight the current viewing window
 
-    let viewing_window_start =
-        linear_scale(viewing_window.left(), cytoband.length(), area.width as u16);
-    let viewing_window_end = linear_scale(
-        viewing_window.right(area),
+    let viewing_window_start = linear_scale(
+        viewing_window.left(),
         cytoband.length(),
-        area.width as u16,
+        CYTOBAND_TEXT_LEFT_SPACING,
+        area.width - CYTOBAND_TEXT_RIGHT_SPACING,
+    );
+    let viewing_window_end = linear_scale(
+        match contig_length {
+            Some(length) => usize::min(viewing_window.right(area), length),
+            None => viewing_window.right(area),
+        },
+        cytoband.length(),
+        CYTOBAND_TEXT_LEFT_SPACING,
+        area.width - CYTOBAND_TEXT_RIGHT_SPACING,
     );
 
     for x in viewing_window_start..viewing_window_end + 1 {
-        let cell = buf.cell_mut(Position::new(area.x + x + CYTOBAND_TEXT_SPACING, area.y));
+        let cell = buf.cell_mut(Position::new(area.x + x, area.y));
         if let Some(cell) = cell {
             cell.set_char(' ');
             cell.set_bg(HIGHLIGHT_COLOR);
@@ -75,9 +83,33 @@ pub fn render_cytobands(
     }
 }
 
+fn get_cytoband_total_length_text(length: usize) -> String {
+    let mut length = length;
+    let mut power = 0;
+
+    while length >= 1000 {
+        length /= 1000;
+        power += 1;
+    }
+
+    format!(
+        "{}{}",
+        length,
+        match power {
+            0 => "bp",
+            1 => "kb",
+            2 => "Mb",
+            3 => "Gb",
+            4 => "Tb",
+            _ => "",
+        }
+    )
+}
+
 fn get_cytoband_xs_strings_and_styles(
     cytoband: &Cytoband,
-    area_width: u16,
+    area_start: u16,
+    area_end: u16,
 ) -> Vec<(u16, String, Style)> {
     let mut second_centromere = false;
     let mut output = Vec::new();
@@ -85,7 +117,8 @@ fn get_cytoband_xs_strings_and_styles(
         if let Some((x, string, style)) = get_cytoband_segment_x_string_and_style(
             segment,
             cytoband.length(),
-            area_width,
+            area_start,
+            area_end,
             second_centromere,
         ) {
             output.push((x, string, style));
@@ -101,11 +134,12 @@ fn get_cytoband_xs_strings_and_styles(
 fn get_cytoband_segment_x_string_and_style(
     segment: &CytobandSegment,
     total_length: usize,
-    area_width: u16,
+    area_start: u16,
+    area_end: u16,
     second_centromere: bool,
 ) -> Option<(u16, String, Style)> {
-    let onscreen_x_start = linear_scale(segment.start - 1, total_length, area_width); // 0-based, exclusive
-    let onscreen_x_end = linear_scale(segment.end, total_length, area_width); // 0-based, exclusive
+    let onscreen_x_start = linear_scale(segment.start - 1, total_length, area_start, area_end); // 0-based, inclusive
+    let onscreen_x_end = linear_scale(segment.end, total_length, area_start, area_end); // 0-based, exclusive
 
     if onscreen_x_end <= onscreen_x_start {
         return None;
@@ -131,8 +165,9 @@ fn get_cytoband_segment_x_string_and_style(
     }
 }
 
-fn linear_scale(original_x: usize, original_length: usize, new_length: u16) -> u16 {
-    (original_x as f64 / original_length as f64 * new_length as f64) as u16
+fn linear_scale(original_x: usize, original_length: usize, new_start: u16, new_end: u16) -> u16 {
+    (new_start
+        + (original_x as f64 / (original_length) as f64 * (new_end - new_start) as f64) as u16)
 }
 
 const DEFAULT_COLOR: Color = tailwind::GRAY.c300;

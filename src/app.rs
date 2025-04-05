@@ -112,9 +112,9 @@ impl Widget for &App {
             return;
         }
 
+        let contig_length = self.state.contig_length().unwrap();
         let viewing_window = self.state.viewing_window().unwrap();
         let viewing_region = self.state.viewing_region().unwrap();
-
         let [cytoband_area, coordinate_area, coverage_area, alignment_area, sequence_area, track_area, console_area, error_area] =
             Layout::vertical([
                 Length(2), // cytobands
@@ -137,10 +137,11 @@ impl Widget for &App {
                 buf,
                 &cytobands[current_cytoband_index],
                 &viewing_window,
+                contig_length,
             );
         }
 
-        render_coordinates(&coordinate_area, buf, viewing_window).unwrap();
+        render_coordinates(&coordinate_area, buf, viewing_window, contig_length).unwrap();
 
         if self.state.settings.bam_path.is_some() {
             match &self.state.data.alignment {

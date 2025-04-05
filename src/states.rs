@@ -658,7 +658,7 @@ impl State {
     }
 
     /// Maximum length of the contig.
-    fn contig_length(&self) -> Result<Option<usize>, TGVError> {
+    pub fn contig_length(&self) -> Result<Option<usize>, TGVError> {
         let contig = self.contig()?;
 
         // 1. If can be found in the BAM header use the BAM header
