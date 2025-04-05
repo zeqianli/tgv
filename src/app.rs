@@ -12,7 +12,7 @@ use ratatui::{
 };
 
 use crate::error::TGVError;
-use crate::models::{data::Data, message::StateMessage, mode::InputMode};
+use crate::models::{message::StateMessage, mode::InputMode};
 use crate::rendering::{
     render_alignment, render_console, render_coordinates, render_coverage, render_cytobands,
     render_error, render_help, render_sequence, render_sequence_at_2x, render_track,
@@ -43,7 +43,8 @@ impl App {
 
             if !self.state.initialized() {
                 /// Handle the initial messages
-                self.update_state_and_data(self.state.settings.initial_state_messages.clone())
+                self.state
+                    .handle(self.state.settings.initial_state_messages.clone())
                     .await?;
             }
 
@@ -52,7 +53,14 @@ impl App {
                     self.draw(frame);
                 })
                 .unwrap();
-            self.handle_events().await?;
+
+            // handle events
+            match event::read() {
+                Ok(Event::Key(key_event)) if key_event.kind == KeyEventKind::Press => {
+                    self.state.handle_key_event(key_event).await?;
+                }
+                _ => {}
+            };
 
             // terminal.clear() is needed when the layout changes significantly, or the last frame is burned into the new frame.
             // Not sure why.
@@ -78,35 +86,8 @@ impl App {
         frame.render_widget(self, frame.area());
     }
 
-    /// Main event handler
-    pub async fn handle_events(&mut self) -> Result<(), TGVError> {
-        match event::read() {
-            Ok(Event::Key(key_event)) if key_event.kind == KeyEventKind::Press => {
-                self.update_state_and_data(self.state.translate_key_event(key_event))
-                    .await?;
-            }
-            _ => {}
-        };
-        Ok(())
-    }
-
-    async fn update_state_and_data(
-        &mut self,
-        state_messages: Vec<StateMessage>,
-    ) -> Result<(), TGVError> {
-        let data_messages = self.state.handle_messages(state_messages).await?;
-        let loaded_data = self.data.handle_data_messages(data_messages).await?;
-        if loaded_data {
-            self.state.debug_message = "Data loaded".to_string();
-        } else {
-            self.state.debug_message = "Data not loaded".to_string();
-        }
-        Ok(())
-    }
-
     /// close connections
     pub async fn close(&mut self) -> Result<(), TGVError> {
-        self.data.close().await?;
         self.state.close().await?;
         Ok(())
     }
@@ -150,7 +131,7 @@ impl Widget for &App {
         render_coordinates(&coordinate_area, buf, viewing_window).unwrap();
 
         if self.state.settings.bam_path.is_some() {
-            match &self.data.alignment {
+            match &self.state.data.alignment {
                 Some(alignment) => {
                     render_coverage(&coverage_area, buf, viewing_window, alignment).unwrap();
 
@@ -162,14 +143,14 @@ impl Widget for &App {
 
         if self.state.settings.reference.is_some() {
             if viewing_window.is_basewise() {
-                match &self.data.sequence {
+                match &self.state.data.sequence {
                     Some(sequence) => {
                         render_sequence(&sequence_area, buf, &viewing_region, sequence).unwrap();
                     }
                     None => {} // TODO: handle error
                 }
             } else if viewing_window.zoom() == 2 {
-                match &self.data.sequence {
+                match &self.state.data.sequence {
                     Some(sequence) => {
                         render_sequence_at_2x(&sequence_area, buf, &viewing_region, sequence)
                             .unwrap();
@@ -178,7 +159,7 @@ impl Widget for &App {
                 }
             }
 
-            match &self.data.track {
+            match &self.state.data.track {
                 Some(track) => {
                     render_track(
                         &track_area,

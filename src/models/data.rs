@@ -137,10 +137,10 @@ impl Data {
                 let track_service = self.track_service.as_ref().unwrap();
 
                 if !self.has_complete_track(&region) {
-                    let feature_cache_region = Self::feature_cache_region(region);
+                    let track_cache_region = Self::track_cache_region(region);
                     self.track = Some(
                         track_service
-                            .query_feature_track(&feature_cache_region)
+                            .query_feature_track(&track_cache_region)
                             .await
                             .unwrap(),
                     );
@@ -227,6 +227,24 @@ impl Data {
         let right = region
             .end
             .saturating_add(Data::SEQUENCE_CACHE_RATIO * region.width() / 2)
+            .min(usize::MAX);
+        Region {
+            contig: region.contig.clone(),
+            start: left,
+            end: right,
+        }
+    }
+
+    const TRACK_CACHE_RATIO: usize = 10;
+
+    fn track_cache_region(region: Region) -> Region {
+        let left = region
+            .start
+            .saturating_sub(Data::TRACK_CACHE_RATIO * region.width() / 2)
+            .max(1);
+        let right = region
+            .end
+            .saturating_add(Data::TRACK_CACHE_RATIO * region.width() / 2)
             .min(usize::MAX);
         Region {
             contig: region.contig.clone(),

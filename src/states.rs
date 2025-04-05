@@ -287,10 +287,25 @@ impl State {
 }
 
 impl State {
-    pub async fn handle(&mut self, key_event: KeyEvent) -> Result<bool, TGVError> {
+    pub async fn handle_key_event(&mut self, key_event: KeyEvent) -> Result<(), TGVError> {
         let messages = self.translate_key_event(key_event);
         let data_messages = self.handle_state_messages(messages).await?;
-        self.data.handle_data_messages(data_messages).await
+        let loaded_data = self.data.handle_data_messages(data_messages).await?;
+
+        if loaded_data {
+            self.errors.push("Data loaded".to_string());
+        }
+        Ok(())
+    }
+
+    pub async fn handle(&mut self, messages: Vec<StateMessage>) -> Result<(), TGVError> {
+        let data_messages = self.handle_state_messages(messages).await?;
+        let loaded_data = self.data.handle_data_messages(data_messages).await?;
+
+        if loaded_data {
+            self.errors.push("Data loaded".to_string());
+        }
+        Ok(())
     }
 }
 
