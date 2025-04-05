@@ -88,6 +88,7 @@ impl Gene {
     }
 
     pub fn features(&self) -> Vec<(usize, usize, FeatureType, usize)> {
+        // TODO: prevent labeling overlap.
         let mut features: Vec<(usize, usize, FeatureType)> = Vec::new();
         let mut last_exon_end = self.transcription_start;
 
