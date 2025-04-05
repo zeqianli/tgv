@@ -124,7 +124,7 @@ impl Gene {
 
             match (exon_start_position, exon_end_position) {
                 (ExonPosition::PreCDS, ExonPosition::PreCDS) => {
-                    features.push((*exon_start, *exon_end, FeatureType::Exon));
+                    features.push((*exon_start, *exon_end, FeatureType::NonCDSExon));
                     n_cds_exons += 1;
                 }
 
