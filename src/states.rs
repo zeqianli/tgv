@@ -23,12 +23,13 @@ use url::Url;
 /// A collection of contigs. This helps relative contig movements.
 struct ContigCollection {
     contigs: Vec<Contig>,
+    contig_lengths: Vec<Option<usize>>,
 
     contig_index: HashMap<String, usize>,
 }
 
 impl ContigCollection {
-    pub fn new(contigs: Vec<Contig>) -> Result<Self, TGVError> {
+    pub fn new(contigs: Vec<Contig>, contig_lengths: Vec<Option<usize>>) -> Result<Self, TGVError> {
         // check that contigs do not have duplicated full names
         let mut contig_index = HashMap::new();
         for (i, contig) in contigs.iter().enumerate() {
@@ -43,6 +44,7 @@ impl ContigCollection {
 
         Ok(Self {
             contigs,
+            contig_lengths,
             contig_index,
         })
     }
@@ -87,6 +89,7 @@ impl ContigCollection {
         let header = bam::Header::from_template(bam.header());
 
         let mut contigs = Vec::new();
+        let mut contig_lengths: Vec<Option<usize>> = Vec::new();
         for (key, records) in header.to_hashmap().iter() {
             for record in records {
                 if record.contains_key("SN") {
@@ -100,14 +103,24 @@ impl ContigCollection {
                         _ => contigs.push(Contig::contig(&contig_name)),
                     }
                 }
+                if record.contains_key("LN") {
+                    contig_lengths.push(record["LN"].to_string().parse::<usize>().ok());
+                } else {
+                    contig_lengths.push(None);
+                }
             }
         }
 
-        Self::new(contigs)
+        Self::new(contigs, contig_lengths)
     }
 
     pub fn contains(&self, contig: &Contig) -> bool {
         self.contig_index.contains_key(&contig.full_name())
+    }
+
+    pub fn length(&self, contig: &Contig) -> Option<usize> {
+        let index = self.contig_index.get(&contig.full_name())?;
+        self.contig_lengths[*index]
     }
 
     pub fn next(&self, contig: &Contig, k: usize) -> Result<Contig, TGVError> {
@@ -192,6 +205,14 @@ impl State {
 
     pub fn update_frame_area(&mut self, area: Rect) {
         self.area = Some(area);
+    }
+
+    pub fn self_correct_viewing_window(&mut self) {
+        let area = *self.current_frame_area().unwrap();
+        let contig_length = self.contig_length().unwrap();
+        if let Ok(viewing_window) = self.viewing_window_mut() {
+            viewing_window.self_correct(&area, contig_length);
+        }
     }
 
     pub fn viewing_window(&self) -> Result<&ViewingWindow, TGVError> {
@@ -526,24 +547,34 @@ impl State {
         message: StateMessage,
     ) -> Result<Vec<DataMessage>, TGVError> {
         let mut data_messages = Vec::new();
+
         match message {
             // TODO: bound handling
             StateMessage::MoveLeft(n) => {
+                let current_frame_area = self.current_frame_area()?.clone();
+                let contig_length = self.contig_length()?;
                 let viewing_window = self.viewing_window_mut()?;
 
                 viewing_window.set_left(
                     viewing_window
                         .left()
                         .saturating_sub(n * viewing_window.zoom()),
+                    &current_frame_area,
+                    contig_length,
                 );
             }
             StateMessage::MoveRight(n) => {
+                let current_frame_area = self.current_frame_area()?.clone();
+
+                let contig_length: Option<usize> = self.contig_length()?;
                 let viewing_window = self.viewing_window_mut()?;
 
                 viewing_window.set_left(
                     viewing_window
                         .left()
                         .saturating_add(n * viewing_window.zoom()),
+                    &current_frame_area,
+                    contig_length,
                 );
             }
             StateMessage::MoveUp(n) => {
@@ -558,10 +589,11 @@ impl State {
             }
 
             StateMessage::GotoCoordinate(n) => {
-                let current_frame_area: Rect = *self.current_frame_area()?;
+                let current_frame_area = self.current_frame_area()?.clone();
+                let contig_length = self.contig_length()?;
                 let viewing_window = self.viewing_window_mut()?;
 
-                viewing_window.set_middle(&current_frame_area, n);
+                viewing_window.set_middle(&current_frame_area, n, contig_length);
             }
             StateMessage::GotoContigCoordinate(contig, n) => {
                 // If bam_path is provided, check that the contig is valid.
@@ -579,12 +611,12 @@ impl State {
                     }
                 }
 
-                let current_frame_area: Rect = *self.current_frame_area()?;
+                let current_frame_area = self.current_frame_area()?.clone();
 
                 match self.window {
                     Some(ref mut window) => {
                         window.contig = contig;
-                        window.set_middle(&current_frame_area, n);
+                        window.set_middle(&current_frame_area, n, None); // Don't know contig length yet.
                         window.set_top(0);
                     }
                     None => {
@@ -604,19 +636,46 @@ impl State {
 /// Zoom handling
 impl State {
     fn handle_zoom_out(&mut self, r: usize) -> Result<Vec<DataMessage>, TGVError> {
+        let contig_length = self.contig_length()?;
         let current_frame_area = *self.current_frame_area()?;
         let viewing_window = self.viewing_window_mut()?;
 
-        viewing_window.zoom_out(r, &current_frame_area).unwrap();
+        viewing_window
+            .zoom_out(r, &current_frame_area, contig_length)
+            .unwrap();
         self.get_data_requirements()
     }
 
     fn handle_zoom_in(&mut self, r: usize) -> Result<Vec<DataMessage>, TGVError> {
+        let contig_length = self.contig_length()?;
         let current_frame_area: Rect = *self.current_frame_area()?;
         let viewing_window = self.viewing_window_mut()?;
 
-        viewing_window.zoom_in(r, &current_frame_area).unwrap();
+        viewing_window
+            .zoom_in(r, &current_frame_area, contig_length)
+            .unwrap();
         self.get_data_requirements()
+    }
+
+    /// Maximum length of the contig.
+    fn contig_length(&self) -> Result<Option<usize>, TGVError> {
+        let contig = self.contig()?;
+
+        // 1. If can be found in the BAM header use the BAM header
+        if let Some(contigs) = &self.contigs {
+            if let Some(length) = contigs.length(&contig) {
+                return Ok(Some(length));
+            }
+        }
+
+        // 2. If the reference genome, used length in the database.
+        if let Some(reference) = self.settings.reference.as_ref() {
+            if let Some(length) = reference.length(&contig) {
+                return Ok(Some(length));
+            }
+        }
+
+        Ok(None)
     }
 }
 

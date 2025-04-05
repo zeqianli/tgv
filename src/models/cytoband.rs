@@ -4,9 +4,9 @@ use crate::models::reference::Reference;
 use csv::Reader;
 use std::io::BufReader;
 
-// Include the csv files directly as static strings
-static HG19_CYTOBAND: &[u8] = include_bytes!("../resources/hg19_cytoband.csv");
-static HG38_CYTOBAND: &[u8] = include_bytes!("../resources/hg38_cytoband.csv");
+// Include the csv files as static bytes
+const HG19_CYTOBAND: &[u8] = include_bytes!("../resources/hg19_cytoband.csv");
+const HG38_CYTOBAND: &[u8] = include_bytes!("../resources/hg38_cytoband.csv");
 
 #[derive(Debug, Clone, Eq, PartialEq)]
 pub enum Stain {

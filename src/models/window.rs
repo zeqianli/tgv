@@ -1,5 +1,8 @@
+use crate::error::TGVError;
 use crate::models::contig::Contig;
 use ratatui::layout::Rect;
+
+use super::contig;
 #[derive(Clone)]
 pub struct ViewingWindow {
     pub contig: Contig,
@@ -166,16 +169,34 @@ impl ViewingWindow {
 
     /// Set the left genome coordinate of the viewing window.
     /// 1-based, inclusive.
-    pub fn set_left(&mut self, left: usize) {
+    pub fn set_left(&mut self, left: usize, area: &Rect, contig_length: Option<usize>) {
         self.left = usize::max(left, 1);
+        self.self_correct(area, contig_length);
     }
 
     /// Set the middle genome coordinate of the viewing window.
     /// 1-based, inclusive.
-    pub fn set_middle(&mut self, area: &Rect, middle: usize) {
+    pub fn set_middle(&mut self, area: &Rect, middle: usize, contig_length: Option<usize>) {
         let left = middle.saturating_sub(self.width(area) / 2);
-        self.set_left(left);
+        self.set_left(left, area, contig_length);
     }
+
+    /// Move the viewing window be within the contig range.
+    pub fn self_correct(&mut self, area: &Rect, contig_length: Option<usize>) {
+        if let Some(contig_length) = contig_length {
+            // 1. Zoom: cannot be large than contig_length / area.width
+            let max_zoom = contig_length / area.width as usize;
+            self.zoom = usize::min(self.zoom, max_zoom);
+
+            // 2. Right: cannot be larger than contig_length
+            let right = self.right(area);
+            if right > contig_length {
+                self.left = self.left.saturating_sub(right - contig_length);
+            }
+        }
+    }
+
+    //
 
     /// Set the top track # of the viewing window.
     /// 0-based.
@@ -279,27 +300,41 @@ impl ViewingWindow {
 
 /// Zoom
 impl ViewingWindow {
-    const MAX_ZOOM: usize = usize::MAX; // Temporary. TODO: Improve in the future.
-
     /// Horizontal zoom out by a factor of r (1-based).
-    pub fn zoom_out(&mut self, r: usize, area: &Rect) -> Result<(), ()> {
+    pub fn zoom_out(
+        &mut self,
+        r: usize,
+        area: &Rect,
+        contig_length: Option<usize>,
+    ) -> Result<(), TGVError> {
+        let max_zoom = match contig_length {
+            Some(length) => length / area.width as usize,
+            None => usize::MAX / area.width as usize,
+        };
         if r == 0 {
-            return Err(());
+            return Err(TGVError::ValueError("Zoom factor cannot be 0".to_string()));
         }
         if r == 1 {
             return Ok(());
         }
 
         let middle_before_zoom = self.middle(area);
-        self.zoom = usize::min(self.zoom * r, Self::MAX_ZOOM);
-        self.set_middle(area, middle_before_zoom);
+        self.zoom = usize::min(self.zoom * r, max_zoom);
+        self.set_middle(area, middle_before_zoom, contig_length);
+
+        self.self_correct(area, contig_length);
         Ok(())
     }
 
     /// Horizontal zoom in by a factor of r (1-based).
-    pub fn zoom_in(&mut self, r: usize, area: &Rect) -> Result<(), ()> {
+    pub fn zoom_in(
+        &mut self,
+        r: usize,
+        area: &Rect,
+        contig_length: Option<usize>,
+    ) -> Result<(), TGVError> {
         if r == 0 {
-            return Err(());
+            return Err(TGVError::ValueError("Zoom factor cannot be 0".to_string()));
         }
         if r == 1 || self.is_basewise() {
             return Ok(());
@@ -308,7 +343,9 @@ impl ViewingWindow {
         let middle_before_zoom = self.middle(area);
 
         self.zoom = usize::max(self.zoom / r, 1);
-        self.set_middle(area, middle_before_zoom);
+        self.set_middle(area, middle_before_zoom, contig_length);
+
+        self.self_correct(area, contig_length);
         Ok(())
     }
 }

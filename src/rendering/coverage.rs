@@ -9,7 +9,6 @@ use crate::models::alignment::Alignment;
 use crate::models::window::ViewingWindow;
 
 /// Render the coverage barplot.
-/// TODO: y coordinate
 pub fn render_coverage(
     area: &Rect,
     buf: &mut Buffer,
@@ -25,10 +24,7 @@ pub fn render_coverage(
 
     let y_max = round_up_max_coverage(*binned_coverage.iter().max().unwrap_or(&0));
 
-    let sparkline = Sparkline::default()
-        //.block(Block::default().borders(Borders::ALL))
-        .data(&binned_coverage)
-        .max(y_max);
+    let sparkline = Sparkline::default().data(&binned_coverage).max(y_max);
 
     sparkline.render(*area, buf);
 
@@ -105,7 +101,6 @@ fn get_linear_space(left: usize, right: usize, n_bins: usize) -> Result<Vec<(usi
 }
 
 /// Calculate the binned coverage in [left_bound, right_bound].
-/// TODO: I think this is off by one base now.
 /// 1-based, inclusive.
 fn calculate_binned_coverage(
     alignment: &Alignment,

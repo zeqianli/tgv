@@ -59,6 +59,10 @@ impl App {
                 Ok(Event::Key(key_event)) if key_event.kind == KeyEventKind::Press => {
                     self.state.handle_key_event(key_event).await?;
                 }
+                Ok(Event::Resize(width, height)) => {
+                    self.state.self_correct_viewing_window();
+                }
+
                 _ => {}
             };
 
