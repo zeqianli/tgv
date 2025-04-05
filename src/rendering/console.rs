@@ -19,12 +19,19 @@ pub fn render_console(area: &Rect, buf: &mut Buffer, command_mode_register: &Com
     let cursor_char_position = area.x + 1 + cursor_position as u16;
     let cursor_char_style = Style::default().bg(Color::Red);
 
-    buf.set_string(area.x, area.y, ":", Style::default());
-    buf.set_string(area.x + 1, area.y, input, Style::default());
-    buf.set_string(
-        cursor_char_position,
+    buf.set_stringn(area.x, area.y, ":", area.width as usize, Style::default());
+    buf.set_stringn(
+        area.x + 1,
+        area.y,
+        input,
+        area.width as usize - 1,
+        Style::default(),
+    );
+    buf.set_stringn(
+        area.x + cursor_char_position,
         area.y,
         cursor_char.to_string(),
+        area.width as usize - cursor_char_position as usize,
         cursor_char_style,
     );
 }

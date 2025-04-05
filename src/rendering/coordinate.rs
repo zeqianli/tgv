@@ -15,8 +15,20 @@ pub fn render_coordinates(
         coordinate_texts_xs.iter(),
         markers_onscreen_x.iter()
     ) {
-        buf.set_string(*text_x, area.y, text, Style::default());
-        buf.set_string(*marker_x, area.y + 1, "|", Style::default());
+        buf.set_stringn(
+            area.x + *text_x,
+            area.y,
+            text,
+            area.width as usize - *text_x as usize,
+            Style::default(),
+        );
+        buf.set_stringn(
+            area.x + *marker_x,
+            area.y + 1,
+            "|",
+            area.width as usize - *marker_x as usize,
+            Style::default(),
+        );
     }
 
     Ok(())

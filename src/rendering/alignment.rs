@@ -102,10 +102,11 @@ fn render_read(area: &Rect, buf: &mut Buffer, window: &ViewingWindow, read: &Ali
             }
         }
 
-        buf.set_string(
+        buf.set_stringn(
             onscreen_x as u16 + area.x,
             onscreen_y as u16 + area.y,
             onscreen_string,
+            area.width as usize - onscreen_x,
             segment.style(),
         );
     }

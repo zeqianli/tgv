@@ -37,9 +37,15 @@ impl App {
     /// Main loop
     pub async fn run(&mut self, terminal: &mut DefaultTerminal) -> Result<(), TGVError> {
         let mut last_frame_mode = InputMode::Normal;
+        let mut last_frame_width = 0;
+        let mut last_frame_height = 0;
 
         while !self.state.exit {
-            self.state.update_frame_area(terminal.get_frame().area());
+            let frame_area = terminal.get_frame().area();
+            last_frame_width = frame_area.width;
+            last_frame_height = frame_area.height;
+
+            self.state.update_frame_area(frame_area);
 
             if !self.state.initialized() {
                 /// Handle the initial messages
@@ -68,10 +74,12 @@ impl App {
 
             // terminal.clear() is needed when the layout changes significantly, or the last frame is burned into the new frame.
             // Not sure why.
-            let need_screen_refresh = (last_frame_mode == InputMode::Help)
-                && (self.state.input_mode != InputMode::Help)
-                || (last_frame_mode != InputMode::Help)
-                    && (self.state.input_mode == InputMode::Help);
+            let need_screen_refresh = ((last_frame_mode == InputMode::Help)
+                && (self.state.input_mode != InputMode::Help))
+                || ((last_frame_mode != InputMode::Help)
+                    && (self.state.input_mode == InputMode::Help))
+                || (last_frame_width != frame_area.width)
+                || (last_frame_height != frame_area.height);
 
             if need_screen_refresh {
                 terminal.clear();
