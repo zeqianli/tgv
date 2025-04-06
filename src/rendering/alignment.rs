@@ -3,11 +3,8 @@ use crate::models::{
     strand::Strand,
     window::{OnScreenCoordinate, ViewingWindow},
 };
-use ratatui::{
-    buffer::Buffer,
-    layout::Rect,
-    style::{palette::tailwind, Color, Style},
-};
+use crate::rendering::colors;
+use ratatui::{buffer::Buffer, layout::Rect, style::Style};
 use rust_htslib::bam::record::Cigar;
 
 /// Render an alignment on the alignment area.
@@ -112,14 +109,6 @@ fn render_read(area: &Rect, buf: &mut Buffer, window: &ViewingWindow, read: &Ali
     }
 }
 
-const MATCH_COLOR: Color = tailwind::GRAY.c500;
-const MISMATCH_COLOR: Color = Color::Rgb(251, 198, 207);
-const SOFTCLIP_A: Color = Color::LightRed;
-const SOFTCLIP_C: Color = Color::LightGreen;
-const SOFTCLIP_G: Color = Color::LightBlue;
-const SOFTCLIP_T: Color = Color::LightYellow;
-const SOFTCLIP_N: Color = Color::LightMagenta;
-
 struct OnScreenCigarSegment {
     pivot: u16,   // number of bases from the start of the read
     length: u16,  // number of bases in the segment
@@ -175,7 +164,7 @@ fn get_cigar_segments(read: &AlignedRead) -> Vec<OnScreenCigarSegment> {
                 output.push(OnScreenCigarSegment {
                     pivot: pivot as u16,
                     length: *l as u16,
-                    style: Style::default().bg(MATCH_COLOR),
+                    style: Style::default().bg(colors::MATCH_COLOR),
                     direction: None,
                 });
                 pivot += *l as usize;
@@ -184,11 +173,11 @@ fn get_cigar_segments(read: &AlignedRead) -> Vec<OnScreenCigarSegment> {
                 for i_softclipped_base in pivot..pivot + *l as usize {
                     let base = read.read.seq()[i_softclipped_base];
                     let base_color = match base {
-                        b'A' => SOFTCLIP_A,
-                        b'C' => SOFTCLIP_C,
-                        b'G' => SOFTCLIP_G,
-                        b'T' => SOFTCLIP_T,
-                        _ => SOFTCLIP_N,
+                        b'A' => colors::SOFTCLIP_A,
+                        b'C' => colors::SOFTCLIP_C,
+                        b'G' => colors::SOFTCLIP_G,
+                        b'T' => colors::SOFTCLIP_T,
+                        _ => colors::SOFTCLIP_N,
                     };
                     output.push(OnScreenCigarSegment {
                         pivot: i_softclipped_base as u16,

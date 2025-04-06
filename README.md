@@ -6,7 +6,7 @@ Light, blazing fast 🚀, vim motion, memory safe.
 
 (*TGV is under heavy development. Bug report is welcome!*)
 
-![demo](demo.gif)
+![demo](demo.mp4)
 
 ## Installation
 

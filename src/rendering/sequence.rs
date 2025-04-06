@@ -1,11 +1,7 @@
 use crate::models::region::Region;
 use crate::models::sequence::Sequence;
-use ratatui::{
-    buffer::Buffer,
-    layout::Rect,
-    style::{palette::tailwind, Color, Style},
-};
-
+use crate::rendering::colors;
+use ratatui::{buffer::Buffer, layout::Rect, style::Style};
 const MIN_AREA_WIDTH: u16 = 2;
 const MIN_AREA_HEIGHT: u16 = 1;
 
@@ -24,29 +20,25 @@ pub fn render_sequence(
     for i in 0..sequence_string.len() {
         let base = sequence_string.chars().nth(i).unwrap();
         let color = match base {
-            'A' | 'a' => BASE_A,
-            'C' | 'c' => BASE_C,
-            'G' | 'g' => BASE_G,
-            'T' | 't' => BASE_T,
-            _ => BASE_N,
+            'A' | 'a' => colors::BASE_A,
+            'C' | 'c' => colors::BASE_C,
+            'G' | 'g' => colors::BASE_G,
+            'T' | 't' => colors::BASE_T,
+            _ => colors::BASE_N,
         };
 
         buf.set_string(
             area.x + i as u16,
             area.y,
             base.to_string(),
-            Style::default().bg(color),
+            Style::default()
+                .fg(colors::SEQUENCE_FOREGROUND_COLOR)
+                .bg(color),
         );
     }
 
     Ok(())
 }
-
-const BASE_A: Color = tailwind::RED.c300;
-const BASE_C: Color = tailwind::GREEN.c300;
-const BASE_G: Color = tailwind::BLUE.c300;
-const BASE_T: Color = tailwind::YELLOW.c300;
-const BASE_N: Color = tailwind::GRAY.c300;
 
 pub fn render_sequence_at_2x(
     area: &Rect,
@@ -61,19 +53,19 @@ pub fn render_sequence_at_2x(
         let base_2 = sequence_string.chars().nth(i * 2 + 1).unwrap();
 
         let color_character = match base_1 {
-            'A' | 'a' => BASE_A,
-            'C' | 'c' => BASE_C,
-            'G' | 'g' => BASE_G,
-            'T' | 't' => BASE_T,
-            _ => BASE_N,
+            'A' | 'a' => colors::BASE_A,
+            'C' | 'c' => colors::BASE_C,
+            'G' | 'g' => colors::BASE_G,
+            'T' | 't' => colors::BASE_T,
+            _ => colors::BASE_N,
         };
 
         let color_background = match base_2 {
-            'A' | 'a' => BASE_A,
-            'C' | 'c' => BASE_C,
-            'G' | 'g' => BASE_G,
-            'T' | 't' => BASE_T,
-            _ => BASE_N,
+            'A' | 'a' => colors::BASE_A,
+            'C' | 'c' => colors::BASE_C,
+            'G' | 'g' => colors::BASE_G,
+            'T' | 't' => colors::BASE_T,
+            _ => colors::BASE_N,
         };
 
         buf.set_string(
