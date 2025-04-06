@@ -1,8 +1,10 @@
 # Terminal Genome Viewer
 
-Browse omics data without leaving the terminal.
+Explore omics data without leaving the terminal.
 
 Light, blazing fast 🚀, vim motion, memory safe.
+
+(*TGV is under heavy development. Bug report is welcome!*)
 
 ![demo](demo.gif)
 
