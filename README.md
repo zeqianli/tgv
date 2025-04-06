@@ -1,6 +1,6 @@
 # Terminal Genome Viewer
 
-Explore omics data without leaving the terminal.
+Explore omics data without leaving the terminal. [Discord](https://discord.gg/NKGg684M)
 
 Light, blazing fast 🚀, vim motion, memory safe.
 
