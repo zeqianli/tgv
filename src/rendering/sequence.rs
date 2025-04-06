@@ -5,12 +5,20 @@ use ratatui::{
     layout::Rect,
     style::{palette::tailwind, Color, Style},
 };
+
+const MIN_AREA_WIDTH: u16 = 2;
+const MIN_AREA_HEIGHT: u16 = 1;
+
 pub fn render_sequence(
     area: &Rect,
     buf: &mut Buffer,
     region: &Region,
     sequence: &Sequence,
 ) -> Result<(), ()> {
+    if area.width < MIN_AREA_WIDTH || area.height < MIN_AREA_HEIGHT {
+        return Ok(());
+    }
+
     let sequence_string = sequence.get_sequence(region).ok_or(())?;
 
     for i in 0..sequence_string.len() {

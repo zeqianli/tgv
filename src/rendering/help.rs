@@ -5,7 +5,14 @@ use ratatui::{
     widgets::{Paragraph, Widget},
 };
 
+const MIN_AREA_WIDTH: u16 = 2;
+const MIN_AREA_HEIGHT: u16 = 1;
+
 pub fn render_help(area: Rect, buf: &mut Buffer) {
+    if area.width < MIN_AREA_WIDTH || area.height < MIN_AREA_HEIGHT {
+        return;
+    }
+
     let help_text = format!(
         "
  Terminal Genome Viewer - version {}

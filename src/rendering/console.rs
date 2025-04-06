@@ -6,7 +6,13 @@ use ratatui::{
 };
 
 /// Render the command mode console.
+const MIN_AREA_WIDTH: u16 = 2;
+const MIN_AREA_HEIGHT: u16 = 1;
 pub fn render_console(area: &Rect, buf: &mut Buffer, command_mode_register: &CommandModeRegister) {
+    if area.width < MIN_AREA_WIDTH || area.height < MIN_AREA_HEIGHT {
+        return;
+    }
+
     let input = command_mode_register.input();
     let cursor_position = command_mode_register.cursor_position();
 

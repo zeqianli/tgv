@@ -1,6 +1,6 @@
 [package]
 name = "tgv"
-version = "0.0.1"
+version = "0.0.2"
 edition = "2021"
 
 [dependencies]
@@ -15,8 +15,6 @@ itertools="0.14.0"
 rust-htslib={ version = "0.49.0", features = ["serde_feature", "s3", "gcs"] }
 url = "2.5.4"
 csv = "1.3.1"
-
-
 
 [dev-dependencies]
 rstest = "0.25.0"

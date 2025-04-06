@@ -11,21 +11,10 @@ use ratatui::{
     style::{palette::tailwind, Color, Style},
 };
 
-// High zoom levels:
-// - If a gene's length on screen is greater than a threshold, display underlying exons / introns.
-// - Else, render a gene as one unit. Only label the gene.
-// Labeling: fix in the future. Use the auto-labeling for now. In the future, re-vise the UI to avoid text overlap.
-// Refactors needed:
-// - Overhaul the track data structure. Change to a nested structure: track, gene, exon/introns.
-// - Move track ownership to State and use one track. Otherwise, feature movement will be confusing.
-//     - State saves a currently focused feature.
-//     - At high zoom, w/b and W/B should do the same thing (next gene). Go to next/previous exons make no sense now.
-// - Chromosome bound is needed now.
-// Now it's probably a good time to move Data ownership to State.
-//
+const MIN_AREA_WIDTH: u16 = 2;
+const MIN_AREA_HEIGHT: u16 = 1;
 
-/// Render the genome sequence and coordinates.
-/// TODO: zoomed view
+/// Render the genome features.
 pub fn render_track(
     area: &Rect,
     buf: &mut Buffer,
@@ -33,6 +22,10 @@ pub fn render_track(
     track: &Track,
     reference: Option<&Reference>,
 ) {
+    if area.width < MIN_AREA_WIDTH || area.height < MIN_AREA_HEIGHT {
+        return;
+    }
+
     let mut right_most_label_onscreen_x = 0;
     for feature in track.genes.iter() {
         for (track_x, track_string, track_style, label_info) in
@@ -46,15 +39,17 @@ pub fn render_track(
             );
 
             if let Some((label_x, label)) = label_info {
-                if label_x > right_most_label_onscreen_x + 1 {
-                    right_most_label_onscreen_x = label_x + label.len() - 1;
+                if area.height >= 2 {
+                    if label_x > right_most_label_onscreen_x + 1 {
+                        right_most_label_onscreen_x = label_x + label.len() - 1;
 
-                    buf.set_string(
-                        label_x as u16 + area.x,
-                        area.y + 1,
-                        label.clone(),
-                        Style::default(),
-                    );
+                        buf.set_string(
+                            label_x as u16 + area.x,
+                            area.y + 1,
+                            label.clone(),
+                            Style::default(),
+                        );
+                    }
                 }
             }
         }
