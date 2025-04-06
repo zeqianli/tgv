@@ -67,13 +67,11 @@ impl Settings {
         };
 
         if let Some(bam_path) = &bam_path {
-            if is_url(bam_path) {
-                if env::var("CURL_CA_BUNDLE").is_err() {
-                    // Workaround for rust-htslib:
-                    // https://github.com/rust-bio/rust-htslib/issues/404
-                    // TODO: is this same for MacOS?
-                    env::set_var("CURL_CA_BUNDLE", "/etc/ssl/certs/ca-certificates.crt");
-                }
+            if is_url(bam_path) && env::var("CURL_CA_BUNDLE").is_err() {
+                // Workaround for rust-htslib:
+                // https://github.com/rust-bio/rust-htslib/issues/404
+                // TODO: is this same for MacOS?
+                env::set_var("CURL_CA_BUNDLE", "/etc/ssl/certs/ca-certificates.crt");
             }
         }
 
