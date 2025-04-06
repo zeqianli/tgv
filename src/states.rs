@@ -505,9 +505,9 @@ impl State {
 // Data message handling
 
 impl State {
-    const MAX_ZOOM_TO_DISPLAY_FEATURES: usize = usize::MAX;
-    const MAX_ZOOM_TO_DISPLAY_ALIGNMENTS: usize = 32;
-    const MAX_ZOOM_TO_DISPLAY_SEQUENCES: usize = 2;
+    pub const MAX_ZOOM_TO_DISPLAY_FEATURES: usize = usize::MAX;
+    pub const MAX_ZOOM_TO_DISPLAY_ALIGNMENTS: usize = 32;
+    pub const MAX_ZOOM_TO_DISPLAY_SEQUENCES: usize = 2;
     fn get_data_requirements(&self) -> Result<Vec<DataMessage>, TGVError> {
         let mut data_messages = Vec::new();
 

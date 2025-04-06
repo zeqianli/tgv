@@ -143,7 +143,9 @@ impl Widget for &App {
 
         render_coordinates(&coordinate_area, buf, viewing_window, contig_length).unwrap();
 
-        if self.state.settings.bam_path.is_some() {
+        if self.state.settings.bam_path.is_some()
+            && viewing_window.zoom() <= State::MAX_ZOOM_TO_DISPLAY_ALIGNMENTS
+        {
             match &self.state.data.alignment {
                 Some(alignment) => {
                     render_coverage(&coverage_area, buf, viewing_window, alignment).unwrap();
@@ -154,7 +156,9 @@ impl Widget for &App {
             }
         }
 
-        if self.state.settings.reference.is_some() {
+        if self.state.settings.reference.is_some()
+            && viewing_window.zoom() <= State::MAX_ZOOM_TO_DISPLAY_FEATURES
+        {
             if viewing_window.is_basewise() {
                 match &self.state.data.sequence {
                     Some(sequence) => {
