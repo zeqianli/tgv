@@ -2,56 +2,35 @@
 
 ## Critical features/fixes
 
-- UI
-  - [x] Help screen
-  - [x] Coverage Y-axis
-- Bugs / testing
-  - [ ] Test read display and cigar parsing
-  - [x] Test coverage calculation & display
-  - ~~Intergration tests~~
-  - [ ] Feature movements get stuck sometimes (e.g. `gE` / `ge`)
-  - [x] Feature coloring is different from IGV
-  - [ ] Exon naming
-
-## Features / fixes that will for sure be added
-
 - Features
   - [ ] VCF / BED files
   - [ ] Local 2bit sequences for hg19 / hg38
   - [ ] Local feature tables for sequences and features locally
   - [ ] Alternative reference database hosting (probably Supabase)
+  - [ ] Other reference sequences
+  - [ ] Higher read display resolution (up to 1/8 characters) using unicode; better direction indicator
+  - [ ] Allele count
 - UI
-  - [x] Error message view
-  - [x] Coordinates
-  - [ ] Mis-match base display
-  - [ ] Higher read display resolution (up to 1/8 character) using unicode; better direction indicator
-  - [ ]
-- Movements
+  - [ ] Mis-match alignment alignment display
+- Key bindings
+  - [ ] More user-friendly key bindings: arrows, mouse
   - [ ] Navigation between VCF / BED entries
   - [ ] Navigation between reads / read clusters
   - [ ] Next / previous chromosomes (`{/}`)
   - [ ] Start / end of chromosomes (`0/$`)
   - [ ] Abbreviated coordinates in the command mode (e.g. 100k)
   - [ ] Go to `_gene_._exon_`
-- CLI
-  - [x] More flexible CLI interface
 - Performance (now loading large bam files is pretty slow.)
   - [ ] Async
   - [ ] Improved caching
-- Stability
-  - [ ] Genome coordinate upper bound
-
-## Nice-to-have features
-
-- Features
-  - [x] Stream BAM files (S3, http)
-  - [ ] Allele count
-  - [ ] Other reference sequences
+- Bugs / Tesing
+  - [ ] Better error handling (e.g. band input mode command does not crash the application)
+  - [ ] Test read display and cigar parsing
+  - [ ] Intergration tests
 
 ## Ideas
 
-- View mode: look at base-wide metrics using a cursor. Can add complex actions too (e.g. sort alignments by base)
+- View / cursor mode: look at base-wide metrics using a cursor. Can add complex actions too (e.g. sort alignments by base)
 - Split view with tmux-like motion
-- Mouse support
 - kmer search?
 - Plugins

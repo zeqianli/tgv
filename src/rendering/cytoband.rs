@@ -4,14 +4,14 @@ use crate::models::{
     cytoband::{Cytoband, CytobandSegment, Stain},
     window::ViewingWindow,
 };
+use crate::rendering::colors;
 
 use ratatui::{
     buffer::Buffer,
     layout::{Position, Rect},
-    style::{palette::tailwind, Color, Style},
+    style::Style,
 };
 
-const HIGHLIGHT_COLOR: Color = tailwind::RED.c800;
 const CYTOBAND_TEXT_LEFT_SPACING: u16 = 12;
 const CYTOBAND_TEXT_RIGHT_SPACING: u16 = 7;
 const MIN_AREA_WIDTH: u16 = CYTOBAND_TEXT_LEFT_SPACING + CYTOBAND_TEXT_RIGHT_SPACING + 1;
@@ -81,7 +81,7 @@ pub fn render_cytobands(
         let cell = buf.cell_mut(Position::new(area.x + x, area.y));
         if let Some(cell) = cell {
             cell.set_char(' ');
-            cell.set_bg(HIGHLIGHT_COLOR);
+            cell.set_bg(colors::HIGHLIGHT_COLOR);
         }
     }
 }
@@ -172,28 +172,16 @@ fn linear_scale(original_x: usize, original_length: usize, new_start: u16, new_e
     new_start + (original_x as f64 / (original_length) as f64 * (new_end - new_start) as f64) as u16
 }
 
-const DEFAULT_COLOR: Color = tailwind::GRAY.c300;
-// const GNEG_COLOR: Color = tailwind::GREEN.c100;
-const GPOS25_COLOR: Color = tailwind::GREEN.c200;
-const GPOS50_COLOR: Color = tailwind::GREEN.c500;
-const GPOS75_COLOR: Color = tailwind::GREEN.c700;
-const GPOS100_COLOR: Color = tailwind::GREEN.c900;
-
-const ACEN_COLOR: Color = tailwind::RED.c300;
-const GVAR_COLOR: Color = DEFAULT_COLOR;
-const STALK_COLOR: Color = DEFAULT_COLOR;
-const OTHER_COLOR: Color = DEFAULT_COLOR;
-
 fn get_cytoband_segment_style(cytoband_segment: &CytobandSegment) -> Style {
     match cytoband_segment.stain {
         Stain::Gneg => Style::default(),
-        Stain::Gpos25 => Style::default().fg(GPOS25_COLOR),
-        Stain::Gpos50 => Style::default().fg(GPOS50_COLOR),
-        Stain::Gpos75 => Style::default().fg(GPOS75_COLOR),
-        Stain::Gpos100 => Style::default().fg(GPOS100_COLOR),
-        Stain::Acen => Style::default().fg(ACEN_COLOR),
-        Stain::Gvar => Style::default().fg(GVAR_COLOR),
-        Stain::Stalk => Style::default().fg(STALK_COLOR),
-        Stain::Other => Style::default().fg(OTHER_COLOR),
+        Stain::Gpos25 => Style::default().fg(colors::GPOS25_COLOR),
+        Stain::Gpos50 => Style::default().fg(colors::GPOS50_COLOR),
+        Stain::Gpos75 => Style::default().fg(colors::GPOS75_COLOR),
+        Stain::Gpos100 => Style::default().fg(colors::GPOS100_COLOR),
+        Stain::Acen => Style::default().fg(colors::ACEN_COLOR),
+        Stain::Gvar => Style::default().fg(colors::GVAR_COLOR),
+        Stain::Stalk => Style::default().fg(colors::STALK_COLOR),
+        Stain::Other => Style::default().fg(colors::OTHER_COLOR),
     }
 }

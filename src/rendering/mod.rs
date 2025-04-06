@@ -1,4 +1,5 @@
 mod alignment;
+mod colors;
 mod console;
 mod coordinate;
 mod coverage;
