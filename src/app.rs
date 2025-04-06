@@ -104,9 +104,14 @@ impl App {
         Ok(())
     }
 }
-
+const MIN_AREA_WIDTH: u16 = 10;
+const MIN_AREA_HEIGHT: u16 = 6;
 impl Widget for &App {
     fn render(self, area: Rect, buf: &mut Buffer) {
+        if area.width < MIN_AREA_WIDTH || area.height < MIN_AREA_HEIGHT {
+            return; // TOO small. Skip rendering to prevent overflow.
+        }
+
         if self.state.input_mode == InputMode::Help {
             render_help(area, buf);
             return;
