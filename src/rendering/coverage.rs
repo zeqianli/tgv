@@ -31,7 +31,7 @@ pub fn render_coverage(
     buf.set_string(
         area.x,
         area.y,
-        format!("[0-{}]", y_max.to_string(),),
+        format!("[0-{}]", y_max,),
         Style::default(),
     );
 

@@ -106,11 +106,11 @@ impl Cytoband {
                 Stain::from(&record[4]).map_err(|e| TGVError::ParsingError(e.to_string()))?;
 
             let segment = CytobandSegment {
-                contig: contig,
+                contig,
                 start: start + 1,
-                end: end,
-                name: name,
-                stain: stain,
+                end,
+                name,
+                stain,
             };
 
             if cytobands.is_empty() || cytobands.last().unwrap().contig != segment.contig {

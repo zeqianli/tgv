@@ -9,15 +9,13 @@ use crate::models::{
     reference::Reference,
     region::Region,
     register::{CommandModeRegister, NormalModeRegister},
-    services::tracks::TrackService,
-    track::{Feature, Gene, Track},
     window::ViewingWindow,
 };
 use crate::settings::Settings;
 use crate::traits::GenomeInterval;
 use crossterm::event::{KeyCode, KeyEvent};
 use ratatui::layout::Rect;
-use rust_htslib::bam::{self, record::Cigar, Header, IndexedReader, Read, Record};
+use rust_htslib::bam::{self, IndexedReader, Read};
 use std::collections::HashMap;
 use url::Url;
 /// A collection of contigs. This helps relative contig movements.
@@ -551,7 +549,7 @@ impl State {
         match message {
             // TODO: bound handling
             StateMessage::MoveLeft(n) => {
-                let current_frame_area = self.current_frame_area()?.clone();
+                let current_frame_area = *self.current_frame_area()?;
                 let contig_length = self.contig_length()?;
                 let viewing_window = self.viewing_window_mut()?;
 
@@ -564,7 +562,7 @@ impl State {
                 );
             }
             StateMessage::MoveRight(n) => {
-                let current_frame_area = self.current_frame_area()?.clone();
+                let current_frame_area = *self.current_frame_area()?;
 
                 let contig_length: Option<usize> = self.contig_length()?;
                 let viewing_window = self.viewing_window_mut()?;
@@ -589,7 +587,7 @@ impl State {
             }
 
             StateMessage::GotoCoordinate(n) => {
-                let current_frame_area = self.current_frame_area()?.clone();
+                let current_frame_area = *self.current_frame_area()?;
                 let contig_length = self.contig_length()?;
                 let viewing_window = self.viewing_window_mut()?;
 
@@ -611,7 +609,7 @@ impl State {
                     }
                 }
 
-                let current_frame_area = self.current_frame_area()?.clone();
+                let current_frame_area = *self.current_frame_area()?;
 
                 match self.window {
                     Some(ref mut window) => {
@@ -695,7 +693,7 @@ impl State {
         match message {
             StateMessage::GotoNextGenesStart(n_movements) => {
                 if n_movements == 0 {
-                    return Ok(self.get_data_requirements()?);
+                    return self.get_data_requirements();
                 }
 
                 let target_gene = track.get_k_genes_after(self.middle()?, n_movements);
@@ -713,7 +711,7 @@ impl State {
             }
             StateMessage::GotoNextGenesEnd(n_movements) => {
                 if n_movements == 0 {
-                    return Ok(self.get_data_requirements()?);
+                    return self.get_data_requirements();
                 }
 
                 let target_gene = track.get_k_genes_after(self.middle()?, n_movements);
@@ -731,7 +729,7 @@ impl State {
             }
             StateMessage::GotoPreviousGenesStart(n_movements) => {
                 if n_movements == 0 {
-                    return Ok(self.get_data_requirements()?);
+                    return self.get_data_requirements();
                 }
 
                 let target_gene = track.get_k_genes_before(self.middle()?, n_movements);
@@ -750,7 +748,7 @@ impl State {
 
             StateMessage::GotoPreviousGenesEnd(n_movements) => {
                 if n_movements == 0 {
-                    return Ok(self.get_data_requirements()?);
+                    return self.get_data_requirements();
                 }
 
                 let target_gene = track.get_k_genes_before(self.middle()?, n_movements);
@@ -791,7 +789,7 @@ impl State {
         match message {
             StateMessage::GotoNextExonsStart(n_movements) => {
                 if n_movements == 0 {
-                    return Ok(self.get_data_requirements()?);
+                    return self.get_data_requirements();
                 }
 
                 let target_exon = track.get_k_exons_after(self.middle()?, n_movements);
@@ -809,7 +807,7 @@ impl State {
             }
             StateMessage::GotoNextExonsEnd(n_movements) => {
                 if n_movements == 0 {
-                    return Ok(self.get_data_requirements()?);
+                    return self.get_data_requirements();
                 }
 
                 let target_exon = track.get_k_exons_after(self.middle()?, n_movements);
@@ -829,7 +827,7 @@ impl State {
 
             StateMessage::GotoPreviousExonsStart(n_movements) => {
                 if n_movements == 0 {
-                    return Ok(self.get_data_requirements()?);
+                    return self.get_data_requirements();
                 }
 
                 let target_exon = track.get_k_exons_before(self.middle()?, n_movements);
@@ -848,7 +846,7 @@ impl State {
 
             StateMessage::GotoPreviousExonsEnd(n_movements) => {
                 if n_movements == 0 {
-                    return Ok(self.get_data_requirements()?);
+                    return self.get_data_requirements();
                 }
 
                 let target_exon = track.get_k_exons_before(self.middle()?, n_movements);

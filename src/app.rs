@@ -12,7 +12,7 @@ use ratatui::{
 };
 
 use crate::error::TGVError;
-use crate::models::{message::StateMessage, mode::InputMode};
+use crate::models::mode::InputMode;
 use crate::rendering::{
     render_alignment, render_console, render_coordinates, render_coverage, render_cytobands,
     render_error, render_help, render_sequence, render_sequence_at_2x, render_track,
@@ -136,7 +136,7 @@ impl Widget for &App {
                 &cytoband_area,
                 buf,
                 &cytobands[current_cytoband_index],
-                &viewing_window,
+                viewing_window,
                 contig_length,
             );
         }

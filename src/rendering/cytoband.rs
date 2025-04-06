@@ -1,4 +1,3 @@
-use std::fmt::Debug;
 
 /// Reference chromosomes on the top of the screen.
 ///
@@ -39,7 +38,7 @@ pub fn render_cytobands(
     // Left label: chromosome name
     let description = match (&cytoband.reference, &cytoband.contig) {
         (Some(reference), contig) => format!("{}:{}", reference, contig.full_name()),
-        (None, contig) => format!("{}", contig.full_name()),
+        (None, contig) => contig.full_name().to_string(),
     }
     .chars()
     .take(CYTOBAND_TEXT_LEFT_SPACING as usize)
@@ -166,8 +165,8 @@ fn get_cytoband_segment_x_string_and_style(
 }
 
 fn linear_scale(original_x: usize, original_length: usize, new_start: u16, new_end: u16) -> u16 {
-    (new_start
-        + (original_x as f64 / (original_length) as f64 * (new_end - new_start) as f64) as u16)
+    new_start
+        + (original_x as f64 / (original_length) as f64 * (new_end - new_start) as f64) as u16
 }
 
 const DEFAULT_COLOR: Color = tailwind::GRAY.c300;

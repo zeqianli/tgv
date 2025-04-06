@@ -2,7 +2,6 @@ use crate::error::TGVError;
 use crate::models::contig::Contig;
 use ratatui::layout::Rect;
 
-use super::contig;
 #[derive(Clone)]
 pub struct ViewingWindow {
     pub contig: Contig,
@@ -108,7 +107,7 @@ impl OnScreenCoordinate {
             }
 
             (OnScreenCoordinate::OnScreen(a), OnScreenCoordinate::Left(b)) => {
-                return None;
+                None
             }
 
             (OnScreenCoordinate::OnScreen(a), OnScreenCoordinate::OnScreen(b)) => {

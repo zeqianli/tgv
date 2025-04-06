@@ -72,12 +72,12 @@ impl Data {
 
         Ok(Self {
             alignment: None,
-            bam_path: bam_path,
+            bam_path,
             bai_path: settings.bai_path.clone(),
             track: None,
-            track_service: track_service,
+            track_service,
             sequence: None,
-            sequence_service: sequence_service,
+            sequence_service,
         })
     }
 

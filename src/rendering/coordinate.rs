@@ -63,13 +63,13 @@ fn calculate_coordinates(
 
         match onscreen_marker_coordinate {
             OnScreenCoordinate::OnScreen(x) => {
-                if (x >= marker_text.len() / 2) {
+                if x >= marker_text.len() / 2 {
                     markers_onscreen_x.push(x as u16);
                     coordinate_texts_xs.push((x - marker_text.len() / 2) as u16);
                     coordinate_texts.push(marker_text);
                 } else {
                     markers_onscreen_x.push(x as u16);
-                    coordinate_texts_xs.push(0 as u16);
+                    coordinate_texts_xs.push(0_u16);
                     coordinate_texts.push(marker_text[(marker_text.len() / 2 - x)..].to_string());
                 }
             }
@@ -95,16 +95,16 @@ fn calculate_intermarker_distance(zoom: usize) -> (usize, usize) {
     }
 
     if distance < 2 {
-        return (2 * 10usize.pow(power as u32 - 1), power - 1);
+        (2 * 10usize.pow(power as u32 - 1), power - 1)
     } else {
-        return (10usize.pow(power as u32), power);
+        (10usize.pow(power as u32), power)
     }
 }
 
 fn get_abbreviated_coordinate_text(coordinate: usize, power: usize) -> String {
     if power < 3 {
-        return format!("{}bp", to_thousand_separated(coordinate));
-    } else if (power < 6) {
+        format!("{}bp", to_thousand_separated(coordinate))
+    } else if power < 6 {
         return format!("{}kb", to_thousand_separated(coordinate / 1_000));
     } else if power < 9 {
         return format!("{}Mb", to_thousand_separated(coordinate / 1_000_000));

@@ -269,10 +269,10 @@ impl TrackService {
 
         let track = Track::from(genes, contig.clone())?;
 
-        return track
+        track
             .get_saturating_k_genes_after(coord, k)
             .cloned()
-            .ok_or(TGVError::IOError("No genes found".to_string()));
+            .ok_or(TGVError::IOError("No genes found".to_string()))
     }
 
     pub async fn query_k_genes_before(
@@ -339,10 +339,10 @@ impl TrackService {
 
         let track = Track::from(genes, contig.clone())?;
 
-        return track
+        track
             .get_saturating_k_genes_before(coord, k)
             .cloned()
-            .ok_or(TGVError::IOError("No genes found".to_string()));
+            .ok_or(TGVError::IOError("No genes found".to_string()))
     }
 
     pub async fn query_k_exons_after(
@@ -404,9 +404,9 @@ impl TrackService {
 
         let track = Track::from(genes, contig.clone())?;
 
-        return track
+        track
             .get_saturating_k_exons_after(coord, k)
-            .ok_or(TGVError::IOError("No exons found".to_string()));
+            .ok_or(TGVError::IOError("No exons found".to_string()))
     }
 
     pub async fn query_k_exons_before(
@@ -468,9 +468,9 @@ impl TrackService {
 
         let track = Track::from(genes, contig.clone())?;
 
-        return track
+        track
             .get_saturating_k_exons_before(coord, k)
-            .ok_or(TGVError::IOError("No exons found".to_string()));
+            .ok_or(TGVError::IOError("No exons found".to_string()))
     }
 }
 

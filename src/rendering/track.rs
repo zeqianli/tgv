@@ -83,12 +83,12 @@ fn get_rendering_info(
             let (string, style) = get_gene_segment_string_and_style(length, gene.strand.clone());
 
             // label x and text
-            let label = format!("{}", gene.name);
+            let label = gene.name.to_string();
             let label_x = x + (length.saturating_sub(label.len()) / 2);
 
-            return vec![(x, string, style, Some((label_x, label)))];
+            vec![(x, string, style, Some((label_x, label)))]
         } else {
-            return vec![];
+            vec![]
         }
     } else {
         // Render each exon as a separate segment.
@@ -133,7 +133,7 @@ fn get_rendering_info(
                         ));
                     }
                     FeatureType::NonCDSExon => {
-                        let label = format!("{}", gene.name);
+                        let label = gene.name.to_string();
                         let label_x = x + (length.saturating_sub(label.len()) / 2);
                         let label_right_coordinate = label_x + label.len() - 1; // inclusive
 
@@ -160,7 +160,7 @@ fn get_rendering_info(
         // The order decides rendering order.
         // Exons are on top of non-CDS exons, on top of introns.
 
-        return vec![introns_info, non_cds_exons_info, exons_info].concat();
+        [introns_info, non_cds_exons_info, exons_info].concat()
     }
 }
 

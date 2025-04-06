@@ -1,9 +1,6 @@
 use crate::error::TGVError;
 use crate::models::contig::Contig;
-use csv::Reader;
-use std::collections::HashMap;
 use std::fmt;
-use std::io::BufReader;
 
 #[derive(Debug, Clone, Eq, PartialEq)]
 pub enum Reference {
