@@ -71,7 +71,7 @@ pub fn render_sequence_at_2x(
         buf.set_string(
             area.x + i as u16,
             area.y,
-            "▌".to_string(),
+            "▌",
             Style::default().fg(color_character).bg(color_background),
         );
     }

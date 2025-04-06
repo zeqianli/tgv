@@ -6,17 +6,30 @@ pub fn render_coordinates(
     area: &Rect,
     buf: &mut Buffer,
     viewing_window: &ViewingWindow,
+    contig_length: Option<usize>,
 ) -> Result<(), ()> {
     let (coordinate_texts, coordinate_texts_xs, markers_onscreen_x) =
-        calculate_coordinates(viewing_window, area);
+        calculate_coordinates(viewing_window, area, contig_length);
 
     for (text, text_x, marker_x) in izip!(
         coordinate_texts.iter(),
         coordinate_texts_xs.iter(),
         markers_onscreen_x.iter()
     ) {
-        buf.set_string(*text_x, area.y, text, Style::default());
-        buf.set_string(*marker_x, area.y + 1, "|", Style::default());
+        buf.set_stringn(
+            area.x + *text_x,
+            area.y,
+            text,
+            area.width as usize - *text_x as usize,
+            Style::default(),
+        );
+        buf.set_stringn(
+            area.x + *marker_x,
+            area.y + 1,
+            "|",
+            area.width as usize - *marker_x as usize,
+            Style::default(),
+        );
     }
 
     Ok(())
@@ -29,37 +42,34 @@ const MIN_SPACING_BETWEEN_MARKERS: u16 = 15;
 fn calculate_coordinates(
     viewing_window: &ViewingWindow,
     area: &Rect,
+    contig_length: Option<usize>,
 ) -> (Vec<String>, Vec<u16>, Vec<u16>) {
     let (intermarker_distance, power) = calculate_intermarker_distance(viewing_window.zoom());
 
     let mut pivot = (viewing_window.left() / intermarker_distance + 1) * intermarker_distance; // First marker
-
-    // panic!(
-    //     "{},{},{},{}",
-    //     pivot,
-    //     intermarker_distance,
-    //     power,
-    //     viewing_window.left()
-    // );
-
     let mut markers_onscreen_x: Vec<u16> = Vec::new();
     let mut coordinate_texts: Vec<String> = Vec::new();
     let mut coordinate_texts_xs: Vec<u16> = Vec::new();
 
-    while pivot < viewing_window.right(area) {
+    let render_bound = match contig_length {
+        Some(length) => usize::min(viewing_window.right(area), length),
+        None => viewing_window.right(area),
+    };
+
+    while pivot < render_bound {
         let marker_text = get_abbreviated_coordinate_text(pivot, power);
 
         let onscreen_marker_coordinate = viewing_window.onscreen_x_coordinate(pivot, area);
 
         match onscreen_marker_coordinate {
             OnScreenCoordinate::OnScreen(x) => {
-                if (x >= marker_text.len() / 2) {
+                if x >= marker_text.len() / 2 {
                     markers_onscreen_x.push(x as u16);
                     coordinate_texts_xs.push((x - marker_text.len() / 2) as u16);
                     coordinate_texts.push(marker_text);
                 } else {
                     markers_onscreen_x.push(x as u16);
-                    coordinate_texts_xs.push(0 as u16);
+                    coordinate_texts_xs.push(0_u16);
                     coordinate_texts.push(marker_text[(marker_text.len() / 2 - x)..].to_string());
                 }
             }
@@ -85,16 +95,16 @@ fn calculate_intermarker_distance(zoom: usize) -> (usize, usize) {
     }
 
     if distance < 2 {
-        return (2 * 10usize.pow(power as u32 - 1), power - 1);
+        (2 * 10usize.pow(power as u32 - 1), power - 1)
     } else {
-        return (10usize.pow(power as u32), power);
+        (10usize.pow(power as u32), power)
     }
 }
 
 fn get_abbreviated_coordinate_text(coordinate: usize, power: usize) -> String {
     if power < 3 {
-        return format!("{}bp", to_thousand_separated(coordinate));
-    } else if (power < 6) {
+        format!("{}bp", to_thousand_separated(coordinate))
+    } else if power < 6 {
         return format!("{}kb", to_thousand_separated(coordinate / 1_000));
     } else if power < 9 {
         return format!("{}Mb", to_thousand_separated(coordinate / 1_000_000));
@@ -109,6 +119,9 @@ fn get_abbreviated_coordinate_text(coordinate: usize, power: usize) -> String {
 }
 
 fn to_thousand_separated(number: usize) -> String {
+    if number < 1000 {
+        return format!("{}", number);
+    }
     let mut number = number;
     let mut reminder = number % 1000;
     let mut output = format!("{:03}", reminder);

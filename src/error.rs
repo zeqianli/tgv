@@ -1,5 +1,6 @@
 use std::fmt;
 
+use sqlx::Error as SqlxError;
 #[derive(Debug, Clone, Eq, PartialEq)]
 pub enum TGVError {
     CliError(String),
@@ -28,6 +29,13 @@ impl fmt::Display for TGVError {
             TGVError::ParsingError(e) => write!(f, "{}", e),
             TGVError::ValueError(e) => write!(f, "{}", e),
         }
+    }
+}
+
+// sqlx error automatic conversion
+impl From<SqlxError> for TGVError {
+    fn from(e: SqlxError) -> Self {
+        TGVError::IOError(e.to_string())
     }
 }
 

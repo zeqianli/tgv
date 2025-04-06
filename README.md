@@ -1,28 +1,27 @@
-# Terminmal Genome Viewer
+# Terminal Genome Viewer
 
-*This is a work in progress.*
-
-Light, fast, in terminal, vim motion.
+Light, blazing fast, in terminal, vim motion.
 
 ![demo](demo.gif)
 
 ## Installation
 
-### Prerequisites
+### Prerequisites: install Rust
 
-1. Install Rust:
+```bash
+curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
 
-   ```bash
-   curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
-   ```
+# Add Rust to your path (or restart your terminal):
+source "$HOME/.cargo/env"
+```
 
-2. Add Rust to your path (or restart your terminal):
+### Stable release
 
-   ```bash
-   source "$HOME/.cargo/env"
-   ```
+```bash
+cargo install tgv
+```
 
-### Install TGV
+Install the latest development branch:
 
 ```bash
 # Clone the repository
@@ -30,6 +29,12 @@ git clone https://github.com/zeqianli/tgv.git
 cd tgv
 
 cargo install --path .
+```
+
+## Quick start
+
+```
+tgv
 ```
 
 ## Supported formats
@@ -48,8 +53,7 @@ cargo install --path .
 # Help
 tgv -h
 
-# Browse hg38 genome
-tgv
+
 
 # View BAM file aligned to the hg19 human reference genome
 tgv sorted.bam -g hg19

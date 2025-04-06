@@ -3,7 +3,7 @@ use crate::helpers::is_url;
 use crate::models::{contig::Contig, region::Region};
 use rust_htslib::bam;
 use rust_htslib::bam::ext::BamRecordExtensions;
-use rust_htslib::bam::{record::Cigar, Header, IndexedReader, Read, Record};
+use rust_htslib::bam::{Header, IndexedReader, Read, Record};
 use std::collections::{BTreeMap, HashMap};
 use url::Url;
 
