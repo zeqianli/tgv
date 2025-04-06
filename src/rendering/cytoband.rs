@@ -1,4 +1,3 @@
-
 /// Reference chromosomes on the top of the screen.
 ///
 use crate::models::{
@@ -15,7 +14,8 @@ use ratatui::{
 const HIGHLIGHT_COLOR: Color = tailwind::RED.c800;
 const CYTOBAND_TEXT_LEFT_SPACING: u16 = 12;
 const CYTOBAND_TEXT_RIGHT_SPACING: u16 = 7;
-
+const MIN_AREA_WIDTH: u16 = CYTOBAND_TEXT_LEFT_SPACING + CYTOBAND_TEXT_RIGHT_SPACING + 1;
+const MIN_AREA_HEIGHT: u16 = 1;
 pub fn render_cytobands(
     area: &Rect,
     buf: &mut Buffer,
@@ -23,7 +23,11 @@ pub fn render_cytobands(
     viewing_window: &ViewingWindow,
     contig_length: Option<usize>,
 ) {
-    if area.width <= CYTOBAND_TEXT_LEFT_SPACING + CYTOBAND_TEXT_RIGHT_SPACING + 1 {
+    if area.width <= MIN_AREA_WIDTH {
+        return;
+    }
+
+    if area.height < MIN_AREA_HEIGHT {
         return;
     }
 
@@ -165,8 +169,7 @@ fn get_cytoband_segment_x_string_and_style(
 }
 
 fn linear_scale(original_x: usize, original_length: usize, new_start: u16, new_end: u16) -> u16 {
-    new_start
-        + (original_x as f64 / (original_length) as f64 * (new_end - new_start) as f64) as u16
+    new_start + (original_x as f64 / (original_length) as f64 * (new_end - new_start) as f64) as u16
 }
 
 const DEFAULT_COLOR: Color = tailwind::GRAY.c300;

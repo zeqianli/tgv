@@ -311,9 +311,9 @@ impl State {
         let data_messages = self.handle_state_messages(messages).await?;
         let loaded_data = self.data.handle_data_messages(data_messages).await?;
 
-        if loaded_data {
-            self.errors.push("Data loaded".to_string());
-        }
+        // if loaded_data {
+        //     self.errors.push("Data loaded".to_string());
+        // }
         Ok(())
     }
 
@@ -321,9 +321,9 @@ impl State {
         let data_messages = self.handle_state_messages(messages).await?;
         let loaded_data = self.data.handle_data_messages(data_messages).await?;
 
-        if loaded_data {
-            self.errors.push("Data loaded".to_string());
-        }
+        // if loaded_data {
+        //     self.errors.push("Data loaded".to_string());
+        // }
         Ok(())
     }
 }

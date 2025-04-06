@@ -2,12 +2,19 @@ use crate::models::window::{OnScreenCoordinate, ViewingWindow};
 use itertools::izip;
 use ratatui::{buffer::Buffer, layout::Rect, style::Style};
 
+const MIN_AREA_WIDTH: u16 = 2;
+const MIN_AREA_HEIGHT: u16 = 1;
+
 pub fn render_coordinates(
     area: &Rect,
     buf: &mut Buffer,
     viewing_window: &ViewingWindow,
     contig_length: Option<usize>,
 ) -> Result<(), ()> {
+    if area.width < MIN_AREA_WIDTH || area.height < MIN_AREA_HEIGHT {
+        return Ok(());
+    }
+
     let (coordinate_texts, coordinate_texts_xs, markers_onscreen_x) =
         calculate_coordinates(viewing_window, area, contig_length);
 
@@ -23,13 +30,15 @@ pub fn render_coordinates(
             area.width as usize - *text_x as usize,
             Style::default(),
         );
-        buf.set_stringn(
-            area.x + *marker_x,
-            area.y + 1,
-            "|",
-            area.width as usize - *marker_x as usize,
-            Style::default(),
-        );
+        if area.height >= 2 {
+            buf.set_stringn(
+                area.x + *marker_x,
+                area.y + 1,
+                "|",
+                area.width as usize - *marker_x as usize,
+                Style::default(),
+            );
+        }
     }
 
     Ok(())
