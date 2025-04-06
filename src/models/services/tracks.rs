@@ -60,8 +60,8 @@ impl TrackService {
              WHERE chrom = ? AND (txStart <= ?) AND (txEnd >= ?)",
         )
         .bind(contig.full_name()) // Requires "chr" prefix?
-        .bind(u64::try_from(end).unwrap())
-        .bind(u64::try_from(start).unwrap())
+        .bind(u64::try_from(end).unwrap()) // end is 1-based inclusive, UCSC is 0-based exclusive
+        .bind(u64::try_from(start.saturating_sub(1)).unwrap()) // start is 1-based inclusive, UCSC is 0-based inclusive
         .fetch_all(&*self.pool)
         .await?;
 
@@ -112,8 +112,8 @@ impl TrackService {
              WHERE chrom = ? AND txStart <= ? AND txEnd >= ?",
         )
         .bind(contig.full_name())
-        .bind(u32::try_from(coord).unwrap())
-        .bind(u32::try_from(coord).unwrap())
+        .bind(u32::try_from(coord.saturating_sub(1)).unwrap()) // coord is 1-based inclusive, UCSC is 0-based inclusive
+        .bind(u32::try_from(coord).unwrap()) // coord is 1-based inclusive, UCSC is 0-based exclusive
         .fetch_optional(&*self.pool)
         .await?;
 
@@ -185,13 +185,13 @@ impl TrackService {
                 name: name2,
                 strand: Strand::from_str(strand_str).unwrap(),
                 contig: Contig::chrom(&chrom),
-                transcription_start: tx_start as usize + 0,
+                transcription_start: tx_start as usize + 1,
                 transcription_end: tx_end as usize,
-                cds_start: cds_start as usize + 0,
+                cds_start: cds_start as usize + 1,
                 cds_end: cds_end as usize,
                 exon_starts: parse_blob_to_coords(&exon_starts_blob)
                     .iter()
-                    .map(|v| v + 0)
+                    .map(|v| v + 1)
                     .collect(),
                 exon_ends: parse_blob_to_coords(&exon_ends_blob),
             })
@@ -218,12 +218,12 @@ impl TrackService {
         let rows = sqlx::query(
             "SELECT name, chrom, strand, txStart, txEnd, name2, exonStarts, exonEnds, cdsStart, cdsEnd
              FROM ncbiRefSeqSelect 
-             WHERE chrom = ? AND txEnd > ? 
+             WHERE chrom = ? AND txEnd >= ? 
              ORDER BY txEnd ASC LIMIT ?",
         )
         .bind(contig.full_name())
-        .bind(u32::try_from(coord).unwrap())
-        .bind(u32::try_from(k).unwrap())
+        .bind(u32::try_from(coord).unwrap()) // coord is 1-based inclusive, UCSC is 0-based exclusive
+        .bind(u32::try_from(k+1).unwrap())
         .fetch_all(&*self.pool)
         .await?;
 
@@ -292,7 +292,7 @@ impl TrackService {
              ORDER BY txStart DESC LIMIT ?",
         )
         .bind(contig.full_name())
-        .bind(u32::try_from(coord).unwrap())
+        .bind(u32::try_from(coord.saturating_sub(1)).unwrap()) // coord is 1-based inclusive, UCSC is 0-based inclusive
         .bind(u32::try_from(k+1).unwrap())
         .fetch_all(&*self.pool)
         .await?;
@@ -362,7 +362,7 @@ impl TrackService {
              ORDER BY txEnd ASC LIMIT ?",
         )
         .bind(contig.full_name())
-        .bind(u32::try_from(coord).unwrap())
+        .bind(u32::try_from(coord).unwrap()) // coord is 1-based inclusive, UCSC is 0-based exclusive
         .bind(u32::try_from(k+1).unwrap())
         .fetch_all(&*self.pool)
         .await?;
@@ -422,11 +422,11 @@ impl TrackService {
         let rows = sqlx::query(
             "SELECT name, chrom, strand, txStart, txEnd, name2, exonStarts, exonEnds, cdsStart, cdsEnd
              FROM ncbiRefSeqSelect 
-             WHERE chrom = ? AND txStart < ? 
+             WHERE chrom = ? AND txStart <= ? 
              ORDER BY txStart DESC LIMIT ?",
         )
         .bind(contig.full_name())
-        .bind(u32::try_from(coord).unwrap())
+        .bind(u32::try_from(coord.saturating_sub(1)).unwrap()) // coord is 1-based inclusive, UCSC is 0-based inclusive
         .bind(u32::try_from(k+1).unwrap())
         .fetch_all(&*self.pool)
         .await?;

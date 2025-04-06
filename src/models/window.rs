@@ -58,8 +58,12 @@ pub enum OnScreenCoordinate {
 }
 
 impl OnScreenCoordinate {
-    pub fn width(&self, other: &OnScreenCoordinate, area: &Rect) -> usize {
-        match (self, other) {
+    pub fn width(
+        left: &OnScreenCoordinate,  // inclusive
+        right: &OnScreenCoordinate, // inclusive
+        area: &Rect,
+    ) -> usize {
+        match (left, right) {
             (OnScreenCoordinate::OnScreen(a), OnScreenCoordinate::OnScreen(b))
             | (OnScreenCoordinate::Left(a), OnScreenCoordinate::Left(b))
             | (OnScreenCoordinate::Right(a), OnScreenCoordinate::Right(b)) => a.abs_diff(*b) + 1,
@@ -81,39 +85,6 @@ impl OnScreenCoordinate {
         }
     }
 
-    pub fn onscreen_width(&self, other: &OnScreenCoordinate, area: &Rect) -> usize {
-        match (self, other) {
-            (OnScreenCoordinate::OnScreen(a), OnScreenCoordinate::OnScreen(b)) => {
-                a.abs_diff(*b) + 1
-            }
-
-            (OnScreenCoordinate::Left(a), OnScreenCoordinate::Right(b))
-            | (OnScreenCoordinate::Right(a), OnScreenCoordinate::Left(b)) => area.width as usize,
-
-            (OnScreenCoordinate::Left(a), OnScreenCoordinate::Left(b))
-            | (OnScreenCoordinate::Right(a), OnScreenCoordinate::Right(b)) => 0,
-
-            (OnScreenCoordinate::Left(a), OnScreenCoordinate::OnScreen(b)) => b + 1,
-
-            (OnScreenCoordinate::OnScreen(a), OnScreenCoordinate::Left(b)) => a + 1,
-
-            (OnScreenCoordinate::OnScreen(a), OnScreenCoordinate::Right(b)) => {
-                area.width as usize - a
-            }
-            (OnScreenCoordinate::Right(a), OnScreenCoordinate::OnScreen(b)) => {
-                area.width as usize - b
-            }
-        }
-    }
-
-    pub fn bounded_x(&self, area: &Rect) -> usize {
-        match self {
-            OnScreenCoordinate::Left(a) => 0,
-            OnScreenCoordinate::OnScreen(a) => *a,
-            OnScreenCoordinate::Right(a) => area.width as usize - 1,
-        }
-    }
-
     pub fn get(&self) -> usize {
         match self {
             OnScreenCoordinate::Left(a) => *a,
@@ -123,8 +94,8 @@ impl OnScreenCoordinate {
     }
 
     pub fn onscreen_start_and_length(
-        left: &OnScreenCoordinate,
-        right: &OnScreenCoordinate,
+        left: &OnScreenCoordinate,  // inclusive
+        right: &OnScreenCoordinate, // inclusive
         area: &Rect,
     ) -> Option<(usize, usize)> {
         match (left, right) {

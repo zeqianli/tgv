@@ -718,7 +718,7 @@ impl State {
 
                 let target_gene = track.get_k_genes_after(self.middle()?, n_movements);
                 if let Some(target_gene) = target_gene {
-                    state_messages.push(StateMessage::GotoCoordinate(target_gene.start() + 1));
+                    state_messages.push(StateMessage::GotoCoordinate(target_gene.end() + 1));
                 } else {
                     // Query for the target gene
                     let track_service = self.data.track_service.as_ref().unwrap();
@@ -726,17 +726,17 @@ impl State {
                         .query_k_genes_after(&self.contig()?, self.middle()?, n_movements)
                         .await?;
 
-                    state_messages.push(StateMessage::GotoCoordinate(gene.start() + 1));
+                    state_messages.push(StateMessage::GotoCoordinate(gene.end() + 1));
                 }
             }
-            StateMessage::GotoPreviousGenesEnd(n_movements) => {
+            StateMessage::GotoPreviousGenesStart(n_movements) => {
                 if n_movements == 0 {
                     return Ok(self.get_data_requirements()?);
                 }
 
                 let target_gene = track.get_k_genes_before(self.middle()?, n_movements);
                 if let Some(target_gene) = target_gene {
-                    state_messages.push(StateMessage::GotoCoordinate(target_gene.start() + 1));
+                    state_messages.push(StateMessage::GotoCoordinate(target_gene.start() - 1));
                 } else {
                     // Query for the target gene
                     let track_service = self.data.track_service.as_ref().unwrap();
@@ -744,7 +744,26 @@ impl State {
                         .query_k_genes_before(&self.contig()?, self.middle()?, n_movements)
                         .await?;
 
-                    state_messages.push(StateMessage::GotoCoordinate(gene.start() + 1));
+                    state_messages.push(StateMessage::GotoCoordinate(gene.start() - 1));
+                }
+            }
+
+            StateMessage::GotoPreviousGenesEnd(n_movements) => {
+                if n_movements == 0 {
+                    return Ok(self.get_data_requirements()?);
+                }
+
+                let target_gene = track.get_k_genes_before(self.middle()?, n_movements);
+                if let Some(target_gene) = target_gene {
+                    state_messages.push(StateMessage::GotoCoordinate(target_gene.end() - 1));
+                } else {
+                    // Query for the target gene
+                    let track_service = self.data.track_service.as_ref().unwrap();
+                    let gene = track_service
+                        .query_k_genes_before(&self.contig()?, self.middle()?, n_movements)
+                        .await?;
+
+                    state_messages.push(StateMessage::GotoCoordinate(gene.end() - 1));
                 }
             }
             _ => {}
@@ -795,7 +814,8 @@ impl State {
 
                 let target_exon = track.get_k_exons_after(self.middle()?, n_movements);
                 if let Some(target_exon) = target_exon {
-                    state_messages.push(StateMessage::GotoCoordinate(target_exon.start() + 1));
+                    state_messages.push(StateMessage::GotoCoordinate(target_exon.end() + 1));
+                    // this prevents continuous movements getting stuck
                 } else {
                     // Query for the target exon
                     let track_service = self.data.track_service.as_ref().unwrap();
@@ -803,9 +823,10 @@ impl State {
                         .query_k_exons_after(&self.contig()?, self.middle()?, n_movements)
                         .await?;
 
-                    state_messages.push(StateMessage::GotoCoordinate(exon.start() + 1));
+                    state_messages.push(StateMessage::GotoCoordinate(exon.end() + 1));
                 }
             }
+
             StateMessage::GotoPreviousExonsStart(n_movements) => {
                 if n_movements == 0 {
                     return Ok(self.get_data_requirements()?);
@@ -813,7 +834,7 @@ impl State {
 
                 let target_exon = track.get_k_exons_before(self.middle()?, n_movements);
                 if let Some(target_exon) = target_exon {
-                    state_messages.push(StateMessage::GotoCoordinate(target_exon.start() + 1));
+                    state_messages.push(StateMessage::GotoCoordinate(target_exon.end() - 1));
                 } else {
                     // Query for the target exon
                     let track_service = self.data.track_service.as_ref().unwrap();
@@ -821,7 +842,26 @@ impl State {
                         .query_k_exons_before(&self.contig()?, self.middle()?, n_movements)
                         .await?;
 
-                    state_messages.push(StateMessage::GotoCoordinate(exon.start() + 1));
+                    state_messages.push(StateMessage::GotoCoordinate(exon.end() - 1));
+                }
+            }
+
+            StateMessage::GotoPreviousExonsEnd(n_movements) => {
+                if n_movements == 0 {
+                    return Ok(self.get_data_requirements()?);
+                }
+
+                let target_exon = track.get_k_exons_before(self.middle()?, n_movements);
+                if let Some(target_exon) = target_exon {
+                    state_messages.push(StateMessage::GotoCoordinate(target_exon.end() - 1));
+                } else {
+                    // Query for the target exon
+                    let track_service = self.data.track_service.as_ref().unwrap();
+                    let exon = track_service
+                        .query_k_exons_before(&self.contig()?, self.middle()?, n_movements)
+                        .await?;
+
+                    state_messages.push(StateMessage::GotoCoordinate(exon.end() - 1));
                 }
             }
             _ => {}
