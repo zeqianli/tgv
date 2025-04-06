@@ -4,9 +4,15 @@ use crate::models::reference::Reference;
 use csv::Reader;
 use std::io::BufReader;
 
-// Include the csv files directly as static strings
-static HG19_CYTOBAND: &[u8] = include_bytes!("../resources/hg19_cytoband.csv");
-static HG38_CYTOBAND: &[u8] = include_bytes!("../resources/hg38_cytoband.csv");
+const VALID_CHROMOSOMES: [&str; 25] = [
+    "chr1", "chr2", "chr3", "chr4", "chr5", "chr6", "chr7", "chr8", "chr9", "chr10", "chr11",
+    "chr12", "chr13", "chr14", "chr15", "chr16", "chr17", "chr18", "chr19", "chr20", "chr21",
+    "chr22", "chrX", "chrY", "chrMT",
+];
+
+// Include the csv files as static bytes
+const HG19_CYTOBAND: &[u8] = include_bytes!("../resources/hg19_cytoband.csv");
+const HG38_CYTOBAND: &[u8] = include_bytes!("../resources/hg38_cytoband.csv");
 
 #[derive(Debug, Clone, Eq, PartialEq)]
 pub enum Stain {
@@ -84,7 +90,7 @@ impl Cytoband {
 
             // only keep chr + digits
             let contig_string = record[0].to_string();
-            if !(contig_string.starts_with("chr") && contig_string[3..].parse::<usize>().is_ok()) {
+            if !VALID_CHROMOSOMES.contains(&contig_string.as_str()) {
                 continue;
             }
 
@@ -100,11 +106,11 @@ impl Cytoband {
                 Stain::from(&record[4]).map_err(|e| TGVError::ParsingError(e.to_string()))?;
 
             let segment = CytobandSegment {
-                contig: contig,
+                contig,
                 start: start + 1,
-                end: end,
-                name: name,
-                stain: stain,
+                end,
+                name,
+                stain,
             };
 
             if cytobands.is_empty() || cytobands.last().unwrap().contig != segment.contig {
