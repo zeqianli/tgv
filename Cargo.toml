@@ -2,7 +2,7 @@
 name = "tgv"
 version = "0.0.2"
 edition = "2021"
-dependencies = "Explore genomes in the terminal. Light, blazing fast 🚀, vim-motion."
+description = "Explore genomes in the terminal. Light, blazing fast 🚀, vim-motion."
 license = "MIT"
 
 

@@ -1,13 +1,14 @@
 # Terminal Genome Viewer
 
-Explore omics data without leaving the terminal. [Discord](https://discord.gg/NKGg684M)
+Explore omics data without leaving the terminal.
 
 Light, blazing fast 🚀, vim motion, memory safe.
 
-(*TGV is under heavy development. Contribution and bug reports are welcome!*)
+<https://github.com/user-attachments/assets/ce33b31d-d3eb-4395-9ab4-ab3a501aa1be>
 
-https://github.com/user-attachments/assets/ce33b31d-d3eb-4395-9ab4-ab3a501aa1be
+(*TGV is at an early statge. Please don't rely your papers on it (yet) :)*
 
+*Contribution and bug reports are welcome! Please join the [Discord](https://discord.gg/NKGg684M) to discuss ideas.*)
 
 ## Installation
 
@@ -83,14 +84,15 @@ tgv non_human.bam -r 1:123 --no-reference
 
 See [ROADMAP.md](ROADMAP.md) for future plans.
 
+## Contribute
+
+Contribution is welcome. See [CONTRIBUTE.md](CONTRIBUTE.md). Please join the [Discord](https://discord.gg/NKGg684M) to discuss ideas!
+
 ## FAQ
 
 - **How to quit TGV?**  
   [Just like vim :)](https://stackoverflow.com/questions/11828270/how-do-i-exit-vim) Press `Esc` to ensure you're in normal mode, then type `:q` and press Enter.
 
-- **Where does the reference genome data come from?**  
-  - Reference sequences: [UCSC Genome Browser API](https://genome.ucsc.edu/goldenPath/help/api.html)
-    - Uses endpoint: `https://api.genome.ucsc.edu/getData/sequence`
-  - Gene annotations: [UCSC MariaDB](https://genome.ucsc.edu/goldenPath/help/mysql.html)
-    - Database: `hg19` / `hg38`
-    - Table: `ncbiRefSeqSelect` (same as IGV's default)
+- **Where are the reference genome data from?**  
+  - Sequences: [UCSC Genome Browser API](https://genome.ucsc.edu/goldenPath/help/api.html)
+  - Annotation: [UCSC MariaDB](https://genome.ucsc.edu/goldenPath/help/mysql.html), `hg19` / `hg38`, table `ncbiRefSeqSelect` (same as IGV)
