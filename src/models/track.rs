@@ -525,3 +525,175 @@ impl Track {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    /// Test track: [gene1: [2,5], [8,10]], [gene_no_exon (21-30)], [gene2: [41,50]]
+    fn get_test_track() -> Track {
+        let genes = vec![
+            Gene {
+                id: "gene1".to_string(),
+                name: "gene1".to_string(),
+                strand: Strand::Forward,
+                contig: Contig::chrom(&"chr1".to_string()),
+                transcription_start: 2,
+                transcription_end: 10,
+                cds_start: 2,
+                cds_end: 10,
+                exon_starts: vec![2, 8],
+                exon_ends: vec![5, 10],
+            },
+            Gene {
+                // should not happen, but just in case
+                id: "gene_no_exon".to_string(),
+                name: "gene_no_exon".to_string(),
+                strand: Strand::Forward,
+                contig: Contig::chrom(&"chr1".to_string()),
+                transcription_start: 21,
+                transcription_end: 30,
+                cds_start: 25,
+                cds_end: 25,
+                exon_starts: vec![],
+                exon_ends: vec![],
+            },
+            Gene {
+                id: "gene2".to_string(),
+                name: "gene2".to_string(),
+                strand: Strand::Forward,
+                contig: Contig::chrom(&"chr1".to_string()),
+                transcription_start: 41,
+                transcription_end: 50,
+                cds_start: 45,
+                cds_end: 50,
+                exon_starts: vec![41],
+                exon_ends: vec![50],
+            },
+        ];
+
+        Track::from(genes, Contig::chrom(&"chr1".to_string())).unwrap()
+    }
+
+    use super::*;
+    use rstest::rstest;
+
+    #[rstest]
+    #[case(1, None)]
+    #[case(2, Some("gene1"))]
+    #[case(5, Some("gene1"))]
+    #[case(10, Some("gene1"))]
+    #[case(42, Some("gene2"))]
+    #[case(51, None)]
+    fn test_get_genes_at(#[case] position: usize, #[case] expected: Option<&str>) {
+        let track = get_test_track();
+        match expected {
+            Some(gene_name) => assert_eq!(track.get_gene_at(position).unwrap().name, gene_name),
+            None => assert!(track.get_gene_at(position).is_none()),
+        }
+    }
+
+    #[rstest]
+    #[case(2, 0, Some("gene1"))]
+    #[case(2, 1, None)]
+    #[case(11, 1, Some("gene1"))]
+    #[case(35, 1, Some("gene_no_exon"))]
+    #[case(51, 0, None)]
+    #[case(51, 1, Some("gene2"))]
+    fn test_get_k_genes_before(
+        #[case] position: usize,
+        #[case] k: usize,
+        #[case] expected: Option<&str>,
+    ) {
+        let track = get_test_track();
+        match expected {
+            Some(gene_name) => assert_eq!(
+                track.get_k_genes_before(position, k).unwrap().name,
+                gene_name
+            ),
+            None => assert!(track.get_k_genes_before(position, k).is_none()),
+        }
+    }
+
+    #[rstest]
+    #[case(2, 0, Some("gene1"))]
+    #[case(2, 1, Some("gene_no_exon"))]
+    #[case(2, 2, Some("gene2"))]
+    #[case(2, 3, None)]
+    #[case(11, 1, Some("gene_no_exon"))]
+    #[case(51, 1, None)]
+    #[case(1, 1, Some("gene1"))]
+    #[case(1, 0, None)]
+    fn test_get_k_genes_after(
+        #[case] position: usize,
+        #[case] k: usize,
+        #[case] expected: Option<&str>,
+    ) {
+        let track = get_test_track();
+        match expected {
+            Some(gene_name) => assert_eq!(
+                track.get_k_genes_after(position, k).unwrap().name,
+                gene_name
+            ),
+            None => assert!(track.get_k_genes_after(position, k).is_none()),
+        }
+    }
+
+    #[rstest]
+    #[case(1, None)]
+    #[case(5, Some(2))]
+    #[case(15, None)]
+    #[case(25, None)]
+    #[case(51, None)]
+    fn test_get_exon_at(#[case] position: usize, #[case] expected: Option<usize>) {
+        let track = get_test_track();
+        match expected {
+            Some(exon_idx) => assert_eq!(track.get_exon_at(position).unwrap().start(), exon_idx),
+            None => assert!(track.get_exon_at(position).is_none()),
+        }
+    }
+
+    #[rstest]
+    #[case(1, 0, None)]
+    #[case(2, 0, Some(2))]
+    #[case(2, 1, None)]
+    #[case(35, 1, Some(8))]
+    #[case(51, 1, Some(41))]
+    #[case(51, 2, Some(8))]
+    fn test_get_k_exons_before(
+        #[case] position: usize,
+        #[case] k: usize,
+        #[case] expected: Option<usize>,
+    ) {
+        let track = get_test_track();
+        match expected {
+            Some(exon_idx) => assert_eq!(
+                track.get_k_exons_before(position, k).unwrap().start(),
+                exon_idx
+            ),
+            None => assert!(track.get_k_exons_before(position, k).is_none()),
+        }
+    }
+
+    #[rstest]
+    #[case(1, 0, None)]
+    #[case(1, 2, Some(8))]
+    #[case(2, 0, Some(2))]
+    #[case(2, 1, Some(8))]
+    #[case(35, 1, Some(41))]
+    #[case(35, 2, None)]
+    #[case(51, 0, None)]
+    #[case(51, 1, None)]
+    fn test_get_k_exons_after(
+        #[case] position: usize,
+        #[case] k: usize,
+        #[case] expected: Option<usize>,
+    ) {
+        let track = get_test_track();
+        match expected {
+            Some(exon_idx) => assert_eq!(
+                track.get_k_exons_after(position, k).unwrap().start(),
+                exon_idx
+            ),
+            None => assert!(track.get_k_exons_after(position, k).is_none()),
+        }
+    }
+}
