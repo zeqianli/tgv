@@ -16,12 +16,11 @@ pub fn render_console(area: &Rect, buf: &mut Buffer, command_mode_register: &Com
     let input = command_mode_register.input();
     let cursor_position = command_mode_register.cursor_position();
 
-    let cursor_char;
-    if cursor_position >= input.len() {
-        cursor_char = ' '
+    let cursor_char = if cursor_position >= input.len() {
+        ' '
     } else {
-        cursor_char = input.chars().nth(cursor_position).unwrap();
-    }
+        input.chars().nth(cursor_position).unwrap()
+    };
     let cursor_char_position = area.x + 1 + cursor_position as u16;
     let cursor_char_style = Style::default().bg(Color::Red);
 

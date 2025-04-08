@@ -25,7 +25,6 @@ fn render_read(area: &Rect, buf: &mut Buffer, window: &ViewingWindow, read: &Ali
     for segment in get_cigar_segments(read) {
         let mut onscreen_string;
         let onscreen_x;
-        let onscreen_y;
 
         match (
             window.onscreen_x_coordinate(read.start + segment.pivot as usize, area),
@@ -90,14 +89,10 @@ fn render_read(area: &Rect, buf: &mut Buffer, window: &ViewingWindow, read: &Ali
             }
         }
 
-        match window.onscreen_y_coordinate(read.y, area) {
-            OnScreenCoordinate::OnScreen(y_start) => {
-                onscreen_y = y_start;
-            }
-            _ => {
-                continue;
-            }
-        }
+        let onscreen_y = match window.onscreen_y_coordinate(read.y, area) {
+            OnScreenCoordinate::OnScreen(y_start) => y_start,
+            _ => continue,
+        };
 
         buf.set_stringn(
             onscreen_x as u16 + area.x,
@@ -155,7 +150,7 @@ fn get_cigar_segments(read: &AlignedRead) -> Vec<OnScreenCigarSegment> {
 
     for op in read.read.cigar().iter() {
         match op {
-            Cigar::Ins(l) | Cigar::HardClip(l) | Cigar::Pad(l) => continue,
+            Cigar::Ins(_l) | Cigar::HardClip(_l) | Cigar::Pad(_l) => continue,
             Cigar::Del(l) | Cigar::RefSkip(l) => {
                 pivot += *l as usize;
                 continue;

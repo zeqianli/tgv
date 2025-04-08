@@ -118,12 +118,14 @@ fn calculate_binned_coverage(
         return Err(());
     }
 
-    if right - left + 1 < n_bins {
-        return Err(());
-    } else if right - left + 1 == n_bins {
-        return Ok((left..right + 1)
-            .map(|x| alignment.coverage_at(x) as u64)
-            .collect());
+    match (right - left + 1).cmp(&n_bins) {
+        std::cmp::Ordering::Less => return Err(()),
+        std::cmp::Ordering::Equal => {
+            return Ok((left..right + 1)
+                .map(|x| alignment.coverage_at(x) as u64)
+                .collect());
+        }
+        std::cmp::Ordering::Greater => {}
     }
 
     let linear_space = get_linear_space(left, right, n_bins)?;
