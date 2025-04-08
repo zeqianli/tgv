@@ -106,9 +106,7 @@ impl OnScreenCoordinate {
                 Some((0, area.width as usize))
             }
 
-            (OnScreenCoordinate::OnScreen(a), OnScreenCoordinate::Left(b)) => {
-                None
-            }
+            (OnScreenCoordinate::OnScreen(a), OnScreenCoordinate::Left(b)) => None,
 
             (OnScreenCoordinate::OnScreen(a), OnScreenCoordinate::OnScreen(b)) => {
                 if a > b {
