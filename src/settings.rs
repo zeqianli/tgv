@@ -49,9 +49,7 @@ impl Settings {
         // let mut vcf_path = None;
         // let mut bed_path = None;
         for path in cli.paths {
-            if path.ends_with(".bam") {
-                bam_path = Some(path.clone());
-            } else if is_url(&path) {
+            if path.ends_with(".bam") || is_url(&path) {
                 bam_path = Some(path.clone());
             } else {
                 return Err(TGVError::CliError(format!(
@@ -129,8 +127,8 @@ impl Settings {
     }
 
     fn translate_initial_state_messages(
-        region_string: &String,
-        reference: Option<&Reference>,
+        region_string: &str,
+        _reference: Option<&Reference>,
     ) -> Result<Vec<StateMessage>, TGVError> {
         let region_string = region_string.trim();
 

@@ -7,6 +7,7 @@ use ratatui::style::Color;
 
 // Alignment
 pub const MATCH_COLOR: Color = tailwind::GRAY.c500;
+#[allow(dead_code)]
 pub const MISMATCH_COLOR: Color = Color::Rgb(251, 198, 207);
 pub const SOFTCLIP_A: Color = Color::LightRed;
 pub const SOFTCLIP_C: Color = Color::LightGreen;

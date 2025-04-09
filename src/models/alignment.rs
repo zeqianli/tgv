@@ -152,7 +152,7 @@ impl Alignment {
         let full_chromsome_str = region.contig.full_name();
         let abbreviated_chromsome_str = region.contig.abbreviated_name();
 
-        for (key, records) in header.to_hashmap().iter() {
+        for (_key, records) in header.to_hashmap().iter() {
             for record in records {
                 if record.contains_key("SN") {
                     let reference_name = record["SN"].to_string();
@@ -203,7 +203,6 @@ impl Alignment {
     pub fn mean_basewise_coverage_in(&self, left: usize, right: usize) -> Result<usize, ()> {
         if right < left {
             panic!("{}, {}", left, right);
-            return Err(());
         }
 
         if right < self.data_complete_left_bound || left > self.data_complete_right_bound {

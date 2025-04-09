@@ -7,6 +7,7 @@ use crate::{
 // A feature is a interval on a contig.
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[allow(clippy::upper_case_acronyms)]
 pub enum FeatureType {
     Exon,
     Intron,
@@ -63,6 +64,8 @@ impl GenomeInterval for Gene {
     }
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+#[allow(clippy::upper_case_acronyms)]
 enum ExonPosition {
     PreCDS,
     CDS,
@@ -96,12 +99,7 @@ impl Gene {
         let mut n_introns = 0;
 
         // Add exon exons
-        for (i, (exon_start, exon_end)) in self
-            .exon_starts
-            .iter()
-            .zip(self.exon_ends.iter())
-            .enumerate()
-        {
+        for (exon_start, exon_end) in self.exon_starts.iter().zip(self.exon_ends.iter()) {
             // Add intron
             if *exon_start > last_exon_end {
                 features.push((last_exon_end + 1, *exon_start, FeatureType::Intron));
@@ -276,13 +274,7 @@ impl Track {
     /// Get the feature covering a given position.
     /// position: 1-based.
     pub fn get_gene_at(&self, position: usize) -> Option<&Gene> {
-        for (i, gene) in self.genes.iter().enumerate() {
-            if gene.covers(position) {
-                return Some(gene);
-            }
-        }
-
-        None
+        self.genes.iter().find(|&gene| gene.covers(position))
     }
 
     pub fn get_k_genes_before(&self, position: usize, k: usize) -> Option<&Gene> {
@@ -431,7 +423,7 @@ impl Track {
 
         for (i, (gene_idx, exon_idx)) in self.exon_indexes.iter().enumerate() {
             let gene = &self.genes[*gene_idx];
-            let (exon_start, exon_end) = (gene.exon_starts[*exon_idx], gene.exon_ends[*exon_idx]);
+            let (_exon_start, exon_end) = (gene.exon_starts[*exon_idx], gene.exon_ends[*exon_idx]);
             if exon_end < position {
                 continue;
             }
@@ -472,7 +464,7 @@ impl Track {
 
         for (i, (gene_idx, exon_idx)) in self.exon_indexes.iter().enumerate() {
             let gene = &self.genes[*gene_idx];
-            let (exon_start, exon_end) = (gene.exon_starts[*exon_idx], gene.exon_ends[*exon_idx]);
+            let (exon_start, _exon_end) = (gene.exon_starts[*exon_idx], gene.exon_ends[*exon_idx]);
             if exon_start <= position {
                 continue;
             }

@@ -152,7 +152,7 @@ fn get_cytoband_segment_x_string_and_style(
 
     match segment.stain {
         Stain::Acen => {
-            /// Use unicode characters to draw the centromere
+            // Use unicode characters to draw the centromere
             let mut string = "-".repeat((onscreen_x_end - onscreen_x_start) as usize);
             if second_centromere {
                 string.replace_range(0..1, "<");

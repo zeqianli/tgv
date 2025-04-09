@@ -51,6 +51,7 @@ impl ContigCollection {
         Ok(&self.contigs[0])
     }
 
+    #[allow(dead_code)]
     pub fn last(&self) -> Result<&Contig, TGVError> {
         Ok(&self.contigs[self.contigs.len() - 1])
     }
@@ -88,7 +89,7 @@ impl ContigCollection {
 
         let mut contigs = Vec::new();
         let mut contig_lengths: Vec<Option<usize>> = Vec::new();
-        for (key, records) in header.to_hashmap().iter() {
+        for (_key, records) in header.to_hashmap().iter() {
             for record in records {
                 if record.contains_key("SN") {
                     let contig_name = record["SN"].to_string();
@@ -121,12 +122,14 @@ impl ContigCollection {
         self.contig_lengths[*index]
     }
 
+    #[allow(dead_code)]
     pub fn next(&self, contig: &Contig, k: usize) -> Result<Contig, TGVError> {
         let index = self.contig_index[&contig.full_name()];
         let next_index = (index + k) % self.contigs.len();
         Ok(self.contigs[next_index].clone())
     }
 
+    #[allow(dead_code)]
     pub fn previous(&self, contig: &Contig, k: usize) -> Result<Contig, TGVError> {
         let index = self.contig_index[&contig.full_name()];
         let previous_index =
@@ -300,8 +303,8 @@ impl State {
         Ok(None)
     }
 
-    pub fn cytobands(&self) -> Option<&Vec<Cytoband>> {
-        self.cytobands.as_ref()
+    pub fn cytobands(&self) -> Option<&[Cytoband]> {
+        self.cytobands.as_deref()
     }
 }
 
@@ -309,7 +312,7 @@ impl State {
     pub async fn handle_key_event(&mut self, key_event: KeyEvent) -> Result<(), TGVError> {
         let messages = self.translate_key_event(key_event);
         let data_messages = self.handle_state_messages(messages).await?;
-        let loaded_data = self.data.handle_data_messages(data_messages).await?;
+        let _loaded_data = self.data.handle_data_messages(data_messages).await?;
 
         // if loaded_data {
         //     self.errors.push("Data loaded".to_string());
@@ -319,7 +322,7 @@ impl State {
 
     pub async fn handle(&mut self, messages: Vec<StateMessage>) -> Result<(), TGVError> {
         let data_messages = self.handle_state_messages(messages).await?;
-        let loaded_data = self.data.handle_data_messages(data_messages).await?;
+        let _loaded_data = self.data.handle_data_messages(data_messages).await?;
 
         // if loaded_data {
         //     self.errors.push("Data loaded".to_string());
@@ -521,7 +524,8 @@ impl State {
         }
 
         if self.settings.reference.is_some() {
-            if viewing_window.zoom() <= Self::MAX_ZOOM_TO_DISPLAY_FEATURES {
+            if true {
+                // viewing_window.zoom() <= Self::MAX_ZOOM_TO_DISPLAY_FEATURES is always true
                 data_messages.push(DataMessage::RequiresCompleteFeatures(
                     viewing_region.clone(),
                 ));

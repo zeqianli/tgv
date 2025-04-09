@@ -53,22 +53,23 @@ pub enum StateMessage {
 impl StateMessage {
     /// Whether the message requires a reference genome.
     pub fn requires_reference(&self) -> bool {
-        match self {
+        matches!(
+            self,
             StateMessage::GotoNextExonsStart(_)
-            | StateMessage::GotoNextExonsEnd(_)
-            | StateMessage::GotoPreviousExonsStart(_)
-            | StateMessage::GotoPreviousExonsEnd(_)
-            | StateMessage::GotoNextGenesStart(_)
-            | StateMessage::GotoNextGenesEnd(_)
-            | StateMessage::GotoPreviousGenesStart(_)
-            | StateMessage::GotoPreviousGenesEnd(_)
-            | StateMessage::GoToGene(_) => true,
-            _ => false,
-        }
+                | StateMessage::GotoNextExonsEnd(_)
+                | StateMessage::GotoPreviousExonsStart(_)
+                | StateMessage::GotoPreviousExonsEnd(_)
+                | StateMessage::GotoNextGenesStart(_)
+                | StateMessage::GotoNextGenesEnd(_)
+                | StateMessage::GotoPreviousGenesStart(_)
+                | StateMessage::GotoPreviousGenesEnd(_)
+                | StateMessage::GoToGene(_)
+        )
     }
 }
 
 /// Communication between State and Data
+#[allow(clippy::enum_variant_names)]
 pub enum DataMessage {
     RequiresCompleteAlignments(Region),
     RequiresCompleteFeatures(Region),
