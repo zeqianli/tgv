@@ -44,6 +44,9 @@ impl App {
 
             if !self.state.initialized() {
                 // Handle the initial messages
+
+                let messages = self.state.settings.initial_state_messages.clone();
+                // panic!("Initial messages: {:?}", messages);
                 self.state
                     .handle(self.state.settings.initial_state_messages.clone())
                     .await?;

@@ -109,6 +109,7 @@ impl ContigCollection {
                 }
             }
         }
+        //panic!("first contig: {}", contigs[0].full_name());
 
         Self::new(contigs, contig_lengths)
     }
@@ -605,6 +606,7 @@ impl State {
                 };
                 if let Some(contigs) = &self.contigs {
                     if !contigs.contains(&contig) {
+                        panic!("{}", contig.full_name());
                         self.add_error_message(TGVError::StateError(format!(
                             "Contig {} not found",
                             contig.full_name()
@@ -923,6 +925,7 @@ impl State {
                     self.contigs.as_ref().unwrap().first()?.full_name(),
                     1,
                 ))
+               
             }
             (Some(_), None) => {
                 self.handle_goto_feature_message(StateMessage::GoToGene(
