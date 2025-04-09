@@ -11,6 +11,7 @@ use std::sync::Arc;
 
 pub struct TrackService {
     pool: Arc<MySqlPool>,
+    #[allow(dead_code)]
     reference: Reference,
 }
 

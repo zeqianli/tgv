@@ -3,7 +3,7 @@ use ratatui::{buffer::Buffer, layout::Rect, style::Style};
 const MIN_AREA_WIDTH: u16 = 2;
 const MIN_AREA_HEIGHT: u16 = 1;
 
-pub fn render_error(area: &Rect, buf: &mut Buffer, errors: &Vec<String>) {
+pub fn render_error(area: &Rect, buf: &mut Buffer, errors: &[String]) {
     if area.width < MIN_AREA_WIDTH || area.height < MIN_AREA_HEIGHT {
         return;
     }

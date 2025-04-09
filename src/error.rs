@@ -2,6 +2,7 @@ use std::fmt;
 
 use sqlx::Error as SqlxError;
 #[derive(Debug, Clone, Eq, PartialEq)]
+#[allow(clippy::enum_variant_names)]
 pub enum TGVError {
     CliError(String),
 
@@ -15,8 +16,8 @@ pub enum TGVError {
 }
 
 impl TGVError {
-    pub fn is_same_type(&self, other: &TGVError) -> bool {
-        matches!(self, other)
+    pub fn is_same_type(&self, _other: &TGVError) -> bool {
+        matches!(self, _other)
     }
 }
 

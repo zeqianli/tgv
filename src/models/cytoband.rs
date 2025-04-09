@@ -128,7 +128,7 @@ impl Cytoband {
     }
 
     pub fn from_non_reference(
-        contigs: &Vec<Contig>,
+        contigs: &[Contig],
         lengths: Vec<usize>,
     ) -> Result<Vec<Self>, TGVError> {
         Ok(contigs

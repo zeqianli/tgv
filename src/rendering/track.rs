@@ -11,8 +11,11 @@ use ratatui::{
     style::{palette::tailwind, Color, Style},
 };
 
-const MIN_AREA_WIDTH: u16 = 2;
-const MIN_AREA_HEIGHT: u16 = 1;
+const MIN_AREA_WIDTH: u16 = 5;
+const MIN_AREA_HEIGHT: u16 = 2;
+
+// Type alias for the complex return type
+type TrackRenderInfo = (usize, String, Style, Option<(usize, String)>);
 
 /// Render the genome features.
 pub fn render_track(
@@ -20,7 +23,7 @@ pub fn render_track(
     buf: &mut Buffer,
     window: &ViewingWindow,
     track: &Track,
-    reference: Option<&Reference>,
+    _reference: Option<&Reference>,
 ) {
     if area.width < MIN_AREA_WIDTH || area.height < MIN_AREA_HEIGHT {
         return;
@@ -39,17 +42,15 @@ pub fn render_track(
             );
 
             if let Some((label_x, label)) = label_info {
-                if area.height >= 2 {
-                    if label_x > right_most_label_onscreen_x + 1 {
-                        right_most_label_onscreen_x = label_x + label.len() - 1;
+                if area.height >= 2 && label_x > right_most_label_onscreen_x + 1 {
+                    right_most_label_onscreen_x = label_x + label.len() - 1;
 
-                        buf.set_string(
-                            label_x as u16 + area.x,
-                            area.y + 1,
-                            label.clone(),
-                            Style::default(),
-                        );
-                    }
+                    buf.set_string(
+                        label_x as u16 + area.x,
+                        area.y + 1,
+                        label.clone(),
+                        Style::default(),
+                    );
                 }
             }
         }
@@ -58,11 +59,7 @@ pub fn render_track(
 
 const MIN_GENE_ON_SCREEN_LENGTH_TO_SHOW_EXONS: usize = 10;
 
-fn get_rendering_info(
-    window: &ViewingWindow,
-    area: &Rect,
-    gene: &Gene,
-) -> Vec<(usize, String, Style, Option<(usize, String)>)> {
+fn get_rendering_info(window: &ViewingWindow, area: &Rect, gene: &Gene) -> Vec<TrackRenderInfo> {
     // First, check if the gene should be rendered as a single segment or multiple segments.
 
     let gene_start_x = window.onscreen_x_coordinate(gene.start(), area);
@@ -87,10 +84,9 @@ fn get_rendering_info(
         }
     } else {
         // Render each exon as a separate segment.
-        let mut exons_info: Vec<(usize, String, Style, Option<(usize, String)>)> = Vec::new();
-        let mut non_cds_exons_info: Vec<(usize, String, Style, Option<(usize, String)>)> =
-            Vec::new();
-        let mut introns_info: Vec<(usize, String, Style, Option<(usize, String)>)> = Vec::new();
+        let mut exons_info: Vec<TrackRenderInfo> = Vec::new();
+        let mut non_cds_exons_info: Vec<TrackRenderInfo> = Vec::new();
+        let mut introns_info: Vec<TrackRenderInfo> = Vec::new();
         let mut right_most_label_onscreen_x = 0;
         for (feature_start, feature_end, feature_type, feature_index) in gene.features() {
             let feature_start_x = window.onscreen_x_coordinate(feature_start, area);

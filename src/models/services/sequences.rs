@@ -55,9 +55,6 @@ impl SequenceService {
                 start - 1, // start is 0-based, inclusive.
                 end
             )),
-            _ => {
-                Err(()) // TODO: error handling
-            }
         }
     }
 }

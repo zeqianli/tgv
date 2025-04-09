@@ -10,18 +10,19 @@ impl Contig {
         "17", "18", "19", "20", "21", "22", "X", "Y", "MT",
     ];
 
-    pub fn chrom(s: &String) -> Self {
-        if Contig::APPREVIATABLE_CHROMOSOMES.contains(&s.as_str()) {
+    pub fn chrom(s: &str) -> Self {
+        if Contig::APPREVIATABLE_CHROMOSOMES.contains(&s) {
             Contig::Chromosome {
                 name: format!("chr{}", s),
             }
         } else {
-            Contig::Chromosome { name: s.clone() }
+            Contig::Chromosome { name: s.to_owned() }
         }
     }
 
-    pub fn contig(s: &String) -> Self {
-        Contig::Contig { name: s.clone() }
+    #[allow(clippy::self_named_constructors)]
+    pub fn contig(s: &str) -> Self {
+        Contig::Contig { name: s.to_owned() }
     }
 
     /// Full name with the "chr" prefix, if applicable.
@@ -35,8 +36,8 @@ impl Contig {
     pub fn abbreviated_name(&self) -> String {
         match self {
             Contig::Chromosome { name } => {
-                if name.starts_with("chr") {
-                    name[3..].to_string()
+                if let Some(stripped) = name.strip_prefix("chr") {
+                    stripped.to_string()
                 } else {
                     name.clone()
                 }

@@ -1,5 +1,7 @@
 use crate::models::contig::Contig;
 use crate::traits::GenomeInterval;
+use std::fmt;
+
 /// A genomic region.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Region {
@@ -28,17 +30,19 @@ impl GenomeInterval for Region {
     }
 }
 
+impl fmt::Display for Region {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}:{}-{}", self.contig.full_name(), self.start, self.end)
+    }
+}
+
 impl Region {
     pub fn new(contig: Contig, start: usize, end: usize) -> Result<Self, ()> {
-        if end < start {
+        if start > end {
             return Err(());
         }
 
         Ok(Self { contig, start, end })
-    }
-
-    pub fn to_string(&self) -> String {
-        format!("{}:{}-{}", self.contig.full_name(), self.start, self.end)
     }
 
     /// Width of a genome region.

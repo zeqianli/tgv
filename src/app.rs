@@ -37,18 +37,13 @@ impl App {
     /// Main loop
     pub async fn run(&mut self, terminal: &mut DefaultTerminal) -> Result<(), TGVError> {
         let mut last_frame_mode = InputMode::Normal;
-        let mut last_frame_width = 0;
-        let mut last_frame_height = 0;
 
         while !self.state.exit {
             let frame_area = terminal.get_frame().area();
-            last_frame_width = frame_area.width;
-            last_frame_height = frame_area.height;
-
             self.state.update_frame_area(frame_area);
 
             if !self.state.initialized() {
-                /// Handle the initial messages
+                // Handle the initial messages
                 self.state
                     .handle(self.state.settings.initial_state_messages.clone())
                     .await?;
@@ -65,7 +60,7 @@ impl App {
                 Ok(Event::Key(key_event)) if key_event.kind == KeyEventKind::Press => {
                     self.state.handle_key_event(key_event).await?;
                 }
-                Ok(Event::Resize(width, height)) => {
+                Ok(Event::Resize(_width, _height)) => {
                     self.state.self_correct_viewing_window();
                 }
 
@@ -73,16 +68,15 @@ impl App {
             };
 
             // terminal.clear() is needed when the layout changes significantly, or the last frame is burned into the new frame.
-            // Not sure why.
             let need_screen_refresh = ((last_frame_mode == InputMode::Help)
                 && (self.state.input_mode != InputMode::Help))
                 || ((last_frame_mode != InputMode::Help)
                     && (self.state.input_mode == InputMode::Help))
-                || (last_frame_width != frame_area.width)
-                || (last_frame_height != frame_area.height);
+                || frame_area.width != terminal.get_frame().area().width
+                || frame_area.height != terminal.get_frame().area().height;
 
             if need_screen_refresh {
-                terminal.clear();
+                let _ = terminal.clear();
             }
 
             last_frame_mode = self.state.input_mode.clone();
@@ -161,9 +155,7 @@ impl Widget for &App {
             }
         }
 
-        if self.state.settings.reference.is_some()
-            && viewing_window.zoom() <= State::MAX_ZOOM_TO_DISPLAY_FEATURES
-        {
+        if self.state.settings.reference.is_some() {
             if viewing_window.is_basewise() {
                 match &self.state.data.sequence {
                     Some(sequence) => {
