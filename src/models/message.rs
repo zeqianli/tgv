@@ -1,5 +1,3 @@
-use rust_htslib::bam::Format;
-
 use crate::error::TGVError;
 use crate::models::{mode::InputMode, region::Region};
 use std::fmt;
