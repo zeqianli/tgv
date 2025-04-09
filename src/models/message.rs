@@ -1,6 +1,5 @@
 use crate::error::TGVError;
 use crate::models::{mode::InputMode, region::Region};
-use std::fmt;
 use strum::Display;
 /// State messages
 #[derive(Debug, Clone, Eq, PartialEq, Display)]
@@ -71,24 +70,9 @@ impl StateMessage {
 
 /// Communication between State and Data
 #[allow(clippy::enum_variant_names)]
+#[derive(Debug, Clone, Eq, PartialEq, Display)]
 pub enum DataMessage {
     RequiresCompleteAlignments(Region),
     RequiresCompleteFeatures(Region),
     RequiresCompleteSequences(Region),
-}
-
-impl fmt::Display for DataMessage {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            DataMessage::RequiresCompleteAlignments(region) => {
-                write!(f, "RequiresCompleteAlignments({})", region)
-            }
-            DataMessage::RequiresCompleteFeatures(region) => {
-                write!(f, "RequiresCompleteFeatures({})", region)
-            }
-            DataMessage::RequiresCompleteSequences(region) => {
-                write!(f, "RequiresCompleteSequences({})", region)
-            }
-        }
-    }
 }
