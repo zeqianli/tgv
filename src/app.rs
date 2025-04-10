@@ -44,6 +44,7 @@ impl App {
 
             if !self.state.initialized() {
                 // Handle the initial messages
+
                 self.state
                     .handle(self.state.settings.initial_state_messages.clone())
                     .await?;

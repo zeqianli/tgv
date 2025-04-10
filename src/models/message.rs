@@ -1,8 +1,8 @@
 use crate::error::TGVError;
 use crate::models::{mode::InputMode, region::Region};
-
+use strum::Display;
 /// State messages
-#[derive(Debug, Clone, Eq, PartialEq)]
+#[derive(Debug, Clone, Eq, PartialEq, Display)]
 pub enum StateMessage {
     MoveLeft(usize),
     MoveRight(usize),
@@ -70,6 +70,7 @@ impl StateMessage {
 
 /// Communication between State and Data
 #[allow(clippy::enum_variant_names)]
+#[derive(Debug, Clone, Eq, PartialEq, Display)]
 pub enum DataMessage {
     RequiresCompleteAlignments(Region),
     RequiresCompleteFeatures(Region),

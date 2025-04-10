@@ -923,6 +923,7 @@ impl State {
                     self.contigs.as_ref().unwrap().first()?.full_name(),
                     1,
                 ))
+               
             }
             (Some(_), None) => {
                 self.handle_goto_feature_message(StateMessage::GoToGene(
