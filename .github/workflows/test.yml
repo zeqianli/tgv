@@ -17,5 +17,7 @@ jobs:
       run: |
         cargo test &&
         ls src/
+      working-directory: .
     - name: Show snapshots
       run: ls src/
+      working-directory: .
