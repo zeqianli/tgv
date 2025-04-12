@@ -4,6 +4,7 @@ version = "0.0.2"
 edition = "2021"
 description = "Explore genomes in the terminal. Light, blazing fast 🚀, vim-motion."
 license = "MIT"
+rust-version = "1.81"
 
 
 [dependencies]
