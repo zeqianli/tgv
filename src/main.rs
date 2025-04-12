@@ -34,17 +34,50 @@ async fn main() -> Result<(), TGVError> {
     app_result
 }
 
-// TODO: check .bai file
 #[cfg(test)]
 mod tests {
     use super::*;
     use insta::{assert_snapshot, Settings as InstaSettings};
     use ratatui::{backend::TestBackend, Terminal};
+    use rstest::rstest;
     use std::env;
+
+    /// Test that the app runs without panicking.
+    #[rstest]
+    #[case(None, None)]
+    #[case(None, Some("-r TP53"))]
+    #[case(None, Some("-r TP53 -g hg19"))]
+    #[case(Some("ncbi.sorted.bam"), Some("-r 22:33121120 -g hg19"))]
+    #[case(Some("ncbi.sorted.bam"), Some("-r chr22:33121120 --no-reference"))]
+    #[case(Some("covid.sorted.bam"), Some("--no-reference"))]
+    #[case(Some("covid.sorted.bam"), Some("--no-reference -r MN908947.3:100"))]
     #[tokio::test]
-    async fn test_non_human_bam() {
-        let bam_path = env!("CARGO_MANIFEST_DIR").to_string() + "/tests/data/covid.sorted.bam";
-        let args_string = format!("tgv {} --no-reference", bam_path);
+    async fn integration_test(#[case] bam_path: Option<&str>, #[case] args: Option<&str>) {
+        let snapshot_name = match (bam_path, args) {
+            (Some(bam_path), Some(args)) => format!("{} {}", bam_path, args),
+            (Some(bam_path), None) => format!("{} None", bam_path),
+            (None, Some(args)) => format!("None {}", args),
+            (None, None) => "None".to_string(),
+        }
+        .replace(" ", "_")
+        .replace(":", "_")
+        .replace(".", "_");
+
+        let bam_path = match bam_path {
+            Some(bam_path) => {
+                Some(env!("CARGO_MANIFEST_DIR").to_string() + "/tests/data/" + bam_path)
+            }
+            None => None,
+        };
+
+        let args_string = match (bam_path, args) {
+            (Some(bam_path), Some(args)) => format!("tgv {} {}", bam_path, args),
+            (Some(bam_path), None) => format!("tgv {}", bam_path),
+            (None, Some(args)) => format!("tgv {}", args),
+            (None, None) => "tgv".to_string(),
+        };
+
+        // snapshot name: take input file name and args and replace special characters
 
         let cli = Cli::parse_from(shlex::split(&args_string).unwrap());
         let settings = Settings::new(cli, true).unwrap();
@@ -53,7 +86,8 @@ mod tests {
 
         let mut app = App::new(settings).await.unwrap();
         app.run(&mut terminal).await.unwrap();
+        app.close().await.unwrap();
 
-        assert_snapshot!(terminal.backend());
+        assert_snapshot!(snapshot_name, terminal.backend());
     }
 }
