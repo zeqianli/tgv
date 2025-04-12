@@ -15,6 +15,7 @@ jobs:
     - uses: actions/checkout@v4
     - name: Run tests
       run: |
+        mkdir -p src/snapshots &&
         echo "hihi" > src/snapshots/test.txt &&
         ls src/
       working-directory: .
