@@ -54,9 +54,6 @@ mod tests {
     #[case(Some("covid.sorted.bam"), Some("--no-reference -r MN908947.3:100"))]
     #[tokio::test]
     async fn integration_test(#[case] bam_path: Option<&str>, #[case] args: Option<&str>) {
-        // Set workspace root env var
-        env::set_var("INSTA_WORKSPACE_ROOT ", env!("CARGO_MANIFEST_DIR"));
-
         let snapshot_name = match (bam_path, args) {
             (Some(bam_path), Some(args)) => format!("{} {}", bam_path, args),
             (Some(bam_path), None) => format!("{} None", bam_path),
