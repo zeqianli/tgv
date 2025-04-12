@@ -13,10 +13,12 @@ jobs:
     runs-on: ubuntu-latest
     steps:
     - uses: actions/checkout@v4
-    - name: Build
-      run: cargo build --verbose
     - name: Run tests
-      run: cargo test --verbose
+      run: |
+        cargo test --verbose &&
+        find src/snapshots -type f -exec cat {} \;
     - name: Show snapshots
-      run: find src/snapshots -type f -exec cat {} \;
+      run: |
+        ls src/
+    
    
