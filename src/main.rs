@@ -43,6 +43,7 @@ mod tests {
     use std::env;
 
     /// Test that the app runs without panicking.
+    /// Snapshots are saved in src/snapshots
     #[rstest]
     #[case(None, None)]
     #[case(None, Some("-r TP53"))]
@@ -53,6 +54,9 @@ mod tests {
     #[case(Some("covid.sorted.bam"), Some("--no-reference -r MN908947.3:100"))]
     #[tokio::test]
     async fn integration_test(#[case] bam_path: Option<&str>, #[case] args: Option<&str>) {
+        // Set workspace root env var
+        env::set_var("CARGO_MANIFEST_DIR", env!("CARGO_MANIFEST_DIR"));
+
         let snapshot_name = match (bam_path, args) {
             (Some(bam_path), Some(args)) => format!("{} {}", bam_path, args),
             (Some(bam_path), None) => format!("{} None", bam_path),
@@ -76,8 +80,6 @@ mod tests {
             (None, Some(args)) => format!("tgv {}", args),
             (None, None) => "tgv".to_string(),
         };
-
-        // snapshot name: take input file name and args and replace special characters
 
         let cli = Cli::parse_from(shlex::split(&args_string).unwrap());
         let settings = Settings::new(cli, true).unwrap();
