@@ -101,11 +101,12 @@ impl ContigCollection {
                         // Otherwise, interpret contig names as contigs. This does not allow abbreviated matching.
                         _ => contigs.push(Contig::contig(&contig_name)),
                     }
-                }
-                if record.contains_key("LN") {
-                    contig_lengths.push(record["LN"].to_string().parse::<usize>().ok());
-                } else {
-                    contig_lengths.push(None);
+
+                    if record.contains_key("LN") {
+                        contig_lengths.push(record["LN"].to_string().parse::<usize>().ok());
+                    } else {
+                        contig_lengths.push(None);
+                    }
                 }
             }
         }
