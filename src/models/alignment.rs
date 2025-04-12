@@ -12,13 +12,19 @@ pub struct AlignedRead {
     /// Alignment record data
     pub read: Record,
 
-    /// Start genome coordinate on the alignment view.
+    /// Non-clipped start genome coordinate on the alignment view
     /// 1-based, inclusive
     pub start: usize,
-    /// End genome coordinate on the alignment view.
+    /// Non-clipped end genome coordinate on the alignment view
     /// Note that this includes the soft-clipped reads and differ from the built-in methods. TODO
     /// 1-based, inclusive
     pub end: usize,
+
+    /// Leading softclips. Used for track stacking calculation.
+    pub leading_softclips: usize,
+
+    /// Trailing softclips. Used for track stacking calculation.
+    pub trailing_softclips: usize,
 
     /// Y coordinate in the alignment view
     /// 0-based.
@@ -29,6 +35,14 @@ impl AlignedRead {
     /// Return an 1-based range iterator that includes all bases of the alignment.
     pub fn range(&self) -> impl Iterator<Item = usize> {
         self.start..self.end + 1
+    }
+
+    fn stacking_start(&self) -> usize {
+        usize::max(self.start.saturating_sub(self.leading_softclips), 1)
+    }
+
+    fn stacking_end(&self) -> usize {
+        self.end.saturating_add(self.trailing_softclips)
     }
 }
 
@@ -248,8 +262,10 @@ impl Alignment {
     }
 
     fn add_read(&mut self, read: Record) {
-        let read_start = read.pos() as usize + 1 - read.cigar().leading_softclips() as usize;
-        let read_end = read.reference_end() as usize + read.cigar().trailing_softclips() as usize;
+        let read_start = read.pos() as usize + 1;
+        let read_end = read.reference_end() as usize;
+        let leading_softclips = read.cigar().leading_softclips() as usize;
+        let trailing_softclips = read.cigar().trailing_softclips() as usize;
         // read.pos() in htslib: 0-based, inclusive, excluding leading hardclips and softclips
         // read.reference_end() in htslib: 0-based, exclusive, excluding trailing hardclips and softclips
 
@@ -259,30 +275,32 @@ impl Alignment {
             read,
             start: read_start,
             end: read_end,
+            leading_softclips,
+            trailing_softclips,
             y,
         };
 
         // Track bounds + depth update
         if self.reads.is_empty() || aligned_read.y >= self.track_left_bounds.len() {
             // Add to a new track
-            self.track_left_bounds.push(aligned_read.start);
-            self.track_right_bounds.push(aligned_read.end);
+            self.track_left_bounds.push(aligned_read.stacking_start());
+            self.track_right_bounds.push(aligned_read.stacking_end());
         } else {
             // Add to an existing track
-            if aligned_read.start < self.track_left_bounds[aligned_read.y] {
-                self.track_left_bounds[aligned_read.y] = aligned_read.start;
+            if aligned_read.stacking_start() < self.track_left_bounds[aligned_read.y] {
+                self.track_left_bounds[aligned_read.y] = aligned_read.stacking_start();
             }
-            if aligned_read.end > self.track_right_bounds[aligned_read.y] {
-                self.track_right_bounds[aligned_read.y] = aligned_read.end;
+            if aligned_read.stacking_end() > self.track_right_bounds[aligned_read.y] {
+                self.track_right_bounds[aligned_read.y] = aligned_read.stacking_end();
             }
         }
 
         // Most left/right bound update
-        if aligned_read.start < self.track_most_left_bound {
-            self.track_most_left_bound = aligned_read.start;
+        if aligned_read.stacking_start() < self.track_most_left_bound {
+            self.track_most_left_bound = aligned_read.stacking_start();
         }
-        if aligned_read.end > self.track_most_right_bound {
-            self.track_most_right_bound = aligned_read.end;
+        if aligned_read.stacking_end() > self.track_most_right_bound {
+            self.track_most_right_bound = aligned_read.stacking_end();
         }
 
         // Add to reads

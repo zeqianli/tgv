@@ -17,136 +17,68 @@ pub fn render_alignment(
     // This iterates through all cached reads and re-calculates coordinates for each movement.
     // Consider improvement.
     for read in alignment.reads.iter() {
-        render_read(area, buf, window, read);
+        for (x, y, onscreen_string, style) in get_read_rendering_info(read, window, area) {
+            buf.set_string(x as u16 + area.x, y as u16 + area.y, onscreen_string, style);
+        }
     }
 }
 
-fn render_read(area: &Rect, buf: &mut Buffer, window: &ViewingWindow, read: &AlignedRead) {
-    for segment in get_cigar_segments(read) {
-        let mut onscreen_string;
-        let onscreen_x;
+fn get_read_rendering_info(
+    read: &AlignedRead,
+    viewing_window: &ViewingWindow,
+    area: &Rect,
+) -> Vec<(usize, usize, String, Style)> {
+    let mut output = Vec::new();
+    let cigar_segments = get_cigar_segments(read);
+    let n_cigar_segments = cigar_segments.len();
 
-        match (
-            window.onscreen_x_coordinate(read.start + segment.pivot as usize, area),
-            window.onscreen_x_coordinate(
-                read.start + segment.pivot as usize + segment.length as usize,
-                area,
-            ),
+    let onscreen_y = match viewing_window.onscreen_y_coordinate(read.y, area) {
+        OnScreenCoordinate::OnScreen(y_start) => y_start,
+        _ => return vec![],
+    };
+
+    for (i_cigar_segment, (start_coord, end_coord, style)) in cigar_segments.iter().enumerate() {
+        if let Some((x, length)) = OnScreenCoordinate::onscreen_start_and_length(
+            &viewing_window.onscreen_x_coordinate(*start_coord, area),
+            &viewing_window.onscreen_x_coordinate(*end_coord, area),
+            area,
         ) {
-            (OnScreenCoordinate::Left(x_start), OnScreenCoordinate::OnScreen(x_end)) => {
-                if x_end == 0 {
-                    continue;
-                }
-                if window.is_basewise() {
-                    onscreen_string = segment.string();
-                } else {
-                    onscreen_string = segment.resize(x_end as u16 + x_start as u16).string();
-                }
-                onscreen_string = onscreen_string[x_start..].to_string();
-                onscreen_x = 0;
-            }
-            (OnScreenCoordinate::OnScreen(x_start), OnScreenCoordinate::OnScreen(x_end)) => {
-                if x_start >= x_end {
-                    continue;
-                }
-                if window.is_basewise() {
-                    onscreen_string = segment.string();
-                } else {
-                    onscreen_string = segment.resize((x_end - x_start) as u16).string();
-                }
-                onscreen_x = x_start;
-            }
-            (OnScreenCoordinate::OnScreen(x_start), OnScreenCoordinate::Right(x_end)) => {
-                if x_start >= area.width as usize {
-                    continue;
-                }
-                if window.is_basewise() {
-                    onscreen_string = segment.string();
-                } else {
-                    onscreen_string = segment
-                        .resize(area.width - x_start as u16 + x_end as u16)
-                        .string();
-                }
-                onscreen_string = onscreen_string[..onscreen_string.len() - x_end].to_string(); // TODO: handle overflow
-                onscreen_x = x_start;
-            }
-
-            (OnScreenCoordinate::Left(x_start), OnScreenCoordinate::Right(x_end)) => {
-                if window.is_basewise() {
-                    onscreen_string = segment.string();
-                } else {
-                    onscreen_string = segment
-                        .resize(area.width + x_start as u16 + x_end as u16)
-                        .string();
-                }
-                onscreen_string =
-                    onscreen_string[x_start..onscreen_string.len() - x_end].to_string(); // TODO: handle overflow
-                onscreen_x = 0;
-            }
-
-            _ => {
-                continue;
-            }
+            output.push((
+                x,
+                onscreen_y,
+                get_segment_string(length, {
+                    if i_cigar_segment == 0 {
+                        Some(true)
+                    } else if i_cigar_segment == n_cigar_segments - 1 {
+                        Some(false)
+                    } else {
+                        None
+                    }
+                }),
+                *style,
+            ));
         }
-
-        let onscreen_y = match window.onscreen_y_coordinate(read.y, area) {
-            OnScreenCoordinate::OnScreen(y_start) => y_start,
-            _ => continue,
-        };
-
-        buf.set_stringn(
-            onscreen_x as u16 + area.x,
-            onscreen_y as u16 + area.y,
-            onscreen_string,
-            area.width as usize - onscreen_x,
-            segment.style(),
-        );
     }
+    output
 }
 
-struct OnScreenCigarSegment {
-    pivot: u16,   // number of bases from the start of the read
-    length: u16,  // number of bases in the segment
-    style: Style, // style of the segment
-    direction: Option<Strand>,
-}
-
-impl OnScreenCigarSegment {
-    pub fn string(&self) -> String {
-        let mut string = "-".repeat(self.length as usize);
-        match self.direction {
-            Some(Strand::Reverse) => {
-                string.replace_range(0..1, "<");
-            }
-            Some(Strand::Forward) => {
-                string.replace_range(string.len() - 1..string.len(), ">");
-            }
-            None => {}
-        }
-        string
-    }
-
-    pub fn style(&self) -> Style {
-        self.style
-    }
-
-    pub fn resize(&self, length: u16) -> Self {
-        OnScreenCigarSegment {
-            pivot: self.pivot,
-            length,
-            style: self.style,
-            direction: self.direction.clone(),
-        }
+fn get_segment_string(length: usize, is_reverse: Option<bool>) -> String {
+    match is_reverse {
+        Some(true) => (0..length)
+            .map(|i| if i == 0 { "<" } else { "-" })
+            .collect::<String>(),
+        Some(false) => (0..length)
+            .map(|i| if i == length - 1 { ">" } else { "-" })
+            .collect::<String>(),
+        None => "-".repeat(length),
     }
 }
 
 /// Render a read as sections of styled texts
 /// See: https://samtools.github.io/hts-specs/SAMv1.pdf
-///
-///
-fn get_cigar_segments(read: &AlignedRead) -> Vec<OnScreenCigarSegment> {
+fn get_cigar_segments(read: &AlignedRead) -> Vec<(usize, usize, Style)> {
     let mut output = Vec::new();
-    let mut pivot: usize = 0;
+    let mut pivot: usize = 0; // position relative to the softclip-start
 
     for op in read.read.cigar().iter() {
         match op {
@@ -156,47 +88,33 @@ fn get_cigar_segments(read: &AlignedRead) -> Vec<OnScreenCigarSegment> {
                 continue;
             }
             Cigar::Match(l) | Cigar::Equal(l) | Cigar::Diff(l) => {
-                output.push(OnScreenCigarSegment {
-                    pivot: pivot as u16,
-                    length: *l as u16,
-                    style: Style::default().bg(colors::MATCH_COLOR),
-                    direction: None,
-                });
+                let start = read.start + pivot - read.leading_softclips; // Should not overflow
+                let end = start + *l as usize - 1;
                 pivot += *l as usize;
+                output.push((start, end, Style::default().bg(colors::MATCH_COLOR)));
             }
             Cigar::SoftClip(l) => {
-                for i_softclipped_base in pivot..pivot + *l as usize {
-                    let base = read.read.seq()[i_softclipped_base];
-                    let base_color = match base {
-                        b'A' => colors::SOFTCLIP_A,
-                        b'C' => colors::SOFTCLIP_C,
-                        b'G' => colors::SOFTCLIP_G,
-                        b'T' => colors::SOFTCLIP_T,
-                        _ => colors::SOFTCLIP_N,
-                    };
-                    output.push(OnScreenCigarSegment {
-                        pivot: i_softclipped_base as u16,
-                        length: 1,
-                        style: Style::default().bg(base_color),
-                        direction: None,
-                    });
+                // If this is a leading softclip, check subtraction overflow.
+                for i_base in pivot..pivot + *l as usize {
+                    let base_coord_is_valid = read.start + i_base >= 1 + read.leading_softclips;
+                    if base_coord_is_valid {
+                        let abs_start = read.start + i_base - read.leading_softclips;
+
+                        let base = read.read.seq()[i_base];
+                        let base_color = match base {
+                            b'A' => colors::SOFTCLIP_A,
+                            b'C' => colors::SOFTCLIP_C,
+                            b'G' => colors::SOFTCLIP_G,
+                            b'T' => colors::SOFTCLIP_T,
+                            _ => colors::SOFTCLIP_N,
+                        };
+                        output.push((abs_start, abs_start, Style::default().bg(base_color)));
+                    }
                 }
+
                 pivot += *l as usize;
             }
         }
     }
-
-    // direction
-    if !output.is_empty() {
-        match read.read.is_reverse() {
-            true => {
-                output.first_mut().unwrap().direction = Some(Strand::Reverse);
-            }
-            false => {
-                output.last_mut().unwrap().direction = Some(Strand::Forward);
-            }
-        }
-    }
-
     output
 }
