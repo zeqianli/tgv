@@ -7,8 +7,9 @@ use ratatui::{
         Constraint::{Fill, Length},
         Layout, Rect,
     },
+    prelude::Backend,
     widgets::Widget,
-    DefaultTerminal, Frame,
+    DefaultTerminal, Frame, Terminal,
 };
 
 use crate::error::TGVError;
@@ -35,7 +36,7 @@ impl App {
 // event handling
 impl App {
     /// Main loop
-    pub async fn run(&mut self, terminal: &mut DefaultTerminal) -> Result<(), TGVError> {
+    pub async fn run<B: Backend>(&mut self, terminal: &mut Terminal<B>) -> Result<(), TGVError> {
         let mut last_frame_mode = InputMode::Normal;
 
         while !self.state.exit {
@@ -44,6 +45,7 @@ impl App {
 
             if !self.state.initialized() {
                 // Handle the initial messages
+
                 self.state
                     .handle(self.state.settings.initial_state_messages.clone())
                     .await?;
@@ -56,16 +58,18 @@ impl App {
                 .unwrap();
 
             // handle events
-            match event::read() {
-                Ok(Event::Key(key_event)) if key_event.kind == KeyEventKind::Press => {
-                    self.state.handle_key_event(key_event).await?;
-                }
-                Ok(Event::Resize(_width, _height)) => {
-                    self.state.self_correct_viewing_window();
-                }
+            if !self.state.settings.test_mode {
+                match event::read() {
+                    Ok(Event::Key(key_event)) if key_event.kind == KeyEventKind::Press => {
+                        self.state.handle_key_event(key_event).await?;
+                    }
+                    Ok(Event::Resize(_width, _height)) => {
+                        self.state.self_correct_viewing_window();
+                    }
 
-                _ => {}
-            };
+                    _ => {}
+                };
+            }
 
             // terminal.clear() is needed when the layout changes significantly, or the last frame is burned into the new frame.
             let need_screen_refresh = ((last_frame_mode == InputMode::Help)
@@ -80,6 +84,10 @@ impl App {
             }
 
             last_frame_mode = self.state.input_mode.clone();
+
+            if self.state.settings.test_mode {
+                break;
+            }
         }
         Ok(())
     }

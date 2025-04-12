@@ -9,15 +9,28 @@ env:
   CARGO_TERM_COLOR: always
 
 jobs:
-  build:
-
+  test:
     runs-on: ubuntu-latest
-
     steps:
     - uses: actions/checkout@v4
-    - name: Build
-      run: cargo build --verbose
     - name: Run tests
-      run: cargo test --verbose
-    - name: Run tests (no default features)
-      run: cargo test --verbose --no-default-features
+      run: |
+        cargo test 
+      env:
+        CI: 0 
+        # Disable CI mode to have insta save snapshots to files. 
+        # See https://github.com/mitsuhiko/insta/issues/344
+    - name: Show snapshots
+      run: | 
+        for file in src/snapshots/*; do
+          echo $file
+          cat $file
+        done
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+    - name: Format
+      run: cargo fmt --check
+    - name: Clippy
+      run: cargo clippy --

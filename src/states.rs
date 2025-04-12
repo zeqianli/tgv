@@ -295,12 +295,17 @@ impl State {
 
     /// TODO: this is inefficient.
     pub fn current_cytoband_index(&self) -> Result<Option<usize>, TGVError> {
-        for (i, cytoband) in self.cytobands.as_ref().unwrap().iter().enumerate() {
-            if cytoband.contig == self.contig()? {
-                return Ok(Some(i));
+        match self.cytobands.as_ref() {
+            Some(cytobands) => {
+                for (i, cytoband) in cytobands.iter().enumerate() {
+                    if cytoband.contig == self.contig()? {
+                        return Ok(Some(i));
+                    }
+                }
+                Ok(None)
             }
+            None => Ok(None),
         }
-        Ok(None)
     }
 
     pub fn cytobands(&self) -> Option<&[Cytoband]> {
@@ -320,8 +325,25 @@ impl State {
         Ok(())
     }
 
+    /// Handle initial messages.
+    /// This has different error handling strategy (loud) vs handle(...), which suppresses errors.
+    pub async fn handle_initial_messages(
+        &mut self,
+        messages: Vec<StateMessage>,
+    ) -> Result<(), TGVError> {
+        let data_messages = self.handle_state_messages(messages).await?;
+        let _loaded_data = self.data.handle_data_messages(data_messages).await?;
+
+        // if loaded_data {
+        //     self.errors.push("Data loaded".to_string());
+        // }
+        Ok(())
+    }
+
+    /// Handle messages.
     pub async fn handle(&mut self, messages: Vec<StateMessage>) -> Result<(), TGVError> {
         let data_messages = self.handle_state_messages(messages).await?;
+
         let _loaded_data = self.data.handle_data_messages(data_messages).await?;
 
         // if loaded_data {
@@ -605,11 +627,10 @@ impl State {
                 };
                 if let Some(contigs) = &self.contigs {
                     if !contigs.contains(&contig) {
-                        self.add_error_message(TGVError::StateError(format!(
-                            "Contig {} not found",
+                        return Err(TGVError::StateError(format!(
+                            "Contig {} not found in the BAM header",
                             contig.full_name()
                         )));
-                        return Ok(vec![]);
                     }
                 }
 
