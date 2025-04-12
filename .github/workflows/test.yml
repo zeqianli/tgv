@@ -14,11 +14,6 @@ jobs:
     steps:
     - uses: actions/checkout@v4
     - name: Run tests
-      run: |
-        cargo test --verbose &&
-        find src/snapshots -type f -exec cat {} \;
+      run: cargo test --verbose && find src/snapshots -type f -exec cat {} \;
     - name: Show snapshots
-      run: |
-        ls src/
-    
-   
+      run: ls src/
