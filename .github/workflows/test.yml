@@ -15,9 +15,14 @@ jobs:
     - uses: actions/checkout@v4
     - name: Run tests
       run: |
-        cargo test &&
-        ls src/
+        cargo test 
       env:
-        CI: 0
+        CI: 0 
+        # Disable CI mode to have insta save snapshots to files. 
+        # See https://github.com/mitsuhiko/insta/issues/344
     - name: Show snapshots
-      run: ls src/
+      run: | 
+        for file in src/snapshots/*; do
+          echo $file
+          cat $file
+        done
