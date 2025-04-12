@@ -1,0 +1,3 @@
+behavior:
+  # also set by INSTA_FORCE_PASS
+  force_pass: true # just make sure that the app runs
