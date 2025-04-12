@@ -327,7 +327,10 @@ impl State {
 
     /// Handle initial messages.
     /// This has different error handling strategy (loud) vs handle(...), which suppresses errors.
-    pub async fn handle_initial_messages(&mut self, messages: Vec<StateMessage>) -> Result<(), TGVError> {  
+    pub async fn handle_initial_messages(
+        &mut self,
+        messages: Vec<StateMessage>,
+    ) -> Result<(), TGVError> {
         let data_messages = self.handle_state_messages(messages).await?;
         let _loaded_data = self.data.handle_data_messages(data_messages).await?;
 
@@ -336,11 +339,11 @@ impl State {
         // }
         Ok(())
     }
-    
+
     /// Handle messages.
     pub async fn handle(&mut self, messages: Vec<StateMessage>) -> Result<(), TGVError> {
         let data_messages = self.handle_state_messages(messages).await?;
-    
+
         let _loaded_data = self.data.handle_data_messages(data_messages).await?;
 
         // if loaded_data {
@@ -941,7 +944,6 @@ impl State {
                     self.contigs.as_ref().unwrap().first()?.full_name(),
                     1,
                 ))
-               
             }
             (Some(_), None) => {
                 self.handle_goto_feature_message(StateMessage::GoToGene(
