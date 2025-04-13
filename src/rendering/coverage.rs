@@ -68,7 +68,11 @@ fn round_up_max_coverage(x: u64) -> u64 {
 /// Get a linear space of n_bins between left and right.
 /// 1-based, inclusive.
 /// Returns a vector of n_bins + 1 elements.
-fn get_linear_space(left: usize, right: usize, n_bins: usize) -> Result<Vec<(usize, usize)>, TGVError> {
+fn get_linear_space(
+    left: usize,
+    right: usize,
+    n_bins: usize,
+) -> Result<Vec<(usize, usize)>, TGVError> {
     if n_bins == 0 {
         return Err(TGVError::ValueError("n_bins is 0".to_string()));
     }
@@ -78,7 +82,9 @@ fn get_linear_space(left: usize, right: usize, n_bins: usize) -> Result<Vec<(usi
     }
 
     if n_bins > right - left {
-        return Err(TGVError::ValueError("n_bins is greater than the number of bases in the region".to_string()));
+        return Err(TGVError::ValueError(
+            "n_bins is greater than the number of bases in the region".to_string(),
+        ));
     }
 
     let mut bins: Vec<(usize, usize)> = Vec::new();
@@ -120,7 +126,11 @@ fn calculate_binned_coverage(
     }
 
     match (right - left + 1).cmp(&n_bins) {
-        std::cmp::Ordering::Less => return Err(TGVError::ValueError("n_bins is greater than the number of bases in the region".to_string())),
+        std::cmp::Ordering::Less => {
+            return Err(TGVError::ValueError(
+                "n_bins is greater than the number of bases in the region".to_string(),
+            ))
+        }
         std::cmp::Ordering::Equal => {
             return Ok((left..right + 1)
                 .map(|x| alignment.coverage_at(x) as u64)
@@ -135,12 +145,13 @@ fn calculate_binned_coverage(
         .iter()
         .map(|(bin_left, bin_right)| {
             if bin_left > bin_right {
-                return Err(TGVError::ValueError("bin_left is greater than bin_right".to_string()));
+                return Err(TGVError::ValueError(
+                    "bin_left is greater than bin_right".to_string(),
+                ));
             }
             Ok(alignment
                 .mean_basewise_coverage_in(*bin_left, *bin_right)
-                .unwrap()
-                as u64)
+                .unwrap() as u64)
         })
         .collect();
 

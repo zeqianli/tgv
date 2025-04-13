@@ -77,14 +77,12 @@ fn get_segment_string(length: usize, is_reverse: Option<bool>) -> String {
 /// Render a read as sections of styled texts
 /// See: https://samtools.github.io/hts-specs/SAMv1.pdf
 fn get_cigar_segments(read: &AlignedRead) -> Vec<(usize, usize, Style)> {
-
     let mut reference_pivot: usize = read.start; // used in the output
     let mut query_pivot: usize = 0; // # bases relative to the softclip start.
 
     let mut output = Vec::new();
 
     for op in read.read.cigar().iter() {
-
         if let Cigar::SoftClip(l) = op {
             for i_base in query_pivot..query_pivot + *l as usize {
                 let base_coord_is_valid = reference_pivot + i_base >= 1 + read.leading_softclips;
@@ -102,10 +100,14 @@ fn get_cigar_segments(read: &AlignedRead) -> Vec<(usize, usize, Style)> {
                     output.push((abs_start, abs_start, Style::default().bg(base_color)));
                 }
             }
-        } 
+        }
 
         if consumes_reference(op) {
-            output.push((reference_pivot, reference_pivot + op.len() as usize -1 as usize, get_cigar_style(op)));
+            output.push((
+                reference_pivot,
+                reference_pivot + op.len() as usize - 1 as usize,
+                get_cigar_style(op),
+            ));
             reference_pivot += op.len() as usize;
             // Note that softclip does not consume query and is handled above.
         }
@@ -113,28 +115,24 @@ fn get_cigar_segments(read: &AlignedRead) -> Vec<(usize, usize, Style)> {
         if consumes_query(op) {
             query_pivot += op.len() as usize;
         }
-
     }
 
     output
 }
 
-/// Whether the cigar operation consumes reference. 
+/// Whether the cigar operation consumes reference.
 /// Yes: M/D/N/=/X
 /// No: I/S/H/P
 /// See: https://samtools.github.io/hts-specs/SAMv1.pdf
 fn consumes_reference(op: &Cigar) -> bool {
     match op {
-        Cigar::Match(_l) | 
-        Cigar::Del(_l) |
-        Cigar::RefSkip(_l) |
-        Cigar::Equal(_l) |
-        Cigar::Diff(_l) => true,
+        Cigar::Match(_l)
+        | Cigar::Del(_l)
+        | Cigar::RefSkip(_l)
+        | Cigar::Equal(_l)
+        | Cigar::Diff(_l) => true,
 
-        Cigar::SoftClip(_l) |
-        Cigar::Ins(_l) |
-        Cigar::HardClip(_l) |
-        Cigar::Pad(_l) => false,
+        Cigar::SoftClip(_l) | Cigar::Ins(_l) | Cigar::HardClip(_l) | Cigar::Pad(_l) => false,
     }
 }
 
@@ -143,27 +141,23 @@ fn consumes_reference(op: &Cigar) -> bool {
 /// No: D/N/H/P
 fn consumes_query(op: &Cigar) -> bool {
     match op {
-        Cigar::Match(_l) |
-        Cigar::Ins(_l) |
-        Cigar::SoftClip(_l) |
-        Cigar::Equal(_l) |
-        Cigar::Diff(_l) => true,
+        Cigar::Match(_l)
+        | Cigar::Ins(_l)
+        | Cigar::SoftClip(_l)
+        | Cigar::Equal(_l)
+        | Cigar::Diff(_l) => true,
 
-        Cigar::Del(_l) |
-        Cigar::RefSkip(_l) |
-        Cigar::HardClip(_l) |
-        Cigar::Pad(_l) => false,
+        Cigar::Del(_l) | Cigar::RefSkip(_l) | Cigar::HardClip(_l) | Cigar::Pad(_l) => false,
     }
 }
 
 /// Only labels that consumes reference are display onscreen.
 fn get_cigar_style(op: &Cigar) -> Style {
     match op {
-        Cigar::Match(_l) | Cigar::Equal(_l) =>  Style::default().bg(colors::MATCH_COLOR), 
+        Cigar::Match(_l) | Cigar::Equal(_l) => Style::default().bg(colors::MATCH_COLOR),
         // By SAM spec, M can also be mismatch. TODO: think about this in the future.
-        
-        Cigar::Diff(_l)  => Style::default().bg(colors::MISMATCH_COLOR),
-        
+        Cigar::Diff(_l) => Style::default().bg(colors::MISMATCH_COLOR),
+
         Cigar::Del(_l) | Cigar::RefSkip(_l) => Style::default(),
 
         _ => Style::default(),

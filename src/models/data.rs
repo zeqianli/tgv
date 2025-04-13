@@ -119,12 +119,8 @@ impl Data {
 
                 if !self.has_complete_alignment(&region) {
                     self.alignment = Some(
-                        Alignment::from_bam_path(
-                            bam_path,
-                            self.bai_path.as_ref(),
-                            &region,
-                        )
-                        .unwrap(),
+                        Alignment::from_bam_path(bam_path, self.bai_path.as_ref(), &region)
+                            .unwrap(),
                     );
                     loaded_data = true;
                 }
@@ -136,12 +132,7 @@ impl Data {
                 let track_service = self.track_service.as_ref().unwrap();
 
                 if !self.has_complete_track(&region) {
-                    self.track = Some(
-                        track_service
-                            .query_feature_track(&region)
-                            .await
-                            .unwrap(),
-                    );
+                    self.track = Some(track_service.query_feature_track(&region).await.unwrap());
                     loaded_data = true;
                 }
             }
@@ -152,10 +143,7 @@ impl Data {
                 let sequence_service = self.sequence_service.as_ref().unwrap();
 
                 if !self.has_complete_sequence(&region) {
-                    match sequence_service
-                        .query_sequence(&region)
-                        .await
-                    {
+                    match sequence_service.query_sequence(&region).await {
                         Ok(sequence) => {
                             self.sequence = Some(sequence);
                             loaded_data = true;

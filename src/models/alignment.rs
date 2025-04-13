@@ -270,7 +270,10 @@ impl Alignment {
         // read.pos() in htslib: 0-based, inclusive, excluding leading hardclips and softclips
         // read.reference_end() in htslib: 0-based, exclusive, excluding trailing hardclips and softclips
 
-        let y = self.find_track(read_start.saturating_sub(leading_softclips), read_end.saturating_add(trailing_softclips));
+        let y = self.find_track(
+            read_start.saturating_sub(leading_softclips),
+            read_end.saturating_add(trailing_softclips),
+        );
 
         let aligned_read = AlignedRead {
             read,
@@ -308,4 +311,3 @@ impl Alignment {
         self.reads.push(aligned_read);
     }
 }
-

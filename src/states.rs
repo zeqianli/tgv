@@ -334,19 +334,32 @@ impl State {
 
     /// Handle messages.
     pub async fn handle(&mut self, messages: Vec<StateMessage>) -> Result<(), TGVError> {
-
-        let debug_messages_0 = messages.iter().map(|m| format!("{:?}", m)).collect::<Vec<String>>().join(", ");
+        let debug_messages_0 = messages
+            .iter()
+            .map(|m| format!("{:?}", m))
+            .collect::<Vec<String>>()
+            .join(", ");
         let data_messages = self.handle_state_messages(messages).await?;
 
-        let debug_message = data_messages.iter().map(|m| format!("{:?}", m)).collect::<Vec<String>>().join(", ");
+        let debug_message = data_messages
+            .iter()
+            .map(|m| format!("{:?}", m))
+            .collect::<Vec<String>>()
+            .join(", ");
 
         let loaded_data = self.data.handle_data_messages(data_messages).await?;
 
         if self.settings.debug {
             if loaded_data {
-                self.errors.push(format!("Data loaded: {}\n{}", debug_messages_0, debug_message));
+                self.errors.push(format!(
+                    "Data loaded: {}\n{}",
+                    debug_messages_0, debug_message
+                ));
             } else {
-                self.errors.push(format!("Data not loaded: {}\n{}", debug_messages_0, debug_message));
+                self.errors.push(format!(
+                    "Data not loaded: {}\n{}",
+                    debug_messages_0, debug_message
+                ));
             }
         }
         Ok(())
@@ -531,7 +544,7 @@ impl State {
         let viewing_region = self.viewing_region()?;
 
         if self.settings.bam_path.is_some()
-            && viewing_window.zoom() <= Self::MAX_ZOOM_TO_DISPLAY_ALIGNMENTS 
+            && viewing_window.zoom() <= Self::MAX_ZOOM_TO_DISPLAY_ALIGNMENTS
             && !self.data.has_complete_alignment(&viewing_region)
         {
             let alignment_cache_region = self.alignment_cache_region(&viewing_region)?;
@@ -544,9 +557,7 @@ impl State {
             if !self.data.has_complete_track(&viewing_region) {
                 // viewing_window.zoom() <= Self::MAX_ZOOM_TO_DISPLAY_FEATURES is always true
                 let track_cache_region = self.track_cache_region(&viewing_region)?;
-                data_messages.push(DataMessage::RequiresCompleteFeatures(
-                    track_cache_region,
-                ));
+                data_messages.push(DataMessage::RequiresCompleteFeatures(track_cache_region));
             }
 
             if (viewing_window.zoom() <= Self::MAX_ZOOM_TO_DISPLAY_SEQUENCES)
@@ -562,7 +573,6 @@ impl State {
         Ok(data_messages)
     }
 
-
     const ALIGNMENT_CACHE_RATIO: usize = 3;
 
     fn alignment_cache_region(&self, region: &Region) -> Result<Region, TGVError> {
@@ -573,7 +583,7 @@ impl State {
         let right = region
             .end
             .saturating_add(Self::ALIGNMENT_CACHE_RATIO * region.width() / 2)
-            .min( if let Some(contig_length) = self.contig_length()? {
+            .min(if let Some(contig_length) = self.contig_length()? {
                 contig_length
             } else {
                 usize::MAX
@@ -595,7 +605,7 @@ impl State {
         let right = region
             .end
             .saturating_add(Self::SEQUENCE_CACHE_RATIO * region.width() / 2)
-            .min( if let Some(contig_length) = self.contig_length()? {
+            .min(if let Some(contig_length) = self.contig_length()? {
                 contig_length
             } else {
                 usize::MAX
@@ -617,7 +627,7 @@ impl State {
         let right = region
             .end
             .saturating_add(Self::TRACK_CACHE_RATIO * region.width() / 2)
-            .min( if let Some(contig_length) = self.contig_length()? {
+            .min(if let Some(contig_length) = self.contig_length()? {
                 contig_length
             } else {
                 usize::MAX
