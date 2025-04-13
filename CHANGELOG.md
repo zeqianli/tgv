@@ -1,3 +1,7 @@
+## 0.0.3
+
+Stability improvements.
+
 ## 0.0.2
 
 Major update on UI, testing, CI, state handling.
