@@ -91,10 +91,6 @@ fn get_cigar_segments(read: &AlignedRead) -> Vec<(usize, usize, Style)> {
                 if base_coord_is_valid {
                     let abs_start = reference_pivot + i_base - read.leading_softclips;
 
-                    if i_base >= read.read.seq().len() {
-                        panic!("i_base {} is out of range. seq_len(): {}, seq_len_from_cigar(): {}, cigar: {:?}", i_base, read.read.seq().len(), read.read.cigar().len(), read.read.cigar());
-                    }
-
                     let base = read.read.seq()[i_base];
                     let base_color = match base {
                         b'A' => colors::SOFTCLIP_A,
@@ -120,9 +116,6 @@ fn get_cigar_segments(read: &AlignedRead) -> Vec<(usize, usize, Style)> {
 
     }
 
-    if reference_pivot != read.end +1 {
-        panic!("reference_pivot {} is not equal to read.end() + 1 {}", reference_pivot, read.end +1);
-    }
     output
 }
 

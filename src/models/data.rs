@@ -118,12 +118,11 @@ impl Data {
                 let bam_path = self.bam_path.as_ref().unwrap();
 
                 if !self.has_complete_alignment(&region) {
-                    let alignment_cache_region = Self::alignment_cache_region(region); // TODO: calculated three times. Not efficient.
                     self.alignment = Some(
                         Alignment::from_bam_path(
                             bam_path,
                             self.bai_path.as_ref(),
-                            &alignment_cache_region,
+                            &region,
                         )
                         .unwrap(),
                     );
@@ -137,10 +136,9 @@ impl Data {
                 let track_service = self.track_service.as_ref().unwrap();
 
                 if !self.has_complete_track(&region) {
-                    let track_cache_region = Self::track_cache_region(region);
                     self.track = Some(
                         track_service
-                            .query_feature_track(&track_cache_region)
+                            .query_feature_track(&region)
                             .await
                             .unwrap(),
                     );
@@ -154,9 +152,8 @@ impl Data {
                 let sequence_service = self.sequence_service.as_ref().unwrap();
 
                 if !self.has_complete_sequence(&region) {
-                    let sequence_cache_region = Self::sequence_cache_region(region);
                     match sequence_service
-                        .query_sequence(&sequence_cache_region)
+                        .query_sequence(&region)
                         .await
                     {
                         Ok(sequence) => {
@@ -197,59 +194,5 @@ impl Data {
 
     pub fn has_complete_sequence(&self, region: &Region) -> bool {
         self.sequence.is_some() && self.sequence.as_ref().unwrap().has_complete_data(region)
-    }
-
-    const ALIGNMENT_CACHE_RATIO: usize = 3;
-
-    fn alignment_cache_region(region: Region) -> Region {
-        let left = region
-            .start
-            .saturating_sub(Data::ALIGNMENT_CACHE_RATIO * region.width() / 2)
-            .max(1);
-        let right = region
-            .end
-            .saturating_add(Data::ALIGNMENT_CACHE_RATIO * region.width() / 2)
-            .min(usize::MAX);
-        Region {
-            contig: region.contig.clone(),
-            start: left,
-            end: right,
-        }
-    }
-
-    const SEQUENCE_CACHE_RATIO: usize = 3;
-
-    fn sequence_cache_region(region: Region) -> Region {
-        let left = region
-            .start
-            .saturating_sub(Data::SEQUENCE_CACHE_RATIO * region.width() / 2)
-            .max(1);
-        let right = region
-            .end
-            .saturating_add(Data::SEQUENCE_CACHE_RATIO * region.width() / 2)
-            .min(usize::MAX);
-        Region {
-            contig: region.contig.clone(),
-            start: left,
-            end: right,
-        }
-    }
-
-    const TRACK_CACHE_RATIO: usize = 10;
-
-    fn track_cache_region(region: Region) -> Region {
-        let left = region
-            .start
-            .saturating_sub(Data::TRACK_CACHE_RATIO * region.width() / 2)
-            .max(1);
-        let right = region
-            .end
-            .saturating_add(Data::TRACK_CACHE_RATIO * region.width() / 2)
-            .min(usize::MAX);
-        Region {
-            contig: region.contig.clone(),
-            start: left,
-            end: right,
-        }
     }
 }

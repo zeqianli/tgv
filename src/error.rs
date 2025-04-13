@@ -1,7 +1,7 @@
 use std::fmt;
 
 use sqlx::Error as SqlxError;
-#[derive(Debug, Clone, Eq, PartialEq)]
+#[derive(Debug, Clone)]
 #[allow(clippy::enum_variant_names)]
 pub enum TGVError {
     CliError(String),
@@ -39,5 +39,20 @@ impl From<SqlxError> for TGVError {
         TGVError::IOError(e.to_string())
     }
 }
+
+impl PartialEq for TGVError {
+    fn eq(&self, other: &Self) -> bool {
+        match (self, other) {
+            (TGVError::CliError(_), TGVError::CliError(_)) => true,
+            (TGVError::IOError(_), TGVError::IOError(_)) => true,
+            (TGVError::StateError(_), TGVError::StateError(_)) => true,
+            (TGVError::ParsingError(_), TGVError::ParsingError(_)) => true,
+            (TGVError::ValueError(_), TGVError::ValueError(_)) => true,
+            _ => false,
+        }
+    }
+}
+
+impl Eq for TGVError {}
 
 // TODO: tracing

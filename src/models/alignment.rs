@@ -214,9 +214,9 @@ impl Alignment {
 
     /// Mean basewise coverage in [left, right].
     /// 1-based, inclusive.
-    pub fn mean_basewise_coverage_in(&self, left: usize, right: usize) -> Result<usize, ()> {
+    pub fn mean_basewise_coverage_in(&self, left: usize, right: usize) -> Result<usize, TGVError> {
         if right < left {
-            panic!("{}, {}", left, right);
+            return Err(TGVError::ValueError("Right is less than left".to_string()));
         }
 
         if right < self.data_complete_left_bound || left > self.data_complete_right_bound {

@@ -317,13 +317,7 @@ impl State {
 impl State {
     pub async fn handle_key_event(&mut self, key_event: KeyEvent) -> Result<(), TGVError> {
         let messages = self.translate_key_event(key_event);
-        let data_messages = self.handle_state_messages(messages).await?;
-        let _loaded_data = self.data.handle_data_messages(data_messages).await?;
-
-        // if loaded_data {
-        //     self.errors.push("Data loaded".to_string());
-        // }
-        Ok(())
+        self.handle(messages).await
     }
 
     /// Handle initial messages.
@@ -335,21 +329,26 @@ impl State {
         let data_messages = self.handle_state_messages(messages).await?;
         let _loaded_data = self.data.handle_data_messages(data_messages).await?;
 
-        // if loaded_data {
-        //     self.errors.push("Data loaded".to_string());
-        // }
         Ok(())
     }
 
     /// Handle messages.
     pub async fn handle(&mut self, messages: Vec<StateMessage>) -> Result<(), TGVError> {
+
+        let debug_messages_0 = messages.iter().map(|m| format!("{:?}", m)).collect::<Vec<String>>().join(", ");
         let data_messages = self.handle_state_messages(messages).await?;
 
-        let _loaded_data = self.data.handle_data_messages(data_messages).await?;
+        let debug_message = data_messages.iter().map(|m| format!("{:?}", m)).collect::<Vec<String>>().join(", ");
 
-        // if loaded_data {
-        //     self.errors.push("Data loaded".to_string());
-        // }
+        let loaded_data = self.data.handle_data_messages(data_messages).await?;
+
+        if self.settings.debug {
+            if loaded_data {
+                self.errors.push(format!("Data loaded: {}\n{}", debug_messages_0, debug_message));
+            } else {
+                self.errors.push(format!("Data not loaded: {}\n{}", debug_messages_0, debug_message));
+            }
+        }
         Ok(())
     }
 }
@@ -444,13 +443,6 @@ impl State {
             // Swithching modes
             StateMessage::SwitchMode(mode) => {
                 self.input_mode = mode;
-
-                // match self.input_mode {
-                //     InputMode::Help => {
-                //         panic!("test");
-                //     }
-                //     _ => {}
-                // }
             }
             StateMessage::Quit => self.exit = true,
 
@@ -539,29 +531,102 @@ impl State {
         let viewing_region = self.viewing_region()?;
 
         if self.settings.bam_path.is_some()
-            && viewing_window.zoom() <= Self::MAX_ZOOM_TO_DISPLAY_ALIGNMENTS
+            && viewing_window.zoom() <= Self::MAX_ZOOM_TO_DISPLAY_ALIGNMENTS 
+            && !self.data.has_complete_alignment(&viewing_region)
         {
+            let alignment_cache_region = self.alignment_cache_region(&viewing_region)?;
             data_messages.push(DataMessage::RequiresCompleteAlignments(
-                viewing_region.clone(),
+                alignment_cache_region,
             ));
         }
 
         if self.settings.reference.is_some() {
-            if true {
+            if !self.data.has_complete_track(&viewing_region) {
                 // viewing_window.zoom() <= Self::MAX_ZOOM_TO_DISPLAY_FEATURES is always true
+                let track_cache_region = self.track_cache_region(&viewing_region)?;
                 data_messages.push(DataMessage::RequiresCompleteFeatures(
-                    viewing_region.clone(),
+                    track_cache_region,
                 ));
             }
 
-            if viewing_window.zoom() <= Self::MAX_ZOOM_TO_DISPLAY_SEQUENCES {
+            if (viewing_window.zoom() <= Self::MAX_ZOOM_TO_DISPLAY_SEQUENCES)
+                && !self.data.has_complete_sequence(&viewing_region)
+            {
+                let sequence_cache_region = self.sequence_cache_region(&viewing_region)?;
                 data_messages.push(DataMessage::RequiresCompleteSequences(
-                    viewing_region.clone(),
+                    sequence_cache_region,
                 ));
             }
         }
 
         Ok(data_messages)
+    }
+
+
+    const ALIGNMENT_CACHE_RATIO: usize = 3;
+
+    fn alignment_cache_region(&self, region: &Region) -> Result<Region, TGVError> {
+        let left = region
+            .start
+            .saturating_sub(Self::ALIGNMENT_CACHE_RATIO * region.width() / 2)
+            .max(1);
+        let right = region
+            .end
+            .saturating_add(Self::ALIGNMENT_CACHE_RATIO * region.width() / 2)
+            .min( if let Some(contig_length) = self.contig_length()? {
+                contig_length
+            } else {
+                usize::MAX
+            });
+        Ok(Region {
+            contig: region.contig.clone(),
+            start: left,
+            end: right,
+        })
+    }
+
+    const SEQUENCE_CACHE_RATIO: usize = 3;
+
+    fn sequence_cache_region(&self, region: &Region) -> Result<Region, TGVError> {
+        let left = region
+            .start
+            .saturating_sub(Self::SEQUENCE_CACHE_RATIO * region.width() / 2)
+            .max(1);
+        let right = region
+            .end
+            .saturating_add(Self::SEQUENCE_CACHE_RATIO * region.width() / 2)
+            .min( if let Some(contig_length) = self.contig_length()? {
+                contig_length
+            } else {
+                usize::MAX
+            });
+        Ok(Region {
+            contig: region.contig.clone(),
+            start: left,
+            end: right,
+        })
+    }
+
+    const TRACK_CACHE_RATIO: usize = 10;
+
+    fn track_cache_region(&self, region: &Region) -> Result<Region, TGVError> {
+        let left = region
+            .start
+            .saturating_sub(Self::TRACK_CACHE_RATIO * region.width() / 2)
+            .max(1);
+        let right = region
+            .end
+            .saturating_add(Self::TRACK_CACHE_RATIO * region.width() / 2)
+            .min( if let Some(contig_length) = self.contig_length()? {
+                contig_length
+            } else {
+                usize::MAX
+            });
+        Ok(Region {
+            contig: region.contig.clone(),
+            start: left,
+            end: right,
+        })
     }
 }
 

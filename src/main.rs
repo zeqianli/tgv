@@ -37,7 +37,7 @@ async fn main() -> Result<(), TGVError> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use insta::{assert_snapshot, Settings as InstaSettings};
+    use insta::assert_snapshot;
     use ratatui::{backend::TestBackend, Terminal};
     use rstest::rstest;
     use std::env;
