@@ -193,6 +193,10 @@ mod tests {
         #[case] expected: Result<Vec<(usize, usize)>, TGVError>,
     ) {
         let result = get_linear_space(left, right, n_bins);
-        assert_eq!(result, expected);
+        match (result, expected) {
+            (Ok(result), Ok(expected)) => assert_eq!(result, expected),
+            (Err(e), Err(expected)) => assert!(matches!(e, expected)),
+            _ => panic!("Unexpected test result"),
+        }
     }
 }

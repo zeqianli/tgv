@@ -36,6 +36,6 @@ pub trait GenomeInterval {
 
     #[allow(dead_code)]
     fn middle(&self) -> usize {
-        (self.start() + self.end() + 1) / 2
+        (self.start() + self.end()).div_ceil(2)
     }
 }

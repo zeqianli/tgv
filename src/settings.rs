@@ -2,7 +2,6 @@ use crate::error::TGVError;
 use crate::helpers::is_url;
 use crate::models::{message::StateMessage, reference::Reference};
 use clap::Parser;
-use std::env;
 
 #[derive(Parser)]
 #[command(author, version, about, long_about = None)]
@@ -254,7 +253,7 @@ mod tests {
         match (Settings::new(cli, false), expected_settings) {
             (Ok(settings), Ok(expected)) => assert_eq!(settings, expected),
             (Err(e), Err(expected)) => assert!(e.is_same_type(&expected)),
-            _ => assert!(false),
+            _ => panic!("Unexpected test result"),
         }
     }
 }

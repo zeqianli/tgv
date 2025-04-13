@@ -8,8 +8,7 @@ use ratatui::{
         Layout, Rect,
     },
     prelude::Backend,
-    widgets::Widget,
-    DefaultTerminal, Frame, Terminal,
+    widgets::Widget, Frame, Terminal,
 };
 
 use crate::error::TGVError;

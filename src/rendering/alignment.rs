@@ -1,11 +1,10 @@
 use crate::models::{
     alignment::{AlignedRead, Alignment},
-    strand::Strand,
     window::{OnScreenCoordinate, ViewingWindow},
 };
 use crate::rendering::colors;
 use ratatui::{buffer::Buffer, layout::Rect, style::Style};
-use rust_htslib::bam::{ext::BamRecordExtensions, record::Cigar};
+use rust_htslib::bam::record::Cigar;
 
 /// Render an alignment on the alignment area.
 pub fn render_alignment(
@@ -105,7 +104,7 @@ fn get_cigar_segments(read: &AlignedRead) -> Vec<(usize, usize, Style)> {
         if consumes_reference(op) {
             output.push((
                 reference_pivot,
-                reference_pivot + op.len() as usize - 1 as usize,
+                reference_pivot + op.len() as usize - 1_usize,
                 get_cigar_style(op),
             ));
             reference_pivot += op.len() as usize;
