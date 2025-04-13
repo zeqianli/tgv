@@ -50,13 +50,12 @@ tgv s3://my-bucket/sorted.bam -r TP53
 tgv non_human.bam -r 1:123 --no-reference
 ```
 
-## Supported formats
+Supported formats (see [wiki](https://github.com/zeqianli/tgv/wiki/Usage)):
+- BAM (index and sorted; `.bai` file is needed): local, AWS S3, HTTP, FTP, Google Cloud
 
-BAM (index and sorted). `.bai` file is needed. See [wiki](https://github.com/zeqianli/tgv/wiki/Usage) for details.
+## Contribution is welcome!
 
-## Contribute
-
-Contribution is welcome!. See [wiki](https://github.com/zeqianli/tgv/wiki/Contribution-is-welcome!). Also join the [Discord](https://discord.gg/NKGg684M) to discuss ideas.
+See [wiki](https://github.com/zeqianli/tgv/wiki/Contribution-is-welcome!). Also join the [Discord](https://discord.gg/NKGg684M) to discuss ideas.
 
 ## FAQ
 
