@@ -6,36 +6,13 @@ Light, blazing fast 🚀, vim motion, memory safe.
 
 <https://github.com/user-attachments/assets/b250f901-8e4d-4d5d-b150-fa9195b08e14>
 
-(*TGV is at a very early stage. Please don't rely on it for your papers (yet) :)*
+*TGV is at a very early stage. Please don't rely on it for your papers (yet) :)*
 
-*Contribution and bug reports are welcome! Please join the [Discord](https://discord.gg/NKGg684M) to discuss ideas.*)
+*Contribution and bug reports are welcome! Also join the [Discord](https://discord.gg/NKGg684M) to discuss ideas.*
 
 ## Installation
 
-### Prerequisites: install Rust
-
-```bash
-curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
-
-# Add Rust to your path (or restart your terminal):
-source "$HOME/.cargo/env"
-```
-
-### Install stable release
-
-```bash
-cargo install tgv
-```
-
-### Install the latest development branch
-
-```bash
-# Clone the repository
-git clone https://github.com/zeqianli/tgv.git
-cd tgv
-
-cargo install --path .
-```
+See [Installation](https://github.com/zeqianli/tgv/wiki/Installation)
 
 ## Quick start
 
@@ -54,7 +31,7 @@ tgv
 - Go to gene: `:_gene_` (e.g. `:TP53`)
 - Go to a chromosome position: `:_chr_:_position_`: (e.g. `:1:2345`)
 
-[Full key bindings and comparison with Vim.](docs/key_bindings.md)
+[Full key bindings](https://github.com/zeqianli/tgv/wiki/Usage)
 
 ## View alignments
 
@@ -73,20 +50,12 @@ tgv s3://my-bucket/sorted.bam -r TP53
 tgv non_human.bam -r 1:123 --no-reference
 ```
 
-## Supported formats
+Supported formats (see [wiki](https://github.com/zeqianli/tgv/wiki/Usage)):
+- BAM (index and sorted; `.bai` file is needed): local, AWS S3, HTTP, FTP, Google Cloud
 
-- BAM (index and sorted). `.bai` file is needed.
-  - Local, AWS, Google Cloud, or HTTP/HTTPS
-  - Local: place the `.bai` file in the same directory; or specify the index file with `-i`.
-  - `s3`: set credentials in environmental variables. See: <https://www.htslib.org/doc/htslib-s3-plugin.html>
-  - `gss`: TODO not tested. Please provide feedback if it works!
-  - Note that the custom `bai` path (`-i`) is not supported for remote use for due to [rust-htslib](https://github.com/rust-bio/rust-htslib) API limitation.
+## Contribution is welcome!
 
-See [ROADMAP.md](ROADMAP.md) for future plans.
-
-## Contribute
-
-Contribution is welcome. See [CONTRIBUTE.md](CONTRIBUTE.md). Please join the [Discord](https://discord.gg/NKGg684M) to discuss ideas!
+See [wiki](https://github.com/zeqianli/tgv/wiki/Contribution-is-welcome!). Also join the [Discord](https://discord.gg/NKGg684M) to discuss ideas.
 
 ## FAQ
 
