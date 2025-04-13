@@ -55,7 +55,7 @@ jobs:
         if: matrix.platform == 'linux-musl'
         run: |
           sudo apt-get update
-          sudo apt-get install -y musl-tools libssl-dev pkg-config libz-dev build-essential
+          sudo apt-get install -y musl-tools libssl-dev pkg-config libz-dev
 
       - name: Build
         run: cargo build --release --target ${{ matrix.target }}
@@ -103,14 +103,14 @@ jobs:
             CURRENT_DATE=$(date +'%Y%m%d')
             echo "VERSION=${RELEASE_TYPE}-${CURRENT_DATE}" >> $GITHUB_OUTPUT
             echo "IS_PRERELEASE=true" >> $GITHUB_OUTPUT
-            echo "RELEASE_NAME=TGV ${RELEASE_TYPE^} Build (${CURRENT_DATE})" >> $GITHUB_OUTPUT
+            echo "RELEASE_NAME=${RELEASE_TYPE^} Build (${CURRENT_DATE})" >> $GITHUB_OUTPUT
             echo "TAG_NAME=${RELEASE_TYPE}-${CURRENT_DATE}" >> $GITHUB_OUTPUT
           else
             # Tag-based release
             VERSION=${GITHUB_REF#refs/tags/v}
             echo "VERSION=${VERSION}" >> $GITHUB_OUTPUT
             echo "IS_PRERELEASE=${{ contains(github.ref, 'alpha') || contains(github.ref, 'beta') || contains(github.ref, 'rc') }}" >> $GITHUB_OUTPUT
-            echo "RELEASE_NAME=TGV v${VERSION}" >> $GITHUB_OUTPUT
+            echo "RELEASE_NAME=v${VERSION}" >> $GITHUB_OUTPUT
             echo "TAG_NAME=${GITHUB_REF}" >> $GITHUB_OUTPUT
           fi
 
