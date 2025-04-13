@@ -1,0 +1,18 @@
+# Binary and test files
+target
+test/output
+src/snapshots
+tests/
+
+# Demo files
+demo.mp4
+
+# MacOS
+.DS_Store
+
+# Python
+.venv
+
+# IDE
+.idea
+.vscode
