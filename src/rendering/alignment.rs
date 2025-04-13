@@ -5,7 +5,7 @@ use crate::models::{
 };
 use crate::rendering::colors;
 use ratatui::{buffer::Buffer, layout::Rect, style::Style};
-use rust_htslib::bam::record::Cigar;
+use rust_htslib::bam::{ext::BamRecordExtensions, record::Cigar};
 
 /// Render an alignment on the alignment area.
 pub fn render_alignment(
@@ -77,44 +77,102 @@ fn get_segment_string(length: usize, is_reverse: Option<bool>) -> String {
 /// Render a read as sections of styled texts
 /// See: https://samtools.github.io/hts-specs/SAMv1.pdf
 fn get_cigar_segments(read: &AlignedRead) -> Vec<(usize, usize, Style)> {
+
+    let mut reference_pivot: usize = read.start; // used in the output
+    let mut query_pivot: usize = 0; // # bases relative to the softclip start.
+
     let mut output = Vec::new();
-    let mut pivot: usize = 0; // position relative to the softclip-start
 
     for op in read.read.cigar().iter() {
-        match op {
-            Cigar::Ins(_l) | Cigar::HardClip(_l) | Cigar::Pad(_l) => continue,
-            Cigar::Del(l) | Cigar::RefSkip(l) => {
-                pivot += *l as usize;
-                continue;
-            }
-            Cigar::Match(l) | Cigar::Equal(l) | Cigar::Diff(l) => {
-                let start = read.start + pivot - read.leading_softclips; // Should not overflow
-                let end = start + *l as usize - 1;
-                pivot += *l as usize;
-                output.push((start, end, Style::default().bg(colors::MATCH_COLOR)));
-            }
-            Cigar::SoftClip(l) => {
-                // If this is a leading softclip, check subtraction overflow.
-                for i_base in pivot..pivot + *l as usize {
-                    let base_coord_is_valid = read.start + i_base >= 1 + read.leading_softclips;
-                    if base_coord_is_valid {
-                        let abs_start = read.start + i_base - read.leading_softclips;
 
-                        let base = read.read.seq()[i_base];
-                        let base_color = match base {
-                            b'A' => colors::SOFTCLIP_A,
-                            b'C' => colors::SOFTCLIP_C,
-                            b'G' => colors::SOFTCLIP_G,
-                            b'T' => colors::SOFTCLIP_T,
-                            _ => colors::SOFTCLIP_N,
-                        };
-                        output.push((abs_start, abs_start, Style::default().bg(base_color)));
+        if let Cigar::SoftClip(l) = op {
+            for i_base in query_pivot..query_pivot + *l as usize {
+                let base_coord_is_valid = reference_pivot + i_base >= 1 + read.leading_softclips;
+                if base_coord_is_valid {
+                    let abs_start = reference_pivot + i_base - read.leading_softclips;
+
+                    if i_base >= read.read.seq().len() {
+                        panic!("i_base {} is out of range. seq_len(): {}, seq_len_from_cigar(): {}, cigar: {:?}", i_base, read.read.seq().len(), read.read.cigar().len(), read.read.cigar());
                     }
-                }
 
-                pivot += *l as usize;
+                    let base = read.read.seq()[i_base];
+                    let base_color = match base {
+                        b'A' => colors::SOFTCLIP_A,
+                        b'C' => colors::SOFTCLIP_C,
+                        b'G' => colors::SOFTCLIP_G,
+                        b'T' => colors::SOFTCLIP_T,
+                        _ => colors::SOFTCLIP_N,
+                    };
+                    output.push((abs_start, abs_start, Style::default().bg(base_color)));
+                }
             }
+        } 
+
+        if consumes_reference(op) {
+            output.push((reference_pivot, reference_pivot + op.len() as usize -1 as usize, get_cigar_style(op)));
+            reference_pivot += op.len() as usize;
+            // Note that softclip does not consume query and is handled above.
         }
+
+        if consumes_query(op) {
+            query_pivot += op.len() as usize;
+        }
+
+    }
+
+    if reference_pivot != read.end +1 {
+        panic!("reference_pivot {} is not equal to read.end() + 1 {}", reference_pivot, read.end +1);
     }
     output
+}
+
+/// Whether the cigar operation consumes reference. 
+/// Yes: M/D/N/=/X
+/// No: I/S/H/P
+/// See: https://samtools.github.io/hts-specs/SAMv1.pdf
+fn consumes_reference(op: &Cigar) -> bool {
+    match op {
+        Cigar::Match(_l) | 
+        Cigar::Del(_l) |
+        Cigar::RefSkip(_l) |
+        Cigar::Equal(_l) |
+        Cigar::Diff(_l) => true,
+
+        Cigar::SoftClip(_l) |
+        Cigar::Ins(_l) |
+        Cigar::HardClip(_l) |
+        Cigar::Pad(_l) => false,
+    }
+}
+
+/// Whether the cigar operation consumes query.
+/// Yes: M/I/S/=/X
+/// No: D/N/H/P
+fn consumes_query(op: &Cigar) -> bool {
+    match op {
+        Cigar::Match(_l) |
+        Cigar::Ins(_l) |
+        Cigar::SoftClip(_l) |
+        Cigar::Equal(_l) |
+        Cigar::Diff(_l) => true,
+
+        Cigar::Del(_l) |
+        Cigar::RefSkip(_l) |
+        Cigar::HardClip(_l) |
+        Cigar::Pad(_l) => false,
+    }
+}
+
+/// Only labels that consumes reference are display onscreen.
+fn get_cigar_style(op: &Cigar) -> Style {
+    match op {
+        Cigar::Match(_l) | Cigar::Equal(_l) =>  Style::default().bg(colors::MATCH_COLOR), 
+        // By SAM spec, M can also be mismatch. TODO: think about this in the future.
+        
+        Cigar::Diff(_l)  => Style::default().bg(colors::MISMATCH_COLOR),
+        
+        Cigar::Del(_l) | Cigar::RefSkip(_l) => Style::default(),
+
+        _ => Style::default(),
+    }
 }
