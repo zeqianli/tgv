@@ -9,7 +9,7 @@ use ratatui::{
     },
     prelude::Backend,
     widgets::Widget,
-    DefaultTerminal, Frame, Terminal,
+    Frame, Terminal,
 };
 
 use crate::error::TGVError;

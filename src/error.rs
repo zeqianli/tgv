@@ -16,8 +16,8 @@ pub enum TGVError {
 }
 
 impl TGVError {
-    pub fn is_same_type(&self, _other: &TGVError) -> bool {
-        matches!(self, _other)
+    pub fn is_same_type(&self, other: &TGVError) -> bool {
+        matches!(self, other)
     }
 }
 

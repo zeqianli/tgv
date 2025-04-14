@@ -5,6 +5,7 @@ use ratatui::{
     widgets::{Sparkline, Widget},
 };
 
+use crate::error::TGVError;
 use crate::models::alignment::Alignment;
 use crate::models::window::ViewingWindow;
 
@@ -17,7 +18,7 @@ pub fn render_coverage(
     buf: &mut Buffer,
     window: &ViewingWindow,
     alignment: &Alignment,
-) -> Result<(), ()> {
+) -> Result<(), TGVError> {
     if area.width < MIN_AREA_WIDTH || area.height < MIN_AREA_HEIGHT {
         return Ok(());
     }
@@ -67,17 +68,23 @@ fn round_up_max_coverage(x: u64) -> u64 {
 /// Get a linear space of n_bins between left and right.
 /// 1-based, inclusive.
 /// Returns a vector of n_bins + 1 elements.
-fn get_linear_space(left: usize, right: usize, n_bins: usize) -> Result<Vec<(usize, usize)>, ()> {
+fn get_linear_space(
+    left: usize,
+    right: usize,
+    n_bins: usize,
+) -> Result<Vec<(usize, usize)>, TGVError> {
     if n_bins == 0 {
-        return Err(());
+        return Err(TGVError::ValueError("n_bins is 0".to_string()));
     }
 
     if right <= left {
-        return Err(());
+        return Err(TGVError::ValueError("Right is less than left".to_string()));
     }
 
     if n_bins > right - left {
-        return Err(());
+        return Err(TGVError::ValueError(
+            "n_bins is greater than the number of bases in the region".to_string(),
+        ));
     }
 
     let mut bins: Vec<(usize, usize)> = Vec::new();
@@ -109,17 +116,21 @@ fn calculate_binned_coverage(
     left: usize,
     right: usize,
     n_bins: usize,
-) -> Result<Vec<u64>, ()> {
+) -> Result<Vec<u64>, TGVError> {
     if right < left {
-        return Err(());
+        return Err(TGVError::ValueError("Right is less than left".to_string()));
     }
 
     if n_bins == 0 {
-        return Err(());
+        return Err(TGVError::ValueError("n_bins is 0".to_string()));
     }
 
     match (right - left + 1).cmp(&n_bins) {
-        std::cmp::Ordering::Less => return Err(()),
+        std::cmp::Ordering::Less => {
+            return Err(TGVError::ValueError(
+                "n_bins is greater than the number of bases in the region".to_string(),
+            ))
+        }
         std::cmp::Ordering::Equal => {
             return Ok((left..right + 1)
                 .map(|x| alignment.coverage_at(x) as u64)
@@ -128,21 +139,23 @@ fn calculate_binned_coverage(
         std::cmp::Ordering::Greater => {}
     }
 
-    let linear_space = get_linear_space(left, right, n_bins)?;
+    let linear_space: Vec<(usize, usize)> = get_linear_space(left, right, n_bins)?;
 
-    let binned_coverage = linear_space
+    let binned_coverage: Result<Vec<u64>, TGVError> = linear_space
         .iter()
         .map(|(bin_left, bin_right)| {
             if bin_left > bin_right {
-                panic!("{}, {}, {}", left, right, n_bins);
+                return Err(TGVError::ValueError(
+                    "bin_left is greater than bin_right".to_string(),
+                ));
             }
-            alignment
+            Ok(alignment
                 .mean_basewise_coverage_in(*bin_left, *bin_right)
-                .unwrap() as u64
+                .unwrap() as u64)
         })
         .collect();
 
-    Ok(binned_coverage)
+    binned_coverage
 }
 
 #[cfg(test)]
@@ -166,10 +179,10 @@ mod tests {
     }
 
     #[rstest]
-    #[case(1, 5, 0, Err(()))]
-    #[case(1, 5, 5, Err(()))]
-    #[case(5,5, 1, Err(()))]
-    #[case(5, 4, 1, Err(()))]
+    #[case(1, 5, 0, Err(TGVError::ValueError("n_bins is 0".to_string())))]
+    #[case(1, 5, 5, Err(TGVError::ValueError("n_bins is greater than the number of bases in the region".to_string())))]
+    #[case(5,5, 1, Err(TGVError::ValueError("n_bins is greater than the number of bases in the region".to_string())))]
+    #[case(5, 4, 1, Err(TGVError::ValueError("Right is less than left".to_string())))]
     #[case(25398019, 25398025, 3, Ok(vec![(25398019, 25398021), (25398022, 25398023), (25398024, 25398025)]))] // large interger matters here. Using f32 in the function causes problem for large integers.
     #[case(5,10, 1, Ok(vec![(5,10)]))]
     #[case(5, 10, 2, Ok(vec![(5,7), (8,10)]))]
@@ -177,9 +190,13 @@ mod tests {
         #[case] left: usize,
         #[case] right: usize,
         #[case] n_bins: usize,
-        #[case] expected: Result<Vec<(usize, usize)>, ()>,
+        #[case] expected: Result<Vec<(usize, usize)>, TGVError>,
     ) {
         let result = get_linear_space(left, right, n_bins);
-        assert_eq!(result, expected);
+        match (result, expected) {
+            (Ok(result), Ok(expected)) => assert_eq!(result, expected),
+            (Err(e), Err(expected)) => assert!(matches!(e, expected)),
+            _ => panic!("Unexpected test result"),
+        }
     }
 }

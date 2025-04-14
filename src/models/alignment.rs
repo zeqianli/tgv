@@ -214,9 +214,9 @@ impl Alignment {
 
     /// Mean basewise coverage in [left, right].
     /// 1-based, inclusive.
-    pub fn mean_basewise_coverage_in(&self, left: usize, right: usize) -> Result<usize, ()> {
+    pub fn mean_basewise_coverage_in(&self, left: usize, right: usize) -> Result<usize, TGVError> {
         if right < left {
-            panic!("{}, {}", left, right);
+            return Err(TGVError::ValueError("Right is less than left".to_string()));
         }
 
         if right < self.data_complete_left_bound || left > self.data_complete_right_bound {
@@ -240,26 +240,27 @@ impl Alignment {
 impl Alignment {
     const MIN_HORIZONTAL_GAP_BETWEEN_READS: usize = 3;
 
-    /// Add a read to the alignment. Note that this function does not update coverage.
     fn find_track(&mut self, read_start: usize, read_end: usize) -> usize {
         if self.reads.is_empty() {
             return 0;
         }
 
         for (y, left_bound) in self.track_left_bounds.iter().enumerate() {
-            if read_end <= left_bound.saturating_sub(Self::MIN_HORIZONTAL_GAP_BETWEEN_READS) {
+            if read_end + Self::MIN_HORIZONTAL_GAP_BETWEEN_READS < *left_bound {
                 return y;
             }
         }
 
         for (y, right_bound) in self.track_right_bounds.iter().enumerate() {
-            if read_start >= right_bound.saturating_add(Self::MIN_HORIZONTAL_GAP_BETWEEN_READS) {
+            if read_start > *right_bound + Self::MIN_HORIZONTAL_GAP_BETWEEN_READS {
                 return y;
             }
         }
 
         self.depth()
     }
+
+    /// Add a read to the alignment. Note that this function does not update coverage.
 
     fn add_read(&mut self, read: Record) {
         let read_start = read.pos() as usize + 1;
@@ -269,7 +270,10 @@ impl Alignment {
         // read.pos() in htslib: 0-based, inclusive, excluding leading hardclips and softclips
         // read.reference_end() in htslib: 0-based, exclusive, excluding trailing hardclips and softclips
 
-        let y = self.find_track(read_start, read_end);
+        let y = self.find_track(
+            read_start.saturating_sub(leading_softclips),
+            read_end.saturating_add(trailing_softclips),
+        );
 
         let aligned_read = AlignedRead {
             read,

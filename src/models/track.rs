@@ -527,7 +527,7 @@ mod tests {
                 id: "gene1".to_string(),
                 name: "gene1".to_string(),
                 strand: Strand::Forward,
-                contig: Contig::chrom(&"chr1".to_string()),
+                contig: Contig::chrom("chr1"),
                 transcription_start: 2,
                 transcription_end: 10,
                 cds_start: 2,
@@ -540,7 +540,7 @@ mod tests {
                 id: "gene_no_exon".to_string(),
                 name: "gene_no_exon".to_string(),
                 strand: Strand::Forward,
-                contig: Contig::chrom(&"chr1".to_string()),
+                contig: Contig::chrom("chr1"),
                 transcription_start: 21,
                 transcription_end: 30,
                 cds_start: 25,
@@ -552,7 +552,7 @@ mod tests {
                 id: "gene2".to_string(),
                 name: "gene2".to_string(),
                 strand: Strand::Forward,
-                contig: Contig::chrom(&"chr1".to_string()),
+                contig: Contig::chrom("chr1"),
                 transcription_start: 41,
                 transcription_end: 50,
                 cds_start: 45,
@@ -562,7 +562,7 @@ mod tests {
             },
         ];
 
-        Track::from(genes, Contig::chrom(&"chr1".to_string())).unwrap()
+        Track::from(genes, Contig::chrom("chr1")).unwrap()
     }
 
     use super::*;

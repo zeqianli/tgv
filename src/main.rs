@@ -37,7 +37,7 @@ async fn main() -> Result<(), TGVError> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use insta::{assert_snapshot, Settings as InstaSettings};
+    use insta::assert_snapshot;
     use ratatui::{backend::TestBackend, Terminal};
     use rstest::rstest;
     use std::env;
@@ -64,12 +64,8 @@ mod tests {
         .replace(":", "_")
         .replace(".", "_");
 
-        let bam_path = match bam_path {
-            Some(bam_path) => {
-                Some(env!("CARGO_MANIFEST_DIR").to_string() + "/tests/data/" + bam_path)
-            }
-            None => None,
-        };
+        let bam_path = bam_path
+            .map(|bam_path| env!("CARGO_MANIFEST_DIR").to_string() + "/tests/data/" + bam_path);
 
         let args_string = match (bam_path, args) {
             (Some(bam_path), Some(args)) => format!("tgv {} {}", bam_path, args),

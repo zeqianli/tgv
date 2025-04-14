@@ -2,7 +2,6 @@ use crate::error::TGVError;
 use crate::helpers::is_url;
 use crate::models::{message::StateMessage, reference::Reference};
 use clap::Parser;
-use std::env;
 
 #[derive(Parser)]
 #[command(author, version, about, long_about = None)]
@@ -30,6 +29,11 @@ pub struct Cli {
     /// This flag cannot be used when no BAM file is provided.
     #[arg(long)]
     no_reference: bool,
+
+    /// For development purposes only
+    /// Display messages in the terminal.
+    #[arg(long)]
+    debug: bool,
 }
 
 #[derive(Debug, Clone, Eq, PartialEq)]
@@ -43,6 +47,8 @@ pub struct Settings {
     pub initial_state_messages: Vec<StateMessage>,
 
     pub test_mode: bool,
+
+    pub debug: bool,
 }
 
 impl Settings {
@@ -126,6 +132,7 @@ impl Settings {
             reference,
             initial_state_messages,
             test_mode,
+            debug: cli.debug,
         })
     }
 
@@ -187,6 +194,7 @@ mod tests {
         reference: Some(Reference::Hg38),
         initial_state_messages: vec![StateMessage::GoToDefault],
         test_mode: false,
+        debug: false,
     }))] // empty input: no bam file and no reference: browse hg38
     #[case("tgv input.bam", Ok(Settings {
         bam_path: Some("input.bam".to_string()),
@@ -194,6 +202,7 @@ mod tests {
         reference: Some(Reference::Hg38),
         initial_state_messages: vec![StateMessage::GoToDefault],
         test_mode: false,
+        debug: false,
     }))]
     #[case("tgv wrong.extension", Err(TGVError::CliError("".to_string())))]
     #[case("tgv input.bam -r chr1:12345", Ok(Settings {
@@ -202,6 +211,7 @@ mod tests {
         reference: Some(Reference::Hg38),
         initial_state_messages: vec![StateMessage::GotoContigCoordinate("chr1".to_string(), 12345)],
         test_mode: false,
+        debug: false,
     }))]
     #[case("tgv input.bam -r chr1:invalid", Err(TGVError::CliError("".to_string())))]
     #[case("tgv input.bam -r chr1:12:12345", Err(TGVError::CliError("".to_string())))]
@@ -211,6 +221,7 @@ mod tests {
         reference: Some(Reference::Hg38),
         initial_state_messages: vec![StateMessage::GoToGene("TP53".to_string())],
         test_mode: false,
+        debug: false,
     }))]
     #[case("tgv input.bam -r TP53 -g hg19", Ok(Settings {
         bam_path: Some("input.bam".to_string()),
@@ -218,6 +229,7 @@ mod tests {
         reference: Some(Reference::Hg19),
         initial_state_messages: vec![StateMessage::GoToGene("TP53".to_string())],
         test_mode: false,
+        debug: false,
     }))]
     #[case("tgv input.bam -r TP53 -g hg100", Err(TGVError::CliError("".to_string())))]
     #[case("tgv input.bam -r 1:12345 --no-reference", Ok(Settings {
@@ -226,6 +238,7 @@ mod tests {
         reference: None,
         initial_state_messages: vec![StateMessage::GotoContigCoordinate("1".to_string(), 12345)],
         test_mode: false,
+        debug: false,
     }))]
     #[case("tgv input.bam -r TP53 -g hg19 --no-reference", Err(TGVError::CliError("".to_string())))]
     #[case("tgv --no-reference", Err(TGVError::CliError("".to_string())))]
@@ -240,7 +253,7 @@ mod tests {
         match (Settings::new(cli, false), expected_settings) {
             (Ok(settings), Ok(expected)) => assert_eq!(settings, expected),
             (Err(e), Err(expected)) => assert!(e.is_same_type(&expected)),
-            _ => assert!(false),
+            _ => panic!("Unexpected test result"),
         }
     }
 }
