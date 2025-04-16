@@ -5,7 +5,7 @@ use crate::models::{
     message::DataMessage,
     region::Region,
     sequence::Sequence,
-    services::{sequences::SequenceService, tracks::TrackService},
+    services::{sequences::SequenceService, tracks::UcscDBTrackService},
     track::Track,
 };
 use crate::settings::Settings;
@@ -19,7 +19,7 @@ pub struct Data {
 
     /// Tracks.
     pub track: Option<Track>,
-    pub track_service: Option<TrackService>,
+    pub track_service: Option<UcscDBTrackService>,
 
     /// Sequences.
     pub sequence: Option<Sequence>,
@@ -64,7 +64,7 @@ impl Data {
 
         let (track_service, sequence_service) = match settings.reference.as_ref() {
             Some(reference) => (
-                Some(TrackService::new(reference.clone()).await.unwrap()),
+                Some(UcscDBTrackService::new(reference.clone()).await.unwrap()),
                 Some(SequenceService::new(reference.clone()).unwrap()),
             ),
             None => (None, None),

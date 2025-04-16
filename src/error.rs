@@ -40,4 +40,10 @@ impl From<SqlxError> for TGVError {
     }
 }
 
+impl From<reqwest::Error> for TGVError {
+    fn from(e: reqwest::Error) -> Self {
+        TGVError::IOError(e.to_string())
+    }
+}
+
 // TODO: tracing

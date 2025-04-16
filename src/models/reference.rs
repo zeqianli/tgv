@@ -6,6 +6,8 @@ use std::fmt;
 pub enum Reference {
     Hg19,
     Hg38,
+    UcscGenome(String),
+    UcscAccession(String),
 }
 
 impl Reference {
@@ -14,10 +16,14 @@ impl Reference {
     pub const SUPPORTED_REFERENCES: [&str; 2] = [Self::HG19, Self::HG38];
 
     pub fn from_str(s: &str) -> Result<Self, TGVError> {
-        match s {
-            Self::HG19 => Ok(Self::Hg19),
-            Self::HG38 => Ok(Self::Hg38),
-            _ => Err(TGVError::ParsingError(format!("Invalid reference: {}", s))),
+        if s == Self::HG19 {
+            Ok(Self::Hg19)
+        } else if s == Self::HG38 {
+            Ok(Self::Hg38)
+        } else if s.starts_with("GCA_") || s.starts_with("GCF_") {
+            Ok(Self::UcscAccession(s.to_string()))
+        } else {
+            Ok(Self::UcscGenome(s.to_string()))
         }
     }
 }
@@ -27,6 +33,8 @@ impl fmt::Display for Reference {
         match self {
             Self::Hg19 => write!(f, "{}", Self::HG19),
             Self::Hg38 => write!(f, "{}", Self::HG38),
+            Self::UcscGenome(s) => write!(f, "{}", s),
+            Self::UcscAccession(s) => write!(f, "{}", s),
         }
     }
 }
@@ -90,6 +98,7 @@ impl Reference {
                 "chr21" => Some(46709983),
                 _ => None,
             },
+            _ => None, // Must query the UCSC API. This function is not supported.
         }
     }
 }

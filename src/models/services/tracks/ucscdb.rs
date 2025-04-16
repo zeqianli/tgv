@@ -6,18 +6,19 @@ use crate::models::{
     strand::Strand,
     track::{Feature, Gene, Track},
 };
+use reqwest;
 use sqlx::{mysql::MySqlPoolOptions, MySqlPool, Row};
 use std::sync::Arc;
 
-pub struct TrackService {
+pub struct UcscDBTrackService {
     pool: Arc<MySqlPool>,
     #[allow(dead_code)]
     reference: Reference,
 }
 
-impl TrackService {
-    pub async fn new(reference: Reference) -> Result<Self, sqlx::Error> {
-        let mysql_url = TrackService::get_mysql_url(&reference).unwrap();
+impl UcscDBTrackService {
+    pub async fn new(reference: Reference) -> Result<Self, TGVError> {
+        let mysql_url = UcscDBTrackService::get_mysql_url(&reference)?;
         let pool = MySqlPoolOptions::new()
             .max_connections(5)
             .connect(&mysql_url)
@@ -33,10 +34,18 @@ impl TrackService {
         match reference {
             Reference::Hg19 => Ok("mysql://genome@genome-mysql.soe.ucsc.edu/hg19".to_string()),
             Reference::Hg38 => Ok("mysql://genome@genome-mysql.soe.ucsc.edu/hg38".to_string()),
+            _ => Err(TGVError::ValueError("Unsupported reference".to_string())),
         }
     }
 
-    pub async fn query_feature_track(&self, region: &Region) -> Result<Track, TGVError> {
+    pub async fn close(&self) -> Result<(), TGVError> {
+        self.pool.close().await;
+        Ok(())
+    }
+}
+
+impl TrackService for UcscDBTrackService {
+    async fn query_feature_track(&self, region: &Region) -> Result<Track, TGVError> {
         let genes = self
             .query_genes_between(&region.contig, region.start, region.end)
             .await?;
@@ -44,12 +53,7 @@ impl TrackService {
         Track::from(genes, region.contig.clone())
     }
 
-    pub async fn close(&self) -> Result<(), TGVError> {
-        self.pool.close().await;
-        Ok(())
-    }
-
-    pub async fn query_genes_between(
+    async fn query_genes_between(
         &self,
         contig: &Contig,
         start: usize,
@@ -102,7 +106,7 @@ impl TrackService {
         Ok(genes)
     }
 
-    pub async fn query_gene_covering(
+    async fn query_gene_covering(
         &self,
         contig: &Contig,
         coord: usize,
@@ -153,7 +157,7 @@ impl TrackService {
         }
     }
 
-    pub async fn query_gene_name(&self, gene_id: &String) -> Result<Gene, TGVError> {
+    async fn query_gene_name(&self, gene_id: &String) -> Result<Gene, TGVError> {
         let row = sqlx::query(
             "SELECT name, name2, strand, chrom, txStart, txEnd, exonStarts, exonEnds, cdsStart, cdsEnd
             FROM ncbiRefSeqSelect 
@@ -203,10 +207,8 @@ impl TrackService {
             )))
         }
     }
-}
 
-impl TrackService {
-    pub async fn query_k_genes_after(
+    async fn query_k_genes_after(
         &self,
         contig: &Contig,
         coord: usize,
@@ -276,7 +278,7 @@ impl TrackService {
             .ok_or(TGVError::IOError("No genes found".to_string()))
     }
 
-    pub async fn query_k_genes_before(
+    async fn query_k_genes_before(
         &self,
         contig: &Contig,
         coord: usize,
@@ -346,7 +348,7 @@ impl TrackService {
             .ok_or(TGVError::IOError("No genes found".to_string()))
     }
 
-    pub async fn query_k_exons_after(
+    async fn query_k_exons_after(
         &self,
         contig: &Contig,
         coord: usize,
@@ -410,7 +412,7 @@ impl TrackService {
             .ok_or(TGVError::IOError("No exons found".to_string()))
     }
 
-    pub async fn query_k_exons_before(
+    async fn query_k_exons_before(
         &self,
         contig: &Contig,
         coord: usize,
