@@ -80,6 +80,19 @@ impl Cytoband {
         let content = match reference {
             Reference::Hg19 => HG19_CYTOBAND,
             Reference::Hg38 => HG38_CYTOBAND,
+            Reference::UcscGenome(genome) => {
+                // TODO
+                return Err(TGVError::ValueError(format!(
+                    "Unsupported reference: {}",
+                    genome
+                )));
+            }
+            Reference::UcscAccession(accession) => {
+                return Err(TGVError::ValueError(format!(
+                    "Unsupported reference: {}",
+                    accession
+                )))
+            }
         };
 
         let reader = BufReader::new(content);

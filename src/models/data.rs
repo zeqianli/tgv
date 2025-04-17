@@ -5,8 +5,14 @@ use crate::models::{
     message::DataMessage,
     region::Region,
     sequence::Sequence,
-    services::{sequences::SequenceService, tracks::UcscDBTrackService},
-    track::Track,
+    services::{
+        sequences::SequenceService,
+        tracks::{TrackService, UcscApiTrackService, UcscDbTrackService},
+    },
+    track::{
+        feature::{Gene, SubGeneFeature},
+        track::Track,
+    },
 };
 use crate::settings::Settings;
 use std::path::Path;
@@ -18,8 +24,8 @@ pub struct Data {
     pub bai_path: Option<String>,
 
     /// Tracks.
-    pub track: Option<Track>,
-    pub track_service: Option<UcscDBTrackService>,
+    pub track: Option<Track<Gene>>,
+    pub track_service: Option<UcscApiTrackService>,
 
     /// Sequences.
     pub sequence: Option<Sequence>,
@@ -64,7 +70,7 @@ impl Data {
 
         let (track_service, sequence_service) = match settings.reference.as_ref() {
             Some(reference) => (
-                Some(UcscDBTrackService::new(reference.clone()).await.unwrap()),
+                Some(UcscApiTrackService::new(reference.clone()).unwrap()),
                 Some(SequenceService::new(reference.clone()).unwrap()),
             ),
             None => (None, None),

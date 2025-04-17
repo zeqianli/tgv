@@ -27,13 +27,13 @@ pub struct UcscApiTrackService {
 }
 
 impl UcscApiTrackService {
-    pub fn new(reference: Reference) -> Self {
-        Self {
+    pub fn new(reference: Reference) -> Result<Self, TGVError> {
+        Ok(Self {
             reference,
             cached_tracks: HashMap::new(),
             gene_name_lookup: HashMap::new(),
             client: Client::new(),
-        }
+        })
     }
 
     /// Check if the contig's track is already cached. If not, load it.
@@ -127,9 +127,18 @@ impl UcscApiTrackService {
 }
 
 impl TrackService for UcscApiTrackService {
-    async fn query_genes_between(&self, region: &Region) -> Result<Vec<&Gene>, TGVError> {
+    async fn close(&self) -> Result<(), TGVError> {
+        // reqwest client dones't need closing
+        Ok(())
+    }
+
+    async fn query_genes_between(&self, region: &Region) -> Result<Vec<Gene>, TGVError> {
         if let Some(track) = self.cached_tracks.get(&region.contig().full_name()) {
-            Ok(track.get_genes_between(region.start(), region.end()))
+            Ok(track
+                .get_genes_between(region.start(), region.end())
+                .iter()
+                .map(|g| (*g).clone())
+                .collect()) // TODO: think about how to make this more efficient
         } else {
             Err(TGVError::IOError("Track not found".to_string()))
         }
@@ -139,21 +148,22 @@ impl TrackService for UcscApiTrackService {
         &self,
         contig: &Contig,
         position: usize,
-    ) -> Result<Option<&Gene>, TGVError> {
+    ) -> Result<Option<Gene>, TGVError> {
         if let Some(track) = self.cached_tracks.get(&contig.full_name()) {
-            Ok(track.get_gene_at(position))
+            Ok(track.get_gene_at(position).map(|g| (*g).clone()))
         } else {
             Err(TGVError::IOError("Track not found".to_string()))
         }
     }
 
-    async fn query_gene_name(&self, name: &String) -> Result<&Gene, TGVError> {
+    async fn query_gene_name(&self, name: &String) -> Result<Gene, TGVError> {
         if let Some((contig, gene_index)) = self.gene_name_lookup.get(name) {
-            return Ok(&self
+            return Ok(self
                 .cached_tracks
                 .get(contig)
                 .unwrap() // should never error out
-                .genes()[*gene_index]);
+                .genes()[*gene_index]
+                .clone());
         } else {
             Err(TGVError::IOError("Gene not found".to_string()))
         }
@@ -164,11 +174,12 @@ impl TrackService for UcscApiTrackService {
         contig: &Contig,
         position: usize,
         k: usize,
-    ) -> Result<&Gene, TGVError> {
+    ) -> Result<Gene, TGVError> {
         if let Some(track) = self.cached_tracks.get(&contig.full_name()) {
             Ok(track
                 .get_saturating_k_genes_after(position, k)
-                .ok_or(TGVError::IOError("No genes found".to_string()))?)
+                .ok_or(TGVError::IOError("No genes found".to_string()))?
+                .clone())
         } else {
             Err(TGVError::IOError("Track not found".to_string()))
         }
@@ -179,11 +190,12 @@ impl TrackService for UcscApiTrackService {
         contig: &Contig,
         position: usize,
         k: usize,
-    ) -> Result<&Gene, TGVError> {
+    ) -> Result<Gene, TGVError> {
         if let Some(track) = self.cached_tracks.get(&contig.full_name()) {
             Ok(track
                 .get_saturating_k_genes_before(position, k)
-                .ok_or(TGVError::IOError("No genes found".to_string()))?)
+                .ok_or(TGVError::IOError("No genes found".to_string()))?
+                .clone())
         } else {
             Err(TGVError::IOError("Track not found".to_string()))
         }

@@ -9,6 +9,7 @@ use crate::models::{
     reference::Reference,
     region::Region,
     register::{CommandModeRegister, NormalModeRegister},
+    services::tracks::{TrackService, UcscApiTrackService},
     window::ViewingWindow,
 };
 use crate::settings::Settings;
@@ -70,8 +71,7 @@ impl ContigCollection {
                         "Custom .bai path for remote BAM files are not supported yet.".to_string(),
                     ));
                 }
-                IndexedReader::from_path_and_index(path, bai_path)
-                    .map_err(|e| TGVError::IOError(e.to_string()))?
+                IndexedReader::from_path_and_index(path, bai_path)?
             }
             None => {
                 if is_remote_path {
@@ -80,7 +80,7 @@ impl ContigCollection {
                     )
                     .unwrap()
                 } else {
-                    IndexedReader::from_path(path).map_err(|e| TGVError::IOError(e.to_string()))?
+                    IndexedReader::from_path(path)?
                 }
             }
         };
@@ -285,8 +285,8 @@ impl State {
         self.window.is_some()
     }
 
-    pub fn add_error_message(&mut self, error: TGVError) {
-        self.errors.push(format!("{}", error));
+    pub fn add_error_message(&mut self, error: String) {
+        self.errors.push(error);
     }
 
     pub async fn close(&mut self) -> Result<(), TGVError> {
@@ -422,9 +422,9 @@ impl State {
         // Otherwise, pass on an error message.
         for message in messages.iter() {
             if message.requires_reference() && self.settings.reference.is_none() {
-                return vec![StateMessage::Error(TGVError::StateError(
-                    "Reference is not provided".to_string(),
-                ))];
+                return vec![StateMessage::Error(
+                    TGVError::StateError("Reference is not provided".to_string()).to_string(),
+                )];
             }
         }
 
@@ -464,7 +464,7 @@ impl State {
                 self.command_mode_register.add_char(c)
             }
             StateMessage::CommandModeRegisterError(error_message) => {
-                self.add_error_message(TGVError::ParsingError(error_message))
+                self.add_error_message(error_message)
             }
             StateMessage::ClearCommandModeRegisters => self.command_mode_register.clear(),
             StateMessage::BackspaceCommandModeRegisters => self.command_mode_register.backspace(),
@@ -478,7 +478,7 @@ impl State {
             // Normal mode handling
             StateMessage::AddCharToNormalModeRegisters(c) => self.normal_mode_register.add_char(c),
             StateMessage::NormalModeRegisterError(error_message) => {
-                self.add_error_message(TGVError::ParsingError(error_message))
+                self.add_error_message(error_message)
             }
             StateMessage::ClearNormalModeRegisters => self.normal_mode_register.clear(),
 

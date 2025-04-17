@@ -5,20 +5,23 @@ use crate::models::{
     region::Region,
     services::tracks::TrackService,
     strand::Strand,
-    track::{Feature, Gene, Track},
+    track::{
+        feature::{Gene, SubGeneFeature, SubGeneFeatureType},
+        track::Track,
+    },
 };
 use sqlx::{mysql::MySqlPoolOptions, MySqlPool, Row};
 use std::sync::Arc;
 
-pub struct UcscDBTrackService {
+pub struct UcscDbTrackService {
     pool: Arc<MySqlPool>,
     #[allow(dead_code)]
     reference: Reference,
 }
 
-impl UcscDBTrackService {
+impl UcscDbTrackService {
     pub async fn new(reference: Reference) -> Result<Self, TGVError> {
-        let mysql_url = UcscDBTrackService::get_mysql_url(&reference)?;
+        let mysql_url = UcscDbTrackService::get_mysql_url(&reference)?;
         let pool = MySqlPoolOptions::new()
             .max_connections(5)
             .connect(&mysql_url)
@@ -37,20 +40,13 @@ impl UcscDBTrackService {
             _ => Err(TGVError::ValueError("Unsupported reference".to_string())),
         }
     }
+}
 
-    pub async fn close(&self) -> Result<(), TGVError> {
+impl TrackService for UcscDbTrackService {
+    async fn close(&self) -> Result<(), TGVError> {
         self.pool.close().await;
         Ok(())
     }
-}
-
-impl TrackService for UcscDBTrackService {
-    async fn query_gene_track(&self, region: &Region) -> Result<Track, TGVError> {
-        let genes = self.query_genes_between(region).await?;
-
-        Track::from(genes, region.contig.clone())
-    }
-
     async fn query_genes_between(&self, region: &Region) -> Result<Vec<Gene>, TGVError> {
         let rows = sqlx::query(
             "SELECT name, chrom, strand, txStart, txEnd, name2, exonStarts, exonEnds, cdsStart, cdsEnd
@@ -80,7 +76,6 @@ impl TrackService for UcscDBTrackService {
             // https://genome-blog.gi.ucsc.edu/blog/2016/12/12/the-ucsc-genome-browser-coordinate-counting-systems/
 
             genes.push(Gene {
-                id: name,
                 name: name2,
                 strand: Strand::from_str(strand_str).unwrap(),
                 contig: Contig::chrom(&chrom),
@@ -131,7 +126,7 @@ impl TrackService for UcscDBTrackService {
             // https://genome-blog.gi.ucsc.edu/blog/2016/12/12/the-ucsc-genome-browser-coordinate-counting-systems/
 
             Ok(Some(Gene {
-                id: name,
+                //id: name,
                 name: name2,
                 strand: Strand::from_str(strand_str).unwrap(),
                 contig: Contig::chrom(&chrom),
@@ -179,7 +174,7 @@ impl TrackService for UcscDBTrackService {
             // https://genome-blog.gi.ucsc.edu/blog/2015/12/12/the-ucsc-genome-browser-coordinate-counting-systems/
 
             Ok(Gene {
-                id: name,
+                //id: name,
                 name: name2,
                 strand: Strand::from_str(strand_str).unwrap(),
                 contig: Contig::chrom(&chrom),
@@ -245,7 +240,7 @@ impl TrackService for UcscDBTrackService {
             // https://genome-blog.gi.ucsc.edu/blog/2016/12/12/the-ucsc-genome-browser-coordinate-counting-systems/
 
             let gene = Gene {
-                id: name,
+                //id: name,
                 name: name2,
                 strand: Strand::from_str(strand_str).unwrap(),
                 contig: Contig::chrom(&chrom),
@@ -263,7 +258,7 @@ impl TrackService for UcscDBTrackService {
             genes.push(gene);
         }
 
-        let track = Track::from(genes, contig.clone())?;
+        let track = Track::from_genes(genes, contig.clone())?;
 
         track
             .get_saturating_k_genes_after(coord, k)
@@ -315,7 +310,7 @@ impl TrackService for UcscDBTrackService {
             // https://genome-blog.gi.ucsc.edu/blog/2016/12/12/the-ucsc-genome-browser-coordinate-counting-systems/
 
             let gene = Gene {
-                id: name,
+                //id: name,
                 name: name2,
                 strand: Strand::from_str(strand_str).unwrap(),
                 contig: Contig::chrom(&chrom),
@@ -333,7 +328,7 @@ impl TrackService for UcscDBTrackService {
             genes.push(gene);
         }
 
-        let track = Track::from(genes, contig.clone())?;
+        let track = Track::from_genes(genes, contig.clone())?;
 
         track
             .get_saturating_k_genes_before(coord, k)
@@ -346,7 +341,7 @@ impl TrackService for UcscDBTrackService {
         contig: &Contig,
         coord: usize,
         k: usize,
-    ) -> Result<Feature, TGVError> {
+    ) -> Result<SubGeneFeature, TGVError> {
         if k == 0 {
             return Err(TGVError::ValueError("k cannot be 0".to_string()));
         }
@@ -380,7 +375,7 @@ impl TrackService for UcscDBTrackService {
             // https://genome-blog.gi.ucsc.edu/blog/2016/12/12/the-ucsc-genome-browser-coordinate-counting-systems/
 
             let gene = Gene {
-                id: name,
+                //id: name,
                 name: name2,
                 strand: Strand::from_str(strand_str).unwrap(),
                 contig: Contig::chrom(&chrom),
@@ -398,7 +393,7 @@ impl TrackService for UcscDBTrackService {
             genes.push(gene);
         }
 
-        let track = Track::from(genes, contig.clone())?;
+        let track = Track::from_genes(genes, contig.clone())?;
 
         track
             .get_saturating_k_exons_after(coord, k)
@@ -410,7 +405,7 @@ impl TrackService for UcscDBTrackService {
         contig: &Contig,
         coord: usize,
         k: usize,
-    ) -> Result<Feature, TGVError> {
+    ) -> Result<SubGeneFeature, TGVError> {
         if k == 0 {
             return Err(TGVError::ValueError("k cannot be 0".to_string()));
         }
@@ -444,7 +439,7 @@ impl TrackService for UcscDBTrackService {
             // https://genome-blog.gi.ucsc.edu/blog/2016/12/12/the-ucsc-genome-browser-coordinate-counting-systems/
 
             let gene = Gene {
-                id: name,
+                //id: name,
                 name: name2,
                 strand: Strand::from_str(strand_str).unwrap(),
                 contig: Contig::chrom(&chrom),
@@ -462,7 +457,7 @@ impl TrackService for UcscDBTrackService {
             genes.push(gene);
         }
 
-        let track = Track::from(genes, contig.clone())?;
+        let track = Track::from_genes(genes, contig.clone())?;
 
         track
             .get_saturating_k_exons_before(coord, k)
