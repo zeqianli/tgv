@@ -26,6 +26,15 @@ impl Reference {
             Ok(Self::UcscGenome(s.to_string()))
         }
     }
+
+    pub fn to_string(&self) -> String {
+        match self {
+            Self::Hg19 => Self::HG19.to_string(),
+            Self::Hg38 => Self::HG38.to_string(),
+            Self::UcscGenome(s) => s.clone(),
+            Self::UcscAccession(s) => s.clone(),
+        }
+    }
 }
 
 impl fmt::Display for Reference {

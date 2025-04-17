@@ -3,9 +3,9 @@ use crate::models::{
     contig::Contig,
     reference::Reference,
     region::Region,
+    services::tracks::TrackService,
     strand::Strand,
     track::{Feature, Gene, Track},
-    services::tracks::TrackService,
 };
 use sqlx::{mysql::MySqlPoolOptions, MySqlPool, Row};
 use std::sync::Arc;
@@ -45,18 +45,13 @@ impl UcscDBTrackService {
 }
 
 impl TrackService for UcscDBTrackService {
-    async fn query_feature_track(&self, region: &Region) -> Result<Track, TGVError> {
-        let genes = self
-            .query_genes_between(region)
-            .await?;
+    async fn query_gene_track(&self, region: &Region) -> Result<Track, TGVError> {
+        let genes = self.query_genes_between(region).await?;
 
         Track::from(genes, region.contig.clone())
     }
 
-    async fn query_genes_between(
-        &self,
-        region: &Region,
-    ) -> Result<Vec<Gene>, TGVError> {
+    async fn query_genes_between(&self, region: &Region) -> Result<Vec<Gene>, TGVError> {
         let rows = sqlx::query(
             "SELECT name, chrom, strand, txStart, txEnd, name2, exonStarts, exonEnds, cdsStart, cdsEnd
              FROM ncbiRefSeqSelect 

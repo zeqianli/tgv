@@ -3,6 +3,7 @@ use crate::{
     models::{contig::Contig, region::Region, strand::Strand},
     traits::GenomeInterval,
 };
+use serde::Deserialize;
 
 // A feature is a interval on a contig.
 
@@ -36,18 +37,32 @@ impl GenomeInterval for SubGeneFeature {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Deserialize)]
 pub struct Gene {
-    pub id: String,
+    #[serde(rename = "name")]
     pub name: String,
+    #[serde(rename = "strand", deserialize_with = "deserialize_strand")]
     pub strand: Strand,
-    pub contig: Contig,
-    pub transcription_start: usize, // 1-based, inclusive
-    pub transcription_end: usize,   // 1-based, exclusive
-    pub cds_start: usize,           // 1-based, inclusive
-    pub cds_end: usize,             // 1-based, exclusive
-    pub exon_starts: Vec<usize>,    // 1-based, inclusive
-    pub exon_ends: Vec<usize>,      // 1-based, exclusive
+    #[serde(skip)]
+    pub contig: Contig, // We'll set this after deserialization
+    #[serde(rename = "txStart")]
+    pub transcription_start: usize,
+    #[serde(rename = "txEnd")]
+    pub transcription_end: usize,
+    #[serde(rename = "cdsStart")]
+    pub cds_start: usize,
+    #[serde(rename = "cdsEnd")]
+    pub cds_end: usize,
+    #[serde(
+        rename = "exonStarts",
+        deserialize_with = "deserialize_comma_separated_list"
+    )]
+    pub exon_starts: Vec<usize>,
+    #[serde(
+        rename = "exonEnds",
+        deserialize_with = "deserialize_comma_separated_list"
+    )]
+    pub exon_ends: Vec<usize>,
 }
 
 impl GenomeInterval for Gene {
@@ -62,6 +77,28 @@ impl GenomeInterval for Gene {
     fn contig(&self) -> &Contig {
         &self.contig
     }
+}
+
+/// Custom deserializer for strand field
+fn deserialize_strand<'de, D>(deserializer: D) -> Result<Strand, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    let s = String::deserialize(deserializer)?;
+    Strand::from_str(s).map_err(serde::de::Error::custom)
+}
+
+/// Custom deserializer for comma-separated lists in UCSC response
+fn deserialize_comma_separated_list<'de, D>(deserializer: D) -> Result<Vec<usize>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    let s = String::deserialize(deserializer)?;
+    s.trim_end_matches(',')
+        .split(',')
+        .filter(|s| !s.is_empty())
+        .map(|num| num.parse::<usize>().map_err(serde::de::Error::custom))
+        .collect()
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -127,12 +164,20 @@ impl Gene {
                 }
 
                 (ExonPosition::PreCDS, ExonPosition::CDS) => {
-                    features.push((*exon_start, self.cds_start - 1, SubGeneFeatureType::NonCDSExon));
+                    features.push((
+                        *exon_start,
+                        self.cds_start - 1,
+                        SubGeneFeatureType::NonCDSExon,
+                    ));
                     features.push((self.cds_start, *exon_end, SubGeneFeatureType::Exon));
                     n_cds_exons += 1;
                 }
                 (ExonPosition::PreCDS, ExonPosition::PostCDS) => {
-                    features.push((*exon_start, self.cds_start - 1, SubGeneFeatureType::NonCDSExon));
+                    features.push((
+                        *exon_start,
+                        self.cds_start - 1,
+                        SubGeneFeatureType::NonCDSExon,
+                    ));
                     features.push((self.cds_start, self.cds_end, SubGeneFeatureType::Exon));
                     features.push((self.cds_end + 1, *exon_end, SubGeneFeatureType::NonCDSExon));
                     n_cds_exons += 1;

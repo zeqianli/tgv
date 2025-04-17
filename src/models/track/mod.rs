@@ -1,2 +1,2 @@
-mod track;
-mod feature;
+pub mod feature;
+pub mod track;

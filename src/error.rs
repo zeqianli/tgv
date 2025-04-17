@@ -46,4 +46,10 @@ impl From<reqwest::Error> for TGVError {
     }
 }
 
+impl From<serde_json::Error> for TGVError {
+    fn from(err: serde_json::Error) -> Self {
+        TGVError::IOError(format!("JSON parsing error: {}", err))
+    }
+}
+
 // TODO: tracing

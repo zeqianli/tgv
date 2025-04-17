@@ -132,7 +132,7 @@ impl Data {
                 let track_service = self.track_service.as_ref().unwrap();
 
                 if !self.has_complete_track(&region) {
-                    self.track = Some(track_service.query_feature_track(&region).await.unwrap());
+                    self.track = Some(track_service.query_gene_track(&region).await.unwrap());
                     loaded_data = true;
                 }
             }

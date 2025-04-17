@@ -4,14 +4,13 @@ use crate::{
         contig::Contig,
         region::Region,
         strand::Strand,
-        track::feature::{SubGeneFeature,Gene},
+        track::feature::{Gene, SubGeneFeature},
     },
     traits::GenomeInterval,
 };
 
-use std::collections::{BTreeMap};
-use std::ops::Bound::{Included, Excluded};
-
+use std::collections::BTreeMap;
+use std::ops::Bound::{Excluded, Included};
 
 // A track is a collections of features on a single contig.
 pub struct Track<T: GenomeInterval> {
@@ -19,8 +18,7 @@ pub struct Track<T: GenomeInterval> {
     pub contig: Contig,
 
     features_by_start: BTreeMap<usize, usize>, // start -> index in features
-    features_by_end: BTreeMap<usize, usize>, // end -> index in features
-
+    features_by_end: BTreeMap<usize, usize>,   // end -> index in features
 
     /// Left bound
     /// 1-based, inclusive.
@@ -32,7 +30,7 @@ pub struct Track<T: GenomeInterval> {
 
     /// Only for Track<Gene>
     /// (i, j) -> exon [self.genes[i].exon_starts[j], self.genes[i].exon_ends[j]]
-    exons_by_start: Option<BTreeMap<usize, (usize, usize)>>, 
+    exons_by_start: Option<BTreeMap<usize, (usize, usize)>>,
     exons_by_end: Option<BTreeMap<usize, (usize, usize)>>,
 }
 
@@ -40,7 +38,6 @@ impl<T: GenomeInterval> Track<T> {
     /// Create a track from a list of features.
     /// Assumes no feature overlapping.
     pub fn from_features(features: Vec<T>, contig: Contig) -> Result<Self, TGVError> {
-
         let mut features = features;
         features.sort_by_key(|feature| feature.start());
 
@@ -60,7 +57,6 @@ impl<T: GenomeInterval> Track<T> {
 
             features_by_start.insert(feature.start(), i_feature);
             features_by_end.insert(feature.end(), i_feature);
-
         }
 
         Ok(Self {
@@ -111,28 +107,30 @@ impl<T: GenomeInterval> Track<T> {
         if !self.covers(position) {
             return None;
         }
-        let range_right= 
-            self.features_by_end.range((Included(position), Excluded(usize::MAX))).next();
-        let range_left = 
-            self.features_by_end.range((Included(0), Included(position))).next_back();
-        
+        let range_right = self
+            .features_by_end
+            .range((Included(position), Excluded(usize::MAX)))
+            .next();
+        let range_left = self
+            .features_by_end
+            .range((Included(0), Included(position)))
+            .next_back();
+
         match (range_left, range_right) {
             (Some((_, start_index)), Some((_, end_index))) => {
                 if start_index == end_index {
                     return Some(&self.features[*start_index]);
                 } else {
-                    return None
+                    return None;
                 }
-            }, 
-            _ => return None
+            }
+            _ => return None,
         }
-
     }
 
     pub fn get_k_features_before(&self, position: usize, k: usize) -> Option<&T> {
-
-        if k==0 {
-            return self.get_feature_at(position)
+        if k == 0 {
+            return self.get_feature_at(position);
         }
 
         if self.features.is_empty() {
@@ -143,13 +141,14 @@ impl<T: GenomeInterval> Track<T> {
             return None;
         }
 
-        
-        let range = 
-            self.features_by_end.range((Included(0), Excluded(position))).nth_back(k-1);
-            
+        let range = self
+            .features_by_end
+            .range((Included(0), Excluded(position)))
+            .nth_back(k - 1);
+
         match range {
             Some((_, index)) => Some(&self.features[*index]),
-            _ => None
+            _ => None,
         }
     }
 
@@ -166,12 +165,14 @@ impl<T: GenomeInterval> Track<T> {
             return None;
         }
 
-        let range = 
-            self.features_by_start.range((Excluded(position), Excluded(usize::MAX))).nth(k-1);
+        let range = self
+            .features_by_start
+            .range((Excluded(position), Excluded(usize::MAX)))
+            .nth(k - 1);
 
         match range {
             Some((_, index)) => Some(&self.features[*index]),
-            _ => None
+            _ => None,
         }
     }
 
@@ -204,9 +205,21 @@ impl<T: GenomeInterval> Track<T> {
             _ => Some(self.features.first().unwrap()),
         }
     }
+
+    pub fn get_features_between(&self, start: usize, end: usize) -> Vec<&T> {
+        self.features_by_start
+            .range((Included(start), Included(end)))
+            .filter(|(_, index)| self.features[**index].end() <= end)
+            .map(|(_, index)| &self.features[*index])
+            .collect()
+    }
 }
 
 impl Track<Gene> {
+    /// Alias for the features field.
+    pub fn genes(&self) -> &Vec<Gene> {
+        &self.features
+    }
 
     pub fn from_genes(genes: Vec<Gene>, contig: Contig) -> Result<Self, TGVError> {
         let mut genes = genes;
@@ -274,32 +287,45 @@ impl Track<Gene> {
         self.get_saturating_k_features_before(position, k)
     }
 
+    /// Alias for get_features_between when the track is a gene track.
+    pub fn get_genes_between(&self, start: usize, end: usize) -> Vec<&Gene> {
+        self.get_features_between(start, end)
+    }
+
     /// O(1) search for the exon covering a given position.
     /// Inspiration: https://www.youtube.com/watch?v=ig-dtw8Um_k
     /// position: 1-based.
     pub fn get_exon_at(&self, position: usize) -> Option<SubGeneFeature> {
-
         let exons_by_start = self.exons_by_start.as_ref().unwrap();
         let exons_by_end = self.exons_by_end.as_ref().unwrap();
 
-        let range_start = exons_by_start.range((Included(position), Excluded(usize::MAX))).next();
-        let range_end = exons_by_end.range((Included(0), Included(position))).next_back();
+        let range_start = exons_by_start
+            .range((Included(position), Excluded(usize::MAX)))
+            .next();
+        let range_end = exons_by_end
+            .range((Included(0), Included(position)))
+            .next_back();
 
         match (range_start, range_end) {
-            (Some((_, (start_gene_idx, start_exon_idx))), Some((_, (end_gene_idx, end_exon_idx)))) => {
+            (
+                Some((_, (start_gene_idx, start_exon_idx))),
+                Some((_, (end_gene_idx, end_exon_idx))),
+            ) => {
                 if start_gene_idx == end_gene_idx && start_exon_idx == end_exon_idx {
-                    return Some(self.features[*start_gene_idx].get_exon(*start_exon_idx).unwrap());
+                    return Some(
+                        self.features[*start_gene_idx]
+                            .get_exon(*start_exon_idx)
+                            .unwrap(),
+                    );
                 } else {
                     return None;
                 }
             }
-            _ => return None
+            _ => return None,
         }
     }
 
     pub fn get_k_exons_before(&self, position: usize, k: usize) -> Option<SubGeneFeature> {
-
-
         if k == 0 {
             return self.get_exon_at(position);
         }
@@ -314,18 +340,19 @@ impl Track<Gene> {
 
         let exons_by_end = self.exons_by_end.as_ref().unwrap();
 
-        let range = exons_by_end.range((Included(0), Included(position))).nth_back(k-1);
+        let range = exons_by_end
+            .range((Included(0), Included(position)))
+            .nth_back(k - 1);
 
         match range {
-            Some((_, (gene_idx, exon_idx))) => 
-                Some(self.features[*gene_idx].get_exon(*exon_idx).unwrap()),
-            _ => None
+            Some((_, (gene_idx, exon_idx))) => {
+                Some(self.features[*gene_idx].get_exon(*exon_idx).unwrap())
+            }
+            _ => None,
         }
-
     }
 
     pub fn get_k_exons_after(&self, position: usize, k: usize) -> Option<SubGeneFeature> {
-
         if k == 0 {
             return self.get_exon_at(position);
         }
@@ -340,19 +367,23 @@ impl Track<Gene> {
 
         let exons_by_start = self.exons_by_start.as_ref().unwrap();
 
-        let range = 
-            exons_by_start.range((Excluded(position), Excluded(usize::MAX))).nth(k-1);
+        let range = exons_by_start
+            .range((Excluded(position), Excluded(usize::MAX)))
+            .nth(k - 1);
 
         match range {
-            Some((_, (gene_idx, exon_idx))) => 
-                Some(self.features[*gene_idx].get_exon(*exon_idx).unwrap()),
-            _ => None
+            Some((_, (gene_idx, exon_idx))) => {
+                Some(self.features[*gene_idx].get_exon(*exon_idx).unwrap())
+            }
+            _ => None,
         }
     }
 
-
-
-    pub fn get_saturating_k_exons_after(&self, position: usize, k: usize) -> Option<SubGeneFeature> {
+    pub fn get_saturating_k_exons_after(
+        &self,
+        position: usize,
+        k: usize,
+    ) -> Option<SubGeneFeature> {
         let exons_by_start = self.exons_by_start.as_ref().unwrap();
 
         if k == 0 {
@@ -372,7 +403,11 @@ impl Track<Gene> {
         }
     }
 
-    pub fn get_saturating_k_exons_before(&self, position: usize, k: usize) -> Option<SubGeneFeature> {
+    pub fn get_saturating_k_exons_before(
+        &self,
+        position: usize,
+        k: usize,
+    ) -> Option<SubGeneFeature> {
         let exons_by_start = self.exons_by_start.as_ref().unwrap();
         if k == 0 {
             return None;
@@ -381,7 +416,6 @@ impl Track<Gene> {
         if exons_by_start.is_empty() {
             return None;
         }
-
 
         match self.get_k_exons_before(position, k) {
             Some(exon) => Some(exon),
@@ -399,7 +433,7 @@ mod tests {
     fn get_test_track() -> Track<Gene> {
         let genes = vec![
             Gene {
-                id: "gene1".to_string(),
+                //id: "gene1".to_string(),
                 name: "gene1".to_string(),
                 strand: Strand::Forward,
                 contig: Contig::chrom("chr1"),
@@ -412,7 +446,7 @@ mod tests {
             },
             Gene {
                 // should not happen, but just in case
-                id: "gene_no_exon".to_string(),
+                //id: "gene_no_exon".to_string(),
                 name: "gene_no_exon".to_string(),
                 strand: Strand::Forward,
                 contig: Contig::chrom("chr1"),
@@ -424,7 +458,7 @@ mod tests {
                 exon_ends: vec![],
             },
             Gene {
-                id: "gene2".to_string(),
+                //id: "gene2".to_string(),
                 name: "gene2".to_string(),
                 strand: Strand::Forward,
                 contig: Contig::chrom("chr1"),

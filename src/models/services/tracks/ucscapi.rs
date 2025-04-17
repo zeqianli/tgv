@@ -3,22 +3,27 @@ use crate::{
     models::{
         contig::Contig,
         reference::Reference,
-        track::{Feature, Gene, Track},
-        services::{
-            tracks::TrackService
-        }
+        region::Region,
+        services::tracks::TrackService,
+        strand::Strand,
+        track::{
+            feature::{Gene, SubGeneFeature},
+            track::Track,
+        },
     },
+    traits::GenomeInterval,
 };
 use std::collections::HashMap;
 
-use reqwest;
+use reqwest::Client;
 use serde_json;
 
 pub struct UcscApiTrackService {
     reference: Reference,
-    cached_tracks: HashMap<String, Track>,
-    
+    cached_tracks: HashMap<String, Track<Gene>>,
     gene_name_lookup: HashMap<String, (String, usize)>, // gene_name -> (contig.full_name(), start)
+
+    client: Client,
 }
 
 impl UcscApiTrackService {
@@ -27,9 +32,9 @@ impl UcscApiTrackService {
             reference,
             cached_tracks: HashMap::new(),
             gene_name_lookup: HashMap::new(),
+            client: Client::new(),
         }
     }
-
 
     /// Check if the contig's track is already cached. If not, load it.
     /// Return true if loading is performed.
@@ -38,20 +43,37 @@ impl UcscApiTrackService {
             return Ok(false);
         }
 
-        let track = self.query_feature_track(contig).await?;
-        self.cached_tracks
-            .insert(contig.full_name().to_string(), track);
+        let preferred_track = self.get_prefered_track_name().await?;
+        let query_url = self.get_track_data_url(contig, preferred_track.clone())?;
 
-        // Populate gene_name_lookup
-        for gene in track.genes {
-            self.gene_name_lookup
-                .insert(gene.name.clone(), (contig.full_name().to_string(), gene.transcription_start));
-        }
-    
+        let response = self.client.get(query_url).send().await?.text().await?;
+        let mut value: serde_json::Value = serde_json::from_str(&response)?;
+
+        // Extract the genes array from the response
+        let genes_value = value[preferred_track].take();
+        let genes: Vec<Gene> = serde_json::from_value(genes_value)?;
+        // Process each gene and set the contig
+
+        self.cached_tracks.insert(
+            contig.full_name(),
+            Track::from_genes(genes, contig.clone())?,
+        );
+
         Ok(true)
     }
 
-    async fn get_prefered_track(&self) -> Result<String, TGVError> {
+    fn get_track_data_url(&self, contig: &Contig, track_name: String) -> Result<String, TGVError> {
+        match &self.reference {
+            Reference::Hg19 | Reference::Hg38 | Reference::UcscGenome(_) => Ok(format!(
+                "https://api.genome.ucsc.edu/getData/track?genome={}&track={}",
+                self.reference.to_string(),
+                track_name
+            )),
+            _ => Err(TGVError::IOError("Unsupported reference".to_string())),
+        }
+    }
+
+    async fn get_prefered_track_name(&self) -> Result<String, TGVError> {
         match self.reference.clone() {
             Reference::Hg19 | Reference::Hg38 => Ok("ncbiRefSeqSelect".to_string()),
             Reference::UcscGenome(genome) => {
@@ -105,6 +127,95 @@ impl UcscApiTrackService {
 }
 
 impl TrackService for UcscApiTrackService {
+    async fn query_genes_between(&self, region: &Region) -> Result<Vec<&Gene>, TGVError> {
+        if let Some(track) = self.cached_tracks.get(&region.contig().full_name()) {
+            Ok(track.get_genes_between(region.start(), region.end()))
+        } else {
+            Err(TGVError::IOError("Track not found".to_string()))
+        }
+    }
 
-    async fn query_genes_between()
+    async fn query_gene_covering(
+        &self,
+        contig: &Contig,
+        position: usize,
+    ) -> Result<Option<&Gene>, TGVError> {
+        if let Some(track) = self.cached_tracks.get(&contig.full_name()) {
+            Ok(track.get_gene_at(position))
+        } else {
+            Err(TGVError::IOError("Track not found".to_string()))
+        }
+    }
+
+    async fn query_gene_name(&self, name: &String) -> Result<&Gene, TGVError> {
+        if let Some((contig, gene_index)) = self.gene_name_lookup.get(name) {
+            return Ok(&self
+                .cached_tracks
+                .get(contig)
+                .unwrap() // should never error out
+                .genes()[*gene_index]);
+        } else {
+            Err(TGVError::IOError("Gene not found".to_string()))
+        }
+    }
+
+    async fn query_k_genes_after(
+        &self,
+        contig: &Contig,
+        position: usize,
+        k: usize,
+    ) -> Result<&Gene, TGVError> {
+        if let Some(track) = self.cached_tracks.get(&contig.full_name()) {
+            Ok(track
+                .get_saturating_k_genes_after(position, k)
+                .ok_or(TGVError::IOError("No genes found".to_string()))?)
+        } else {
+            Err(TGVError::IOError("Track not found".to_string()))
+        }
+    }
+
+    async fn query_k_genes_before(
+        &self,
+        contig: &Contig,
+        position: usize,
+        k: usize,
+    ) -> Result<&Gene, TGVError> {
+        if let Some(track) = self.cached_tracks.get(&contig.full_name()) {
+            Ok(track
+                .get_saturating_k_genes_before(position, k)
+                .ok_or(TGVError::IOError("No genes found".to_string()))?)
+        } else {
+            Err(TGVError::IOError("Track not found".to_string()))
+        }
+    }
+
+    async fn query_k_exons_after(
+        &self,
+        contig: &Contig,
+        position: usize,
+        k: usize,
+    ) -> Result<SubGeneFeature, TGVError> {
+        if let Some(track) = self.cached_tracks.get(&contig.full_name()) {
+            Ok(track
+                .get_saturating_k_exons_after(position, k)
+                .ok_or(TGVError::IOError("No exons found".to_string()))?)
+        } else {
+            Err(TGVError::IOError("Track not found".to_string()))
+        }
+    }
+
+    async fn query_k_exons_before(
+        &self,
+        contig: &Contig,
+        position: usize,
+        k: usize,
+    ) -> Result<SubGeneFeature, TGVError> {
+        if let Some(track) = self.cached_tracks.get(&contig.full_name()) {
+            Ok(track
+                .get_saturating_k_exons_before(position, k)
+                .ok_or(TGVError::IOError("No exons found".to_string()))?)
+        } else {
+            Err(TGVError::IOError("Track not found".to_string()))
+        }
+    }
 }
