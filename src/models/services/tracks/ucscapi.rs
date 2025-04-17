@@ -105,10 +105,6 @@ impl UcscApiTrackService {
 }
 
 impl TrackService for UcscApiTrackService {
-    async fn query_feature_track(&self, contig: &Contig) -> Result<Track, TGVError> {
-        let track = self.query_feature_track(contig).await?;
-        Ok(track)
-    }
 
-    async fn 
+    async fn query_genes_between()
 }
