@@ -9,14 +9,19 @@ use crate::{
     traits::GenomeInterval,
 };
 
+use std::collections::{BTreeMap};
+use std::ops::Bound::{Included, Excluded};
+
 
 // A track is a collections of features on a single contig.
 pub struct Track<T: GenomeInterval> {
     pub features: Vec<T>, // TODO: what about hierarchy in features? e.g. exons of a gene?
     pub contig: Contig,
 
-    // data_complete_left_bound: usize,
-    // data_complete_right_bound: usize,
+    features_by_start: BTreeMap<usize, usize>, // start -> index in features
+    features_by_end: BTreeMap<usize, usize>, // end -> index in features
+
+
     /// Left bound
     /// 1-based, inclusive.
     most_left_bound: usize,
@@ -27,15 +32,20 @@ pub struct Track<T: GenomeInterval> {
 
     /// Only for Track<Gene>
     /// (i, j) -> exon [self.genes[i].exon_starts[j], self.genes[i].exon_ends[j]]
-    exon_indexes: Option<Vec<(usize, usize)>>, 
+    exons_by_start: Option<BTreeMap<usize, (usize, usize)>>, 
+    exons_by_end: Option<BTreeMap<usize, (usize, usize)>>,
 }
 
 impl<T: GenomeInterval> Track<T> {
     /// Create a track from a list of features.
     /// Assumes no feature overlapping.
     pub fn from_features(features: Vec<T>, contig: Contig) -> Result<Self, TGVError> {
+
         let mut features = features;
         features.sort_by_key(|feature| feature.start());
+
+        let mut features_by_start = BTreeMap::new();
+        let mut features_by_end = BTreeMap::new();
 
         let mut most_left_bound = usize::MAX;
         let mut most_right_bound = usize::MIN;
@@ -48,16 +58,22 @@ impl<T: GenomeInterval> Track<T> {
                 most_right_bound = feature.end();
             }
 
+            features_by_start.insert(feature.start(), i_feature);
+            features_by_end.insert(feature.end(), i_feature);
+
         }
 
         Ok(Self {
             features,
             contig,
+            features_by_start,
+            features_by_end,
             // data_complete_left_bound: data_complete_left_bound,
             // data_complete_right_bound: data_complete_right_bound,
             most_left_bound,
             most_right_bound,
-            exon_indexes: None,
+            exons_by_start: None,
+            exons_by_end: None,
         })
     }
 
@@ -92,12 +108,31 @@ impl<T: GenomeInterval> Track<T> {
     /// Get the feature covering a given position.
     /// position: 1-based.
     pub fn get_feature_at(&self, position: usize) -> Option<&T> {
-        self.features.iter().find(|&feature| feature.covers(position))
+        if !self.covers(position) {
+            return None;
+        }
+        let range_right= 
+            self.features_by_end.range((Included(position), Excluded(usize::MAX))).next();
+        let range_left = 
+            self.features_by_end.range((Included(0), Included(position))).next_back();
+        
+        match (range_left, range_right) {
+            (Some((_, start_index)), Some((_, end_index))) => {
+                if start_index == end_index {
+                    return Some(&self.features[*start_index]);
+                } else {
+                    return None
+                }
+            }, 
+            _ => return None
+        }
+
     }
 
     pub fn get_k_features_before(&self, position: usize, k: usize) -> Option<&T> {
-        if k == 0 {
-            return self.get_feature_at(position);
+
+        if k==0 {
+            return self.get_feature_at(position)
         }
 
         if self.features.is_empty() {
@@ -108,28 +143,14 @@ impl<T: GenomeInterval> Track<T> {
             return None;
         }
 
-        if position > self.most_right_bound {
-            if self.features.len() < k {
-                return None;
-            }
-            let feature_index = self.features.len() - k;
-            return Some(&self.features[feature_index]);
+        
+        let range = 
+            self.features_by_end.range((Included(0), Excluded(position))).nth_back(k-1);
+            
+        match range {
+            Some((_, index)) => Some(&self.features[*index]),
+            _ => None
         }
-
-        for (i, feature) in self.features.iter().enumerate() {
-            if feature.end() < position {
-                continue;
-            }
-            if i < k {
-                return None;
-            }
-
-            let feature_index = i - k;
-
-            return Some(&self.features[feature_index]);
-        }
-
-        None
     }
 
     pub fn get_k_features_after(&self, position: usize, k: usize) -> Option<&T> {
@@ -145,28 +166,13 @@ impl<T: GenomeInterval> Track<T> {
             return None;
         }
 
-        if position < self.most_left_bound {
-            if self.features.len() < k {
-                return None;
-            }
-            let feature_index = k - 1;
-            return Some(&self.features[feature_index]);
+        let range = 
+            self.features_by_start.range((Excluded(position), Excluded(usize::MAX))).nth(k-1);
+
+        match range {
+            Some((_, index)) => Some(&self.features[*index]),
+            _ => None
         }
-
-        for (i, feature) in self.features.iter().enumerate() {
-            if feature.start() <= position {
-                continue;
-            }
-
-            if i + k > self.features.len() {
-                return None;
-            }
-
-            let feature_index = i + k - 1;
-            return Some(&self.features[feature_index]);
-        }
-
-        None
     }
 
     pub fn get_saturating_k_features_after(&self, position: usize, k: usize) -> Option<&T> {
@@ -206,10 +212,13 @@ impl Track<Gene> {
         let mut genes = genes;
         genes.sort_by_key(|gene| gene.start());
 
+        let mut features_by_start = BTreeMap::new();
+        let mut features_by_end = BTreeMap::new();
         let mut most_left_bound = usize::MAX;
         let mut most_right_bound = usize::MIN;
 
-        let mut exon_indexes = Vec::new();
+        let mut exons_by_start = BTreeMap::new();
+        let mut exons_by_end = BTreeMap::new();
 
         for (i_gene, gene) in genes.iter().enumerate() {
             if gene.start() < most_left_bound {
@@ -220,18 +229,23 @@ impl Track<Gene> {
             }
 
             for i in 0..gene.n_exons() {
-                exon_indexes.push((i_gene, i));
+                exons_by_start.insert(gene.exon_starts[i], (i_gene, i));
+                exons_by_end.insert(gene.exon_ends[i], (i_gene, i));
             }
+
+            features_by_start.insert(gene.start(), i_gene);
+            features_by_end.insert(gene.end(), i_gene);
         }
 
         Ok(Self {
             features: genes,
             contig,
-            // data_complete_left_bound: data_complete_left_bound,
-            // data_complete_right_bound: data_complete_right_bound,
+            features_by_start,
+            features_by_end,
             most_left_bound,
             most_right_bound,
-            exon_indexes: Some(exon_indexes),
+            exons_by_start: Some(exons_by_start),
+            exons_by_end: Some(exons_by_end),
         })
     }
 
@@ -264,22 +278,26 @@ impl Track<Gene> {
     /// Inspiration: https://www.youtube.com/watch?v=ig-dtw8Um_k
     /// position: 1-based.
     pub fn get_exon_at(&self, position: usize) -> Option<SubGeneFeature> {
-        if let Some(exon_indexes) = &self.exon_indexes {
-            for (gene_idx, exon_idx) in exon_indexes.iter() {
-                let gene = &self.features[*gene_idx];
-            let (exon_start, exon_end) = (gene.exon_starts[*exon_idx], gene.exon_ends[*exon_idx]);
 
-            if exon_start <= position && position <= exon_end {
-                    return Some(gene.get_exon(*exon_idx).unwrap());
+        let exons_by_start = self.exons_by_start.as_ref().unwrap();
+        let exons_by_end = self.exons_by_end.as_ref().unwrap();
+
+        let range_start = exons_by_start.range((Included(position), Excluded(usize::MAX))).next();
+        let range_end = exons_by_end.range((Included(0), Included(position))).next_back();
+
+        match (range_start, range_end) {
+            (Some((_, (start_gene_idx, start_exon_idx))), Some((_, (end_gene_idx, end_exon_idx)))) => {
+                if start_gene_idx == end_gene_idx && start_exon_idx == end_exon_idx {
+                    return Some(self.features[*start_gene_idx].get_exon(*start_exon_idx).unwrap());
+                } else {
+                    return None;
                 }
             }
+            _ => return None
         }
-
-        None
     }
 
     pub fn get_k_exons_before(&self, position: usize, k: usize) -> Option<SubGeneFeature> {
-        let exon_indexes = self.exon_indexes.as_ref().unwrap();
 
 
         if k == 0 {
@@ -294,36 +312,19 @@ impl Track<Gene> {
             return None;
         }
 
-        if position > self.most_right_bound {
-            if exon_indexes.len() < k {
-                return None;
-            }
-            let i_exon = exon_indexes.len() - k;
-            let (gene_idx, exon_idx) = exon_indexes[i_exon];
-            return Some(self.features[gene_idx].get_exon(exon_idx).unwrap());
+        let exons_by_end = self.exons_by_end.as_ref().unwrap();
+
+        let range = exons_by_end.range((Included(0), Included(position))).nth_back(k-1);
+
+        match range {
+            Some((_, (gene_idx, exon_idx))) => 
+                Some(self.features[*gene_idx].get_exon(*exon_idx).unwrap()),
+            _ => None
         }
 
-        for (i, (gene_idx, exon_idx)) in exon_indexes.iter().enumerate() {
-            let gene = &self.features[*gene_idx];
-            let (_exon_start, exon_end) = (gene.exon_starts[*exon_idx], gene.exon_ends[*exon_idx]);
-            if exon_end < position {
-                continue;
-            }
-            if i < k {
-                return None;
-            }
-
-            let i_exon = i - k;
-            let (gene_idx, exon_idx) = exon_indexes[i_exon];
-
-            return Some(self.features[gene_idx].get_exon(exon_idx).unwrap());
-        }
-
-        None
     }
 
     pub fn get_k_exons_after(&self, position: usize, k: usize) -> Option<SubGeneFeature> {
-        let exon_indexes = self.exon_indexes.as_ref().unwrap();
 
         if k == 0 {
             return self.get_exon_at(position);
@@ -337,72 +338,56 @@ impl Track<Gene> {
             return None;
         }
 
-        if position < self.most_left_bound {
-            if exon_indexes.len() < k {
-                return None;
-            }
-            let i_exon = k - 1;
-            let (gene_idx, exon_idx) = exon_indexes[i_exon];
-            return Some(self.features[gene_idx].get_exon(exon_idx).unwrap());
+        let exons_by_start = self.exons_by_start.as_ref().unwrap();
+
+        let range = 
+            exons_by_start.range((Excluded(position), Excluded(usize::MAX))).nth(k-1);
+
+        match range {
+            Some((_, (gene_idx, exon_idx))) => 
+                Some(self.features[*gene_idx].get_exon(*exon_idx).unwrap()),
+            _ => None
         }
-
-        for (i, (gene_idx, exon_idx)) in exon_indexes.iter().enumerate() {
-            let gene = &self.features[*gene_idx];
-            let (exon_start, _exon_end) = (gene.exon_starts[*exon_idx], gene.exon_ends[*exon_idx]);
-            if exon_start <= position {
-                continue;
-            }
-
-            if i + k > exon_indexes.len() {
-                return None;
-            }
-
-            let i_exon = i + k - 1;
-            let (gene_idx, exon_idx) = exon_indexes[i_exon];
-            return Some(self.features[gene_idx].get_exon(exon_idx).unwrap());
-        }
-
-        None
     }
 
+
+
     pub fn get_saturating_k_exons_after(&self, position: usize, k: usize) -> Option<SubGeneFeature> {
-        let exon_indexes = self.exon_indexes.as_ref().unwrap();
+        let exons_by_start = self.exons_by_start.as_ref().unwrap();
 
         if k == 0 {
             return None;
         }
 
-        if exon_indexes.is_empty() {
+        if exons_by_start.is_empty() {
             return None;
         }
 
         match self.get_k_exons_after(position, k) {
             Some(exon) => Some(exon),
             _ => {
-                let (gene_idx, exon_idx) = exon_indexes[exon_indexes.len() - 1];
-                Some(self.features[gene_idx].get_exon(exon_idx).unwrap())
+                let (_, (gene_idx, exon_idx)) = exons_by_start.iter().last().unwrap();
+                Some(self.features[*gene_idx].get_exon(*exon_idx).unwrap())
             }
         }
     }
 
     pub fn get_saturating_k_exons_before(&self, position: usize, k: usize) -> Option<SubGeneFeature> {
-        let exon_indexes = self.exon_indexes.as_ref().unwrap();
-
+        let exons_by_start = self.exons_by_start.as_ref().unwrap();
         if k == 0 {
             return None;
         }
 
-        if let Some(exon_indexes) = &self.exon_indexes {
-            if exon_indexes.is_empty() {
-                return None;
-            }
+        if exons_by_start.is_empty() {
+            return None;
         }
+
 
         match self.get_k_exons_before(position, k) {
             Some(exon) => Some(exon),
             _ => {
-                let (gene_idx, exon_idx) = exon_indexes[0];
-                Some(self.features[gene_idx].get_exon(exon_idx).unwrap())
+                let (_, (gene_idx, exon_idx)) = exons_by_start.iter().next().unwrap();
+                Some(self.features[*gene_idx].get_exon(*exon_idx).unwrap())
             }
         }
     }
