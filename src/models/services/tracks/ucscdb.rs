@@ -5,8 +5,8 @@ use crate::models::{
     region::Region,
     strand::Strand,
     track::{Feature, Gene, Track},
+    services::tracks::TrackService,
 };
-use reqwest;
 use sqlx::{mysql::MySqlPoolOptions, MySqlPool, Row};
 use std::sync::Arc;
 
@@ -47,7 +47,7 @@ impl UcscDBTrackService {
 impl TrackService for UcscDBTrackService {
     async fn query_feature_track(&self, region: &Region) -> Result<Track, TGVError> {
         let genes = self
-            .query_genes_between(&region.contig, region.start, region.end)
+            .query_genes_between(region)
             .await?;
 
         Track::from(genes, region.contig.clone())
@@ -55,18 +55,16 @@ impl TrackService for UcscDBTrackService {
 
     async fn query_genes_between(
         &self,
-        contig: &Contig,
-        start: usize,
-        end: usize,
+        region: &Region,
     ) -> Result<Vec<Gene>, TGVError> {
         let rows = sqlx::query(
             "SELECT name, chrom, strand, txStart, txEnd, name2, exonStarts, exonEnds, cdsStart, cdsEnd
              FROM ncbiRefSeqSelect 
              WHERE chrom = ? AND (txStart <= ?) AND (txEnd >= ?)",
         )
-        .bind(contig.full_name()) // Requires "chr" prefix?
-        .bind(u64::try_from(end).unwrap()) // end is 1-based inclusive, UCSC is 0-based exclusive
-        .bind(u64::try_from(start.saturating_sub(1)).unwrap()) // start is 1-based inclusive, UCSC is 0-based inclusive
+        .bind(region.contig.full_name()) // Requires "chr" prefix?
+        .bind(u64::try_from(region.end).unwrap()) // end is 1-based inclusive, UCSC is 0-based exclusive
+        .bind(u64::try_from(region.start.saturating_sub(1)).unwrap()) // start is 1-based inclusive, UCSC is 0-based inclusive
         .fetch_all(&*self.pool)
         .await?;
 

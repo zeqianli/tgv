@@ -10,13 +10,17 @@ use crate::{
 };
 
 pub trait TrackService {
-    async fn query_feature_track(&self, region: &Region) -> Result<Track, TGVError>;
+    async fn query_feature_track(&self, region: &Region) -> Result<Track, TGVError> {
+        let genes = self
+            .query_genes_between(region)
+            .await?;
+
+        Track::from(genes, region.contig.clone())
+    }
 
     async fn query_genes_between(
         &self,
-        contig: &Contig,
-        start: usize,
-        end: usize,
+        region: &Region,
     ) -> Result<Vec<Gene>, TGVError>;
 
     async fn query_gene_covering(
