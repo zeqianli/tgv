@@ -92,7 +92,15 @@ jobs:
 
       - name: Generate checksums
         run: |
-          cd release-files && sha256sum * > checksums.txt
+          cd release-files
+          sha256sum *tar.gz > checksums.txt
+          cat checksums.txt
+
+      - name: Upload Checksums
+        uses: actions/upload-artifact@v4
+        with:
+          name: checksums
+          path: release-files/checksums.txt
 
       - name: Determine release info
         id: release_info
@@ -130,3 +138,73 @@ jobs:
           draft: false
           prerelease: ${{ steps.release_info.outputs.IS_PRERELEASE }}
           tag_name: ${{ steps.release_info.outputs.TAG_NAME }}
+
+  update-homebrew-tap:
+    name: Update Homebrew Tap
+    runs-on: ubuntu-latest
+    needs: create-release
+    permissions:
+      contents: write
+      pull-requests: write
+    steps:
+      - name: Download checksums artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: checksums
+          path: .
+
+      - name: Extract checksums
+        id: checksums
+        run: |
+          echo "Parsing checksums from checksums.txt"
+          DARWIN_SHA=$(grep 'aarch64-apple-darwin' checksums.txt | awk '{ print $1 }')
+          LINUX_SHA=$(grep 'x86_64-linux-musl' checksums.txt | awk '{ print $1 }')
+          echo "DARWIN_SHA=${DARWIN_SHA}" >> $GITHUB_OUTPUT
+          echo "LINUX_SHA=${LINUX_SHA}" >> $GITHUB_OUTPUT
+          echo "Darwin SHA: $DARWIN_SHA"
+          echo "Linux SHA: $LINUX_SHA"
+
+      - name: Checkout Homebrew Tap Repo
+        uses: actions/checkout@v4
+        with:
+          repository: zeqianli/homebrew-tgv
+          path: homebrew-repo
+          token: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+
+      - name: Update Formula File
+        working-directory: homebrew-repo
+        run: |
+          VERSION="${{ needs.create-release.outputs.version }}"
+          DARWIN_SHA="${{ steps.checksums.outputs.DARWIN_SHA }}"
+          LINUX_SHA="${{ steps.checksums.outputs.LINUX_SHA }}"
+          TEMPLATE_FILE="${{ github.workspace }}/.github/workflows/brew_template.tgv.rb"
+          FORMULA_FILE="Formula/tgv.rb"
+
+          echo "Updating $FORMULA_FILE using template $TEMPLATE_FILE"
+
+          cp "$TEMPLATE_FILE" "$FORMULA_FILE"
+
+          sed -i.bak "s|__VERSION__|${VERSION}|g" "$FORMULA_FILE"
+          sed -i.bak "s|__MACOS_SHA256__|${DARWIN_SHA}|g" "$FORMULA_FILE"
+          sed -i.bak "s|__LINUX_SHA256__|${LINUX_SHA}|g" "$FORMULA_FILE"
+
+          rm -f "${FORMULA_FILE}.bak"
+
+          echo "Formula file updated from template:"
+          cat "$FORMULA_FILE"
+
+      - name: Create Homebrew Tap PR
+        uses: peter-evans/create-pull-request@v6
+        with:
+          token: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+          path: homebrew-repo
+          commit-message: "chore: Update tgv formula to v${{ needs.create-release.outputs.version }}"
+          branch: "update-tgv-v${{ needs.create-release.outputs.version }}"
+          delete-branch: true
+          title: "Update tgv formula to v${{ needs.create-release.outputs.version }}"
+          body: |
+            Update tgv formula to version `${{ needs.create-release.outputs.version }}`.
+
+            **Checksums:**
+            - macOS (ARM): `${{ steps.checksums.outputs.DARWIN_SHA }}`
+            - Linux (musl): `${{ steps.checksums.outputs.LINUX_SHA }}`
