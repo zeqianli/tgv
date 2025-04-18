@@ -173,13 +173,9 @@ impl TrackService for UcscApiTrackService {
         Ok(())
     }
 
-    async fn query_genes_between(&self, region: &Region) -> Result<Vec<Gene>, TGVError> {
+    async fn query_genes_overlapping(&self, region: &Region) -> Result<Vec<Gene>, TGVError> {
         if let Some(track) = self.cached_tracks.get(&region.contig().full_name()) {
-            Ok(track
-                .get_genes_between(region.start(), region.end())
-                .iter()
-                .map(|g| (*g).clone())
-                .collect()) // TODO: think about how to make this more efficient
+            Ok(track.get_features_overlapping(region).iter().map(|g| (*g).clone()).collect())
         } else {
             Err(TGVError::IOError(format!("Track not found for contig {}", region.contig().full_name())))
         }

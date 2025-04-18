@@ -4,7 +4,6 @@ use crate::models::{
     contig::Contig,
     reference::Reference
 };
-
 use rust_htslib::bam::{self, IndexedReader, Read};
 use std::collections::HashMap;
 use url::Url;

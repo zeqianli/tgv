@@ -112,7 +112,7 @@ impl<T: GenomeInterval> Track<T> {
             .range((Included(position), Excluded(usize::MAX)))
             .next();
         let range_left = self
-            .features_by_end
+            .features_by_start
             .range((Included(0), Included(position)))
             .next_back();
 
@@ -126,6 +126,21 @@ impl<T: GenomeInterval> Track<T> {
             }
             _ => return None,
         }
+    }
+
+    pub fn get_features_overlapping(&self, region: &Region) -> Vec<&T> {
+        // region.end between [start, end] or region.start between [start, end]
+
+        let mut features: Vec<&T> = self.features_by_end.range((Included(region.start()), Excluded(region.end()))).map(|(_, index)| &self.features[*index]).collect();
+
+        // feature overlapping region.end
+        if let Some(feature) = self.get_feature_at(region.end()) {
+            features.push(feature);
+        } else{
+            //panic!("{}, {}, {}, {}", region.start(), region.end(), features.len(), features.last().unwrap().end());
+        }
+
+        features
     }
 
     pub fn get_k_features_before(&self, position: usize, k: usize) -> Option<&T> {
@@ -433,7 +448,7 @@ mod tests {
     fn get_test_track() -> Track<Gene> {
         let genes = vec![
             Gene {
-                //id: "gene1".to_string(),
+                id: "gene1".to_string(),
                 name: "gene1".to_string(),
                 strand: Strand::Forward,
                 contig: Contig::chrom("chr1"),
@@ -445,8 +460,7 @@ mod tests {
                 exon_ends: vec![5, 10],
             },
             Gene {
-                // should not happen, but just in case
-                //id: "gene_no_exon".to_string(),
+                id: "gene_no_exon".to_string(),
                 name: "gene_no_exon".to_string(),
                 strand: Strand::Forward,
                 contig: Contig::chrom("chr1"),
@@ -458,7 +472,7 @@ mod tests {
                 exon_ends: vec![],
             },
             Gene {
-                //id: "gene2".to_string(),
+                id: "gene2".to_string(),
                 name: "gene2".to_string(),
                 strand: Strand::Forward,
                 contig: Contig::chrom("chr1"),

@@ -47,7 +47,7 @@ impl TrackService for UcscDbTrackService {
         self.pool.close().await;
         Ok(())
     }
-    async fn query_genes_between(&self, region: &Region) -> Result<Vec<Gene>, TGVError> {
+    async fn query_genes_overlapping(&self, region: &Region) -> Result<Vec<Gene>, TGVError> {
         let rows = sqlx::query(
             "SELECT name, chrom, strand, txStart, txEnd, name2, exonStarts, exonEnds, cdsStart, cdsEnd
              FROM ncbiRefSeqSelect 
