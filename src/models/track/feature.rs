@@ -40,7 +40,11 @@ impl GenomeInterval for SubGeneFeature {
 #[derive(Debug, Clone, Deserialize)]
 pub struct Gene {
     #[serde(rename = "name")]
+    pub id: String,
+
+    #[serde(rename = "name2")]
     pub name: String,
+
     #[serde(rename = "strand", deserialize_with = "deserialize_strand")]
     pub strand: Strand,
     #[serde(skip)]

@@ -110,4 +110,37 @@ impl Reference {
             _ => None, // Must query the UCSC API. This function is not supported.
         }
     }
+
+    pub fn contigs(&self) -> Result<Vec<Contig>, TGVError> {
+        match self {
+            Self::Hg19 | Self::Hg38 => {
+                Ok(vec![
+                    Contig::chrom("chr1"),
+                    Contig::chrom("chr2"),
+                    Contig::chrom("chr3"),
+                    Contig::chrom("chr4"),
+                    Contig::chrom("chr5"),
+                    Contig::chrom("chr6"),
+                    Contig::chrom("chr7"),
+                    Contig::chrom("chr8"),
+                    Contig::chrom("chr9"),
+                    Contig::chrom("chr10"),
+                    Contig::chrom("chr11"),
+                    Contig::chrom("chr12"),
+                    Contig::chrom("chr13"),
+                    Contig::chrom("chr14"),
+                    Contig::chrom("chr15"),
+                    Contig::chrom("chr16"),
+                    Contig::chrom("chr17"),
+                    Contig::chrom("chr18"),
+                    Contig::chrom("chr19"),
+                    Contig::chrom("chr20"),
+                    Contig::chrom("chr21"),
+                    Contig::chrom("chr22"),
+                    Contig::chrom("chrX"),
+                    Contig::chrom("chrY")]) // TODO: MT
+            }
+            _ => Err(TGVError::IOError(format!("Cannot get contigs for this reference: {}. Need to query the UCSC API.", self))),
+        }
+    }
 }

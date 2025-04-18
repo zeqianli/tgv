@@ -21,7 +21,7 @@ use serde_json;
 pub struct UcscApiTrackService {
     reference: Reference,
     cached_tracks: HashMap<String, Track<Gene>>,
-    gene_name_lookup: HashMap<String, (String, usize)>, // gene_name -> (contig.full_name(), start)
+    gene_name_lookup: HashMap<String, (Contig, usize)>, // gene_name -> (contig.full_name(), start)
 
     client: Client,
 }
@@ -47,27 +47,68 @@ impl UcscApiTrackService {
         let query_url = self.get_track_data_url(contig, preferred_track.clone())?;
 
         let response = self.client.get(query_url).send().await?.text().await?;
+
         let mut value: serde_json::Value = serde_json::from_str(&response)?;
 
         // Extract the genes array from the response
         let genes_value = value[preferred_track].take();
-        let genes: Vec<Gene> = serde_json::from_value(genes_value)?;
-        // Process each gene and set the contig
+        let mut genes: Vec<Gene> = serde_json::from_value(genes_value)?;
+        for gene in genes.iter_mut() {
+            gene.contig = contig.clone();
+        }
+
+
+       
+
+        let track = Track::from_genes(genes, contig.clone())?;
+
+        for (i, gene) in track.genes().iter().enumerate() {
+            self.gene_name_lookup.insert(gene.name.clone(), (contig.clone(), i));
+        }
 
         self.cached_tracks.insert(
             contig.full_name(),
-            Track::from_genes(genes, contig.clone())?,
+            track,
         );
 
+        
+
         Ok(true)
+    }
+
+    /// Load all contigs until the gene is found.
+    pub async fn check_or_load_gene(&mut self, gene_name: &String) -> Result<bool, TGVError> {
+        if self.gene_name_lookup.contains_key(gene_name) {
+            return Ok(false);
+        }
+
+        for contig in self.get_all_contigs()?.iter() {
+            self.check_or_load_contig(&contig).await?;
+            if self.gene_name_lookup.contains_key(gene_name) {
+                return Ok(true);
+            }
+        }
+        
+        Err(TGVError::IOError(format!("Gene {} not found in contigs", gene_name)))
+    }
+
+
+    fn get_all_contigs(&self) -> Result<Vec<Contig>, TGVError> {
+        match &self.reference {
+            Reference::Hg19 | Reference::Hg38 => {
+                self.reference.contigs()
+            } // TODO: query
+            _ => Err(TGVError::IOError("Unsupported reference".to_string())),
+        }
     }
 
     fn get_track_data_url(&self, contig: &Contig, track_name: String) -> Result<String, TGVError> {
         match &self.reference {
             Reference::Hg19 | Reference::Hg38 | Reference::UcscGenome(_) => Ok(format!(
-                "https://api.genome.ucsc.edu/getData/track?genome={}&track={}",
+                "https://api.genome.ucsc.edu/getData/track?genome={}&track={}&chrom={}",
                 self.reference.to_string(),
-                track_name
+                track_name,
+                contig.full_name()
             )),
             _ => Err(TGVError::IOError("Unsupported reference".to_string())),
         }
@@ -140,7 +181,7 @@ impl TrackService for UcscApiTrackService {
                 .map(|g| (*g).clone())
                 .collect()) // TODO: think about how to make this more efficient
         } else {
-            Err(TGVError::IOError("Track not found".to_string()))
+            Err(TGVError::IOError(format!("Track not found for contig {}", region.contig().full_name())))
         }
     }
 
@@ -152,18 +193,20 @@ impl TrackService for UcscApiTrackService {
         if let Some(track) = self.cached_tracks.get(&contig.full_name()) {
             Ok(track.get_gene_at(position).map(|g| (*g).clone()))
         } else {
-            Err(TGVError::IOError("Track not found".to_string()))
+            Err(TGVError::IOError(format!("Track not found for contig {}", contig.full_name())))
         }
     }
 
     async fn query_gene_name(&self, name: &String) -> Result<Gene, TGVError> {
         if let Some((contig, gene_index)) = self.gene_name_lookup.get(name) {
-            return Ok(self
-                .cached_tracks
-                .get(contig)
-                .unwrap() // should never error out
-                .genes()[*gene_index]
-                .clone());
+            return Ok(
+                self
+                    .cached_tracks
+                    .get(&contig.full_name())
+                    .unwrap() // should never error out
+                    .genes()[*gene_index]
+                    .clone(),
+            );
         } else {
             Err(TGVError::IOError("Gene not found".to_string()))
         }
@@ -181,7 +224,7 @@ impl TrackService for UcscApiTrackService {
                 .ok_or(TGVError::IOError("No genes found".to_string()))?
                 .clone())
         } else {
-            Err(TGVError::IOError("Track not found".to_string()))
+            Err(TGVError::IOError(format!("Track not found for contig {}", contig.full_name())))
         }
     }
 
@@ -197,7 +240,7 @@ impl TrackService for UcscApiTrackService {
                 .ok_or(TGVError::IOError("No genes found".to_string()))?
                 .clone())
         } else {
-            Err(TGVError::IOError("Track not found".to_string()))
+            Err(TGVError::IOError(format!("Track not found for contig {}", contig.full_name())))
         }
     }
 
@@ -212,7 +255,7 @@ impl TrackService for UcscApiTrackService {
                 .get_saturating_k_exons_after(position, k)
                 .ok_or(TGVError::IOError("No exons found".to_string()))?)
         } else {
-            Err(TGVError::IOError("Track not found".to_string()))
+            Err(TGVError::IOError(format!("Track not found for contig {}", contig.full_name())))
         }
     }
 
@@ -227,7 +270,7 @@ impl TrackService for UcscApiTrackService {
                 .get_saturating_k_exons_before(position, k)
                 .ok_or(TGVError::IOError("No exons found".to_string()))?)
         } else {
-            Err(TGVError::IOError("Track not found".to_string()))
+            Err(TGVError::IOError(format!("Track not found for contig {}", contig.full_name())))
         }
     }
 }

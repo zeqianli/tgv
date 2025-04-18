@@ -18,8 +18,6 @@ pub use ucscdb::UcscDbTrackService;
 pub trait TrackService {
     async fn query_gene_track(&self, region: &Region) -> Result<Track<Gene>, TGVError> {
         let genes = self.query_genes_between(region).await?;
-
-        let genes = genes.iter().map(|g| (*g).clone()).collect();
         Track::from_genes(genes, region.contig.clone())
     }
 

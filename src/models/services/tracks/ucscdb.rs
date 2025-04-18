@@ -76,6 +76,7 @@ impl TrackService for UcscDbTrackService {
             // https://genome-blog.gi.ucsc.edu/blog/2016/12/12/the-ucsc-genome-browser-coordinate-counting-systems/
 
             genes.push(Gene {
+                id: name,
                 name: name2,
                 strand: Strand::from_str(strand_str).unwrap(),
                 contig: Contig::chrom(&chrom),
@@ -126,7 +127,7 @@ impl TrackService for UcscDbTrackService {
             // https://genome-blog.gi.ucsc.edu/blog/2016/12/12/the-ucsc-genome-browser-coordinate-counting-systems/
 
             Ok(Some(Gene {
-                //id: name,
+                id: name,
                 name: name2,
                 strand: Strand::from_str(strand_str).unwrap(),
                 contig: Contig::chrom(&chrom),
@@ -174,7 +175,7 @@ impl TrackService for UcscDbTrackService {
             // https://genome-blog.gi.ucsc.edu/blog/2015/12/12/the-ucsc-genome-browser-coordinate-counting-systems/
 
             Ok(Gene {
-                //id: name,
+                id: name,
                 name: name2,
                 strand: Strand::from_str(strand_str).unwrap(),
                 contig: Contig::chrom(&chrom),
@@ -240,7 +241,7 @@ impl TrackService for UcscDbTrackService {
             // https://genome-blog.gi.ucsc.edu/blog/2016/12/12/the-ucsc-genome-browser-coordinate-counting-systems/
 
             let gene = Gene {
-                //id: name,
+                id: name,
                 name: name2,
                 strand: Strand::from_str(strand_str).unwrap(),
                 contig: Contig::chrom(&chrom),
@@ -310,7 +311,7 @@ impl TrackService for UcscDbTrackService {
             // https://genome-blog.gi.ucsc.edu/blog/2016/12/12/the-ucsc-genome-browser-coordinate-counting-systems/
 
             let gene = Gene {
-                //id: name,
+                id: name,
                 name: name2,
                 strand: Strand::from_str(strand_str).unwrap(),
                 contig: Contig::chrom(&chrom),
@@ -375,7 +376,7 @@ impl TrackService for UcscDbTrackService {
             // https://genome-blog.gi.ucsc.edu/blog/2016/12/12/the-ucsc-genome-browser-coordinate-counting-systems/
 
             let gene = Gene {
-                //id: name,
+                id: name,
                 name: name2,
                 strand: Strand::from_str(strand_str).unwrap(),
                 contig: Contig::chrom(&chrom),
@@ -439,7 +440,7 @@ impl TrackService for UcscDbTrackService {
             // https://genome-blog.gi.ucsc.edu/blog/2016/12/12/the-ucsc-genome-browser-coordinate-counting-systems/
 
             let gene = Gene {
-                //id: name,
+                id: name,
                 name: name2,
                 strand: Strand::from_str(strand_str).unwrap(),
                 contig: Contig::chrom(&chrom),
