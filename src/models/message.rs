@@ -45,7 +45,7 @@ pub enum StateMessage {
     MoveCursorRight(usize),
     CommandModeRegisterError(String),
 
-    Error(TGVError),
+    Error(String),
 
     Quit,
 }

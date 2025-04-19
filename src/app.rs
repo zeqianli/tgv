@@ -135,17 +135,8 @@ impl Widget for &App {
             ])
             .areas(area);
 
-        if let (Some(cytobands), Some(current_cytoband_index)) = (
-            self.state.cytobands(),
-            self.state.current_cytoband_index().unwrap(),
-        ) {
-            render_cytobands(
-                &cytoband_area,
-                buf,
-                &cytobands[current_cytoband_index],
-                viewing_window,
-                contig_length,
-            );
+        if let Ok(Some(cytoband)) = self.state.current_cytoband() {
+            render_cytobands(&cytoband_area, buf, cytoband, viewing_window, contig_length);
         }
 
         render_coordinates(&coordinate_area, buf, viewing_window, contig_length).unwrap();

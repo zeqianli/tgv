@@ -1,3 +1,5 @@
+use std::default::Default;
+
 #[derive(Debug, Clone)]
 pub enum Contig {
     Chromosome { name: String },
@@ -57,6 +59,14 @@ impl PartialEq for Contig {
             }
             (Contig::Contig { name: name1 }, Contig::Contig { name: name2 }) => name1 == name2,
             _ => false,
+        }
+    }
+}
+
+impl Default for Contig {
+    fn default() -> Self {
+        Contig::Chromosome {
+            name: String::new(),
         }
     }
 }
