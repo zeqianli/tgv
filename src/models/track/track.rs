@@ -131,12 +131,16 @@ impl<T: GenomeInterval> Track<T> {
     pub fn get_features_overlapping(&self, region: &Region) -> Vec<&T> {
         // region.end between [start, end] or region.start between [start, end]
 
-        let mut features: Vec<&T> = self.features_by_end.range((Included(region.start()), Excluded(region.end()))).map(|(_, index)| &self.features[*index]).collect();
+        let mut features: Vec<&T> = self
+            .features_by_end
+            .range((Included(region.start()), Excluded(region.end())))
+            .map(|(_, index)| &self.features[*index])
+            .collect();
 
         // feature overlapping region.end
         if let Some(feature) = self.get_feature_at(region.end()) {
             features.push(feature);
-        } else{
+        } else {
             //panic!("{}, {}, {}, {}", region.start(), region.end(), features.len(), features.last().unwrap().end());
         }
 

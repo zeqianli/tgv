@@ -2,6 +2,7 @@ use crate::{
     error::TGVError,
     models::{
         contig::Contig,
+        cytoband::{Cytoband, CytobandSegment},
         reference::Reference,
         region::Region,
         services::tracks::TrackService,
@@ -10,15 +11,14 @@ use crate::{
             feature::{Gene, SubGeneFeature},
             track::Track,
         },
-        cytoband::{Cytoband, CytobandSegment},
     },
     traits::GenomeInterval,
 };
 use std::collections::HashMap;
 
 use reqwest::{Client, StatusCode};
-use serde_json;
 use serde::de::Error as _;
+use serde_json;
 
 // TODO: improved pattern:
 // Service doesn't save anything. No reference, no cache.
@@ -124,12 +124,17 @@ impl UcscApiTrackService {
         }
     }
 
-    /// Return 
+    /// Return
 
     const CYTOBAND_TRACK: &str = "cytoBandIdeo";
 
     pub async fn get_cytoband(&self, contig: &Contig) -> Result<Option<Cytoband>, TGVError> {
-        let query_url = format!("https://api.genome.ucsc.edu/getData/track?genome={}&track={}&chrom={}", self.reference.to_string(), Self::CYTOBAND_TRACK, contig.full_name());
+        let query_url = format!(
+            "https://api.genome.ucsc.edu/getData/track?genome={}&track={}&chrom={}",
+            self.reference.to_string(),
+            Self::CYTOBAND_TRACK,
+            contig.full_name()
+        );
 
         let response = self.client.get(query_url).send().await?;
 
@@ -138,18 +143,20 @@ impl UcscApiTrackService {
         }
 
         let response_text = response.text().await?;
-        let value: serde_json::Value = serde_json::from_str(&response_text)
-            .map_err(TGVError::JsonSerializationError)?;
+        let value: serde_json::Value =
+            serde_json::from_str(&response_text).map_err(TGVError::JsonSerializationError)?;
 
         // Extract the array of segments from the "cytoBandIdeo" field
-        let segments_value = value.get(Self::CYTOBAND_TRACK)
-            .ok_or_else(|| TGVError::JsonSerializationError(serde_json::Error::custom(
-                format!("Missing '{}' field in UCSC API response", Self::CYTOBAND_TRACK)
-            )))?;
+        let segments_value = value.get(Self::CYTOBAND_TRACK).ok_or_else(|| {
+            TGVError::JsonSerializationError(serde_json::Error::custom(format!(
+                "Missing '{}' field in UCSC API response",
+                Self::CYTOBAND_TRACK
+            )))
+        })?;
 
         // Deserialize the segments array
         let segments: Vec<CytobandSegment> = serde_json::from_value(segments_value.clone())
-             .map_err(TGVError::JsonSerializationError)?;
+            .map_err(TGVError::JsonSerializationError)?;
 
         if segments.is_empty() {
             return Ok(None);
@@ -158,16 +165,13 @@ impl UcscApiTrackService {
         // Construct the *single* Cytoband object for this contig
         let cytoband = Cytoband {
             reference: Some(self.reference.clone()),
-            contig: contig.clone(), 
+            contig: contig.clone(),
             segments,
         };
 
         // Return the single Cytoband wrapped in Option
         Ok(Some(cytoband))
     }
-
-
-
 
     fn get_track_data_url(&self, contig: &Contig, track_name: String) -> Result<String, TGVError> {
         match &self.reference {

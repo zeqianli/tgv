@@ -2,7 +2,6 @@ use crate::error::TGVError;
 use crate::helpers::is_url;
 use crate::models::{
     contig::Contig,
-    contig_collection::ContigCollection,
     cytoband::Cytoband,
     data::Data,
     message::{DataMessage, StateMessage},
@@ -34,7 +33,6 @@ pub struct State {
 
     // Data
     pub data: Data,
-
 
     // Registers
     normal_mode_register: NormalModeRegister,

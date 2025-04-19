@@ -1,7 +1,7 @@
 use crate::error::TGVError;
 use crate::helpers::is_url;
-use crate::models::{contig::Contig, cytoband::Cytoband, reference::Reference};
 use crate::models::services::tracks::UcscApiTrackService;
+use crate::models::{contig::Contig, cytoband::Cytoband, reference::Reference};
 use rust_htslib::bam::{self, IndexedReader, Read};
 use std::collections::HashMap;
 use url::Url;
@@ -11,7 +11,7 @@ pub struct ContigDatum {
     length: Option<usize>,      // Length
     cytoband: Option<Cytoband>, // Cytoband
 
-    cytoband_loaded: bool, // Whether this contig's cytoband has been quried. 
+    cytoband_loaded: bool, // Whether this contig's cytoband has been quried.
 }
 
 /// A collection of contigs. This helps relative contig movements.
@@ -40,7 +40,11 @@ impl ContigCollection {
         Ok(&self.contigs[self.contigs.len() - 1].contig)
     }
 
-    pub fn update_cytoband(&mut self, contig: &Contig, cytoband: Option<Cytoband>) -> Result<(), TGVError> {
+    pub fn update_cytoband(
+        &mut self,
+        contig: &Contig,
+        cytoband: Option<Cytoband>,
+    ) -> Result<(), TGVError> {
         let index = self
             .contig_index
             .get(&contig.full_name())
@@ -174,11 +178,13 @@ impl ContigCollection {
     }
 
     pub fn cytoband_is_loaded(&self, contig: &Contig) -> Result<bool, TGVError> {
-        let index = self.contig_index.get(&contig.full_name()).ok_or(TGVError::StateError(format!(
-            "Contig {} not found",
-            contig.full_name()
-        )))?;
+        let index = self
+            .contig_index
+            .get(&contig.full_name())
+            .ok_or(TGVError::StateError(format!(
+                "Contig {} not found",
+                contig.full_name()
+            )))?;
         Ok(self.contigs[*index].cytoband_loaded)
     }
 }
-

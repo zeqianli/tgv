@@ -6,8 +6,8 @@ use crate::models::{
     contig_collection::ContigCollection,
     cytoband::Cytoband,
     message::DataMessage,
-    region::Region,
     reference::Reference,
+    region::Region,
     sequence::Sequence,
     services::{
         sequences::SequenceService,
@@ -36,8 +36,6 @@ pub struct Data {
     pub sequence_service: Option<SequenceService>,
 
     // TODO: in the first implementation, refresh all data when the viewing window is near the boundary.
-
-
     /// Contigs in the BAM header
     pub contigs: ContigCollection,
 }
@@ -187,7 +185,12 @@ impl Data {
                     return Ok(false);
                 }
 
-                let cytoband = self.track_service.as_ref().unwrap().get_cytoband(&contig).await?;
+                let cytoband = self
+                    .track_service
+                    .as_ref()
+                    .unwrap()
+                    .get_cytoband(&contig)
+                    .await?;
                 self.contigs.update_cytoband(&contig, cytoband);
                 loaded_data = true;
             } // TODO
@@ -248,16 +251,14 @@ impl Data {
 
         // push cytobands
         match reference {
-            Some(reference) => {
-                match &reference {
-                    Reference::Hg19 | Reference::Hg38 => {
-                        for cytoband in Cytoband::from_human_reference(&reference)?.iter() {
-                            contig_data.update_cytoband(&cytoband.contig, Some(cytoband.clone()));
-                        }
+            Some(reference) => match &reference {
+                Reference::Hg19 | Reference::Hg38 => {
+                    for cytoband in Cytoband::from_human_reference(&reference)?.iter() {
+                        contig_data.update_cytoband(&cytoband.contig, Some(cytoband.clone()));
                     }
-                    _ => {}
                 }
-            }
+                _ => {}
+            },
             _ => {}
         }
 
