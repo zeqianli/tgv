@@ -2,6 +2,7 @@ use crate::error::TGVError;
 use crate::models::contig::Contig;
 use crate::models::reference::Reference;
 use csv::Reader;
+use serde::Deserialize;
 use std::io::BufReader;
 
 const VALID_CHROMOSOMES: [&str; 25] = [
@@ -24,7 +25,7 @@ pub enum Stain {
     Acen,
     Gvar,
     Stalk,
-    Other,
+    Other(String),
 }
 
 impl Stain {
@@ -38,17 +39,45 @@ impl Stain {
             "acen" => Ok(Stain::Acen),
             "gvar" => Ok(Stain::Gvar),
             "stalk" => Ok(Stain::Stalk),
-            _ => Err(TGVError::ValueError(format!("Invalid stain: {}", s))),
+            stain => Ok(Stain::Other(stain.to_string())),
         }
     }
 }
 
-#[derive(Debug, Clone)]
+fn deserialize_stain_from_string<'de, D>(deserializer: D) -> Result<Stain, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    let s = String::deserialize(deserializer)?;
+    Stain::from(&s).map_err(serde::de::Error::custom)
+}
+
+fn deserialize_contig_from_string<'de, D>(deserializer: D) -> Result<Contig, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    let s = String::deserialize(deserializer)?;
+    Ok(Contig::chrom(&s))
+}
+
+fn deserialize_start_from_0_based<'de, D>(deserializer: D) -> Result<usize, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    let start_0_based = usize::deserialize(deserializer)?;
+    Ok(start_0_based + 1)
+}
+
+#[derive(Debug, Clone, Deserialize)]
 pub struct CytobandSegment {
+    #[serde(rename = "chrom", deserialize_with = "deserialize_contig_from_string")]
     pub contig: Contig,
-    pub start: usize, // 1-based, inclusive
-    pub end: usize,   // 1-based, inclusive
+    #[serde(rename = "chromStart", deserialize_with = "deserialize_start_from_0_based")]
+    pub start: usize,
+    #[serde(rename = "chromEnd")]
+    pub end: usize,
     pub name: String,
+    #[serde(rename = "gieStain", deserialize_with = "deserialize_stain_from_string")]
     pub stain: Stain,
 }
 
@@ -74,24 +103,19 @@ impl Cytoband {
 }
 
 impl Cytoband {
-    pub fn from_reference(reference: &Reference) -> Result<Vec<Self>, TGVError> {
+    /// Human csvs are pre-saved. 
+    pub fn from_human_reference(reference: &Reference) -> Result<Vec<Self>, TGVError> {
         let mut cytobands: Vec<Cytoband> = Vec::new();
 
         let content = match reference {
             Reference::Hg19 => HG19_CYTOBAND,
             Reference::Hg38 => HG38_CYTOBAND,
-            Reference::UcscGenome(genome) => {
+            _ => {
                 // TODO
                 return Err(TGVError::ValueError(format!(
-                    "Unsupported reference: {}",
-                    genome
+                    "Does not support loading cytobands from csv for this reference: {}. Use the UCSC API.",
+                    reference
                 )));
-            }
-            Reference::UcscAccession(accession) => {
-                return Err(TGVError::ValueError(format!(
-                    "Unsupported reference: {}",
-                    accession
-                )))
             }
         };
 
@@ -155,7 +179,7 @@ impl Cytoband {
                     start: 1,
                     end: *length,
                     name: "".to_string(),
-                    stain: Stain::Other,
+                    stain: Stain::Other("unknown".to_string()),
                 }],
             })
             .collect())

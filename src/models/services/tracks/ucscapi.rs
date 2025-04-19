@@ -122,6 +122,30 @@ impl UcscApiTrackService {
         }
     }
 
+    /// Return 
+
+    fn get_all_cytobands(&self) -> Result<Option<HashMap<String, Cytoband>>, TGVError> {
+        return Err(TGVError::IOError("Not implemented".to_string()));
+    }
+
+    const CYTOBAND_TRACK: &str = "cytoBandIdeo";
+
+    pub async fn get_cytoband(&self, contig: &Contig) -> Result<Option<Cytoband>, TGVError> {
+        let query_url = format!("https://api.genome.ucsc.edu/getData/track?genome={}&track={}&chrom={}", self.reference.to_string(), Self::CYTOBAND_TRACK, contig.full_name());
+
+        let response = self.client.get(query_url).send().await?;
+        if response.status() != StatusCode::OK {
+            return Ok(None); // Some genome doesn't have cytobands
+        }
+
+        
+        let cytobands: Vec<Cytoband> = response.
+        // TODO
+    }
+
+
+
+
     fn get_track_data_url(&self, contig: &Contig, track_name: String) -> Result<String, TGVError> {
         match &self.reference {
             Reference::Hg19 | Reference::Hg38 | Reference::UcscGenome(_) => Ok(format!(
