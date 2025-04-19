@@ -1,6 +1,7 @@
 use crate::error::TGVError;
 use crate::helpers::is_url;
 use crate::models::{contig::Contig, cytoband::Cytoband, reference::Reference};
+use crate::models::services::tracks::UcscApiTrackService;
 use rust_htslib::bam::{self, IndexedReader, Read};
 use std::collections::HashMap;
 use url::Url;
@@ -9,6 +10,8 @@ pub struct ContigDatum {
     contig: Contig,             // Name
     length: Option<usize>,      // Length
     cytoband: Option<Cytoband>, // Cytoband
+
+    cytoband_loaded: bool, // Whether this contig's cytoband has been quried. 
 }
 
 /// A collection of contigs. This helps relative contig movements.
@@ -37,7 +40,7 @@ impl ContigCollection {
         Ok(&self.contigs[self.contigs.len() - 1].contig)
     }
 
-    pub fn update_cytoband(&mut self, contig: &Contig, cytoband: Cytoband) -> Result<(), TGVError> {
+    pub fn update_cytoband(&mut self, contig: &Contig, cytoband: Option<Cytoband>) -> Result<(), TGVError> {
         let index = self
             .contig_index
             .get(&contig.full_name())
@@ -45,7 +48,8 @@ impl ContigCollection {
                 "Contig {} not found",
                 contig.full_name()
             )))?;
-        self.contigs[*index].cytoband = Some(cytoband);
+        self.contigs[*index].cytoband = cytoband;
+        self.contigs[*index].cytoband_loaded = true; // can be None
         Ok(())
     }
 
@@ -63,6 +67,7 @@ impl ContigCollection {
                 contig,
                 length,
                 cytoband: None,
+                cytoband_loaded: false,
             });
             self.contig_index
                 .insert(contig_name, self.contigs.len() - 1);
@@ -167,4 +172,13 @@ impl ContigCollection {
         let index = self.contig_index.get(&contig.full_name())?;
         self.contigs[*index].cytoband.as_ref()
     }
+
+    pub fn cytoband_is_loaded(&self, contig: &Contig) -> Result<bool, TGVError> {
+        let index = self.contig_index.get(&contig.full_name()).ok_or(TGVError::StateError(format!(
+            "Contig {} not found",
+            contig.full_name()
+        )))?;
+        Ok(self.contigs[*index].cytoband_loaded)
+    }
 }
+

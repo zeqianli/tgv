@@ -1,5 +1,5 @@
 use crate::error::TGVError;
-use crate::models::{mode::InputMode, region::Region};
+use crate::models::{contig::Contig, mode::InputMode, region::Region};
 use strum::Display;
 /// State messages
 #[derive(Debug, Clone, Eq, PartialEq, Display)]
@@ -75,4 +75,6 @@ pub enum DataMessage {
     RequiresCompleteAlignments(Region),
     RequiresCompleteFeatures(Region),
     RequiresCompleteSequences(Region),
+
+    RequiresCytobands(Contig),
 }

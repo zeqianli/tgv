@@ -2,8 +2,12 @@ use crate::error::TGVError;
 use crate::helpers::is_url;
 use crate::models::{
     alignment::Alignment,
+    contig::Contig,
+    contig_collection::ContigCollection,
+    cytoband::Cytoband,
     message::DataMessage,
     region::Region,
+    reference::Reference,
     sequence::Sequence,
     services::{
         sequences::SequenceService,
@@ -30,7 +34,12 @@ pub struct Data {
     /// Sequences.
     pub sequence: Option<Sequence>,
     pub sequence_service: Option<SequenceService>,
+
     // TODO: in the first implementation, refresh all data when the viewing window is near the boundary.
+
+
+    /// Contigs in the BAM header
+    pub contigs: ContigCollection,
 }
 
 impl Data {
@@ -76,6 +85,14 @@ impl Data {
             None => (None, None),
         };
 
+        let contigs = Data::load_contig_data(
+            settings.reference.as_ref(),
+            track_service.as_ref(),
+            settings.bam_path.as_ref(),
+            settings.bai_path.as_ref(),
+        )
+        .await?;
+
         Ok(Self {
             alignment: None,
             bam_path,
@@ -84,6 +101,7 @@ impl Data {
             track_service,
             sequence: None,
             sequence_service,
+            contigs,
         })
     }
 
@@ -163,6 +181,16 @@ impl Data {
                     }
                 }
             }
+
+            DataMessage::RequiresCytobands(contig) => {
+                if self.contigs.cytoband_is_loaded(&contig)? {
+                    return Ok(false);
+                }
+
+                let cytoband = self.track_service.as_ref().unwrap().get_cytoband(&contig).await?;
+                self.contigs.update_cytoband(&contig, cytoband);
+                loaded_data = true;
+            } // TODO
         }
 
         Ok(loaded_data)
@@ -191,5 +219,55 @@ impl Data {
 
     pub fn has_complete_sequence(&self, region: &Region) -> bool {
         self.sequence.is_some() && self.sequence.as_ref().unwrap().has_complete_data(region)
+    }
+}
+
+/// Contig data looading
+
+impl Data {
+    pub async fn load_contig_data(
+        // TODO: move this to ContigCollection
+        reference: Option<&Reference>,
+        track_service: Option<&UcscApiTrackService>,
+        bam_path: Option<&String>,
+        bai_path: Option<&String>,
+    ) -> Result<ContigCollection, TGVError> {
+        // First, load from the track service.
+
+        let mut contig_data = ContigCollection::new(reference.cloned());
+
+        // push contigs and lengths
+
+        if let (Some(reference), Some(track_service)) = (reference, track_service) {
+            for (contig, length) in track_service.get_all_contigs().await? {
+                contig_data
+                    .update_or_add_contig(contig, Some(length))
+                    .unwrap();
+            }
+        }
+
+        // push cytobands
+        match reference {
+            Some(reference) => {
+                match &reference {
+                    Reference::Hg19 | Reference::Hg38 => {
+                        for cytoband in Cytoband::from_human_reference(&reference)?.iter() {
+                            contig_data.update_cytoband(&cytoband.contig, Some(cytoband.clone()));
+                        }
+                    }
+                    _ => {}
+                }
+            }
+            _ => {}
+        }
+
+        // update from bam header
+        if let Some(bam_path) = bam_path {
+            contig_data
+                .update_from_bam(bam_path, bai_path, reference)
+                .unwrap();
+        }
+
+        Ok(contig_data)
     }
 }

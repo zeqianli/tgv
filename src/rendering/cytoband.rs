@@ -173,7 +173,7 @@ fn linear_scale(original_x: usize, original_length: usize, new_start: u16, new_e
 }
 
 fn get_cytoband_segment_style(cytoband_segment: &CytobandSegment) -> Style {
-    match cytoband_segment.stain {
+    match &cytoband_segment.stain {
         Stain::Gneg => Style::default(),
         Stain::Gpos25 => Style::default().fg(colors::GPOS25_COLOR),
         Stain::Gpos50 => Style::default().fg(colors::GPOS50_COLOR),
@@ -182,6 +182,6 @@ fn get_cytoband_segment_style(cytoband_segment: &CytobandSegment) -> Style {
         Stain::Acen => Style::default().fg(colors::ACEN_COLOR),
         Stain::Gvar => Style::default().fg(colors::GVAR_COLOR),
         Stain::Stalk => Style::default().fg(colors::STALK_COLOR),
-        Stain::Other => Style::default().fg(colors::OTHER_COLOR),
+        Stain::Other(name) => Style::default().fg(colors::OTHER_COLOR)
     }
 }

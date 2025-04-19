@@ -35,8 +35,6 @@ pub struct State {
     // Data
     pub data: Data,
 
-    /// Contigs in the BAM header
-    contigs: ContigCollection,
 
     // Registers
     normal_mode_register: NormalModeRegister,
@@ -54,14 +52,6 @@ impl State {
     pub async fn new(settings: Settings) -> Result<Self, TGVError> {
         let data = Data::new(&settings).await?;
 
-        let contigs = State::load_contig_data(
-            settings.reference.as_ref(),
-            data.track_service.as_ref(),
-            settings.bam_path.as_ref(),
-            settings.bai_path.as_ref(),
-        )
-        .await?;
-
         Ok(Self {
             window: None,
             input_mode: InputMode::Normal,
@@ -72,7 +62,6 @@ impl State {
             normal_mode_register: NormalModeRegister::new(),
             command_mode_register: CommandModeRegister::new(),
 
-            contigs,
             settings,
             errors: Vec::new(),
         })
@@ -133,7 +122,7 @@ impl State {
 
     pub fn current_cytoband(&self) -> Result<Option<&Cytoband>, TGVError> {
         let contig = self.contig()?;
-        let cytoband = self.contigs.cytoband(&contig);
+        let cytoband = self.data.contigs.cytoband(&contig);
         Ok(cytoband)
     }
 
@@ -171,54 +160,6 @@ impl State {
     pub async fn close(&mut self) -> Result<(), TGVError> {
         self.data.close().await?;
         Ok(())
-    }
-}
-
-/// Contig data looading
-
-impl State {
-    pub async fn load_contig_data(
-        // TODO: move this to ContigCollection
-        reference: Option<&Reference>,
-        track_service: Option<&UcscApiTrackService>,
-        bam_path: Option<&String>,
-        bai_path: Option<&String>,
-    ) -> Result<ContigCollection, TGVError> {
-        // First, load from the track service.
-
-        let mut contig_data = ContigCollection::new(reference.cloned());
-
-        // push contigs and lengths
-
-        if let (Some(reference), Some(track_service)) = (reference, track_service) {
-            for (contig, length) in track_service.get_all_contigs().await? {
-                contig_data
-                    .update_or_add_contig(contig, Some(length))
-                    .unwrap();
-            }
-        }
-
-        // push cytobands
-        match reference {
-            Some(reference) => {
-                if *reference == Reference::Hg19 || *reference == Reference::Hg38 {
-                    for cytoband in Cytoband::from_reference(&reference)?.iter() {
-                        contig_data.update_cytoband(&cytoband.contig, cytoband.clone());
-                        // TODO: performance
-                    }
-                }
-            }
-            _ => {}
-        }
-
-        // update from bam header
-        if let Some(bam_path) = bam_path {
-            contig_data
-                .update_from_bam(bam_path, bai_path, reference)
-                .unwrap();
-        }
-
-        Ok(contig_data)
     }
 }
 
@@ -476,6 +417,9 @@ impl State {
                     sequence_cache_region,
                 ));
             }
+
+            // Cytobands
+            data_messages.push(DataMessage::RequiresCytobands(self.contig()?));
         }
 
         Ok(data_messages)
@@ -609,7 +553,7 @@ impl State {
                     Some(Reference::Hg38) | Some(Reference::Hg19) => Contig::chrom(&contig),
                     _ => Contig::contig(&contig),
                 };
-                if !self.contigs.contains(&contig) {
+                if !self.data.contigs.contains(&contig) {
                     return Err(TGVError::StateError(format!(
                         "Contig {} not found for reference {}",
                         contig.full_name(),
@@ -667,7 +611,7 @@ impl State {
     pub fn contig_length(&self) -> Result<Option<usize>, TGVError> {
         let contig = self.contig()?;
 
-        if let Some(length) = self.contigs.length(&contig) {
+        if let Some(length) = self.data.contigs.length(&contig) {
             return Ok(Some(length));
         }
         Ok(None)
@@ -890,7 +834,7 @@ impl State {
         ) {
             (Some(_), Some(_)) | (None, Some(_)) => {
                 self.handle_movement_message(StateMessage::GotoContigCoordinate(
-                    self.contigs.first()?.full_name(),
+                    self.data.contigs.first()?.full_name(),
                     1,
                 ))
             }
