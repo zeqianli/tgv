@@ -178,6 +178,7 @@ impl State {
 
 impl State {
     pub async fn load_contig_data(
+        // TODO: move this to ContigCollection
         reference: Option<&Reference>,
         track_service: Option<&UcscApiTrackService>,
         bam_path: Option<&String>,

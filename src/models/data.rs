@@ -135,9 +135,12 @@ impl Data {
                 if self.track_service.is_none() {
                     return Err(TGVError::IOError("Track service not found".to_string()));
                 }
-                let track_service = self.track_service.as_ref().unwrap();
 
-                if !self.has_complete_track(&region) {
+                let has_complete_track = self.has_complete_track(&region);
+                let track_service = self.track_service.as_mut().unwrap();
+
+                if !has_complete_track {
+                    track_service.check_or_load_contig(&region.contig).await?;
                     self.track = Some(track_service.query_gene_track(&region).await.unwrap());
                     loaded_data = true;
                 }

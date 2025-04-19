@@ -144,36 +144,30 @@ impl UcscApiTrackService {
                     .await?
                     .json::<serde_json::Value>()
                     .await?;
-                let allowed_keys = response
-                    .get(genome)
-                    .ok_or(TGVError::IOError(
-                        "Failed to get genome from UCSC API".to_string(),
-                    ))?
-                    .as_object()
-                    .ok_or(TGVError::IOError(
-                        "Failed to get genome from UCSC API".to_string(),
-                    ))?
-                    .keys();
+                // Schema:
+                // {
+                //     "genome": {
+                //         "track1":{
+                //             "compositeContainer": "TRUE",
+                //             "track2": {...}
+                //             ...
+                //         },
+                //         "track3": {...},
+                //     }
+                // }
+                // (Composite tracks can be nested.)
 
-                let mut prefered_track = None;
+                let prefered_track = get_prefered_track_name(
+                    genome.as_str(),
+                    response
+                        .get(genome.clone())
+                        .ok_or(TGVError::IOError(format!(
+                            "Failed to get genome from UCSC API"
+                        )))?,
+                    None,
+                    true,
+                )?;
 
-                for track in allowed_keys {
-                    if track == "ncbiRefSeqSelect" {
-                        prefered_track = Some(track.clone());
-                        break;
-                    } else if track == "ncbiRefSeqCurated" {
-                        prefered_track = Some(track.clone());
-                    } else if track == "ncbiRefSeq"
-                        && prefered_track != Some("ncbiRefSeqCurated".to_string())
-                    {
-                        prefered_track = Some(track.clone());
-                    } else if track == "refGene"
-                        && (prefered_track != Some("ncbiRefSeqCurated".to_string())
-                            && prefered_track != Some("ncbiRefSeq".to_string()))
-                    {
-                        prefered_track = Some(track.clone());
-                    }
-                }
                 Ok(prefered_track
                     .ok_or(TGVError::IOError(
                         "Failed to get prefered track from UCSC API".to_string(),
@@ -185,6 +179,46 @@ impl UcscApiTrackService {
             )),
         }
     }
+}
+
+/// Get the preferred track name recursively.
+fn get_prefered_track_name(
+    key: &str,
+    content: &serde_json::Value,
+    preferred_track_name: Option<String>,
+    is_top_level: bool,
+) -> Result<Option<String>, TGVError> {
+    let mut prefered_track_name = preferred_track_name;
+
+    let err = TGVError::IOError(format!("Failed to get genome from UCSC API"));
+
+    if content.get("compositeContainer").is_some() || is_top_level {
+        // do this recursively
+        for (track_name, track_content) in content.as_object().ok_or(err)?.iter() {
+            if track_content.is_object() {
+                prefered_track_name =
+                    get_prefered_track_name(track_name, track_content, prefered_track_name, false)?;
+            }
+        }
+    } else {
+        if prefered_track_name == Some("ncbiRefSeqSelect".to_string()) {
+        } else if key == "ncbiRefSeqSelect".to_string() {
+            prefered_track_name = Some(key.to_string());
+        } else if key == "ncbiRefSeqCurated".to_string() {
+            prefered_track_name = Some(key.to_string());
+        } else if *key == "ncbiRefSeq".to_string()
+            && prefered_track_name != Some("ncbiRefSeqCurated".to_string())
+        {
+            prefered_track_name = Some(key.to_string());
+        } else if *key == "refGene".to_string()
+            && (prefered_track_name != Some("ncbiRefSeqCurated".to_string())
+                && prefered_track_name != Some("ncbiRefSeq".to_string()))
+        {
+            prefered_track_name = Some(key.to_string());
+        }
+    }
+
+    Ok(prefered_track_name)
 }
 
 impl TrackService for UcscApiTrackService {
