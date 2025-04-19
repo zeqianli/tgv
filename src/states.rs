@@ -47,19 +47,11 @@ pub struct State {
 
     /// Error messages for display.
     pub errors: Vec<String>,
-
-    /// Cytobands
-    cytobands: Option<Vec<Cytoband>>,
 }
 
 /// Basics
 impl State {
     pub async fn new(settings: Settings) -> Result<Self, TGVError> {
-        let cytobands = match settings.reference.as_ref() {
-            Some(reference) => Cytoband::from_reference(reference).ok(), // TODO: this hides error. Handle properly.
-            None => None,
-        };
-
         let data = Data::new(&settings).await?;
 
         let contigs = State::load_contig_data(
@@ -82,7 +74,6 @@ impl State {
 
             contigs,
             settings,
-            cytobands,
             errors: Vec::new(),
         })
     }
@@ -140,6 +131,12 @@ impl State {
         Ok(self.viewing_window()?.contig.clone())
     }
 
+    pub fn current_cytoband(&self) -> Result<Option<&Cytoband>, TGVError> {
+        let contig = self.contig()?;
+        let cytoband = self.contigs.cytoband(&contig);
+        Ok(cytoband)
+    }
+
     /// Start coordinate of bases displayed on the screen.
     /// 1-based, inclusive.
     pub fn start(&self) -> Result<usize, TGVError> {
@@ -174,25 +171,6 @@ impl State {
     pub async fn close(&mut self) -> Result<(), TGVError> {
         self.data.close().await?;
         Ok(())
-    }
-
-    /// TODO: this is inefficient.
-    pub fn current_cytoband_index(&self) -> Result<Option<usize>, TGVError> {
-        match self.cytobands.as_ref() {
-            Some(cytobands) => {
-                for (i, cytoband) in cytobands.iter().enumerate() {
-                    if cytoband.contig == self.contig()? {
-                        return Ok(Some(i));
-                    }
-                }
-                Ok(None)
-            }
-            None => Ok(None),
-        }
-    }
-
-    pub fn cytobands(&self) -> Option<&[Cytoband]> {
-        self.cytobands.as_deref()
     }
 }
 

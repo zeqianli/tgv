@@ -162,4 +162,9 @@ impl ContigCollection {
             (index + self.contigs.len() - k % self.contigs.len()) % self.contigs.len();
         Ok(self.contigs[previous_index].contig.clone())
     }
+
+    pub fn cytoband(&self, contig: &Contig) -> Option<&Cytoband> {
+        let index = self.contig_index.get(&contig.full_name())?;
+        self.contigs[*index].cytoband.as_ref()
+    }
 }
