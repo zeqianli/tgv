@@ -64,7 +64,7 @@ impl State {
         };
 
         let cytobands = match settings.reference.as_ref() {
-            Some(reference) => Some(Cytoband::from_reference(reference)?),
+            Some(reference) => Cytoband::from_reference(reference).ok(), // TODO: this hides error. Handle properly.
             None => None,
         };
 

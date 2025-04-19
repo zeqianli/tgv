@@ -106,16 +106,16 @@ impl Settings {
             }
         }
 
-        // 2. If no bam file is provided, the initial state message cannot be GoToContigCoordinate
-        if bam_path.is_none() {
-            for m in initial_state_messages.iter() {
-                if let StateMessage::GotoContigCoordinate(_, _) = m {
-                    return Err(TGVError::CliError(
-                        "Bam file is required to go to a contig coordinate".to_string(),
-                    ));
-                }
-            }
-        }
+        // // 2. If no bam file is provided, the initial state message cannot be GoToContigCoordinate
+        // if bam_path.is_none() {
+        //     for m in initial_state_messages.iter() {
+        //         if let StateMessage::GotoContigCoordinate(_, _) = m {
+        //             return Err(TGVError::CliError(
+        //                 "Bam file is required to go to a contig coordinate".to_string(),
+        //             ));
+        //         }
+        //     }
+        // }
 
         // 3. bam file and reference cannot both be none
         if bam_path.is_none() && reference.is_none() {

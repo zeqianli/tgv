@@ -2,53 +2,92 @@ use crate::error::TGVError;
 use crate::helpers::is_url;
 use crate::models::{
     contig::Contig,
-    reference::Reference
+    reference::Reference,
+    cytoband::Cytoband,
 };
 use rust_htslib::bam::{self, IndexedReader, Read};
 use std::collections::HashMap;
 use url::Url;
 
+pub struct ContigDatum {
+    contig: Contig, // Name
+    length: Option<usize>, // Length
+    cytoband: Option<Cytoband>, // Cytoband
+}
 
 
 /// A collection of contigs. This helps relative contig movements.
 pub struct ContigCollection {
-    contigs: Vec<Contig>,
-    contig_lengths: Vec<Option<usize>>,
+    reference: Option<Reference>,
+    contigs: Vec<ContigDatum>,
 
     contig_index: HashMap<String, usize>,
 }
 
 impl ContigCollection {
-    pub fn new(contigs: Vec<Contig>, contig_lengths: Vec<Option<usize>>) -> Result<Self, TGVError> {
-        // check that contigs do not have duplicated full names
-        let mut contig_index = HashMap::new();
-        for (i, contig) in contigs.iter().enumerate() {
-            if contig_index.contains_key(&contig.full_name()) {
-                return Err(TGVError::StateError(format!(
-                    "Duplicate contig names {}. Is your BAM file header correct?",
-                    contig.full_name()
-                )));
-            }
-            contig_index.insert(contig.full_name(), i);
-        }
 
-        Ok(Self {
-            contigs,
-            contig_lengths,
-            contig_index,
-        })
+    pub fn new(reference: Option<Reference>) -> Self {
+        Self {
+            reference,
+            contigs: Vec::new(),
+            contig_index: HashMap::new(),
+        }
     }
 
     pub fn first(&self) -> Result<&Contig, TGVError> {
-        Ok(&self.contigs[0])
+        Ok(&self.contigs[0].contig)
     }
 
     #[allow(dead_code)]
     pub fn last(&self) -> Result<&Contig, TGVError> {
-        Ok(&self.contigs[self.contigs.len() - 1])
+        Ok(&self.contigs[self.contigs.len() - 1].contig)
     }
 
-    pub fn from_bam(
+    pub fn update_cytoband(&mut self, contig: &Contig, cytoband: Cytoband) {
+        let index = self.contig_index[&contig.full_name()];
+        self.contigs[index].cytoband = Some(cytoband);
+    }
+
+    pub fn update_length(&mut self, contig: &Contig, length: usize) {
+        let index = self.contig_index[&contig.full_name()];
+        self.contigs[index].length = Some(length);
+    }
+
+    // pub fn add_contig(&mut self, contig: Contig, length: Option<usize>) -> Result<(), TGVError> {
+    //     if self.contig_index.contains_key(&contig.full_name()) {
+    //         return Err(TGVError::StateError(format!(
+    //             "Duplicate contig names {}",
+    //             contig.full_name()
+    //         )));
+    //     }
+    //     let contig_name = contig.full_name();
+    //     self.contigs.push(ContigDatum {
+    //         contig,
+    //         length,
+    //         cytoband: None,
+    //     });
+    //     self.contig_index.insert(contig_name, self.contigs.len() - 1);
+    //     Ok(())
+    // }
+
+    pub fn update_contig(&mut self, contig: Contig, length: Option<usize>) -> Result<(), TGVError> {
+        let index = self.contig_index.get(&contig.full_name());
+        if let Some(index) = index {
+            self.contigs[*index].length = length;
+        } else {
+            let contig_name = contig.full_name();
+            self.contigs.push(ContigDatum {
+                contig,
+                length,
+                cytoband: None,
+            });
+            self.contig_index.insert(contig_name, self.contigs.len() - 1);
+        }
+        Ok(())
+    }
+
+    pub fn update_from_bam(
+        &mut self,
         path: &String,
         bai_path: Option<&String>,
         reference: Option<&Reference>,
@@ -78,31 +117,32 @@ impl ContigCollection {
 
         let header = bam::Header::from_template(bam.header());
 
-        let mut contigs = Vec::new();
-        let mut contig_lengths: Vec<Option<usize>> = Vec::new();
         for (_key, records) in header.to_hashmap().iter() {
             for record in records {
                 if record.contains_key("SN") {
                     let contig_name = record["SN"].to_string();
-                    match reference {
+                    let contig = match reference {
                         // If the reference is human, interpret contig names as chromosomes. This allows abbreviated matching (chr1 <-> 1).
-                        Some(Reference::Hg19) => contigs.push(Contig::chrom(&contig_name)),
-                        Some(Reference::Hg38) => contigs.push(Contig::chrom(&contig_name)),
+                        Some(Reference::Hg19) => Contig::chrom(&contig_name),
+                        Some(Reference::Hg38) => Contig::chrom(&contig_name),
+                        Some(Reference::UcscGenome(genome)) => Contig::chrom(genome),
 
                         // Otherwise, interpret contig names as contigs. This does not allow abbreviated matching.
-                        _ => contigs.push(Contig::contig(&contig_name)),
-                    }
+                        _ => Contig::contig(&contig_name),
+                    };
 
-                    if record.contains_key("LN") {
-                        contig_lengths.push(record["LN"].to_string().parse::<usize>().ok());
+                    let contig_length = if record.contains_key("LN") {
+                        record["LN"].to_string().parse::<usize>().ok()
                     } else {
-                        contig_lengths.push(None);
-                    }
+                        None
+                    };
+                    
+                    self.update_contig(contig, contig_length)?;
                 }
             }
         }
 
-        Self::new(contigs, contig_lengths)
+        Ok(self)
     }
 
     pub fn contains(&self, contig: &Contig) -> bool {

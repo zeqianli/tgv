@@ -18,6 +18,8 @@ use std::collections::HashMap;
 use reqwest::Client;
 use serde_json;
 
+
+
 pub struct UcscApiTrackService {
     reference: Reference,
     cached_tracks: HashMap<String, Track<Gene>>,
@@ -82,7 +84,7 @@ impl UcscApiTrackService {
             return Ok(false);
         }
 
-        for contig in self.get_all_contigs()?.iter() {
+        for contig in self.get_all_contigs().await?.iter() {
             self.check_or_load_contig(&contig).await?;
             if self.gene_name_lookup.contains_key(gene_name) {
                 return Ok(true);
@@ -93,11 +95,31 @@ impl UcscApiTrackService {
     }
 
 
-    fn get_all_contigs(&self) -> Result<Vec<Contig>, TGVError> {
+    async fn get_all_contigs(&self) -> Result<Vec<Contig>, TGVError> {
         match &self.reference {
             Reference::Hg19 | Reference::Hg38 => {
                 self.reference.contigs()
             } // TODO: query
+            Reference::UcscGenome(genome) => {
+                let query_url = format!("https://api.genome.ucsc.edu/list/chromosomes?genome={}", genome);
+
+                let response = self.client.get(query_url).send().await?.text().await?;
+
+                let err=TGVError::IOError(format!("Failed to deserialize chromosomes for {}", genome));
+
+
+                // schema: {..., "chromosomes": [{"__name__", len}]}
+
+                let value: serde_json::Value = serde_json::from_str(&response)?;
+
+                
+                let mut chromosomes = Vec::new();
+                for (k, v) in value["chromosomes"].as_object().ok_or(err)?.iter() { // TODO: save length
+                    chromosomes.push(Contig::chrom(k));
+                }
+
+                Ok(chromosomes)
+            }
             _ => Err(TGVError::IOError("Unsupported reference".to_string())),
         }
     }
