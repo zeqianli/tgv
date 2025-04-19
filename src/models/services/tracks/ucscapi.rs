@@ -18,7 +18,9 @@ use std::collections::HashMap;
 use reqwest::Client;
 use serde_json;
 
-
+// TODO: improved pattern:
+// Service doesn't save anything. No reference, no cache.
+// Ask these things to be passed in. And return them to store in the state.
 
 pub struct UcscApiTrackService {
     reference: Reference,
@@ -59,21 +61,14 @@ impl UcscApiTrackService {
             gene.contig = contig.clone();
         }
 
-
-       
-
         let track = Track::from_genes(genes, contig.clone())?;
 
         for (i, gene) in track.genes().iter().enumerate() {
-            self.gene_name_lookup.insert(gene.name.clone(), (contig.clone(), i));
+            self.gene_name_lookup
+                .insert(gene.name.clone(), (contig.clone(), i));
         }
 
-        self.cached_tracks.insert(
-            contig.full_name(),
-            track,
-        );
-
-        
+        self.cached_tracks.insert(contig.full_name(), track);
 
         Ok(true)
     }
@@ -84,41 +79,44 @@ impl UcscApiTrackService {
             return Ok(false);
         }
 
-        for contig in self.get_all_contigs().await?.iter() {
-            self.check_or_load_contig(&contig).await?;
+        for (contig, _) in self.get_all_contigs().await?.iter() {
+            self.check_or_load_contig(contig).await?;
             if self.gene_name_lookup.contains_key(gene_name) {
                 return Ok(true);
             }
         }
-        
-        Err(TGVError::IOError(format!("Gene {} not found in contigs", gene_name)))
+
+        Err(TGVError::IOError(format!(
+            "Gene {} not found in contigs",
+            gene_name
+        )))
     }
 
-
-    async fn get_all_contigs(&self) -> Result<Vec<Contig>, TGVError> {
+    pub async fn get_all_contigs(&self) -> Result<Vec<(Contig, usize)>, TGVError> {
         match &self.reference {
-            Reference::Hg19 | Reference::Hg38 => {
-                self.reference.contigs()
-            } // TODO: query
+            Reference::Hg19 | Reference::Hg38 => self.reference.contigs_and_lengths(), // TODO: query
             Reference::UcscGenome(genome) => {
-                let query_url = format!("https://api.genome.ucsc.edu/list/chromosomes?genome={}", genome);
+                let query_url = format!(
+                    "https://api.genome.ucsc.edu/list/chromosomes?genome={}",
+                    genome
+                );
 
                 let response = self.client.get(query_url).send().await?.text().await?;
 
-                let err=TGVError::IOError(format!("Failed to deserialize chromosomes for {}", genome));
-
+                let err =
+                    TGVError::IOError(format!("Failed to deserialize chromosomes for {}", genome));
 
                 // schema: {..., "chromosomes": [{"__name__", len}]}
 
                 let value: serde_json::Value = serde_json::from_str(&response)?;
 
-                
-                let mut chromosomes = Vec::new();
-                for (k, v) in value["chromosomes"].as_object().ok_or(err)?.iter() { // TODO: save length
-                    chromosomes.push(Contig::chrom(k));
+                let mut output = Vec::new();
+                for (k, v) in value["chromosomes"].as_object().ok_or(err)?.iter() {
+                    // TODO: save length
+                    output.push((Contig::chrom(k), v.as_u64().unwrap() as usize));
                 }
 
-                Ok(chromosomes)
+                Ok(output)
             }
             _ => Err(TGVError::IOError("Unsupported reference".to_string())),
         }
@@ -197,9 +195,16 @@ impl TrackService for UcscApiTrackService {
 
     async fn query_genes_overlapping(&self, region: &Region) -> Result<Vec<Gene>, TGVError> {
         if let Some(track) = self.cached_tracks.get(&region.contig().full_name()) {
-            Ok(track.get_features_overlapping(region).iter().map(|g| (*g).clone()).collect())
+            Ok(track
+                .get_features_overlapping(region)
+                .iter()
+                .map(|g| (*g).clone())
+                .collect())
         } else {
-            Err(TGVError::IOError(format!("Track not found for contig {}", region.contig().full_name())))
+            Err(TGVError::IOError(format!(
+                "Track not found for contig {}",
+                region.contig().full_name()
+            )))
         }
     }
 
@@ -211,20 +216,21 @@ impl TrackService for UcscApiTrackService {
         if let Some(track) = self.cached_tracks.get(&contig.full_name()) {
             Ok(track.get_gene_at(position).map(|g| (*g).clone()))
         } else {
-            Err(TGVError::IOError(format!("Track not found for contig {}", contig.full_name())))
+            Err(TGVError::IOError(format!(
+                "Track not found for contig {}",
+                contig.full_name()
+            )))
         }
     }
 
     async fn query_gene_name(&self, name: &String) -> Result<Gene, TGVError> {
         if let Some((contig, gene_index)) = self.gene_name_lookup.get(name) {
-            return Ok(
-                self
-                    .cached_tracks
-                    .get(&contig.full_name())
-                    .unwrap() // should never error out
-                    .genes()[*gene_index]
-                    .clone(),
-            );
+            return Ok(self
+                .cached_tracks
+                .get(&contig.full_name())
+                .unwrap() // should never error out
+                .genes()[*gene_index]
+                .clone());
         } else {
             Err(TGVError::IOError("Gene not found".to_string()))
         }
@@ -242,7 +248,10 @@ impl TrackService for UcscApiTrackService {
                 .ok_or(TGVError::IOError("No genes found".to_string()))?
                 .clone())
         } else {
-            Err(TGVError::IOError(format!("Track not found for contig {}", contig.full_name())))
+            Err(TGVError::IOError(format!(
+                "Track not found for contig {}",
+                contig.full_name()
+            )))
         }
     }
 
@@ -258,7 +267,10 @@ impl TrackService for UcscApiTrackService {
                 .ok_or(TGVError::IOError("No genes found".to_string()))?
                 .clone())
         } else {
-            Err(TGVError::IOError(format!("Track not found for contig {}", contig.full_name())))
+            Err(TGVError::IOError(format!(
+                "Track not found for contig {}",
+                contig.full_name()
+            )))
         }
     }
 
@@ -273,7 +285,10 @@ impl TrackService for UcscApiTrackService {
                 .get_saturating_k_exons_after(position, k)
                 .ok_or(TGVError::IOError("No exons found".to_string()))?)
         } else {
-            Err(TGVError::IOError(format!("Track not found for contig {}", contig.full_name())))
+            Err(TGVError::IOError(format!(
+                "Track not found for contig {}",
+                contig.full_name()
+            )))
         }
     }
 
@@ -288,7 +303,10 @@ impl TrackService for UcscApiTrackService {
                 .get_saturating_k_exons_before(position, k)
                 .ok_or(TGVError::IOError("No exons found".to_string()))?)
         } else {
-            Err(TGVError::IOError(format!("Track not found for contig {}", contig.full_name())))
+            Err(TGVError::IOError(format!(
+                "Track not found for contig {}",
+                contig.full_name()
+            )))
         }
     }
 }

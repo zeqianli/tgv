@@ -13,6 +13,7 @@ use crate::models::{
     services::tracks::{TrackService, UcscApiTrackService},
     window::ViewingWindow,
 };
+use crate::models::{reference, track};
 use crate::settings::Settings;
 use crate::traits::GenomeInterval;
 use crossterm::event::{KeyCode, KeyEvent};
@@ -35,7 +36,7 @@ pub struct State {
     pub data: Data,
 
     /// Contigs in the BAM header
-    contigs: Option<ContigCollection>,
+    contigs: ContigCollection,
 
     // Registers
     normal_mode_register: NormalModeRegister,
@@ -54,21 +55,20 @@ pub struct State {
 /// Basics
 impl State {
     pub async fn new(settings: Settings) -> Result<Self, TGVError> {
-        let contigs = match settings.bam_path.clone() {
-            Some(bam_path) => Some(ContigCollection::from_bam(
-                &bam_path,
-                settings.bai_path.as_ref(),
-                settings.reference.as_ref(),
-            )?),
-            None => None,
-        };
-
         let cytobands = match settings.reference.as_ref() {
             Some(reference) => Cytoband::from_reference(reference).ok(), // TODO: this hides error. Handle properly.
             None => None,
         };
 
         let data = Data::new(&settings).await?;
+
+        let contigs = State::load_contig_data(
+            settings.reference.as_ref(),
+            data.track_service.as_ref(),
+            settings.bam_path.as_ref(),
+            settings.bai_path.as_ref(),
+        )
+        .await?;
 
         Ok(Self {
             window: None,
@@ -193,6 +193,53 @@ impl State {
 
     pub fn cytobands(&self) -> Option<&[Cytoband]> {
         self.cytobands.as_deref()
+    }
+}
+
+/// Contig data looading
+
+impl State {
+    pub async fn load_contig_data(
+        reference: Option<&Reference>,
+        track_service: Option<&UcscApiTrackService>,
+        bam_path: Option<&String>,
+        bai_path: Option<&String>,
+    ) -> Result<ContigCollection, TGVError> {
+        // First, load from the track service.
+
+        let mut contig_data = ContigCollection::new(reference.cloned());
+
+        // push contigs and lengths
+
+        if let (Some(reference), Some(track_service)) = (reference, track_service) {
+            for (contig, length) in track_service.get_all_contigs().await? {
+                contig_data
+                    .update_or_add_contig(contig, Some(length))
+                    .unwrap();
+            }
+        }
+
+        // push cytobands
+        match reference {
+            Some(reference) => {
+                if *reference == Reference::Hg19 || *reference == Reference::Hg38 {
+                    for cytoband in Cytoband::from_reference(&reference)?.iter() {
+                        contig_data.update_cytoband(&cytoband.contig, cytoband.clone());
+                        // TODO: performance
+                    }
+                }
+            }
+            _ => {}
+        }
+
+        // update from bam header
+        if let Some(bam_path) = bam_path {
+            contig_data
+                .update_from_bam(bam_path, bai_path, reference)
+                .unwrap();
+        }
+
+        Ok(contig_data)
     }
 }
 
@@ -583,13 +630,12 @@ impl State {
                     Some(Reference::Hg38) | Some(Reference::Hg19) => Contig::chrom(&contig),
                     _ => Contig::contig(&contig),
                 };
-                if let Some(contigs) = &self.contigs {
-                    if !contigs.contains(&contig) {
-                        return Err(TGVError::StateError(format!(
-                            "Contig {} not found in the BAM header",
-                            contig.full_name()
-                        )));
-                    }
+                if !self.contigs.contains(&contig) {
+                    return Err(TGVError::StateError(format!(
+                        "Contig {} not found for reference {}",
+                        contig.full_name(),
+                        self.settings.reference.as_ref().unwrap()
+                    )));
                 }
 
                 let current_frame_area = *self.current_frame_area()?;
@@ -642,20 +688,9 @@ impl State {
     pub fn contig_length(&self) -> Result<Option<usize>, TGVError> {
         let contig = self.contig()?;
 
-        // 1. If can be found in the BAM header use the BAM header
-        if let Some(contigs) = &self.contigs {
-            if let Some(length) = contigs.length(&contig) {
-                return Ok(Some(length));
-            }
+        if let Some(length) = self.contigs.length(&contig) {
+            return Ok(Some(length));
         }
-
-        // 2. If the reference genome, used length in the database.
-        if let Some(reference) = self.settings.reference.as_ref() {
-            if let Some(length) = reference.length(&contig) {
-                return Ok(Some(length));
-            }
-        }
-
         Ok(None)
     }
 }
@@ -749,7 +784,7 @@ impl State {
                     state_messages.push(StateMessage::GotoCoordinate(gene.end() - 1));
                 }
             }
-           
+
             StateMessage::GotoNextExonsStart(n_movements) => {
                 if n_movements == 0 {
                     return self.get_data_requirements();
@@ -850,7 +885,7 @@ impl State {
 
         if let StateMessage::GoToGene(gene_id) = message {
             track_service.check_or_load_gene(&gene_id).await?; // TODO: verbose on whether data was loaded
-            let gene = track_service.query_gene_name(&gene_id).await?; 
+            let gene = track_service.query_gene_name(&gene_id).await?;
             state_messages.push(StateMessage::GotoContigCoordinate(
                 gene.contig().full_name(),
                 gene.start(),
@@ -876,7 +911,7 @@ impl State {
         ) {
             (Some(_), Some(_)) | (None, Some(_)) => {
                 self.handle_movement_message(StateMessage::GotoContigCoordinate(
-                    self.contigs.as_ref().unwrap().first()?.full_name(),
+                    self.contigs.first()?.full_name(),
                     1,
                 ))
             }

@@ -2,6 +2,8 @@ use crate::error::TGVError;
 use crate::models::contig::Contig;
 use std::fmt;
 
+use super::services::tracks::TrackService;
+
 #[derive(Debug, Clone, Eq, PartialEq)]
 pub enum Reference {
     Hg19,
@@ -49,98 +51,66 @@ impl fmt::Display for Reference {
 }
 
 impl Reference {
-    /// Return chromosome length read.
-    /// Data is from the UCSC database. See ./resources/*_chrominfo.csv   
-    pub fn length(&self, contig: &Contig) -> Option<usize> {
+    pub fn contigs_and_lengths(&self) -> Result<Vec<(Contig, usize)>, TGVError> {
         match self {
-            Self::Hg19 => match contig.full_name().as_str() {
-                "chr1" => Some(249250621),
-                "chr2" => Some(243199373),
-                "chr3" => Some(198022430),
-                "chr4" => Some(191154276),
-                "chr5" => Some(180915260),
-                "chr6" => Some(171115067),
-                "chr7" => Some(159138663),
-                "chrX" => Some(155270560),
-                "chr8" => Some(146364022),
-                "chr9" => Some(141213431),
-                "chr10" => Some(135534747),
-                "chr11" => Some(135006516),
-                "chr12" => Some(133851895),
-                "chr13" => Some(115169878),
-                "chr14" => Some(107349540),
-                "chr15" => Some(102531392),
-                "chr16" => Some(90354753),
-                "chr17" => Some(81195210),
-                "chr18" => Some(78077248),
-                "chr20" => Some(63025520),
-                "chrY" => Some(59373566),
-                "chr19" => Some(59128983),
-                "chr22" => Some(51304566),
-                "chr21" => Some(48129895),
-                _ => None,
-            },
-            Self::Hg38 => match contig.full_name().as_str() {
-                "chr1" => Some(248956422),
-                "chr2" => Some(242193529),
-                "chr3" => Some(198295559),
-                "chr4" => Some(190214555),
-                "chr5" => Some(181538259),
-                "chr6" => Some(170805979),
-                "chr7" => Some(159345973),
-                "chrX" => Some(156040895),
-                "chr8" => Some(145138636),
-                "chr9" => Some(138394717),
-                "chr11" => Some(135086622),
-                "chr10" => Some(133797422),
-                "chr12" => Some(133275309),
-                "chr13" => Some(114364328),
-                "chr14" => Some(107043718),
-                "chr15" => Some(101991189),
-                "chr16" => Some(90338345),
-                "chr17" => Some(83257441),
-                "chr18" => Some(80373285),
-                "chr20" => Some(64444167),
-                "chr19" => Some(58617616),
-                "chrY" => Some(57227415),
-                "chr22" => Some(50818468),
-                "chr21" => Some(46709983),
-                _ => None,
-            },
-            _ => None, // Must query the UCSC API. This function is not supported.
-        }
-    }
-
-    pub fn contigs(&self) -> Result<Vec<Contig>, TGVError> {
-        match self {
-            Self::Hg19 | Self::Hg38 => {
+            Self::Hg19 => {
                 Ok(vec![
-                    Contig::chrom("chr1"),
-                    Contig::chrom("chr2"),
-                    Contig::chrom("chr3"),
-                    Contig::chrom("chr4"),
-                    Contig::chrom("chr5"),
-                    Contig::chrom("chr6"),
-                    Contig::chrom("chr7"),
-                    Contig::chrom("chr8"),
-                    Contig::chrom("chr9"),
-                    Contig::chrom("chr10"),
-                    Contig::chrom("chr11"),
-                    Contig::chrom("chr12"),
-                    Contig::chrom("chr13"),
-                    Contig::chrom("chr14"),
-                    Contig::chrom("chr15"),
-                    Contig::chrom("chr16"),
-                    Contig::chrom("chr17"),
-                    Contig::chrom("chr18"),
-                    Contig::chrom("chr19"),
-                    Contig::chrom("chr20"),
-                    Contig::chrom("chr21"),
-                    Contig::chrom("chr22"),
-                    Contig::chrom("chrX"),
-                    Contig::chrom("chrY")]) // TODO: MT
+                    (Contig::chrom("chr1"), 249250621),
+                    (Contig::chrom("chr2"), 243199373),
+                    (Contig::chrom("chr3"), 198022430),
+                    (Contig::chrom("chr4"), 191154276),
+                    (Contig::chrom("chr5"), 180915260),
+                    (Contig::chrom("chr6"), 171115067),
+                    (Contig::chrom("chr7"), 159138663),
+                    (Contig::chrom("chr8"), 155270560),
+                    (Contig::chrom("chr9"), 146364022),
+                    (Contig::chrom("chr10"), 141213431),
+                    (Contig::chrom("chr11"), 135534747),
+                    (Contig::chrom("chr12"), 135006516),
+                    (Contig::chrom("chr13"), 133851895),
+                    (Contig::chrom("chr14"), 115169878),
+                    (Contig::chrom("chr15"), 107349540),
+                    (Contig::chrom("chr16"), 102531392),
+                    (Contig::chrom("chr17"), 90354753),
+                    (Contig::chrom("chr18"), 81195210),
+                    (Contig::chrom("chr19"), 78077248),
+                    (Contig::chrom("chr20"), 63025520),
+                    (Contig::chrom("chr21"), 59373566),
+                    (Contig::chrom("chr22"), 59128983),
+                    (Contig::chrom("chrX"), 51304566),
+                    (Contig::chrom("chrY"), 48129895),
+                ]) // TODO: MT
             }
-            _ => Err(TGVError::IOError(format!("Cannot get contigs for this reference: {}. Need to query the UCSC API.", self))),
+            Self::Hg38 => Ok(vec![
+                (Contig::chrom("chr1"), 248956422),
+                (Contig::chrom("chr2"), 242193529),
+                (Contig::chrom("chr3"), 198295559),
+                (Contig::chrom("chr4"), 190214555),
+                (Contig::chrom("chr5"), 181538259),
+                (Contig::chrom("chr6"), 170805979),
+                (Contig::chrom("chr7"), 159345973),
+                (Contig::chrom("chrX"), 156040895),
+                (Contig::chrom("chr8"), 145138636),
+                (Contig::chrom("chr9"), 138394717),
+                (Contig::chrom("chr11"), 135086622),
+                (Contig::chrom("chr10"), 133797422),
+                (Contig::chrom("chr12"), 133275309),
+                (Contig::chrom("chr13"), 114364328),
+                (Contig::chrom("chr14"), 107043718),
+                (Contig::chrom("chr15"), 101991189),
+                (Contig::chrom("chr16"), 90338345),
+                (Contig::chrom("chr17"), 83257441),
+                (Contig::chrom("chr18"), 80373285),
+                (Contig::chrom("chr20"), 64444167),
+                (Contig::chrom("chr19"), 58617616),
+                (Contig::chrom("chrY"), 57227415),
+                (Contig::chrom("chr22"), 50818468),
+                (Contig::chrom("chr21"), 46709983),
+            ]),
+            _ => Err(TGVError::IOError(format!(
+                "Cannot get contigs for this reference: {}. Need to query the UCSC API.",
+                self
+            ))),
         }
     }
 }

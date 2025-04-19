@@ -1,20 +1,15 @@
 use crate::error::TGVError;
 use crate::helpers::is_url;
-use crate::models::{
-    contig::Contig,
-    reference::Reference,
-    cytoband::Cytoband,
-};
+use crate::models::{contig::Contig, cytoband::Cytoband, reference::Reference};
 use rust_htslib::bam::{self, IndexedReader, Read};
 use std::collections::HashMap;
 use url::Url;
 
 pub struct ContigDatum {
-    contig: Contig, // Name
-    length: Option<usize>, // Length
+    contig: Contig,             // Name
+    length: Option<usize>,      // Length
     cytoband: Option<Cytoband>, // Cytoband
 }
-
 
 /// A collection of contigs. This helps relative contig movements.
 pub struct ContigCollection {
@@ -25,7 +20,6 @@ pub struct ContigCollection {
 }
 
 impl ContigCollection {
-
     pub fn new(reference: Option<Reference>) -> Self {
         Self {
             reference,
@@ -43,34 +37,23 @@ impl ContigCollection {
         Ok(&self.contigs[self.contigs.len() - 1].contig)
     }
 
-    pub fn update_cytoband(&mut self, contig: &Contig, cytoband: Cytoband) {
-        let index = self.contig_index[&contig.full_name()];
-        self.contigs[index].cytoband = Some(cytoband);
+    pub fn update_cytoband(&mut self, contig: &Contig, cytoband: Cytoband) -> Result<(), TGVError> {
+        let index = self
+            .contig_index
+            .get(&contig.full_name())
+            .ok_or(TGVError::StateError(format!(
+                "Contig {} not found",
+                contig.full_name()
+            )))?;
+        self.contigs[*index].cytoband = Some(cytoband);
+        Ok(())
     }
 
-    pub fn update_length(&mut self, contig: &Contig, length: usize) {
-        let index = self.contig_index[&contig.full_name()];
-        self.contigs[index].length = Some(length);
-    }
-
-    // pub fn add_contig(&mut self, contig: Contig, length: Option<usize>) -> Result<(), TGVError> {
-    //     if self.contig_index.contains_key(&contig.full_name()) {
-    //         return Err(TGVError::StateError(format!(
-    //             "Duplicate contig names {}",
-    //             contig.full_name()
-    //         )));
-    //     }
-    //     let contig_name = contig.full_name();
-    //     self.contigs.push(ContigDatum {
-    //         contig,
-    //         length,
-    //         cytoband: None,
-    //     });
-    //     self.contig_index.insert(contig_name, self.contigs.len() - 1);
-    //     Ok(())
-    // }
-
-    pub fn update_contig(&mut self, contig: Contig, length: Option<usize>) -> Result<(), TGVError> {
+    pub fn update_or_add_contig(
+        &mut self,
+        contig: Contig,
+        length: Option<usize>,
+    ) -> Result<(), TGVError> {
         let index = self.contig_index.get(&contig.full_name());
         if let Some(index) = index {
             self.contigs[*index].length = length;
@@ -81,7 +64,8 @@ impl ContigCollection {
                 length,
                 cytoband: None,
             });
-            self.contig_index.insert(contig_name, self.contigs.len() - 1);
+            self.contig_index
+                .insert(contig_name, self.contigs.len() - 1);
         }
         Ok(())
     }
@@ -91,7 +75,7 @@ impl ContigCollection {
         path: &String,
         bai_path: Option<&String>,
         reference: Option<&Reference>,
-    ) -> Result<Self, TGVError> {
+    ) -> Result<(), TGVError> {
         // Use the indexed_reader::Builder pattern as shown in alignment.rs
         let is_remote_path = is_url(path);
         let bam = match bai_path {
@@ -136,13 +120,13 @@ impl ContigCollection {
                     } else {
                         None
                     };
-                    
-                    self.update_contig(contig, contig_length)?;
+
+                    self.update_or_add_contig(contig, contig_length)?;
                 }
             }
         }
 
-        Ok(self)
+        Ok(())
     }
 
     pub fn contains(&self, contig: &Contig) -> bool {
@@ -151,21 +135,31 @@ impl ContigCollection {
 
     pub fn length(&self, contig: &Contig) -> Option<usize> {
         let index = self.contig_index.get(&contig.full_name())?;
-        self.contig_lengths[*index]
+        self.contigs[*index].length
     }
 
-    #[allow(dead_code)]
     pub fn next(&self, contig: &Contig, k: usize) -> Result<Contig, TGVError> {
-        let index = self.contig_index[&contig.full_name()];
+        let index = self
+            .contig_index
+            .get(&contig.full_name())
+            .ok_or(TGVError::StateError(format!(
+                "Contig {} not found",
+                contig.full_name()
+            )))?;
         let next_index = (index + k) % self.contigs.len();
-        Ok(self.contigs[next_index].clone())
+        Ok(self.contigs[next_index].contig.clone())
     }
 
-    #[allow(dead_code)]
     pub fn previous(&self, contig: &Contig, k: usize) -> Result<Contig, TGVError> {
-        let index = self.contig_index[&contig.full_name()];
+        let index = self
+            .contig_index
+            .get(&contig.full_name())
+            .ok_or(TGVError::StateError(format!(
+                "Contig {} not found",
+                contig.full_name()
+            )))?;
         let previous_index =
             (index + self.contigs.len() - k % self.contigs.len()) % self.contigs.len();
-        Ok(self.contigs[previous_index].clone())
+        Ok(self.contigs[previous_index].contig.clone())
     }
 }
