@@ -9,7 +9,7 @@ use crate::models::{
     reference::Reference,
     region::Region,
     register::{CommandModeRegister, NormalModeRegister},
-    services::tracks::{TrackService, UcscApiTrackService},
+    services::track_service::{TrackService, UcscApiTrackService, UcscDbTrackService},
     window::ViewingWindow,
 };
 use crate::models::{reference, track};

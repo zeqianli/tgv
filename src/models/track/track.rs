@@ -13,6 +13,7 @@ use std::collections::BTreeMap;
 use std::ops::Bound::{Excluded, Included};
 
 // A track is a collections of features on a single contig.
+#[derive(Debug)]
 pub struct Track<T: GenomeInterval> {
     pub features: Vec<T>, // TODO: what about hierarchy in features? e.g. exons of a gene?
     pub contig: Contig,

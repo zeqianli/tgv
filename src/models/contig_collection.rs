@@ -1,6 +1,5 @@
 use crate::error::TGVError;
 use crate::helpers::is_url;
-use crate::models::services::tracks::UcscApiTrackService;
 use crate::models::{contig::Contig, cytoband::Cytoband, reference::Reference};
 use rust_htslib::bam::{self, IndexedReader, Read};
 use std::collections::HashMap;

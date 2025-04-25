@@ -11,7 +11,7 @@ use crate::models::{
     sequence::Sequence,
     services::{
         sequences::SequenceService,
-        tracks::{TrackService, UcscApiTrackService, UcscDbTrackService},
+        track_service::{TrackService, TrackServiceEnum, UcscApiTrackService, UcscDbTrackService},
     },
     track::{
         feature::{Gene, SubGeneFeature},
@@ -29,7 +29,7 @@ pub struct Data {
 
     /// Tracks.
     pub track: Option<Track<Gene>>,
-    pub track_service: Option<Box<dyn TrackService>>,
+    pub track_service: Option<TrackServiceEnum>,
 
     /// Sequences.
     pub sequence: Option<Sequence>,
@@ -75,20 +75,20 @@ impl Data {
             None => None,
         };
 
-        let (track_service, sequence_service): (
-            Option<Box<dyn TrackService>>,
-            Option<SequenceService>,
-        ) = match settings.reference.as_ref() {
-            Some(reference) => {
-                let ts = match settings.backend {
-                    BackendType::Api => Box::new(UcscApiTrackService::new()?),
-                    BackendType::Db => Box::new(UcscDbTrackService::new(reference).await?),
-                };
-                let ss = SequenceService::new(reference.clone())?;
-                (Some(ts), Some(ss))
-            }
-            None => (None, None),
-        };
+        let (track_service, sequence_service): (Option<TrackServiceEnum>, Option<SequenceService>) =
+            match settings.reference.as_ref() {
+                Some(reference) => {
+                    let ts = match settings.backend {
+                        BackendType::Api => TrackServiceEnum::Api(UcscApiTrackService::new()?),
+                        BackendType::Db => {
+                            TrackServiceEnum::Db(UcscDbTrackService::new(reference).await?)
+                        }
+                    };
+                    let ss = SequenceService::new(reference.clone())?;
+                    (Some(ts), Some(ss))
+                }
+                None => (None, None),
+            };
 
         let contigs = Data::load_contig_data(
             settings.reference.as_ref(),
@@ -157,15 +157,19 @@ impl Data {
                 }
             }
             DataMessage::RequiresCompleteFeatures(region) => {
+                let has_complete_track = self.has_complete_track(&region);
                 if let (Some(reference), Some(track_service)) =
                     (reference, self.track_service.as_mut())
                 {
-                    let has_complete_track = self.has_complete_track(&region);
-
                     if !has_complete_track {
-                        track_service
-                            .check_or_load_contig(reference, &region.contig)
-                            .await?;
+                        match track_service {
+                            TrackServiceEnum::Api(service) => {
+                                service
+                                    .check_or_load_contig(reference, &region.contig)
+                                    .await?;
+                            }
+                            _ => {}
+                        }
                         self.track = Some(track_service.query_gene_track(&region).await?);
                         loaded_data = true;
                     }

@@ -2,8 +2,6 @@ use crate::error::TGVError;
 use crate::models::contig::Contig;
 use std::fmt;
 
-use super::services::tracks::TrackService;
-
 #[derive(Debug, Clone, Eq, PartialEq)]
 pub enum Reference {
     Hg19,
