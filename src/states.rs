@@ -174,7 +174,10 @@ impl State {
         messages: Vec<StateMessage>,
     ) -> Result<(), TGVError> {
         let data_messages = self.handle_state_messages(messages).await?;
-        let _loaded_data = self.data.handle_data_messages(data_messages).await?;
+        let _loaded_data = self
+            .data
+            .handle_data_messages(self.settings.reference.as_ref(), data_messages)
+            .await?;
 
         Ok(())
     }
@@ -194,7 +197,10 @@ impl State {
             .collect::<Vec<String>>()
             .join(", ");
 
-        let loaded_data = self.data.handle_data_messages(data_messages).await?;
+        let loaded_data = self
+            .data
+            .handle_data_messages(self.settings.reference.as_ref(), data_messages)
+            .await?;
 
         if self.settings.debug {
             if loaded_data {
@@ -626,8 +632,22 @@ impl State {
         let contig = self.contig()?;
         let middle = self.middle()?;
 
+        if self.data.track_service.is_none() {
+            return Err(TGVError::StateError(
+                "Track service not initialized".to_string(),
+            ));
+        }
+
         let track_service = self.data.track_service.as_mut().unwrap();
-        track_service.check_or_load_contig(&contig).await?;
+        if let Some(reference) = self.settings.reference.as_ref() {
+            track_service
+                .check_or_load_contig(reference, &contig)
+                .await?;
+        } else {
+            return Err(TGVError::StateError(
+                "No reference is provided. Cannot handle feature movement.".to_string(),
+            )); // TODO: this breaks the app. handle this gracefully.
+        }
 
         let track = match self.data.track.as_ref() {
             Some(track) => track,
@@ -805,12 +825,21 @@ impl State {
         let track_service = self.data.track_service.as_mut().unwrap();
 
         if let StateMessage::GoToGene(gene_id) = message {
-            track_service.check_or_load_gene(&gene_id).await?; // TODO: verbose on whether data was loaded
-            let gene = track_service.query_gene_name(&gene_id).await?;
-            state_messages.push(StateMessage::GotoContigCoordinate(
-                gene.contig().full_name(),
-                gene.start(),
-            ));
+            if let Some(reference) = self.settings.reference.as_ref() {
+                track_service
+                    .check_or_load_gene(reference, &gene_id)
+                    .await?; // TODO: verbose on whether data was loaded
+                let gene = track_service.query_gene_name(&gene_id).await?;
+                state_messages.push(StateMessage::GotoContigCoordinate(
+                    gene.contig().full_name(),
+                    gene.start(),
+                ));
+            } else {
+                return Err(TGVError::StateError(format!(
+                    "No reference is provided. Cannot goto a gene {}",
+                    gene_id
+                )));
+            }
         }
 
         let mut data_messages = Vec::new();

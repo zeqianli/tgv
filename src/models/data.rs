@@ -77,7 +77,7 @@ impl Data {
 
         let (track_service, sequence_service) = match settings.reference.as_ref() {
             Some(reference) => (
-                Some(UcscApiTrackService::new(reference.clone()).unwrap()),
+                Some(UcscApiTrackService::new().unwrap()),
                 Some(SequenceService::new(reference.clone()).unwrap()),
             ),
             None => (None, None),
@@ -115,11 +115,12 @@ impl Data {
 
     pub async fn handle_data_messages(
         &mut self,
+        reference: Option<&Reference>, // TODO: improve this.
         data_messages: Vec<DataMessage>,
     ) -> Result<bool, TGVError> {
         let mut loaded_data = false;
         for data_message in data_messages {
-            loaded_data = self.handle_data_message(data_message).await?;
+            loaded_data = self.handle_data_message(reference, data_message).await?;
         }
         Ok(loaded_data)
     }
@@ -127,6 +128,7 @@ impl Data {
     // TODO: async
     pub async fn handle_data_message(
         &mut self,
+        reference: Option<&Reference>, // TODO: improve this.
         data_message: DataMessage,
     ) -> Result<bool, TGVError> {
         let mut loaded_data = false;
@@ -148,17 +150,21 @@ impl Data {
                 }
             }
             DataMessage::RequiresCompleteFeatures(region) => {
-                if self.track_service.is_none() {
-                    return Err(TGVError::IOError("Track service not found".to_string()));
-                }
+                if let Some(reference) = reference {
+                    if self.track_service.is_none() {
+                        return Err(TGVError::IOError("Track service not found".to_string()));
+                    }
 
-                let has_complete_track = self.has_complete_track(&region);
-                let track_service = self.track_service.as_mut().unwrap();
+                    let has_complete_track = self.has_complete_track(&region);
+                    let track_service = self.track_service.as_mut().unwrap();
 
-                if !has_complete_track {
-                    track_service.check_or_load_contig(&region.contig).await?;
-                    self.track = Some(track_service.query_gene_track(&region).await.unwrap());
-                    loaded_data = true;
+                    if !has_complete_track {
+                        track_service
+                            .check_or_load_contig(reference, &region.contig)
+                            .await?;
+                        self.track = Some(track_service.query_gene_track(&region).await.unwrap());
+                        loaded_data = true;
+                    }
                 }
             }
             DataMessage::RequiresCompleteSequences(region) => {
@@ -185,29 +191,44 @@ impl Data {
                     return Ok(false);
                 }
 
-                let cytoband = self
-                    .track_service
-                    .as_ref()
-                    .unwrap()
-                    .get_cytoband(&contig)
-                    .await?;
-                self.contigs.update_cytoband(&contig, cytoband);
-                loaded_data = true;
-            } // TODO
+                if let Some(reference) = reference {
+                    let cytoband = self
+                        .track_service
+                        .as_ref()
+                        .unwrap()
+                        .get_cytoband(reference, &contig)
+                        .await?;
+                    self.contigs.update_cytoband(&contig, cytoband);
+                    loaded_data = true;
+                } // TODO
+            }
         }
 
         Ok(loaded_data)
     }
 
-    pub async fn load_all_data(&mut self, region: Region) -> Result<bool, TGVError> {
+    pub async fn load_all_data(
+        &mut self,
+        reference: Option<&Reference>, // TODO: improve this.
+        region: Region,
+    ) -> Result<bool, TGVError> {
         let loaded_alignment = self
-            .handle_data_message(DataMessage::RequiresCompleteAlignments(region.clone()))
+            .handle_data_message(
+                reference,
+                DataMessage::RequiresCompleteAlignments(region.clone()),
+            )
             .await?;
         let loaded_track = self
-            .handle_data_message(DataMessage::RequiresCompleteFeatures(region.clone()))
+            .handle_data_message(
+                reference,
+                DataMessage::RequiresCompleteFeatures(region.clone()),
+            )
             .await?;
         let loaded_sequence = self
-            .handle_data_message(DataMessage::RequiresCompleteSequences(region.clone()))
+            .handle_data_message(
+                reference,
+                DataMessage::RequiresCompleteSequences(region.clone()),
+            )
             .await?;
         Ok(loaded_alignment || loaded_track || loaded_sequence)
     }
@@ -242,7 +263,7 @@ impl Data {
         // push contigs and lengths
 
         if let (Some(reference), Some(track_service)) = (reference, track_service) {
-            for (contig, length) in track_service.get_all_contigs().await? {
+            for (contig, length) in track_service.get_all_contigs(reference).await? {
                 contig_data
                     .update_or_add_contig(contig, Some(length))
                     .unwrap();

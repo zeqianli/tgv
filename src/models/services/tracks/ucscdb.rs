@@ -15,13 +15,13 @@ use std::sync::Arc;
 
 pub struct UcscDbTrackService {
     pool: Arc<MySqlPool>,
-    #[allow(dead_code)]
-    reference: Reference,
 }
 
 impl UcscDbTrackService {
-    pub async fn new(reference: Reference) -> Result<Self, TGVError> {
-        let mysql_url = UcscDbTrackService::get_mysql_url(&reference)?;
+    /// Initialize the database connect.
+    /// Reference is needed to find the corresponding schema.
+    pub async fn new(reference: &Reference) -> Result<Self, TGVError> {
+        let mysql_url = UcscDbTrackService::get_mysql_url(reference)?;
         let pool = MySqlPoolOptions::new()
             .max_connections(5)
             .connect(&mysql_url)
@@ -29,7 +29,6 @@ impl UcscDbTrackService {
 
         Ok(Self {
             pool: Arc::new(pool),
-            reference,
         })
     }
 
@@ -37,7 +36,14 @@ impl UcscDbTrackService {
         match reference {
             Reference::Hg19 => Ok("mysql://genome@genome-mysql.soe.ucsc.edu/hg19".to_string()),
             Reference::Hg38 => Ok("mysql://genome@genome-mysql.soe.ucsc.edu/hg38".to_string()),
-            _ => Err(TGVError::ValueError("Unsupported reference".to_string())),
+            Reference::UcscGenome(genome) => Ok(format!(
+                "mysql://genome@genome-mysql.soe.ucsc.edu/{}",
+                genome
+            )),
+            _ => Err(TGVError::ValueError(format!(
+                "Unsupported reference: {}",
+                reference
+            ))),
         }
     }
 }
@@ -47,6 +53,26 @@ impl TrackService for UcscDbTrackService {
         self.pool.close().await;
         Ok(())
     }
+
+    async fn get_all_contigs(
+        &self,
+        reference: &Reference,
+    ) -> Result<Vec<(Contig, usize)>, TGVError> {
+        // TODO
+    }
+
+    async fn get_cytoband(
+        &self,
+        reference: &Reference,
+        contig: &Contig,
+    ) -> Result<Option<Cytoband>, TGVError> {
+        // TODO
+    }
+
+    async fn get_prefered_track_name(&self, reference: &Reference) -> Result<String, TGVError> {
+        // TODO
+    }
+
     async fn query_genes_overlapping(&self, region: &Region) -> Result<Vec<Gene>, TGVError> {
         let rows = sqlx::query(
             "SELECT name, chrom, strand, txStart, txEnd, name2, exonStarts, exonEnds, cdsStart, cdsEnd
