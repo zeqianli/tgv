@@ -1,7 +1,13 @@
 use crate::error::TGVError;
 use crate::helpers::is_url;
 use crate::models::{message::StateMessage, reference::Reference};
-use clap::Parser;
+use clap::{Parser, ValueEnum};
+
+#[derive(Clone, Debug, PartialEq, Eq, ValueEnum)]
+pub enum BackendType {
+    Api,
+    Db,
+}
 
 #[derive(Parser)]
 #[command(author, version, about, long_about = None)]
@@ -30,6 +36,10 @@ pub struct Cli {
     #[arg(long)]
     no_reference: bool,
 
+    /// Select the backend service for fetching track data.
+    #[arg(long, value_enum, default_value_t = BackendType::Api)]
+    backend: BackendType,
+
     /// For development purposes only
     /// Display messages in the terminal.
     #[arg(long)]
@@ -43,6 +53,7 @@ pub struct Settings {
     // pub vcf_path: Option<String>,
     // pub bed_path: Option<String>,
     pub reference: Option<Reference>,
+    pub backend: BackendType,
 
     pub initial_state_messages: Vec<StateMessage>,
 
@@ -93,6 +104,9 @@ impl Settings {
         let initial_state_messages =
             Self::translate_initial_state_messages(&cli.region, reference.as_ref())?;
 
+        // Backend
+        let backend = cli.backend;
+
         // Additional validations:
         // 1. If no reference is provided, the initial state messages cannot contain GoToGene
         if reference.is_none() {
@@ -130,6 +144,7 @@ impl Settings {
             // vcf_path,
             // bed_path,
             reference,
+            backend,
             initial_state_messages,
             test_mode,
             debug: cli.debug,
@@ -187,58 +202,55 @@ mod tests {
     use crate::models::reference::Reference;
     use rstest::rstest;
 
+    // Helper function to create default settings for comparison
+    fn default_settings() -> Settings {
+        Settings {
+            bam_path: None,
+            bai_path: None,
+            reference: Some(Reference::Hg38),
+            backend: BackendType::Api, // Default backend
+            initial_state_messages: vec![StateMessage::GoToDefault],
+            test_mode: false,
+            debug: false,
+        }
+    }
+
     #[rstest]
-    #[case("tgv", Ok(Settings {
-        bam_path: None,
-        bai_path: None,
-        reference: Some(Reference::Hg38),
-        initial_state_messages: vec![StateMessage::GoToDefault],
-        test_mode: false,
-        debug: false,
-    }))] // empty input: no bam file and no reference: browse hg38
+    #[case("tgv", Ok(default_settings()))]
     #[case("tgv input.bam", Ok(Settings {
         bam_path: Some("input.bam".to_string()),
-        bai_path: None,
-        reference: Some(Reference::Hg38),
-        initial_state_messages: vec![StateMessage::GoToDefault],
-        test_mode: false,
-        debug: false,
+        ..default_settings()
+    }))]
+    #[case("tgv input.bam --backend db", Ok(Settings {
+        bam_path: Some("input.bam".to_string()),
+        backend: BackendType::Db,
+        ..default_settings()
     }))]
     #[case("tgv wrong.extension", Err(TGVError::CliError("".to_string())))]
     #[case("tgv input.bam -r chr1:12345", Ok(Settings {
         bam_path: Some("input.bam".to_string()),
-        bai_path: None,
-        reference: Some(Reference::Hg38),
         initial_state_messages: vec![StateMessage::GotoContigCoordinate("chr1".to_string(), 12345)],
-        test_mode: false,
-        debug: false,
+        ..default_settings()
     }))]
     #[case("tgv input.bam -r chr1:invalid", Err(TGVError::CliError("".to_string())))]
     #[case("tgv input.bam -r chr1:12:12345", Err(TGVError::CliError("".to_string())))]
     #[case("tgv input.bam -r TP53", Ok(Settings {
         bam_path: Some("input.bam".to_string()),
-        bai_path: None,
-        reference: Some(Reference::Hg38),
         initial_state_messages: vec![StateMessage::GoToGene("TP53".to_string())],
-        test_mode: false,
-        debug: false,
+        ..default_settings()
     }))]
     #[case("tgv input.bam -r TP53 -g hg19", Ok(Settings {
         bam_path: Some("input.bam".to_string()),
-        bai_path: None,
         reference: Some(Reference::Hg19),
         initial_state_messages: vec![StateMessage::GoToGene("TP53".to_string())],
-        test_mode: false,
-        debug: false,
+        ..default_settings()
     }))]
     #[case("tgv input.bam -r TP53 -g hg100", Err(TGVError::CliError("".to_string())))]
     #[case("tgv input.bam -r 1:12345 --no-reference", Ok(Settings {
         bam_path: Some("input.bam".to_string()),
-        bai_path: None,
         reference: None,
         initial_state_messages: vec![StateMessage::GotoContigCoordinate("1".to_string(), 12345)],
-        test_mode: false,
-        debug: false,
+        ..default_settings()
     }))]
     #[case("tgv input.bam -r TP53 -g hg19 --no-reference", Err(TGVError::CliError("".to_string())))]
     #[case("tgv --no-reference", Err(TGVError::CliError("".to_string())))]

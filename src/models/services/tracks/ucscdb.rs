@@ -1,6 +1,7 @@
 use crate::error::TGVError;
 use crate::models::{
     contig::Contig,
+    cytoband::{Cytoband, CytobandSegment, Stain},
     reference::Reference,
     region::Region,
     services::tracks::TrackService,
@@ -58,7 +59,25 @@ impl TrackService for UcscDbTrackService {
         &self,
         reference: &Reference,
     ) -> Result<Vec<(Contig, usize)>, TGVError> {
-        // TODO
+        let rows = sqlx::query("SELECT chrom, size FROM chromInfo ORDER BY chrom")
+            .fetch_all(&*self.pool)
+            .await?;
+
+        let mut contigs = Vec::new();
+        for row in rows {
+            let chrom: String = row.try_get("chrom")?;
+            let size: u32 = row.try_get("size")?;
+
+            // Create a Contig based on reference type
+            let contig = match reference {
+                Reference::Hg19 | Reference::Hg38 => Contig::chrom(&chrom),
+                _ => Contig::contig(&chrom),
+            };
+
+            contigs.push((contig, size as usize));
+        }
+
+        Ok(contigs)
     }
 
     async fn get_cytoband(
@@ -66,11 +85,69 @@ impl TrackService for UcscDbTrackService {
         reference: &Reference,
         contig: &Contig,
     ) -> Result<Option<Cytoband>, TGVError> {
-        // TODO
+        let rows = sqlx::query(
+            "SELECT chrom, chromStart, chromEnd, name, gieStain FROM cytoBandIdeo WHERE chrom = ?",
+        )
+        .bind(contig.full_name()) // Assuming full_name includes "chr" prefix if needed
+        .fetch_all(&*self.pool)
+        .await?;
+
+        if rows.is_empty() {
+            return Ok(None);
+        }
+
+        let mut segments = Vec::with_capacity(rows.len());
+        for row in rows {
+            let chrom_start: u32 = row.try_get("chromStart")?;
+            let chrom_end: u32 = row.try_get("chromEnd")?;
+            let name: String = row.try_get("name")?;
+            let gie_stain_str: String = row.try_get("gieStain")?;
+
+            let stain = Stain::from(&gie_stain_str)?;
+
+            segments.push(CytobandSegment {
+                contig: contig.clone(),          // Use the input contig
+                start: chrom_start as usize + 1, // 0-based to 1-based
+                end: chrom_end as usize,
+                name,
+                stain,
+            });
+        }
+
+        Ok(Some(Cytoband {
+            reference: Some(reference.clone()),
+            contig: contig.clone(),
+            segments,
+        }))
     }
 
-    async fn get_prefered_track_name(&self, reference: &Reference) -> Result<String, TGVError> {
-        // TODO
+    async fn get_prefered_track_name(
+        &self,
+        _reference: &Reference,
+    ) -> Result<Option<String>, TGVError> {
+        let gene_track_rows = sqlx::query("SELECT tableName FROM trackDb WHERE grp = 'gene'")
+            .fetch_all(&*self.pool)
+            .await?;
+
+        let available_gene_tracks: Vec<String> = gene_track_rows
+            .into_iter()
+            .map(|row| row.try_get("tableName"))
+            .collect::<Result<_, _>>()?;
+
+        let preferences = [
+            "ncbiRefSeqSelect",
+            "ncbiRefSeqCurated",
+            "ncbiRefSeq",
+            "refGenes",
+        ];
+
+        for pref in preferences {
+            if available_gene_tracks.contains(&pref.to_string()) {
+                return Ok(Some(pref.to_string()));
+            }
+        }
+
+        Ok(None)
     }
 
     async fn query_genes_overlapping(&self, region: &Region) -> Result<Vec<Gene>, TGVError> {

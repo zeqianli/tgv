@@ -18,7 +18,7 @@ use crate::models::{
         track::Track,
     },
 };
-use crate::settings::Settings;
+use crate::settings::{BackendType, Settings};
 use std::path::Path;
 /// Holds all data in the session.
 pub struct Data {
@@ -29,7 +29,7 @@ pub struct Data {
 
     /// Tracks.
     pub track: Option<Track<Gene>>,
-    pub track_service: Option<UcscApiTrackService>,
+    pub track_service: Option<Box<dyn TrackService>>,
 
     /// Sequences.
     pub sequence: Option<Sequence>,
@@ -75,11 +75,18 @@ impl Data {
             None => None,
         };
 
-        let (track_service, sequence_service) = match settings.reference.as_ref() {
-            Some(reference) => (
-                Some(UcscApiTrackService::new().unwrap()),
-                Some(SequenceService::new(reference.clone()).unwrap()),
-            ),
+        let (track_service, sequence_service): (
+            Option<Box<dyn TrackService>>,
+            Option<SequenceService>,
+        ) = match settings.reference.as_ref() {
+            Some(reference) => {
+                let ts = match settings.backend {
+                    BackendType::Api => Box::new(UcscApiTrackService::new()?),
+                    BackendType::Db => Box::new(UcscDbTrackService::new(reference).await?),
+                };
+                let ss = SequenceService::new(reference.clone())?;
+                (Some(ts), Some(ss))
+            }
             None => (None, None),
         };
 
@@ -104,11 +111,11 @@ impl Data {
     }
 
     pub async fn close(&mut self) -> Result<(), TGVError> {
-        if self.track_service.is_some() {
-            self.track_service.as_ref().unwrap().close().await?;
+        if let Some(ts) = self.track_service.as_mut() {
+            ts.close().await?;
         }
-        if self.sequence_service.is_some() {
-            self.sequence_service.as_ref().unwrap().close().await?;
+        if let Some(ss) = self.sequence_service.as_mut() {
+            ss.close().await?;
         }
         Ok(())
     }
@@ -150,21 +157,24 @@ impl Data {
                 }
             }
             DataMessage::RequiresCompleteFeatures(region) => {
-                if let Some(reference) = reference {
-                    if self.track_service.is_none() {
-                        return Err(TGVError::IOError("Track service not found".to_string()));
-                    }
-
+                if let (Some(reference), Some(track_service)) =
+                    (reference, self.track_service.as_mut())
+                {
                     let has_complete_track = self.has_complete_track(&region);
-                    let track_service = self.track_service.as_mut().unwrap();
 
                     if !has_complete_track {
                         track_service
                             .check_or_load_contig(reference, &region.contig)
                             .await?;
-                        self.track = Some(track_service.query_gene_track(&region).await.unwrap());
+                        self.track = Some(track_service.query_gene_track(&region).await?);
                         loaded_data = true;
                     }
+                } else if reference.is_none() {
+                    // No reference provided, cannot load features
+                } else {
+                    return Err(TGVError::StateError(
+                        "Track service not initialized".to_string(),
+                    ));
                 }
             }
             DataMessage::RequiresCompleteSequences(region) => {
@@ -191,16 +201,17 @@ impl Data {
                     return Ok(false);
                 }
 
-                if let Some(reference) = reference {
-                    let cytoband = self
-                        .track_service
-                        .as_ref()
-                        .unwrap()
-                        .get_cytoband(reference, &contig)
-                        .await?;
+                if let (Some(reference), Some(track_service)) =
+                    (reference, self.track_service.as_ref())
+                {
+                    let cytoband = track_service.get_cytoband(reference, &contig).await?;
                     self.contigs.update_cytoband(&contig, cytoband);
                     loaded_data = true;
-                } // TODO
+                } else if reference.is_none() {
+                    // Cannot load cytobands without reference
+                } else {
+                    // track service not available
+                }
             }
         }
 
@@ -250,17 +261,12 @@ impl Data {
 
 impl Data {
     pub async fn load_contig_data(
-        // TODO: move this to ContigCollection
         reference: Option<&Reference>,
-        track_service: Option<&UcscApiTrackService>,
+        track_service: Option<&TrackServiceEnum>,
         bam_path: Option<&String>,
         bai_path: Option<&String>,
     ) -> Result<ContigCollection, TGVError> {
-        // First, load from the track service.
-
         let mut contig_data = ContigCollection::new(reference.cloned());
-
-        // push contigs and lengths
 
         if let (Some(reference), Some(track_service)) = (reference, track_service) {
             for (contig, length) in track_service.get_all_contigs(reference).await? {
@@ -270,7 +276,6 @@ impl Data {
             }
         }
 
-        // push cytobands
         match reference {
             Some(reference) => match &reference {
                 Reference::Hg19 | Reference::Hg38 => {
@@ -283,7 +288,6 @@ impl Data {
             _ => {}
         }
 
-        // update from bam header
         if let Some(bam_path) = bam_path {
             contig_data
                 .update_from_bam(bam_path, bai_path, reference)

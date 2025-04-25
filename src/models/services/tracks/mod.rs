@@ -17,6 +17,7 @@ use crate::{
 pub use ucscapi::UcscApiTrackService;
 pub use ucscdb::UcscDbTrackService;
 
+#[async_trait]
 pub trait TrackService {
     // Basics
 
@@ -47,7 +48,10 @@ pub trait TrackService {
     }
 
     /// Given a reference, return the prefered track name.
-    async fn get_prefered_track_name(&self, reference: &Reference) -> Result<String, TGVError>;
+    async fn get_prefered_track_name(
+        &self,
+        reference: &Reference,
+    ) -> Result<Option<String>, TGVError>;
 
     /// Return a list of genes that overlap with a region.
     async fn query_genes_overlapping(&self, region: &Region) -> Result<Vec<Gene>, TGVError>;

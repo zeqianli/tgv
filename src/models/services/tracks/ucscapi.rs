@@ -51,7 +51,12 @@ impl UcscApiTrackService {
             return Ok(false);
         }
 
-        let preferred_track = self.get_prefered_track_name(reference).await?;
+        let preferred_track =
+            self.get_prefered_track_name(reference)
+                .await?
+                .ok_or(TGVError::IOError(format!(
+                    "Failed to get prefered track from UCSC API"
+                )))?; // TODO: proper handling
         let query_url = self.get_track_data_url(reference, contig, preferred_track.clone())?;
 
         let response = self.client.get(query_url).send().await?.text().await?;
@@ -249,9 +254,12 @@ impl TrackService for UcscApiTrackService {
         Ok(Some(cytoband))
     }
 
-    async fn get_prefered_track_name(&self, reference: &Reference) -> Result<String, TGVError> {
+    async fn get_prefered_track_name(
+        &self,
+        reference: &Reference,
+    ) -> Result<Option<String>, TGVError> {
         match reference.clone() {
-            Reference::Hg19 | Reference::Hg38 => Ok("ncbiRefSeqSelect".to_string()),
+            Reference::Hg19 | Reference::Hg38 => Ok(Some("ncbiRefSeqSelect".to_string())),
             Reference::UcscGenome(genome) => {
                 let query_url =
                     format!("https://api.genome.ucsc.edu/list/tracks?genome={}", genome);
@@ -259,18 +267,6 @@ impl TrackService for UcscApiTrackService {
                     .await?
                     .json::<serde_json::Value>()
                     .await?;
-                // Schema:
-                // {
-                //     "genome": {
-                //         "track1":{
-                //             "compositeContainer": "TRUE",
-                //             "track2": {...}
-                //             ...
-                //         },
-                //         "track3": {...},
-                //     }
-                // }
-                // (Composite tracks can be nested.)
 
                 let prefered_track = get_prefered_track_name(
                     genome.as_str(),
@@ -283,11 +279,7 @@ impl TrackService for UcscApiTrackService {
                     true,
                 )?;
 
-                Ok(prefered_track
-                    .ok_or(TGVError::IOError(
-                        "Failed to get prefered track from UCSC API".to_string(),
-                    ))?
-                    .clone())
+                Ok(prefered_track)
             }
             _ => Err(TGVError::IOError(
                 "Failed to get prefered track from UCSC API".to_string(),

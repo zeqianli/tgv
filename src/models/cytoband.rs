@@ -27,7 +27,7 @@ pub enum Stain {
 }
 
 impl Stain {
-    fn from(s: &str) -> Result<Self, TGVError> {
+    pub fn from(s: &str) -> Result<Self, TGVError> {
         match s {
             "gneg" => Ok(Stain::Gneg),
             "acen" => Ok(Stain::Acen),
