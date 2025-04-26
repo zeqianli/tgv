@@ -28,6 +28,12 @@ pub struct TrackCache {
     /// Gene name -> Option<Gene>.
     /// If the gene name is not found, the value is None.
     gene_by_name: HashMap<String, Option<Gene>>,
+
+    /// Prefered track name.
+    /// None: Not initialized.
+    /// Some(None): Queried but not found.
+    /// Some(Some(name)): Queried and found.
+    prefered_track_name: Option<Option<String>>,
 }
 
 impl Default for TrackCache {
@@ -41,6 +47,7 @@ impl TrackCache {
         Self {
             track_by_contig: HashMap::new(),
             gene_by_name: HashMap::new(),
+            prefered_track_name: None,
         }
     }
 
@@ -74,6 +81,14 @@ impl TrackCache {
             }
         }
         self.track_by_contig.insert(contig.full_name(), track);
+    }
+
+    pub fn get_prefered_track_name(&self) -> Option<Option<String>> {
+        self.prefered_track_name.clone()
+    }
+
+    pub fn set_prefered_track_name(&mut self, prefered_track_name: Option<String>) {
+        self.prefered_track_name = Some(prefered_track_name);
     }
 }
 
