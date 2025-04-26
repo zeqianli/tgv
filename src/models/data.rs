@@ -11,7 +11,9 @@ use crate::models::{
     sequence::Sequence,
     services::{
         sequences::SequenceService,
-        track_service::{TrackService, TrackServiceEnum, UcscApiTrackService, UcscDbTrackService},
+        track_service::{
+            TrackCache, TrackService, TrackServiceEnum, UcscApiTrackService, UcscDbTrackService,
+        },
     },
     track::{
         feature::{Gene, SubGeneFeature},
@@ -29,6 +31,7 @@ pub struct Data {
 
     /// Tracks.
     pub track: Option<Track<Gene>>,
+    pub track_cache: TrackCache,
     pub track_service: Option<TrackServiceEnum>,
 
     /// Sequences.
@@ -103,6 +106,7 @@ impl Data {
             bam_path,
             bai_path: settings.bai_path.clone(),
             track: None,
+            track_cache: TrackCache::new(),
             track_service,
             sequence: None,
             sequence_service,

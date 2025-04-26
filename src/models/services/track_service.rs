@@ -19,6 +19,56 @@ use sqlx::{mysql::MySqlPoolOptions, MySqlPool, Row};
 use std::collections::HashMap;
 use std::sync::Arc;
 
+/// Holds cache for track service queries.
+/// Can be returned or pass into queries.
+pub struct TrackCache {
+    /// Contig name -> Track
+    track_by_contig: HashMap<String, Option<Track<Gene>>>,
+
+    /// Gene name -> Option<Gene>.
+    /// If the gene name is not found, the value is None.
+    gene_by_name: HashMap<String, Option<Gene>>,
+}
+
+impl TrackCache {
+    pub fn new() -> Self {
+        Self {
+            track_by_contig: HashMap::new(),
+            gene_by_name: HashMap::new(),
+        }
+    }
+
+    pub fn includes_contig(&self, contig: &Contig) -> bool {
+        self.track_by_contig.contains_key(&contig.full_name())
+    }
+
+    /// Note that this returns None both when the contig is not queried,
+    ///    and returns Some(None) when the contig is queried but the track data is not found.
+    pub fn get_track(&self, contig: &Contig) -> Option<Option<&Track<Gene>>> {
+        self.track_by_contig
+            .get(&contig.full_name())
+            .map(|track| track.as_ref())
+    }
+
+    pub fn includes_gene(&self, gene_name: &str) -> bool {
+        self.gene_by_name.contains_key(gene_name)
+    }
+
+    /// Note that this returns None both when the gene is not queried,
+    ///    and returns Some(None) when the gene is queried but the gene data is not found.
+    pub fn get_gene(&self, gene_name: &str) -> Option<Option<&Gene>> {
+        self.gene_by_name.get(gene_name).map(|gene| gene.as_ref())
+    }
+
+    pub fn add_track(&mut self, contig: &Contig, track: Track<Gene>) {
+        for (i, gene) in track.genes().iter().enumerate() {
+            self.gene_by_name
+                .insert(gene.name.clone(), Some(gene.clone()));
+        }
+        self.track_by_contig.insert(contig.full_name(), Some(track));
+    }
+}
+
 #[async_trait]
 pub trait TrackService {
     // Basics
@@ -44,8 +94,15 @@ pub trait TrackService {
     // Genes and tracks
 
     /// Return a Track<Gene> that covers a region.
-    async fn query_gene_track(&self, region: &Region) -> Result<Track<Gene>, TGVError> {
-        let genes = self.query_genes_overlapping(region).await?;
+    async fn query_gene_track(
+        &self,
+        reference: &Reference,
+        region: &Region,
+        cache: &mut TrackCache,
+    ) -> Result<Track<Gene>, TGVError> {
+        let genes = self
+            .query_genes_overlapping(reference, region, cache)
+            .await?;
         Track::from_genes(genes, region.contig.clone())
     }
 
@@ -56,47 +113,67 @@ pub trait TrackService {
     ) -> Result<Option<String>, TGVError>;
 
     /// Return a list of genes that overlap with a region.
-    async fn query_genes_overlapping(&self, region: &Region) -> Result<Vec<Gene>, TGVError>;
+    async fn query_genes_overlapping(
+        &self,
+        reference: &Reference,
+        region: &Region,
+        cache: &mut TrackCache,
+    ) -> Result<Vec<Gene>, TGVError>;
 
     /// Return the Gene covering a contig:coordinate.
     async fn query_gene_covering(
         &self,
+        reference: &Reference,
         contig: &Contig,
         coord: usize,
+        cache: &mut TrackCache,
     ) -> Result<Option<Gene>, TGVError>;
 
-    async fn query_gene_name(&self, gene_id: &String) -> Result<Gene, TGVError>;
+    async fn query_gene_name(
+        &self,
+        reference: &Reference,
+        gene_id: &String,
+        cache: &mut TrackCache,
+    ) -> Result<Gene, TGVError>;
 
     /// Return the k-th gene after a contig:coordinate.
     async fn query_k_genes_after(
         &self,
+        reference: &Reference,
         contig: &Contig,
         coord: usize,
         k: usize,
+        cache: &mut TrackCache,
     ) -> Result<Gene, TGVError>;
 
     /// Return the k-th gene before a contig:coordinate.
     async fn query_k_genes_before(
         &self,
+        reference: &Reference,
         contig: &Contig,
         coord: usize,
         k: usize,
+        cache: &mut TrackCache,
     ) -> Result<Gene, TGVError>;
 
     /// Return the k-th exon after a contig:coordinate.
     async fn query_k_exons_after(
         &self,
+        reference: &Reference,
         contig: &Contig,
         coord: usize,
         k: usize,
+        cache: &mut TrackCache,
     ) -> Result<SubGeneFeature, TGVError>;
 
     /// Return the k-th exon before a contig:coordinate.
     async fn query_k_exons_before(
         &self,
+        reference: &Reference,
         contig: &Contig,
         coord: usize,
         k: usize,
+        cache: &mut TrackCache,
     ) -> Result<SubGeneFeature, TGVError>;
 }
 
@@ -673,84 +750,83 @@ fn parse_blob_to_coords(blob: &[u8]) -> Vec<usize> {
 
 #[derive(Debug)]
 pub struct UcscApiTrackService {
-    cached_tracks: HashMap<String, Track<Gene>>,
-    gene_name_lookup: HashMap<String, (Contig, usize)>, // gene_name -> (contig.full_name(), gene_index_in_track)
     client: Client,
 }
 
 impl UcscApiTrackService {
     pub fn new() -> Result<Self, TGVError> {
         Ok(Self {
-            cached_tracks: HashMap::new(),
-            gene_name_lookup: HashMap::new(),
             client: Client::new(),
         })
     }
 
-    /// Check if the contig's track is already cached. If not, load it.
-    /// Return true if loading is performed.
-    pub async fn check_or_load_contig(
-        &mut self,
+    /// Query the API to download the gene track data for a contig.
+    pub async fn query_track_by_contig(
+        &self,
         reference: &Reference,
         contig: &Contig,
-    ) -> Result<bool, TGVError> {
-        if self.cached_tracks.contains_key(&contig.full_name()) {
-            return Ok(false);
-        }
-
+    ) -> Result<Track<Gene>, TGVError> {
         let preferred_track =
             self.get_prefered_track_name(reference)
                 .await?
                 .ok_or(TGVError::IOError(format!(
                     "Failed to get prefered track from UCSC API"
                 )))?; // TODO: proper handling
+
         let query_url = self.get_track_data_url(reference, contig, preferred_track.clone())?;
-
         let response = self.client.get(query_url).send().await?.text().await?;
-
         let mut value: serde_json::Value = serde_json::from_str(&response)?;
+        let mut genes: Vec<Gene> = serde_json::from_value(value[preferred_track].take())?;
 
-        // Extract the genes array from the response
-        let genes_value = value[preferred_track].take();
-        let mut genes: Vec<Gene> = serde_json::from_value(genes_value)?;
         for gene in genes.iter_mut() {
             gene.contig = contig.clone();
         }
 
-        let track = Track::from_genes(genes, contig.clone())?;
-
-        for (i, gene) in track.genes().iter().enumerate() {
-            self.gene_name_lookup
-                .insert(gene.name.clone(), (contig.clone(), i));
-        }
-
-        self.cached_tracks.insert(contig.full_name(), track);
-
-        Ok(true)
+        Track::from_genes(genes, contig.clone())
     }
 
-    /// Load all contigs until the gene is found.
-    pub async fn check_or_load_gene(
-        &mut self,
-        reference: &Reference,
-        gene_name: &String,
-    ) -> Result<bool, TGVError> {
-        if self.gene_name_lookup.contains_key(gene_name) {
-            return Ok(false);
-        }
+    // /// Check if the contig's track is already cached. If not, load it.
+    // /// Return true if loading is performed.
+    // pub async fn check_or_load_contig_to_cache(
+    //     &self,
+    //     reference: &Reference,
+    //     contig: &Contig,
+    //     cache: &mut TrackCache,
+    // ) -> Result<bool, TGVError> {
+    //     if cache.queried_contig(contig) {
+    //         return Ok(false);
+    //     }
 
-        for (contig, _) in self.get_all_contigs(reference).await?.iter() {
-            self.check_or_load_contig(reference, contig).await?;
-            if self.gene_name_lookup.contains_key(gene_name) {
-                return Ok(true);
-            }
-        }
+    //
 
-        Err(TGVError::IOError(format!(
-            "Gene {} not found in contigs",
-            gene_name
-        )))
-    }
+    //     cache.track_by_contig.insert(contig.full_name(), track);
+
+    //     Ok(true)
+    // }
+
+    // /// Load all contigs until the gene is found.
+    // pub async fn check_or_load_gene(
+    //     &self,
+    //     reference: &Reference,
+    //     gene_name: &String,
+    //     cache: &mut TrackCache,
+    // ) -> Result<bool, TGVError> {
+    //     if self.gene_name_lookup.contains_key(gene_name) {
+    //         return Ok(false);
+    //     }
+
+    //     for (contig, _) in self.get_all_contigs(reference).await?.iter() {
+    //         self.check_or_load_contig(reference, contig).await?;
+    //         if self.gene_name_lookup.contains_key(gene_name) {
+    //             return Ok(true);
+    //         }
+    //     }
+
+    //     Err(TGVError::IOError(format!(
+    //         "Gene {} not found in contigs",
+    //         gene_name
+    //     )))
+    // }
 
     /// Return
 
@@ -936,7 +1012,19 @@ impl TrackService for UcscApiTrackService {
         }
     }
 
-    async fn query_genes_overlapping(&self, region: &Region) -> Result<Vec<Gene>, TGVError> {
+    async fn query_genes_overlapping(
+        &self,
+        reference: &Reference,
+        region: &Region,
+        cache: &mut TrackCache,
+    ) -> Result<Vec<Gene>, TGVError> {
+        if !cache.includes_contig(&region.contig()) {
+            let track = self
+                .query_track_by_contig(reference, &region.contig())
+                .await?;
+            cache.add_track(region.contig(), track);
+        }
+
         if let Some(track) = self.cached_tracks.get(&region.contig().full_name()) {
             Ok(track
                 .get_features_overlapping(region)
@@ -953,6 +1041,7 @@ impl TrackService for UcscApiTrackService {
 
     async fn query_gene_covering(
         &self,
+        reference: &Reference,
         contig: &Contig,
         position: usize,
     ) -> Result<Option<Gene>, TGVError> {
