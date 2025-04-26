@@ -1,5 +1,4 @@
 use crate::error::TGVError;
-use crate::helpers::is_url;
 use crate::models::{
     contig::Contig,
     cytoband::Cytoband,
@@ -9,135 +8,13 @@ use crate::models::{
     reference::Reference,
     region::Region,
     register::{CommandModeRegister, NormalModeRegister},
+    services::track_service::TrackService,
     window::ViewingWindow,
 };
 use crate::settings::Settings;
 use crate::traits::GenomeInterval;
 use crossterm::event::{KeyCode, KeyEvent};
 use ratatui::layout::Rect;
-use rust_htslib::bam::{self, IndexedReader, Read};
-use std::collections::HashMap;
-use url::Url;
-/// A collection of contigs. This helps relative contig movements.
-struct ContigCollection {
-    contigs: Vec<Contig>,
-    contig_lengths: Vec<Option<usize>>,
-
-    contig_index: HashMap<String, usize>,
-}
-
-impl ContigCollection {
-    pub fn new(contigs: Vec<Contig>, contig_lengths: Vec<Option<usize>>) -> Result<Self, TGVError> {
-        // check that contigs do not have duplicated full names
-        let mut contig_index = HashMap::new();
-        for (i, contig) in contigs.iter().enumerate() {
-            if contig_index.contains_key(&contig.full_name()) {
-                return Err(TGVError::StateError(format!(
-                    "Duplicate contig names {}. Is your BAM file header correct?",
-                    contig.full_name()
-                )));
-            }
-            contig_index.insert(contig.full_name(), i);
-        }
-
-        Ok(Self {
-            contigs,
-            contig_lengths,
-            contig_index,
-        })
-    }
-
-    pub fn first(&self) -> Result<&Contig, TGVError> {
-        Ok(&self.contigs[0])
-    }
-
-    #[allow(dead_code)]
-    pub fn last(&self) -> Result<&Contig, TGVError> {
-        Ok(&self.contigs[self.contigs.len() - 1])
-    }
-
-    pub fn from_bam(
-        path: &String,
-        bai_path: Option<&String>,
-        reference: Option<&Reference>,
-    ) -> Result<Self, TGVError> {
-        // Use the indexed_reader::Builder pattern as shown in alignment.rs
-        let is_remote_path = is_url(path);
-        let bam = match bai_path {
-            Some(bai_path) => {
-                if is_remote_path {
-                    return Err(TGVError::IOError(
-                        "Custom .bai path for remote BAM files are not supported yet.".to_string(),
-                    ));
-                }
-                IndexedReader::from_path_and_index(path, bai_path)
-                    .map_err(|e| TGVError::IOError(e.to_string()))?
-            }
-            None => {
-                if is_remote_path {
-                    IndexedReader::from_url(
-                        &Url::parse(path).map_err(|e| TGVError::IOError(e.to_string()))?,
-                    )
-                    .unwrap()
-                } else {
-                    IndexedReader::from_path(path).map_err(|e| TGVError::IOError(e.to_string()))?
-                }
-            }
-        };
-
-        let header = bam::Header::from_template(bam.header());
-
-        let mut contigs = Vec::new();
-        let mut contig_lengths: Vec<Option<usize>> = Vec::new();
-        for (_key, records) in header.to_hashmap().iter() {
-            for record in records {
-                if record.contains_key("SN") {
-                    let contig_name = record["SN"].to_string();
-                    match reference {
-                        // If the reference is human, interpret contig names as chromosomes. This allows abbreviated matching (chr1 <-> 1).
-                        Some(Reference::Hg19) => contigs.push(Contig::chrom(&contig_name)),
-                        Some(Reference::Hg38) => contigs.push(Contig::chrom(&contig_name)),
-
-                        // Otherwise, interpret contig names as contigs. This does not allow abbreviated matching.
-                        _ => contigs.push(Contig::contig(&contig_name)),
-                    }
-
-                    if record.contains_key("LN") {
-                        contig_lengths.push(record["LN"].to_string().parse::<usize>().ok());
-                    } else {
-                        contig_lengths.push(None);
-                    }
-                }
-            }
-        }
-
-        Self::new(contigs, contig_lengths)
-    }
-
-    pub fn contains(&self, contig: &Contig) -> bool {
-        self.contig_index.contains_key(&contig.full_name())
-    }
-
-    pub fn length(&self, contig: &Contig) -> Option<usize> {
-        let index = self.contig_index.get(&contig.full_name())?;
-        self.contig_lengths[*index]
-    }
-
-    #[allow(dead_code)]
-    pub fn next(&self, contig: &Contig, k: usize) -> Result<Contig, TGVError> {
-        let index = self.contig_index[&contig.full_name()];
-        let next_index = (index + k) % self.contigs.len();
-        Ok(self.contigs[next_index].clone())
-    }
-
-    #[allow(dead_code)]
-    pub fn previous(&self, contig: &Contig, k: usize) -> Result<Contig, TGVError> {
-        let index = self.contig_index[&contig.full_name()];
-        let previous_index =
-            (index + self.contigs.len() - k % self.contigs.len()) % self.contigs.len();
-        Ok(self.contigs[previous_index].clone())
-    }
-}
 
 /// Holds states of the application.
 pub struct State {
@@ -152,9 +29,6 @@ pub struct State {
     // Data
     pub data: Data,
 
-    /// Contigs in the BAM header
-    contigs: Option<ContigCollection>,
-
     // Registers
     normal_mode_register: NormalModeRegister,
     command_mode_register: CommandModeRegister,
@@ -164,28 +38,11 @@ pub struct State {
 
     /// Error messages for display.
     pub errors: Vec<String>,
-
-    /// Cytobands
-    cytobands: Option<Vec<Cytoband>>,
 }
 
 /// Basics
 impl State {
     pub async fn new(settings: Settings) -> Result<Self, TGVError> {
-        let contigs = match settings.bam_path.clone() {
-            Some(bam_path) => Some(ContigCollection::from_bam(
-                &bam_path,
-                settings.bai_path.as_ref(),
-                settings.reference.as_ref(),
-            )?),
-            None => None,
-        };
-
-        let cytobands = match settings.reference.as_ref() {
-            Some(reference) => Some(Cytoband::from_reference(reference)?),
-            None => None,
-        };
-
         let data = Data::new(&settings).await?;
 
         Ok(Self {
@@ -198,9 +55,7 @@ impl State {
             normal_mode_register: NormalModeRegister::new(),
             command_mode_register: CommandModeRegister::new(),
 
-            contigs,
             settings,
-            cytobands,
             errors: Vec::new(),
         })
     }
@@ -258,6 +113,12 @@ impl State {
         Ok(self.viewing_window()?.contig.clone())
     }
 
+    pub fn current_cytoband(&self) -> Result<Option<&Cytoband>, TGVError> {
+        let contig = self.contig()?;
+        let cytoband = self.data.contigs.cytoband(&contig);
+        Ok(cytoband)
+    }
+
     /// Start coordinate of bases displayed on the screen.
     /// 1-based, inclusive.
     pub fn start(&self) -> Result<usize, TGVError> {
@@ -285,32 +146,13 @@ impl State {
         self.window.is_some()
     }
 
-    pub fn add_error_message(&mut self, error: TGVError) {
-        self.errors.push(format!("{}", error));
+    pub fn add_error_message(&mut self, error: String) {
+        self.errors.push(error);
     }
 
     pub async fn close(&mut self) -> Result<(), TGVError> {
         self.data.close().await?;
         Ok(())
-    }
-
-    /// TODO: this is inefficient.
-    pub fn current_cytoband_index(&self) -> Result<Option<usize>, TGVError> {
-        match self.cytobands.as_ref() {
-            Some(cytobands) => {
-                for (i, cytoband) in cytobands.iter().enumerate() {
-                    if cytoband.contig == self.contig()? {
-                        return Ok(Some(i));
-                    }
-                }
-                Ok(None)
-            }
-            None => Ok(None),
-        }
-    }
-
-    pub fn cytobands(&self) -> Option<&[Cytoband]> {
-        self.cytobands.as_deref()
     }
 }
 
@@ -327,7 +169,10 @@ impl State {
         messages: Vec<StateMessage>,
     ) -> Result<(), TGVError> {
         let data_messages = self.handle_state_messages(messages).await?;
-        let _loaded_data = self.data.handle_data_messages(data_messages).await?;
+        let _loaded_data = self
+            .data
+            .handle_data_messages(self.settings.reference.as_ref(), data_messages)
+            .await?;
 
         Ok(())
     }
@@ -347,7 +192,10 @@ impl State {
             .collect::<Vec<String>>()
             .join(", ");
 
-        let loaded_data = self.data.handle_data_messages(data_messages).await?;
+        let loaded_data = self
+            .data
+            .handle_data_messages(self.settings.reference.as_ref(), data_messages)
+            .await?;
 
         if self.settings.debug {
             if loaded_data {
@@ -366,9 +214,9 @@ impl State {
     }
 }
 
-// State message handling
+/// State message handling
 impl State {
-    // Translate key event to a message.
+    /// Translate key event to a message.
     fn translate_key_event(&self, key_event: KeyEvent) -> Vec<StateMessage> {
         let messages = match self.input_mode {
             InputMode::Normal => {
@@ -422,9 +270,9 @@ impl State {
         // Otherwise, pass on an error message.
         for message in messages.iter() {
             if message.requires_reference() && self.settings.reference.is_none() {
-                return vec![StateMessage::Error(TGVError::StateError(
-                    "Reference is not provided".to_string(),
-                ))];
+                return vec![StateMessage::Error(
+                    TGVError::StateError("Reference is not provided".to_string()).to_string(),
+                )];
             }
         }
 
@@ -464,7 +312,7 @@ impl State {
                 self.command_mode_register.add_char(c)
             }
             StateMessage::CommandModeRegisterError(error_message) => {
-                self.add_error_message(TGVError::ParsingError(error_message))
+                self.add_error_message(error_message)
             }
             StateMessage::ClearCommandModeRegisters => self.command_mode_register.clear(),
             StateMessage::BackspaceCommandModeRegisters => self.command_mode_register.backspace(),
@@ -478,7 +326,7 @@ impl State {
             // Normal mode handling
             StateMessage::AddCharToNormalModeRegisters(c) => self.normal_mode_register.add_char(c),
             StateMessage::NormalModeRegisterError(error_message) => {
-                self.add_error_message(TGVError::ParsingError(error_message))
+                self.add_error_message(error_message)
             }
             StateMessage::ClearNormalModeRegisters => self.normal_mode_register.clear(),
 
@@ -501,13 +349,13 @@ impl State {
             | StateMessage::GotoNextExonsEnd(_)
             | StateMessage::GotoPreviousExonsStart(_)
             | StateMessage::GotoPreviousExonsEnd(_) => {
-                data_messages.extend(self.handle_exon_movement_message(message).await?);
+                data_messages.extend(self.handle_feature_movement_message(message).await?);
             }
             StateMessage::GotoNextGenesStart(_)
             | StateMessage::GotoNextGenesEnd(_)
             | StateMessage::GotoPreviousGenesStart(_)
             | StateMessage::GotoPreviousGenesEnd(_) => {
-                data_messages.extend(self.handle_gene_movement_message(message).await?);
+                data_messages.extend(self.handle_feature_movement_message(message).await?);
             }
 
             // Absolute feature handling
@@ -568,6 +416,9 @@ impl State {
                     sequence_cache_region,
                 ));
             }
+
+            // Cytobands
+            data_messages.push(DataMessage::RequiresCytobands(self.contig()?));
         }
 
         Ok(data_messages)
@@ -701,13 +552,12 @@ impl State {
                     Some(Reference::Hg38) | Some(Reference::Hg19) => Contig::chrom(&contig),
                     _ => Contig::contig(&contig),
                 };
-                if let Some(contigs) = &self.contigs {
-                    if !contigs.contains(&contig) {
-                        return Err(TGVError::StateError(format!(
-                            "Contig {} not found in the BAM header",
-                            contig.full_name()
-                        )));
-                    }
+                if !self.data.contigs.contains(&contig) {
+                    return Err(TGVError::StateError(format!(
+                        "Contig {} not found for reference {}",
+                        contig.full_name(),
+                        self.settings.reference.as_ref().unwrap()
+                    )));
                 }
 
                 let current_frame_area = *self.current_frame_area()?;
@@ -760,31 +610,35 @@ impl State {
     pub fn contig_length(&self) -> Result<Option<usize>, TGVError> {
         let contig = self.contig()?;
 
-        // 1. If can be found in the BAM header use the BAM header
-        if let Some(contigs) = &self.contigs {
-            if let Some(length) = contigs.length(&contig) {
-                return Ok(Some(length));
-            }
+        if let Some(length) = self.data.contigs.length(&contig) {
+            return Ok(Some(length));
         }
-
-        // 2. If the reference genome, used length in the database.
-        if let Some(reference) = self.settings.reference.as_ref() {
-            if let Some(length) = reference.length(&contig) {
-                return Ok(Some(length));
-            }
-        }
-
         Ok(None)
     }
 }
 
 /// Feature movement handling
 impl State {
-    async fn handle_gene_movement_message(
+    async fn handle_feature_movement_message(
         &mut self,
         message: StateMessage,
     ) -> Result<Vec<DataMessage>, TGVError> {
         let mut state_messages = Vec::new();
+        let contig = self.contig()?;
+        let middle = self.middle()?;
+
+        if self.data.track_service.is_none() {
+            return Err(TGVError::StateError(
+                "Track service not initialized".to_string(),
+            ));
+        }
+
+        let track_service = self.data.track_service.as_mut().unwrap();
+        if self.settings.reference.is_none() {
+            return Err(TGVError::StateError(
+                "No reference is provided. Cannot handle feature movement.".to_string(),
+            )); // TODO: this breaks the app. handle this gracefully.
+        }
 
         let track = match self.data.track.as_ref() {
             Some(track) => track,
@@ -797,14 +651,19 @@ impl State {
                     return self.get_data_requirements();
                 }
 
-                let target_gene = track.get_k_genes_after(self.middle()?, n_movements);
+                let target_gene = track.get_k_genes_after(middle, n_movements);
                 if let Some(target_gene) = target_gene {
                     state_messages.push(StateMessage::GotoCoordinate(target_gene.start() + 1));
                 } else {
                     // Query for the target gene
-                    let track_service = self.data.track_service.as_ref().unwrap();
                     let gene = track_service
-                        .query_k_genes_after(&self.contig()?, self.middle()?, n_movements)
+                        .query_k_genes_after(
+                            self.settings.reference.as_ref().unwrap(),
+                            &contig,
+                            middle,
+                            n_movements,
+                            &mut self.data.track_cache,
+                        )
                         .await?;
 
                     state_messages.push(StateMessage::GotoCoordinate(gene.start() + 1));
@@ -822,7 +681,13 @@ impl State {
                     // Query for the target gene
                     let track_service = self.data.track_service.as_ref().unwrap();
                     let gene = track_service
-                        .query_k_genes_after(&self.contig()?, self.middle()?, n_movements)
+                        .query_k_genes_after(
+                            self.settings.reference.as_ref().unwrap(),
+                            &self.contig()?,
+                            self.middle()?,
+                            n_movements,
+                            &mut self.data.track_cache,
+                        )
                         .await?;
 
                     state_messages.push(StateMessage::GotoCoordinate(gene.end() + 1));
@@ -833,14 +698,19 @@ impl State {
                     return self.get_data_requirements();
                 }
 
-                let target_gene = track.get_k_genes_before(self.middle()?, n_movements);
+                let target_gene = track.get_k_genes_before(middle, n_movements);
                 if let Some(target_gene) = target_gene {
                     state_messages.push(StateMessage::GotoCoordinate(target_gene.start() - 1));
                 } else {
                     // Query for the target gene
-                    let track_service = self.data.track_service.as_ref().unwrap();
                     let gene = track_service
-                        .query_k_genes_before(&self.contig()?, self.middle()?, n_movements)
+                        .query_k_genes_before(
+                            self.settings.reference.as_ref().unwrap(),
+                            &contig,
+                            middle,
+                            n_movements,
+                            &mut self.data.track_cache,
+                        )
                         .await?;
 
                     state_messages.push(StateMessage::GotoCoordinate(gene.start() - 1));
@@ -852,55 +722,43 @@ impl State {
                     return self.get_data_requirements();
                 }
 
-                let target_gene = track.get_k_genes_before(self.middle()?, n_movements);
+                let target_gene = track.get_k_genes_before(middle, n_movements);
                 if let Some(target_gene) = target_gene {
                     state_messages.push(StateMessage::GotoCoordinate(target_gene.end() - 1));
                 } else {
                     // Query for the target gene
-                    let track_service = self.data.track_service.as_ref().unwrap();
                     let gene = track_service
-                        .query_k_genes_before(&self.contig()?, self.middle()?, n_movements)
+                        .query_k_genes_before(
+                            self.settings.reference.as_ref().unwrap(),
+                            &contig,
+                            middle,
+                            n_movements,
+                            &mut self.data.track_cache,
+                        )
                         .await?;
 
                     state_messages.push(StateMessage::GotoCoordinate(gene.end() - 1));
                 }
             }
-            _ => {}
-        }
 
-        let mut data_messages = Vec::new();
-        for state_message in state_messages {
-            data_messages.extend(self.handle_movement_message(state_message)?);
-        }
-
-        Ok(data_messages)
-    }
-
-    async fn handle_exon_movement_message(
-        &mut self,
-        message: StateMessage,
-    ) -> Result<Vec<DataMessage>, TGVError> {
-        let mut state_messages = Vec::new();
-
-        let track = match self.data.track.as_ref() {
-            Some(track) => track,
-            None => return Err(TGVError::StateError("Track not initialized".to_string())),
-        };
-
-        match message {
             StateMessage::GotoNextExonsStart(n_movements) => {
                 if n_movements == 0 {
                     return self.get_data_requirements();
                 }
 
-                let target_exon = track.get_k_exons_after(self.middle()?, n_movements);
+                let target_exon = track.get_k_exons_after(middle, n_movements);
                 if let Some(target_exon) = target_exon {
                     state_messages.push(StateMessage::GotoCoordinate(target_exon.start() + 1));
                 } else {
                     // Query for the target exon
-                    let track_service = self.data.track_service.as_ref().unwrap();
                     let exon = track_service
-                        .query_k_exons_after(&self.contig()?, self.middle()?, n_movements)
+                        .query_k_exons_after(
+                            self.settings.reference.as_ref().unwrap(),
+                            &contig,
+                            middle,
+                            n_movements,
+                            &mut self.data.track_cache,
+                        )
                         .await?;
 
                     state_messages.push(StateMessage::GotoCoordinate(exon.start() + 1));
@@ -911,15 +769,20 @@ impl State {
                     return self.get_data_requirements();
                 }
 
-                let target_exon = track.get_k_exons_after(self.middle()?, n_movements);
+                let target_exon = track.get_k_exons_after(middle, n_movements);
                 if let Some(target_exon) = target_exon {
                     state_messages.push(StateMessage::GotoCoordinate(target_exon.end() + 1));
                     // this prevents continuous movements getting stuck
                 } else {
                     // Query for the target exon
-                    let track_service = self.data.track_service.as_ref().unwrap();
                     let exon = track_service
-                        .query_k_exons_after(&self.contig()?, self.middle()?, n_movements)
+                        .query_k_exons_after(
+                            self.settings.reference.as_ref().unwrap(),
+                            &contig,
+                            middle,
+                            n_movements,
+                            &mut self.data.track_cache,
+                        )
                         .await?;
 
                     state_messages.push(StateMessage::GotoCoordinate(exon.end() + 1));
@@ -931,14 +794,19 @@ impl State {
                     return self.get_data_requirements();
                 }
 
-                let target_exon = track.get_k_exons_before(self.middle()?, n_movements);
+                let target_exon = track.get_k_exons_before(middle, n_movements);
                 if let Some(target_exon) = target_exon {
                     state_messages.push(StateMessage::GotoCoordinate(target_exon.end() - 1));
                 } else {
                     // Query for the target exon
-                    let track_service = self.data.track_service.as_ref().unwrap();
                     let exon = track_service
-                        .query_k_exons_before(&self.contig()?, self.middle()?, n_movements)
+                        .query_k_exons_before(
+                            self.settings.reference.as_ref().unwrap(),
+                            &contig,
+                            middle,
+                            n_movements,
+                            &mut self.data.track_cache,
+                        )
                         .await?;
 
                     state_messages.push(StateMessage::GotoCoordinate(exon.end() - 1));
@@ -950,14 +818,19 @@ impl State {
                     return self.get_data_requirements();
                 }
 
-                let target_exon = track.get_k_exons_before(self.middle()?, n_movements);
+                let target_exon = track.get_k_exons_before(middle, n_movements);
                 if let Some(target_exon) = target_exon {
                     state_messages.push(StateMessage::GotoCoordinate(target_exon.end() - 1));
                 } else {
                     // Query for the target exon
-                    let track_service = self.data.track_service.as_ref().unwrap();
                     let exon = track_service
-                        .query_k_exons_before(&self.contig()?, self.middle()?, n_movements)
+                        .query_k_exons_before(
+                            self.settings.reference.as_ref().unwrap(),
+                            &contig,
+                            middle,
+                            n_movements,
+                            &mut self.data.track_cache,
+                        )
                         .await?;
 
                     state_messages.push(StateMessage::GotoCoordinate(exon.end() - 1));
@@ -988,14 +861,23 @@ impl State {
                 "Feature query service not initialized".to_string(),
             ));
         }
-        let track_service = self.data.track_service.as_ref().unwrap();
+        let track_service = self.data.track_service.as_mut().unwrap();
 
         if let StateMessage::GoToGene(gene_id) = message {
-            let gene = track_service.query_gene_name(&gene_id).await?;
-            state_messages.push(StateMessage::GotoContigCoordinate(
-                gene.contig().full_name(),
-                gene.start(),
-            ));
+            if let Some(reference) = self.settings.reference.as_ref() {
+                let gene = track_service
+                    .query_gene_name(reference, &gene_id, &mut self.data.track_cache)
+                    .await?;
+                state_messages.push(StateMessage::GotoContigCoordinate(
+                    gene.contig().full_name(),
+                    gene.start(),
+                ));
+            } else {
+                return Err(TGVError::StateError(format!(
+                    "No reference is provided. Cannot goto a gene {}",
+                    gene_id
+                )));
+            }
         }
 
         let mut data_messages = Vec::new();
@@ -1017,7 +899,7 @@ impl State {
         ) {
             (Some(_), Some(_)) | (None, Some(_)) => {
                 self.handle_movement_message(StateMessage::GotoContigCoordinate(
-                    self.contigs.as_ref().unwrap().first()?.full_name(),
+                    self.data.contigs.first()?.full_name(),
                     1,
                 ))
             }

@@ -14,7 +14,7 @@ pub struct SequenceService {
 }
 
 impl SequenceService {
-    pub fn new(reference: Reference) -> Result<Self, ()> {
+    pub fn new(reference: Reference) -> Result<Self, TGVError> {
         Ok(Self {
             client: Client::new(),
             reference,
@@ -26,7 +26,7 @@ impl SequenceService {
         Ok(())
     }
 
-    pub async fn query_sequence(&self, region: &Region) -> reqwest::Result<Sequence> {
+    pub async fn query_sequence(&self, region: &Region) -> Result<Sequence, TGVError> {
         let url = self
             .get_api_url(&region.contig, region.start, region.end)
             .unwrap();
@@ -41,20 +41,16 @@ impl SequenceService {
     }
 
     /// start / end: 1-based, inclusive.
-    fn get_api_url(&self, chrom: &Contig, start: usize, end: usize) -> Result<String, ()> {
+    fn get_api_url(&self, chrom: &Contig, start: usize, end: usize) -> Result<String, TGVError> {
         match self.reference {
-            Reference::Hg19 => Ok(format!(
-                "https://api.genome.ucsc.edu/getData/sequence?genome=hg19;chrom={};start={};end={}",
+            Reference::Hg19 | Reference::Hg38 | Reference::UcscGenome(_) => Ok(format!(
+                "https://api.genome.ucsc.edu/getData/sequence?genome={};chrom={};start={};end={}",
+                self.reference.to_string(),
                 chrom.full_name(),
                 start - 1, // start is 0-based, inclusive.
                 end
             )),
-            Reference::Hg38 => Ok(format!(
-                "https://api.genome.ucsc.edu/getData/sequence?genome=hg38;chrom={};start={};end={}",
-                chrom.full_name(),
-                start - 1, // start is 0-based, inclusive.
-                end
-            )),
+            _ => Err(TGVError::IOError("Unsupported reference".to_string())),
         }
     }
 }

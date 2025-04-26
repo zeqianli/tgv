@@ -1,7 +1,10 @@
 use crate::models::{
     reference::Reference,
     strand::Strand,
-    track::{FeatureType, Gene, Track},
+    track::{
+        feature::{Gene, SubGeneFeatureType},
+        track::Track,
+    },
     window::{OnScreenCoordinate, ViewingWindow},
 };
 use crate::traits::GenomeInterval;
@@ -22,7 +25,7 @@ pub fn render_track(
     area: &Rect,
     buf: &mut Buffer,
     window: &ViewingWindow,
-    track: &Track,
+    track: &Track<Gene>,
     _reference: Option<&Reference>,
 ) {
     if area.width < MIN_AREA_WIDTH || area.height < MIN_AREA_HEIGHT {
@@ -30,7 +33,7 @@ pub fn render_track(
     }
 
     let mut right_most_label_onscreen_x = 0;
-    for feature in track.genes.iter() {
+    for feature in track.genes().iter() {
         for (track_x, track_string, track_style, label_info) in
             get_rendering_info(window, area, feature)
         {
@@ -104,7 +107,7 @@ fn get_rendering_info(window: &ViewingWindow, area: &Rect, gene: &Gene) -> Vec<T
                 );
 
                 match feature_type {
-                    FeatureType::Exon => {
+                    SubGeneFeatureType::Exon => {
                         let label = format!("{}:exon{}", gene.name, feature_index);
 
                         let label_x = x + (length.saturating_sub(label.len()) / 2);
@@ -123,7 +126,7 @@ fn get_rendering_info(window: &ViewingWindow, area: &Rect, gene: &Gene) -> Vec<T
                             },
                         ));
                     }
-                    FeatureType::NonCDSExon => {
+                    SubGeneFeatureType::NonCDSExon => {
                         let label = gene.name.to_string();
                         let label_x = x + (length.saturating_sub(label.len()) / 2);
                         let label_right_coordinate = label_x + label.len() - 1; // inclusive
@@ -141,7 +144,7 @@ fn get_rendering_info(window: &ViewingWindow, area: &Rect, gene: &Gene) -> Vec<T
                             },
                         ));
                     }
-                    FeatureType::Intron => {
+                    SubGeneFeatureType::Intron => {
                         introns_info.push((x, string, style, None));
                     }
                 }
@@ -183,31 +186,35 @@ fn get_gene_segment_string_and_style(length: usize, strand: Strand) -> (String, 
 fn get_feature_segment_string_and_style(
     length: usize,
     strand: Strand,
-    feature_type: &FeatureType,
+    feature_type: &SubGeneFeatureType,
 ) -> (String, Style) {
     let string = match (strand, feature_type) {
-        (Strand::Forward, FeatureType::Exon) => (0..length)
+        (Strand::Forward, SubGeneFeatureType::Exon) => (0..length)
             .map(|i| if i % EXON_ARROW_GAP == 0 { ">" } else { " " })
             .collect::<String>(),
-        (Strand::Forward, FeatureType::NonCDSExon) => (0..length).map(|_| "▅").collect::<String>(),
-        (Strand::Forward, FeatureType::Intron) => (0..length)
+        (Strand::Forward, SubGeneFeatureType::NonCDSExon) => {
+            (0..length).map(|_| "▅").collect::<String>()
+        }
+        (Strand::Forward, SubGeneFeatureType::Intron) => (0..length)
             .map(|i| if i % INTRON_ARROW_GAP == 0 { ">" } else { "-" })
             .collect::<String>(),
-        (Strand::Reverse, FeatureType::Exon) => (0..length)
+        (Strand::Reverse, SubGeneFeatureType::Exon) => (0..length)
             .map(|i| if i % EXON_ARROW_GAP == 0 { "<" } else { "-" })
             .collect::<String>(),
-        (Strand::Reverse, FeatureType::NonCDSExon) => (0..length).map(|_| "▅").collect::<String>(),
-        (Strand::Reverse, FeatureType::Intron) => (0..length)
+        (Strand::Reverse, SubGeneFeatureType::NonCDSExon) => {
+            (0..length).map(|_| "▅").collect::<String>()
+        }
+        (Strand::Reverse, SubGeneFeatureType::Intron) => (0..length)
             .map(|i| if i % INTRON_ARROW_GAP == 0 { "<" } else { "-" })
             .collect::<String>(),
     };
 
     let style = match feature_type {
-        FeatureType::Exon => Style::default()
+        SubGeneFeatureType::Exon => Style::default()
             .fg(EXON_FOREGROUND_COLOR)
             .bg(EXON_BACKGROUND_COLOR),
-        FeatureType::Intron => Style::default().fg(INTRON_FOREGROUND_COLOR),
-        FeatureType::NonCDSExon => Style::default().fg(NON_CDS_EXON_BACKGROUND_COLOR),
+        SubGeneFeatureType::Intron => Style::default().fg(INTRON_FOREGROUND_COLOR),
+        SubGeneFeatureType::NonCDSExon => Style::default().fg(NON_CDS_EXON_BACKGROUND_COLOR),
     };
 
     (string, style)
