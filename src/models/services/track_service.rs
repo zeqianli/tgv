@@ -977,9 +977,9 @@ impl TrackService for UcscApiTrackService {
 
                 let prefered_track = get_prefered_track_name(
                     genome.as_str(),
-                    response
-                        .get(genome.clone())
-                        .ok_or(TGVError::IOError("Failed to get genome from UCSC API".to_string()))?,
+                    response.get(genome.clone()).ok_or(TGVError::IOError(
+                        "Failed to get genome from UCSC API".to_string(),
+                    ))?,
                     None,
                     true,
                 )?;
