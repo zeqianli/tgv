@@ -208,7 +208,7 @@ mod tests {
             bam_path: None,
             bai_path: None,
             reference: Some(Reference::Hg38),
-            backend: BackendType::Api, // Default backend
+            backend: BackendType::Db, // Default backend
             initial_state_messages: vec![StateMessage::GoToDefault],
             test_mode: false,
             debug: false,
