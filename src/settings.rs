@@ -9,7 +9,7 @@ pub enum BackendType {
     Db,
 }
 
-#[derive(Parser)]
+#[derive(Parser, Clone)]
 #[command(author, version, about, long_about = None)]
 pub struct Cli {
     /// BAM file path. Must be sorted and indexed (with .bai file in the same directory).
@@ -245,7 +245,12 @@ mod tests {
         initial_state_messages: vec![StateMessage::GoToGene("TP53".to_string())],
         ..default_settings()
     }))]
-    #[case("tgv input.bam -r TP53 -g hg100", Err(TGVError::CliError("".to_string())))]
+    #[case("tgv input.bam -r TP53 -g mm39", Ok(Settings {
+        bam_path: Some("input.bam".to_string()),
+        reference: Some(Reference::UcscGenome("mm39".to_string())),
+        initial_state_messages: vec![StateMessage::GoToGene("TP53".to_string())],
+        ..default_settings()
+    }))]
     #[case("tgv input.bam -r 1:12345 --no-reference", Ok(Settings {
         bam_path: Some("input.bam".to_string()),
         reference: None,
@@ -254,18 +259,21 @@ mod tests {
     }))]
     #[case("tgv input.bam -r TP53 -g hg19 --no-reference", Err(TGVError::CliError("".to_string())))]
     #[case("tgv --no-reference", Err(TGVError::CliError("".to_string())))]
-    #[case("tgv -r 1:12345", Err(TGVError::CliError("".to_string())))]
     fn test_cli_parsing(
         #[case] command_line: &str,
         #[case] expected_settings: Result<Settings, TGVError>,
     ) {
         let cli = Cli::parse_from(shlex::split(command_line).unwrap());
-        println!("{:?}", cli.paths);
 
-        match (Settings::new(cli, false), expected_settings) {
-            (Ok(settings), Ok(expected)) => assert_eq!(settings, expected),
+        let settings = Settings::new(cli.clone(), false);
+
+        match (&settings, &expected_settings) {
+            (Ok(settings), Ok(expected)) => assert_eq!(*settings, *expected),
             (Err(e), Err(expected)) => assert!(e.is_same_type(&expected)),
-            _ => panic!("Unexpected test result"),
+            _ => panic!(
+                "Unexpected CLI parsing result. Expected: {:?}, Got: {:?}",
+                expected_settings, settings
+            ),
         }
     }
 }

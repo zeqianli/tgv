@@ -311,17 +311,15 @@ impl Track<Gene> {
         self.get_features_between(start, end)
     }
 
-    /// O(1) search for the exon covering a given position.
-    /// Inspiration: https://www.youtube.com/watch?v=ig-dtw8Um_k
     /// position: 1-based.
     pub fn get_exon_at(&self, position: usize) -> Option<SubGeneFeature> {
         let exons_by_start = self.exons_by_start.as_ref().unwrap();
         let exons_by_end = self.exons_by_end.as_ref().unwrap();
 
-        let range_start = exons_by_start
+        let range_end = exons_by_end
             .range((Included(position), Excluded(usize::MAX)))
             .next();
-        let range_end = exons_by_end
+        let range_start = exons_by_start
             .range((Included(0), Included(position)))
             .next_back();
 
