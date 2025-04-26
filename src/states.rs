@@ -639,11 +639,7 @@ impl State {
         }
 
         let track_service = self.data.track_service.as_mut().unwrap();
-        if let Some(reference) = self.settings.reference.as_ref() {
-            track_service
-                .check_or_load_contig(reference, &contig)
-                .await?;
-        } else {
+        if self.settings.reference.is_none() {
             return Err(TGVError::StateError(
                 "No reference is provided. Cannot handle feature movement.".to_string(),
             )); // TODO: this breaks the app. handle this gracefully.
@@ -666,7 +662,13 @@ impl State {
                 } else {
                     // Query for the target gene
                     let gene = track_service
-                        .query_k_genes_after(&contig, middle, n_movements)
+                        .query_k_genes_after(
+                            self.settings.reference.as_ref().unwrap(),
+                            &contig,
+                            middle,
+                            n_movements,
+                            &mut self.data.track_cache,
+                        )
                         .await?;
 
                     state_messages.push(StateMessage::GotoCoordinate(gene.start() + 1));
@@ -684,7 +686,13 @@ impl State {
                     // Query for the target gene
                     let track_service = self.data.track_service.as_ref().unwrap();
                     let gene = track_service
-                        .query_k_genes_after(&self.contig()?, self.middle()?, n_movements)
+                        .query_k_genes_after(
+                            self.settings.reference.as_ref().unwrap(),
+                            &self.contig()?,
+                            self.middle()?,
+                            n_movements,
+                            &mut self.data.track_cache,
+                        )
                         .await?;
 
                     state_messages.push(StateMessage::GotoCoordinate(gene.end() + 1));
@@ -701,7 +709,13 @@ impl State {
                 } else {
                     // Query for the target gene
                     let gene = track_service
-                        .query_k_genes_before(&contig, middle, n_movements)
+                        .query_k_genes_before(
+                            self.settings.reference.as_ref().unwrap(),
+                            &contig,
+                            middle,
+                            n_movements,
+                            &mut self.data.track_cache,
+                        )
                         .await?;
 
                     state_messages.push(StateMessage::GotoCoordinate(gene.start() - 1));
@@ -719,7 +733,13 @@ impl State {
                 } else {
                     // Query for the target gene
                     let gene = track_service
-                        .query_k_genes_before(&contig, middle, n_movements)
+                        .query_k_genes_before(
+                            self.settings.reference.as_ref().unwrap(),
+                            &contig,
+                            middle,
+                            n_movements,
+                            &mut self.data.track_cache,
+                        )
                         .await?;
 
                     state_messages.push(StateMessage::GotoCoordinate(gene.end() - 1));
@@ -737,7 +757,13 @@ impl State {
                 } else {
                     // Query for the target exon
                     let exon = track_service
-                        .query_k_exons_after(&contig, middle, n_movements)
+                        .query_k_exons_after(
+                            self.settings.reference.as_ref().unwrap(),
+                            &contig,
+                            middle,
+                            n_movements,
+                            &mut self.data.track_cache,
+                        )
                         .await?;
 
                     state_messages.push(StateMessage::GotoCoordinate(exon.start() + 1));
@@ -755,7 +781,13 @@ impl State {
                 } else {
                     // Query for the target exon
                     let exon = track_service
-                        .query_k_exons_after(&contig, middle, n_movements)
+                        .query_k_exons_after(
+                            self.settings.reference.as_ref().unwrap(),
+                            &contig,
+                            middle,
+                            n_movements,
+                            &mut self.data.track_cache,
+                        )
                         .await?;
 
                     state_messages.push(StateMessage::GotoCoordinate(exon.end() + 1));
@@ -773,7 +805,13 @@ impl State {
                 } else {
                     // Query for the target exon
                     let exon = track_service
-                        .query_k_exons_before(&contig, middle, n_movements)
+                        .query_k_exons_before(
+                            self.settings.reference.as_ref().unwrap(),
+                            &contig,
+                            middle,
+                            n_movements,
+                            &mut self.data.track_cache,
+                        )
                         .await?;
 
                     state_messages.push(StateMessage::GotoCoordinate(exon.end() - 1));
@@ -791,7 +829,13 @@ impl State {
                 } else {
                     // Query for the target exon
                     let exon = track_service
-                        .query_k_exons_before(&contig, middle, n_movements)
+                        .query_k_exons_before(
+                            self.settings.reference.as_ref().unwrap(),
+                            &contig,
+                            middle,
+                            n_movements,
+                            &mut self.data.track_cache,
+                        )
                         .await?;
 
                     state_messages.push(StateMessage::GotoCoordinate(exon.end() - 1));
@@ -826,10 +870,9 @@ impl State {
 
         if let StateMessage::GoToGene(gene_id) = message {
             if let Some(reference) = self.settings.reference.as_ref() {
-                track_service
-                    .check_or_load_gene(reference, &gene_id)
-                    .await?; // TODO: verbose on whether data was loaded
-                let gene = track_service.query_gene_name(&gene_id).await?;
+                let gene = track_service
+                    .query_gene_name(reference, &gene_id, &mut self.data.track_cache)
+                    .await?;
                 state_messages.push(StateMessage::GotoContigCoordinate(
                     gene.contig().full_name(),
                     gene.start(),

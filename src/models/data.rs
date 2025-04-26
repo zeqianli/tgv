@@ -166,15 +166,11 @@ impl Data {
                     (reference, self.track_service.as_mut())
                 {
                     if !has_complete_track {
-                        match track_service {
-                            TrackServiceEnum::Api(service) => {
-                                service
-                                    .check_or_load_contig(reference, &region.contig)
-                                    .await?;
-                            }
-                            _ => {}
-                        }
-                        self.track = Some(track_service.query_gene_track(&region).await?);
+                        self.track = Some(
+                            track_service
+                                .query_gene_track(reference, &region, &mut self.track_cache)
+                                .await?,
+                        );
                         loaded_data = true;
                     }
                 } else if reference.is_none() {
