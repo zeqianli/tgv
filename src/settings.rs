@@ -37,7 +37,7 @@ pub struct Cli {
     no_reference: bool,
 
     /// Select the backend service for fetching track data.
-    #[arg(long, value_enum, default_value_t = BackendType::Api)]
+    #[arg(long, value_enum, default_value_t = BackendType::Db)]
     backend: BackendType,
 
     /// For development purposes only
