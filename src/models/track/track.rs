@@ -3,7 +3,6 @@ use crate::{
     models::{
         contig::Contig,
         region::Region,
-        strand::Strand,
         track::feature::{Gene, SubGeneFeature},
     },
     traits::GenomeInterval,
@@ -120,12 +119,12 @@ impl<T: GenomeInterval> Track<T> {
         match (range_left, range_right) {
             (Some((_, start_index)), Some((_, end_index))) => {
                 if start_index == end_index {
-                    return Some(&self.features[*start_index]);
+                    Some(&self.features[*start_index])
                 } else {
-                    return None;
+                    None
                 }
             }
-            _ => return None,
+            _ => None,
         }
     }
 
@@ -332,16 +331,16 @@ impl Track<Gene> {
                 Some((_, (end_gene_idx, end_exon_idx))),
             ) => {
                 if start_gene_idx == end_gene_idx && start_exon_idx == end_exon_idx {
-                    return Some(
+                    Some(
                         self.features[*start_gene_idx]
                             .get_exon(*start_exon_idx)
                             .unwrap(),
-                    );
+                    )
                 } else {
-                    return None;
+                    None
                 }
             }
-            _ => return None,
+            _ => None,
         }
     }
 

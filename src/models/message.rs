@@ -1,4 +1,3 @@
-use crate::error::TGVError;
 use crate::models::{contig::Contig, mode::InputMode, region::Region};
 use strum::Display;
 /// State messages

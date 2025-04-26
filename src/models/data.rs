@@ -2,7 +2,6 @@ use crate::error::TGVError;
 use crate::helpers::is_url;
 use crate::models::{
     alignment::Alignment,
-    contig::Contig,
     contig_collection::ContigCollection,
     cytoband::Cytoband,
     message::DataMessage,
@@ -16,7 +15,7 @@ use crate::models::{
         },
     },
     track::{
-        feature::{Gene, SubGeneFeature},
+        feature::Gene,
         track::Track,
     },
 };
@@ -280,17 +279,14 @@ impl Data {
             }
         }
 
-        match reference {
-            Some(reference) => match &reference {
-                Reference::Hg19 | Reference::Hg38 => {
-                    for cytoband in Cytoband::from_human_reference(&reference)?.iter() {
-                        contig_data.update_cytoband(&cytoband.contig, Some(cytoband.clone()));
-                    }
+        if let Some(reference) = reference { match &reference {
+            Reference::Hg19 | Reference::Hg38 => {
+                for cytoband in Cytoband::from_human_reference(reference)?.iter() {
+                    contig_data.update_cytoband(&cytoband.contig, Some(cytoband.clone()));
                 }
-                _ => {}
-            },
+            }
             _ => {}
-        }
+        } }
 
         if let Some(bam_path) = bam_path {
             contig_data

@@ -2,7 +2,7 @@ use crate::models::{
     reference::Reference,
     strand::Strand,
     track::{
-        feature::{Gene, SubGeneFeature, SubGeneFeatureType},
+        feature::{Gene, SubGeneFeatureType},
         track::Track,
     },
     window::{OnScreenCoordinate, ViewingWindow},

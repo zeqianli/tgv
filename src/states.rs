@@ -1,5 +1,4 @@
 use crate::error::TGVError;
-use crate::helpers::is_url;
 use crate::models::{
     contig::Contig,
     cytoband::Cytoband,
@@ -9,17 +8,13 @@ use crate::models::{
     reference::Reference,
     region::Region,
     register::{CommandModeRegister, NormalModeRegister},
-    services::track_service::{TrackService, UcscApiTrackService, UcscDbTrackService},
+    services::track_service::TrackService,
     window::ViewingWindow,
 };
-use crate::models::{reference, track};
 use crate::settings::Settings;
 use crate::traits::GenomeInterval;
 use crossterm::event::{KeyCode, KeyEvent};
 use ratatui::layout::Rect;
-use rust_htslib::bam::{self, IndexedReader, Read};
-use std::collections::HashMap;
-use url::Url;
 
 /// Holds states of the application.
 pub struct State {

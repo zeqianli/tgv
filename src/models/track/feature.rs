@@ -1,6 +1,5 @@
 use crate::{
-    error::TGVError,
-    models::{contig::Contig, region::Region, strand::Strand},
+    models::{contig::Contig, strand::Strand},
     traits::GenomeInterval,
 };
 use serde::Deserialize;

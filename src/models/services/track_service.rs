@@ -6,7 +6,7 @@ use crate::models::{
     region::Region,
     strand::Strand,
     track::{
-        feature::{Gene, SubGeneFeature, SubGeneFeatureType},
+        feature::{Gene, SubGeneFeature},
         track::Track,
     },
 };
@@ -28,6 +28,12 @@ pub struct TrackCache {
     /// Gene name -> Option<Gene>.
     /// If the gene name is not found, the value is None.
     gene_by_name: HashMap<String, Option<Gene>>,
+}
+
+impl Default for TrackCache {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl TrackCache {
@@ -837,7 +843,7 @@ fn get_prefered_track_name(
 ) -> Result<Option<String>, TGVError> {
     let mut prefered_track_name = preferred_track_name;
 
-    let err = TGVError::IOError(format!("Failed to get genome from UCSC API"));
+    let err = TGVError::IOError("Failed to get genome from UCSC API".to_string());
 
     if content.get("compositeContainer").is_some() || is_top_level {
         // do this recursively
@@ -847,22 +853,20 @@ fn get_prefered_track_name(
                     get_prefered_track_name(track_name, track_content, prefered_track_name, false)?;
             }
         }
-    } else {
-        if prefered_track_name == Some("ncbiRefSeqSelect".to_string()) {
-        } else if key == "ncbiRefSeqSelect".to_string() {
-            prefered_track_name = Some(key.to_string());
-        } else if key == "ncbiRefSeqCurated".to_string() {
-            prefered_track_name = Some(key.to_string());
-        } else if *key == "ncbiRefSeq".to_string()
-            && prefered_track_name != Some("ncbiRefSeqCurated".to_string())
-        {
-            prefered_track_name = Some(key.to_string());
-        } else if *key == "refGene".to_string()
-            && (prefered_track_name != Some("ncbiRefSeqCurated".to_string())
-                && prefered_track_name != Some("ncbiRefSeq".to_string()))
-        {
-            prefered_track_name = Some(key.to_string());
-        }
+    } else if prefered_track_name == Some("ncbiRefSeqSelect".to_string()) {
+    } else if key == "ncbiRefSeqSelect" {
+        prefered_track_name = Some(key.to_string());
+    } else if key == "ncbiRefSeqCurated" {
+        prefered_track_name = Some(key.to_string());
+    } else if *key == "ncbiRefSeq".to_string()
+        && prefered_track_name != Some("ncbiRefSeqCurated".to_string())
+    {
+        prefered_track_name = Some(key.to_string());
+    } else if *key == "refGene".to_string()
+        && (prefered_track_name != Some("ncbiRefSeqCurated".to_string())
+            && prefered_track_name != Some("ncbiRefSeq".to_string()))
+    {
+        prefered_track_name = Some(key.to_string());
     }
 
     Ok(prefered_track_name)
@@ -975,9 +979,7 @@ impl TrackService for UcscApiTrackService {
                     genome.as_str(),
                     response
                         .get(genome.clone())
-                        .ok_or(TGVError::IOError(format!(
-                            "Failed to get genome from UCSC API"
-                        )))?,
+                        .ok_or(TGVError::IOError("Failed to get genome from UCSC API".to_string()))?,
                     None,
                     true,
                 )?;
@@ -996,15 +998,15 @@ impl TrackService for UcscApiTrackService {
         region: &Region,
         cache: &mut TrackCache,
     ) -> Result<Vec<Gene>, TGVError> {
-        if !cache.includes_contig(&region.contig()) {
+        if !cache.includes_contig(region.contig()) {
             let track = self
-                .query_track_by_contig(reference, &region.contig())
+                .query_track_by_contig(reference, region.contig())
                 .await?;
             cache.add_track(region.contig(), Some(track));
         }
         // TODO: now I don't really handle empty query results
 
-        if let Some(Some(track)) = cache.get_track(&region.contig()) {
+        if let Some(Some(track)) = cache.get_track(region.contig()) {
             Ok(track
                 .get_features_overlapping(region)
                 .iter()
@@ -1025,11 +1027,11 @@ impl TrackService for UcscApiTrackService {
         position: usize,
         cache: &mut TrackCache,
     ) -> Result<Option<Gene>, TGVError> {
-        if !cache.includes_contig(&contig) {
-            let track = self.query_track_by_contig(reference, &contig).await?;
+        if !cache.includes_contig(contig) {
+            let track = self.query_track_by_contig(reference, contig).await?;
             cache.add_track(contig, Some(track));
         }
-        if let Some(Some(track)) = cache.get_track(&contig) {
+        if let Some(Some(track)) = cache.get_track(contig) {
             Ok(track.get_gene_at(position).map(|g| (*g).clone()))
         } else {
             Err(TGVError::IOError(format!(
@@ -1072,12 +1074,12 @@ impl TrackService for UcscApiTrackService {
         k: usize,
         cache: &mut TrackCache,
     ) -> Result<Gene, TGVError> {
-        if !cache.includes_contig(&contig) {
-            let track = self.query_track_by_contig(reference, &contig).await?;
-            cache.add_track(&contig, Some(track));
+        if !cache.includes_contig(contig) {
+            let track = self.query_track_by_contig(reference, contig).await?;
+            cache.add_track(contig, Some(track));
         }
 
-        if let Some(Some(track)) = cache.get_track(&contig) {
+        if let Some(Some(track)) = cache.get_track(contig) {
             Ok(track
                 .get_saturating_k_genes_after(position, k)
                 .ok_or(TGVError::IOError("No genes found".to_string()))?
@@ -1098,11 +1100,11 @@ impl TrackService for UcscApiTrackService {
         k: usize,
         cache: &mut TrackCache,
     ) -> Result<Gene, TGVError> {
-        if !cache.includes_contig(&contig) {
-            let track = self.query_track_by_contig(reference, &contig).await?;
-            cache.add_track(&contig, Some(track));
+        if !cache.includes_contig(contig) {
+            let track = self.query_track_by_contig(reference, contig).await?;
+            cache.add_track(contig, Some(track));
         }
-        if let Some(Some(track)) = cache.get_track(&contig) {
+        if let Some(Some(track)) = cache.get_track(contig) {
             Ok(track
                 .get_saturating_k_genes_before(position, k)
                 .ok_or(TGVError::IOError("No genes found".to_string()))?
@@ -1123,11 +1125,11 @@ impl TrackService for UcscApiTrackService {
         k: usize,
         cache: &mut TrackCache,
     ) -> Result<SubGeneFeature, TGVError> {
-        if !cache.includes_contig(&contig) {
-            let track = self.query_track_by_contig(reference, &contig).await?;
-            cache.add_track(&contig, Some(track));
+        if !cache.includes_contig(contig) {
+            let track = self.query_track_by_contig(reference, contig).await?;
+            cache.add_track(contig, Some(track));
         }
-        if let Some(Some(track)) = cache.get_track(&contig) {
+        if let Some(Some(track)) = cache.get_track(contig) {
             Ok(track
                 .get_saturating_k_exons_after(position, k)
                 .ok_or(TGVError::IOError("No exons found".to_string()))?)
@@ -1147,11 +1149,11 @@ impl TrackService for UcscApiTrackService {
         k: usize,
         cache: &mut TrackCache,
     ) -> Result<SubGeneFeature, TGVError> {
-        if !cache.includes_contig(&contig) {
-            let track = self.query_track_by_contig(reference, &contig).await?;
-            cache.add_track(&contig, Some(track));
+        if !cache.includes_contig(contig) {
+            let track = self.query_track_by_contig(reference, contig).await?;
+            cache.add_track(contig, Some(track));
         }
-        if let Some(Some(track)) = cache.get_track(&contig) {
+        if let Some(Some(track)) = cache.get_track(contig) {
             Ok(track
                 .get_saturating_k_exons_before(position, k)
                 .ok_or(TGVError::IOError("No exons found".to_string()))?)
