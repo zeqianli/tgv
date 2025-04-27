@@ -3,3 +3,4 @@ test/output
 .DS_Store
 .venv
 /src/snapshots
+.vscode

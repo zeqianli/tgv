@@ -1,12 +1,12 @@
 use crate::error::TGVError;
 use crate::helpers::is_url;
 use crate::models::{contig::Contig, region::Region};
-use rust_htslib::bam;
 use rust_htslib::bam::ext::BamRecordExtensions;
 use rust_htslib::bam::{Header, IndexedReader, Read, Record};
 use std::collections::{BTreeMap, HashMap};
 use url::Url;
 
+#[derive(Clone, Debug)]
 /// An aligned read with viewing coordinates.
 pub struct AlignedRead {
     /// Alignment record data
@@ -63,38 +63,9 @@ pub struct Alignment {
     /// 1-based, inclusive.
     data_complete_right_bound: usize,
 
-    /// The left most position of alignment segments that are loaded.
-    /// 1-based, inclusive.
-    track_most_left_bound: usize,
-
-    /// The right most position of alignment segments that are loaded.
-    /// 1-based, inclusive.
-    track_most_right_bound: usize,
-
-    /// The leftmost position in each alignment track.
-    /// 1-based, inclusive.
-    track_left_bounds: Vec<usize>,
-
-    /// The rightmost position in each alignment track.
-    /// 1-based, inclusive.
-    track_right_bounds: Vec<usize>,
+    depth: usize,
 }
 
-impl Alignment {
-    pub fn new(contig: &Contig) -> Self {
-        Self {
-            reads: Vec::new(),
-            coverage: BTreeMap::new(),
-            track_left_bounds: Vec::new(),
-            track_right_bounds: Vec::new(),
-            contig: contig.clone(),
-            track_most_left_bound: 0,
-            track_most_right_bound: 0,
-            data_complete_left_bound: 0,
-            data_complete_right_bound: 0,
-        }
-    }
-}
 
 /// Data loading
 impl Alignment {
@@ -108,7 +79,7 @@ impl Alignment {
 
     /// Return the number of alignment tracks.
     pub fn depth(&self) -> usize {
-        self.track_left_bounds.len()
+        self.depth
     }
 
     /// Basewise coverage at position.
@@ -147,33 +118,39 @@ impl Alignment {
     }
 }
 
-/// Read stacking
-impl Alignment {
-    const MIN_HORIZONTAL_GAP_BETWEEN_READS: usize = 3;
 
-    fn find_track(&mut self, read_start: usize, read_end: usize) -> usize {
-        if self.reads.is_empty() {
-            return 0;
-        }
+pub struct AlignmentBuilder {
 
-        for (y, left_bound) in self.track_left_bounds.iter().enumerate() {
-            if read_end + Self::MIN_HORIZONTAL_GAP_BETWEEN_READS < *left_bound {
-                return y;
-            }
-        }
+    aligned_reads: Vec<AlignedRead>,
+    coverage_hashmap: HashMap<usize, usize>,
 
-        for (y, right_bound) in self.track_right_bounds.iter().enumerate() {
-            if read_start > *right_bound + Self::MIN_HORIZONTAL_GAP_BETWEEN_READS {
-                return y;
-            }
-        }
+    track_left_bounds: Vec<usize>,
+    track_right_bounds: Vec<usize>,
 
-        self.depth()
+    track_most_left_bound: usize,
+    track_most_right_bound: usize,
+
+    region: Option<Region>
+
+}
+
+impl AlignmentBuilder {
+    pub fn new() -> Result<Self, TGVError> { 
+        Ok(Self { 
+            aligned_reads: Vec::new(),
+            coverage_hashmap:  HashMap::new(),
+            track_left_bounds: Vec::new(),
+            track_right_bounds: Vec::new(),
+
+            track_most_left_bound: usize::MAX,
+            track_most_right_bound: 0,
+
+            region: None,
+        })
     }
 
     /// Add a read to the alignment. Note that this function does not update coverage.
-
-    fn add_read(&mut self, read: Record) {
+    pub fn add_read(&mut self, read: Record) -> Result<&mut Self, TGVError>{
         let read_start = read.pos() as usize + 1;
         let read_end = read.reference_end() as usize;
         let leading_softclips = read.cigar().leading_softclips() as usize;
@@ -196,7 +173,7 @@ impl Alignment {
         };
 
         // Track bounds + depth update
-        if self.reads.is_empty() || aligned_read.y >= self.track_left_bounds.len() {
+        if self.aligned_reads.is_empty() || aligned_read.y >= self.track_left_bounds.len() {
             // Add to a new track
             self.track_left_bounds.push(aligned_read.stacking_start());
             self.track_right_bounds.push(aligned_read.stacking_end());
@@ -218,18 +195,77 @@ impl Alignment {
             self.track_most_right_bound = aligned_read.stacking_end();
         }
 
+        // update coverge hashmap
+        for i in aligned_read.range() {
+        // TODO: check exclusivity here
+            *self.coverage_hashmap.entry(i).or_insert(1) += 1;
+        }
+
         // Add to reads
-        self.reads.push(aligned_read);
+        self.aligned_reads.push(aligned_read);
+
+        Ok(self)
     }
-}
 
+    const MIN_HORIZONTAL_GAP_BETWEEN_READS: usize = 3;
 
+    fn find_track(&mut self, read_start: usize, read_end: usize) -> usize {
+        if self.aligned_reads.is_empty() {
+            return 0;
+        }
 
-struct AlignmentBuilder {
+        for (y, left_bound) in self.track_left_bounds.iter().enumerate() {
+            if read_end + Self::MIN_HORIZONTAL_GAP_BETWEEN_READS < *left_bound {
+                return y;
+            }
+        }
+
+        for (y, right_bound) in self.track_right_bounds.iter().enumerate() {
+            if read_start > *right_bound + Self::MIN_HORIZONTAL_GAP_BETWEEN_READS {
+                return y;
+            }
+        }
+
+        self.track_left_bounds.len()
+    }
+
+    /// Set the alignment complete region.
+    pub fn region(&mut self, region: &Region) -> Result<&mut Self, TGVError>{
+        self.region = Some(region.clone());
+
+        Ok(self)
+    }
+
+    pub fn build(&self) -> Result<Alignment, TGVError> {
+
+        let mut coverage: BTreeMap<usize, usize> = BTreeMap::new();
+
+        // Convert hashmap to BTreeMap
+        for (k, v) in &self.coverage_hashmap {
+            *coverage.entry(*k).or_insert(*v) += v;
+        }
+
+        if self.region.is_none(){
+            return Err(TGVError::StateError(
+                "AlignmentBuilder is missin Region.".to_string()
+            ))
+        }
+
+        let region = self.region.clone().unwrap();
+        
+        Ok(Alignment { 
+            reads: self.aligned_reads.clone(), // TODO: lookup on how to move this 
+            contig: region.contig, 
+            coverage: coverage, 
+            data_complete_left_bound: region.start, 
+            data_complete_right_bound: region.end, 
+
+            depth: self.track_left_bounds.len()
+        })
+        
+    }
+
     
 
-}
-
-impl AlignmentBuilder {
-    pub fn 
+    
 }
