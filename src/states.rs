@@ -905,7 +905,7 @@ impl State {
                         .track_service
                         .as_ref()
                         .ok_or(TGVError::StateError(
-                            "Track service not initialized for default region".to_string(),
+                            "Track service not initialized".to_string(),
                         ))?;
 
                 let first_contig = self.data.contigs.first()?;
@@ -934,7 +934,7 @@ impl State {
                     } // Gene not found. Handle later.
                 }
             }
-            // Handle UcscAccession and None similarly: Go to first contig:1
+            // UcscAccession or None: handle it later.
             _ => {
                 vec![]
             }
@@ -960,6 +960,7 @@ impl State {
         for state_message in translated_messages {
             data_messages.extend(self.handle_movement_message(state_message)?);
         }
+
         return Ok(data_messages);
     }
 }
