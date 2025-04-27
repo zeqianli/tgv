@@ -891,29 +891,88 @@ impl State {
 
 /// Looking for the default region
 impl State {
-    const DEFAULT_GENE: &str = "KRAS";
     async fn handle_goto_default_message(&mut self) -> Result<Vec<DataMessage>, TGVError> {
-        match (
-            self.settings.reference.as_ref(),
-            self.settings.bam_path.as_ref(),
-        ) {
-            (Some(_), Some(_)) | (None, Some(_)) => {
-                self.handle_movement_message(StateMessage::GotoContigCoordinate(
-                    self.data.contigs.first()?.full_name(),
+        let reference = self.settings.reference.as_ref();
+        let mut translated_messages: Vec<StateMessage> = match reference {
+            Some(Reference::Hg38) | Some(Reference::Hg19) => {
+                // 1. If Hg38 / Hg19: TP53
+                vec![StateMessage::GoToGene("TP53".to_string())]
+            }
+            Some(Reference::UcscGenome { .. }) => {
+                // Find the first gene on the first contig. If anything is not found, handle it later.
+                let track_service =
+                    self.data
+                        .track_service
+                        .as_ref()
+                        .ok_or(TGVError::StateError(
+                            "Track service not initialized".to_string(),
+                        ))?;
+
+                let first_contig = self.data.contigs.first()?;
+
+                // Try to get the first gene in the first contig.
+                // We use query_k_genes_after starting from coordinate 0 with k=1.
+                match track_service
+                    .query_k_genes_after(
+                        reference.unwrap(),
+                        first_contig,
+                        0,
+                        1,
+                        &mut self.data.track_cache,
+                    )
+                    .await
+                {
+                    Ok(gene) => {
+                        // Found a gene, go to its start (using 1-based coordinates for Goto)
+                        vec![StateMessage::GotoContigCoordinate(
+                            gene.contig().full_name(),
+                            gene.start() + 1,
+                        )]
+                    }
+                    Err(_) => {
+                        vec![]
+                    } // Gene not found. Handle later.
+                }
+            }
+            // UcscAccession or None: handle it later.
+            _ => {
+                vec![]
+            }
+        };
+
+        if translated_messages.is_empty() {
+            // If reaches here, go to the first contig:1
+            if let Ok(first_contig) = self.data.contigs.first() {
+                translated_messages.push(StateMessage::GotoContigCoordinate(
+                    first_contig.full_name(),
                     1,
-                ))
-            }
-            (Some(_), None) => {
-                self.handle_goto_feature_message(StateMessage::GoToGene(
-                    Self::DEFAULT_GENE.to_string(),
-                ))
-                .await
-            }
-            (None, None) => {
-                Err(TGVError::StateError(
-                    "Neither a reference nor a BAM file is provided. Cannot identify the default region.".to_string(),
-                ))
+                ));
             }
         }
+
+        if translated_messages.is_empty() {
+            return Err(TGVError::StateError(
+                "Failed to find a default initial region. Please provide a starting region with -r.".to_string(),
+            ));
+        }
+
+        let mut data_messages = Vec::new();
+        for state_message in translated_messages.iter() {
+            match state_message {
+                StateMessage::GotoContigCoordinate(contig, position) => {
+                    data_messages.extend(self.handle_movement_message(state_message.clone())?);
+                    // TODO: handle this shit properly.
+                }
+                StateMessage::GoToGene(gene_id) => {
+                    data_messages.extend(
+                        self.handle_goto_feature_message(state_message.clone())
+                            .await?,
+                    );
+                }
+                _ => {}
+            }
+        }
+
+        Ok(data_messages)
     }
 }

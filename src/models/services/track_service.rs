@@ -28,6 +28,12 @@ pub struct TrackCache {
     /// Gene name -> Option<Gene>.
     /// If the gene name is not found, the value is None.
     gene_by_name: HashMap<String, Option<Gene>>,
+
+    /// Prefered track name.
+    /// None: Not initialized.
+    /// Some(None): Queried but not found.
+    /// Some(Some(name)): Queried and found.
+    preferred_track_name: Option<Option<String>>,
 }
 
 impl Default for TrackCache {
@@ -41,6 +47,7 @@ impl TrackCache {
         Self {
             track_by_contig: HashMap::new(),
             gene_by_name: HashMap::new(),
+            preferred_track_name: None,
         }
     }
 
@@ -74,6 +81,14 @@ impl TrackCache {
             }
         }
         self.track_by_contig.insert(contig.full_name(), track);
+    }
+
+    pub fn get_preferred_track_name(&self) -> Option<Option<String>> {
+        self.preferred_track_name.clone()
+    }
+
+    pub fn set_preferred_track_name(&mut self, preferred_track_name: Option<String>) {
+        self.preferred_track_name = Some(preferred_track_name);
     }
 }
 
@@ -115,7 +130,7 @@ pub trait TrackService {
     }
 
     /// Given a reference, return the prefered track name.
-    async fn get_prefered_track_name(
+    async fn get_preferred_track_name(
         &self,
         reference: &Reference,
     ) -> Result<Option<String>, TGVError>;
@@ -294,11 +309,11 @@ impl TrackService for UcscDbTrackService {
         }))
     }
 
-    async fn get_prefered_track_name(
+    async fn get_preferred_track_name(
         &self,
         _reference: &Reference,
     ) -> Result<Option<String>, TGVError> {
-        let gene_track_rows = sqlx::query("SELECT tableName FROM trackDb WHERE grp = 'gene'")
+        let gene_track_rows = sqlx::query("SELECT tableName FROM trackDb")
             .fetch_all(&*self.pool)
             .await?;
 
@@ -329,10 +344,24 @@ impl TrackService for UcscDbTrackService {
         region: &Region,
         cache: &mut TrackCache,
     ) -> Result<Vec<Gene>, TGVError> {
+        if cache.get_preferred_track_name().is_none() {
+            let preferred_track = self.get_preferred_track_name(reference).await?;
+            cache.set_preferred_track_name(preferred_track);
+        }
+
+        let preferred_track = cache.get_preferred_track_name().unwrap();
+
+        if preferred_track.is_none() {
+            return Err(TGVError::IOError("No preferred track found".to_string()));
+        }
+
         let rows = sqlx::query(
-            "SELECT name, chrom, strand, txStart, txEnd, name2, exonStarts, exonEnds, cdsStart, cdsEnd
-             FROM ncbiRefSeqSelect 
+            format!(
+                "SELECT name, chrom, strand, txStart, txEnd, name2, exonStarts, exonEnds, cdsStart, cdsEnd
+             FROM {} 
              WHERE chrom = ? AND (txStart <= ?) AND (txEnd >= ?)",
+                preferred_track.unwrap()
+            ).as_str()
         )
         .bind(region.contig.full_name()) // Requires "chr" prefix?
         .bind(u64::try_from(region.end).unwrap()) // end is 1-based inclusive, UCSC is 0-based exclusive
@@ -383,10 +412,24 @@ impl TrackService for UcscDbTrackService {
         coord: usize,
         cache: &mut TrackCache,
     ) -> Result<Option<Gene>, TGVError> {
+        if cache.get_preferred_track_name().is_none() {
+            let preferred_track = self.get_preferred_track_name(reference).await?;
+            cache.set_preferred_track_name(preferred_track);
+        }
+
+        let preferred_track = cache.get_preferred_track_name().unwrap();
+
+        if preferred_track.is_none() {
+            return Err(TGVError::IOError("No preferred track found".to_string()));
+        }
+
         let row = sqlx::query(
-            "SELECT name, chrom, strand, txStart, txEnd, name2, exonStarts, exonEnds, cdsStart, cdsEnd
-             FROM ncbiRefSeqSelect 
+            format!(
+                "SELECT name, chrom, strand, txStart, txEnd, name2, exonStarts, exonEnds, cdsStart, cdsEnd
+             FROM {} 
              WHERE chrom = ? AND txStart <= ? AND txEnd >= ?",
+                preferred_track.unwrap()
+            ).as_str()
         )
         .bind(contig.full_name())
         .bind(u32::try_from(coord.saturating_sub(1)).unwrap()) // coord is 1-based inclusive, UCSC is 0-based inclusive
@@ -435,10 +478,24 @@ impl TrackService for UcscDbTrackService {
         gene_id: &String,
         cache: &mut TrackCache,
     ) -> Result<Gene, TGVError> {
+        if cache.get_preferred_track_name().is_none() {
+            let preferred_track = self.get_preferred_track_name(reference).await?;
+            cache.set_preferred_track_name(preferred_track);
+        }
+
+        let preferred_track = cache.get_preferred_track_name().unwrap();
+
+        if preferred_track.is_none() {
+            return Err(TGVError::IOError("No preferred track found".to_string()));
+        }
+
         let row = sqlx::query(
-            "SELECT name, name2, strand, chrom, txStart, txEnd, exonStarts, exonEnds, cdsStart, cdsEnd
-            FROM ncbiRefSeqSelect 
+            format!(
+                "SELECT name, name2, strand, chrom, txStart, txEnd, exonStarts, exonEnds, cdsStart, cdsEnd
+            FROM {} 
             WHERE name2 = ?",
+                preferred_track.unwrap()
+            ).as_str()
         )
         .bind(gene_id)
         .fetch_optional(&*self.pool)
@@ -497,15 +554,29 @@ impl TrackService for UcscDbTrackService {
             return Err(TGVError::ValueError("k cannot be 0".to_string()));
         }
 
+        if cache.get_preferred_track_name().is_none() {
+            let preferred_track = self.get_preferred_track_name(reference).await?;
+            cache.set_preferred_track_name(preferred_track);
+        }
+
+        let preferred_track = cache.get_preferred_track_name().unwrap();
+
+        if preferred_track.is_none() {
+            return Err(TGVError::IOError("No preferred track found".to_string()));
+        }
+
         let rows = sqlx::query(
-            "SELECT name, chrom, strand, txStart, txEnd, name2, exonStarts, exonEnds, cdsStart, cdsEnd
-             FROM ncbiRefSeqSelect 
+            format!(
+                "SELECT name, chrom, strand, txStart, txEnd, name2, exonStarts, exonEnds, cdsStart, cdsEnd
+             FROM {} 
              WHERE chrom = ? AND txEnd >= ? 
              ORDER BY txEnd ASC LIMIT ?",
+                preferred_track.unwrap()
+            ).as_str()
         )
         .bind(contig.full_name())
         .bind(u32::try_from(coord).unwrap()) // coord is 1-based inclusive, UCSC is 0-based exclusive
-        .bind(u32::try_from(k+1).unwrap())
+        .bind(u32::try_from(k + 1).unwrap())
         .fetch_all(&*self.pool)
         .await?;
 
@@ -569,11 +640,25 @@ impl TrackService for UcscDbTrackService {
             return Err(TGVError::ValueError("k cannot be 0".to_string()));
         }
 
+        if cache.get_preferred_track_name().is_none() {
+            let preferred_track = self.get_preferred_track_name(reference).await?;
+            cache.set_preferred_track_name(preferred_track);
+        }
+
+        let preferred_track = cache.get_preferred_track_name().unwrap();
+
+        if preferred_track.is_none() {
+            return Err(TGVError::IOError("No preferred track found".to_string()));
+        }
+
         let rows = sqlx::query(
-            "SELECT name, chrom, strand, txStart, txEnd, name2, exonStarts, exonEnds, cdsStart, cdsEnd
-             FROM ncbiRefSeqSelect 
+            format!(
+                "SELECT name, chrom, strand, txStart, txEnd, name2, exonStarts, exonEnds, cdsStart, cdsEnd
+             FROM {} 
              WHERE chrom = ? AND txStart <= ? 
              ORDER BY txStart DESC LIMIT ?",
+                preferred_track.unwrap()
+            ).as_str()
         )
         .bind(contig.full_name())
         .bind(u32::try_from(coord.saturating_sub(1)).unwrap()) // coord is 1-based inclusive, UCSC is 0-based inclusive
@@ -641,11 +726,25 @@ impl TrackService for UcscDbTrackService {
             return Err(TGVError::ValueError("k cannot be 0".to_string()));
         }
 
+        if cache.get_preferred_track_name().is_none() {
+            let preferred_track = self.get_preferred_track_name(reference).await?;
+            cache.set_preferred_track_name(preferred_track);
+        }
+
+        let preferred_track = cache.get_preferred_track_name().unwrap();
+
+        if preferred_track.is_none() {
+            return Err(TGVError::IOError("No preferred track found".to_string()));
+        }
+
         let rows = sqlx::query(
-            "SELECT name, chrom, strand, txStart, txEnd, name2, exonStarts, exonEnds, cdsStart, cdsEnd
-             FROM ncbiRefSeqSelect 
+            format!(
+                "SELECT name, chrom, strand, txStart, txEnd, name2, exonStarts, exonEnds, cdsStart, cdsEnd
+             FROM {} 
              WHERE chrom = ? AND txEnd >= ? 
              ORDER BY txEnd ASC LIMIT ?",
+                preferred_track.unwrap()
+            ).as_str()
         )
         .bind(contig.full_name())
         .bind(u32::try_from(coord).unwrap()) // coord is 1-based inclusive, UCSC is 0-based exclusive
@@ -707,11 +806,25 @@ impl TrackService for UcscDbTrackService {
             return Err(TGVError::ValueError("k cannot be 0".to_string()));
         }
 
+        if cache.get_preferred_track_name().is_none() {
+            let preferred_track = self.get_preferred_track_name(reference).await?;
+            cache.set_preferred_track_name(preferred_track);
+        }
+
+        let preferred_track = cache.get_preferred_track_name().unwrap();
+
+        if preferred_track.is_none() {
+            return Err(TGVError::IOError("No preferred track found".to_string()));
+        }
+
         let rows = sqlx::query(
-            "SELECT name, chrom, strand, txStart, txEnd, name2, exonStarts, exonEnds, cdsStart, cdsEnd
-             FROM ncbiRefSeqSelect 
+            format!(
+                "SELECT name, chrom, strand, txStart, txEnd, name2, exonStarts, exonEnds, cdsStart, cdsEnd
+             FROM {} 
              WHERE chrom = ? AND txStart <= ? 
              ORDER BY txStart DESC LIMIT ?",
+                preferred_track.unwrap()
+            ).as_str()
         )
         .bind(contig.full_name())
         .bind(u32::try_from(coord.saturating_sub(1)).unwrap()) // coord is 1-based inclusive, UCSC is 0-based inclusive
@@ -793,14 +906,30 @@ impl UcscApiTrackService {
         &self,
         reference: &Reference,
         contig: &Contig,
+        cache: &mut TrackCache,
     ) -> Result<Track<Gene>, TGVError> {
-        let preferred_track =
-            self.get_prefered_track_name(reference)
-                .await?
-                .ok_or(TGVError::IOError(format!(
-                    "Failed to get prefered track for {} from UCSC API",
-                    contig.full_name()
-                )))?; // TODO: proper handling
+        if cache.get_preferred_track_name().is_none() {
+            let preferred_track =
+                self.get_preferred_track_name(reference)
+                    .await?
+                    .ok_or(TGVError::IOError(format!(
+                        "Failed to get prefered track for {} from UCSC API",
+                        contig.full_name()
+                    )))?; // TODO: proper handling
+
+            cache.set_preferred_track_name(Some(preferred_track));
+        }
+
+        let preferred_track = cache.get_preferred_track_name().unwrap();
+
+        if preferred_track.is_none() {
+            return Err(TGVError::IOError(format!(
+                "Failed to get prefered track for {} from UCSC API",
+                contig.full_name()
+            )));
+        } // TODO: proper handling
+
+        let preferred_track = preferred_track.unwrap();
 
         let query_url = self.get_track_data_url(reference, contig, preferred_track.clone())?;
         let response = self.client.get(query_url).send().await?.text().await?;
@@ -835,7 +964,7 @@ impl UcscApiTrackService {
 }
 
 /// Get the preferred track name recursively.
-fn get_prefered_track_name(
+fn get_preferred_track_name(
     key: &str,
     content: &serde_json::Value,
     preferred_track_name: Option<String>,
@@ -849,8 +978,12 @@ fn get_prefered_track_name(
         // do this recursively
         for (track_name, track_content) in content.as_object().ok_or(err)?.iter() {
             if track_content.is_object() {
-                prefered_track_name =
-                    get_prefered_track_name(track_name, track_content, prefered_track_name, false)?;
+                prefered_track_name = get_preferred_track_name(
+                    track_name,
+                    track_content,
+                    prefered_track_name,
+                    false,
+                )?;
             }
         }
     } else if prefered_track_name == Some("ncbiRefSeqSelect".to_string()) {
@@ -961,7 +1094,7 @@ impl TrackService for UcscApiTrackService {
         Ok(Some(cytoband))
     }
 
-    async fn get_prefered_track_name(
+    async fn get_preferred_track_name(
         &self,
         reference: &Reference,
     ) -> Result<Option<String>, TGVError> {
@@ -975,7 +1108,7 @@ impl TrackService for UcscApiTrackService {
                     .json::<serde_json::Value>()
                     .await?;
 
-                let prefered_track = get_prefered_track_name(
+                let prefered_track = get_preferred_track_name(
                     genome.as_str(),
                     response.get(genome.clone()).ok_or(TGVError::IOError(
                         "Failed to get genome from UCSC API".to_string(),
@@ -1000,7 +1133,7 @@ impl TrackService for UcscApiTrackService {
     ) -> Result<Vec<Gene>, TGVError> {
         if !cache.includes_contig(region.contig()) {
             let track = self
-                .query_track_by_contig(reference, region.contig())
+                .query_track_by_contig(reference, region.contig(), cache)
                 .await?;
             cache.add_track(region.contig(), Some(track));
         }
@@ -1028,7 +1161,7 @@ impl TrackService for UcscApiTrackService {
         cache: &mut TrackCache,
     ) -> Result<Option<Gene>, TGVError> {
         if !cache.includes_contig(contig) {
-            let track = self.query_track_by_contig(reference, contig).await?;
+            let track = self.query_track_by_contig(reference, contig, cache).await?;
             cache.add_track(contig, Some(track));
         }
         if let Some(Some(track)) = cache.get_track(contig) {
@@ -1050,7 +1183,9 @@ impl TrackService for UcscApiTrackService {
         if !cache.includes_gene(name) {
             // query all possible tracks until the gene is found
             for (contig, _) in self.get_all_contigs(reference).await? {
-                let track = self.query_track_by_contig(reference, &contig).await?;
+                let track = self
+                    .query_track_by_contig(reference, &contig, cache)
+                    .await?;
                 cache.add_track(&contig, Some(track));
 
                 if let Some(Some(gene)) = cache.get_gene(name) {
@@ -1075,7 +1210,7 @@ impl TrackService for UcscApiTrackService {
         cache: &mut TrackCache,
     ) -> Result<Gene, TGVError> {
         if !cache.includes_contig(contig) {
-            let track = self.query_track_by_contig(reference, contig).await?;
+            let track = self.query_track_by_contig(reference, contig, cache).await?;
             cache.add_track(contig, Some(track));
         }
 
@@ -1101,7 +1236,7 @@ impl TrackService for UcscApiTrackService {
         cache: &mut TrackCache,
     ) -> Result<Gene, TGVError> {
         if !cache.includes_contig(contig) {
-            let track = self.query_track_by_contig(reference, contig).await?;
+            let track = self.query_track_by_contig(reference, contig, cache).await?;
             cache.add_track(contig, Some(track));
         }
         if let Some(Some(track)) = cache.get_track(contig) {
@@ -1126,7 +1261,7 @@ impl TrackService for UcscApiTrackService {
         cache: &mut TrackCache,
     ) -> Result<SubGeneFeature, TGVError> {
         if !cache.includes_contig(contig) {
-            let track = self.query_track_by_contig(reference, contig).await?;
+            let track = self.query_track_by_contig(reference, contig, cache).await?;
             cache.add_track(contig, Some(track));
         }
         if let Some(Some(track)) = cache.get_track(contig) {
@@ -1150,7 +1285,7 @@ impl TrackService for UcscApiTrackService {
         cache: &mut TrackCache,
     ) -> Result<SubGeneFeature, TGVError> {
         if !cache.includes_contig(contig) {
-            let track = self.query_track_by_contig(reference, contig).await?;
+            let track = self.query_track_by_contig(reference, contig, cache).await?;
             cache.add_track(contig, Some(track));
         }
         if let Some(Some(track)) = cache.get_track(contig) {
@@ -1206,13 +1341,13 @@ impl TrackService for TrackServiceEnum {
         }
     }
 
-    async fn get_prefered_track_name(
+    async fn get_preferred_track_name(
         &self,
         reference: &Reference,
     ) -> Result<Option<String>, TGVError> {
         match self {
-            TrackServiceEnum::Api(service) => service.get_prefered_track_name(reference).await,
-            TrackServiceEnum::Db(service) => service.get_prefered_track_name(reference).await,
+            TrackServiceEnum::Api(service) => service.get_preferred_track_name(reference).await,
+            TrackServiceEnum::Db(service) => service.get_preferred_track_name(reference).await,
         }
     }
 

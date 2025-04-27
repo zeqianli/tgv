@@ -48,6 +48,8 @@ mod tests {
     #[case(None, None)]
     #[case(None, Some("-r TP53"))]
     #[case(None, Some("-r TP53 -g hg19"))]
+    #[case(None, Some("-g mm39"))]
+    #[case(None, Some("-g wuhCor1"))]
     #[case(Some("ncbi.sorted.bam"), Some("-r 22:33121120 -g hg19"))]
     #[case(Some("ncbi.sorted.bam"), Some("-r chr22:33121120 --no-reference"))]
     #[case(Some("covid.sorted.bam"), Some("--no-reference"))]

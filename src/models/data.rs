@@ -16,6 +16,7 @@ use crate::models::{
     },
     track::{feature::Gene, track::Track},
 };
+
 use crate::settings::{BackendType, Settings};
 use std::path::Path;
 /// Holds all data in the session.
@@ -162,12 +163,15 @@ impl Data {
                     (reference, self.track_service.as_mut())
                 {
                     if !has_complete_track {
-                        self.track = Some(
-                            track_service
-                                .query_gene_track(reference, &region, &mut self.track_cache)
-                                .await?,
-                        );
-                        loaded_data = true;
+                        if let Ok(track) = track_service
+                            .query_gene_track(reference, &region, &mut self.track_cache)
+                            .await
+                        {
+                            self.track = Some(track);
+                            loaded_data = true;
+                        } else {
+                            // Do nothing (track not found). TODO: fix this shit properly.
+                        }
                     }
                 } else if reference.is_none() {
                     // No reference provided, cannot load features
@@ -249,6 +253,7 @@ impl Data {
     }
 
     pub fn has_complete_track(&self, region: &Region) -> bool {
+        // self.track_cache.get_track(region.contig()) == Some(None)
         self.track.is_some() && self.track.as_ref().unwrap().has_complete_data(region)
     }
 
