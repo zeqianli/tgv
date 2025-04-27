@@ -1,5 +1,6 @@
 use crate::error::TGVError;
 use crate::helpers::is_url;
+use crate::repository::{self, AlignmentRepository, AlignmentRepositoryEnum};
 use crate::models::{
     alignment::Alignment,
     contig_collection::ContigCollection,
@@ -18,13 +19,11 @@ use crate::models::{
 };
 
 use crate::settings::{BackendType, Settings};
-use std::path::Path;
 /// Holds all data in the session.
 pub struct Data {
     /// Alignment segments.
     pub alignment: Option<Alignment>,
-    pub bam_path: Option<String>,
-    pub bai_path: Option<String>,
+    pub alignment_repository: AlignmentRepositoryEnum,
 
     /// Tracks.
     pub track: Option<Track<Gene>>,
@@ -42,38 +41,8 @@ pub struct Data {
 
 impl Data {
     pub async fn new(settings: &Settings) -> Result<Self, TGVError> {
-        let bam_path = match settings.bam_path.clone() {
-            Some(bam_path) => {
-                if !is_url(&bam_path) {
-                    if !Path::new(&bam_path).exists() {
-                        return Err(TGVError::IOError(format!(
-                            "BAM file {} not found",
-                            bam_path
-                        )));
-                    }
-                    match settings.bai_path.clone() {
-                        Some(bai_path) => {
-                            if !Path::new(&bai_path).exists() {
-                                return Err(TGVError::IOError(format!(
-                                "BAM index file {} not found. Only indexed BAM files are supported.",
-                                bai_path
-                            )));
-                            }
-                        }
-                        None => {
-                            if !Path::new(&format!("{}.bai", bam_path)).exists() {
-                                return Err(TGVError::IOError(format!(
-                                "BAM index file {}.bai not found. Only indexed BAM files are supported.",
-                                bam_path
-                            )));
-                            }
-                        }
-                    }
-                }
-                Some(bam_path)
-            }
-            None => None,
-        };
+
+        let alignment_repository = AlignmentRepositoryEnum::from(settings)?;
 
         let (track_service, sequence_service): (Option<TrackServiceEnum>, Option<SequenceService>) =
             match settings.reference.as_ref() {
@@ -90,18 +59,16 @@ impl Data {
                 None => (None, None),
             };
 
-        let contigs = Data::load_contig_data(
+        let contigs = load_contig_data(
             settings.reference.as_ref(),
             track_service.as_ref(),
-            settings.bam_path.as_ref(),
-            settings.bai_path.as_ref(),
+            &alignment_repository
         )
         .await?;
 
         Ok(Self {
             alignment: None,
-            bam_path,
-            bai_path: settings.bai_path.clone(),
+            alignment_repository,
             track: None,
             track_cache: TrackCache::new(),
             track_service,
@@ -143,17 +110,9 @@ impl Data {
 
         match data_message {
             DataMessage::RequiresCompleteAlignments(region) => {
-                if self.bam_path.is_none() {
-                    return Err(TGVError::IOError("BAM file not found".to_string()));
-                }
-
-                let bam_path = self.bam_path.as_ref().unwrap();
 
                 if !self.has_complete_alignment(&region) {
-                    self.alignment = Some(
-                        Alignment::from_bam_path(bam_path, self.bai_path.as_ref(), &region)
-                            .unwrap(),
-                    );
+                    self.alignment =Some(self.alignment_repository.read_alignment(&region)?); // TODO
                     loaded_data = true;
                 }
             }
@@ -264,40 +223,38 @@ impl Data {
 
 /// Contig data looading
 
-impl Data {
-    pub async fn load_contig_data(
-        reference: Option<&Reference>,
-        track_service: Option<&TrackServiceEnum>,
-        bam_path: Option<&String>,
-        bai_path: Option<&String>,
-    ) -> Result<ContigCollection, TGVError> {
-        let mut contig_data = ContigCollection::new(reference.cloned());
 
-        if let (Some(reference), Some(track_service)) = (reference, track_service) {
-            for (contig, length) in track_service.get_all_contigs(reference).await? {
-                contig_data
-                    .update_or_add_contig(contig, Some(length))
-                    .unwrap();
-            }
-        }
+pub async fn load_contig_data(
+    reference: Option<&Reference>,
+    track_service: Option<&TrackServiceEnum>,
+    repository: &AlignmentRepositoryEnum,
+) -> Result<ContigCollection, TGVError> {
+    let mut contig_data = ContigCollection::new(reference.cloned());
 
-        if let Some(reference) = reference {
-            match &reference {
-                Reference::Hg19 | Reference::Hg38 => {
-                    for cytoband in Cytoband::from_human_reference(reference)?.iter() {
-                        contig_data.update_cytoband(&cytoband.contig, Some(cytoband.clone()));
-                    }
-                }
-                _ => {}
-            }
-        }
-
-        if let Some(bam_path) = bam_path {
+    if let (Some(reference), Some(track_service)) = (reference, track_service) {
+        for (contig, length) in track_service.get_all_contigs(reference).await? {
             contig_data
-                .update_from_bam(bam_path, bai_path, reference)
+                .update_or_add_contig(contig, Some(length))
                 .unwrap();
         }
-
-        Ok(contig_data)
     }
+
+    if let Some(reference) = reference {
+        match &reference {
+            Reference::Hg19 | Reference::Hg38 => {
+                for cytoband in Cytoband::from_human_reference(reference)?.iter() {
+                    contig_data.update_cytoband(&cytoband.contig, Some(cytoband.clone()));
+                }
+            }
+            _ => {}
+        }
+    }
+
+    if  !matches!(repository, AlignmentRepositoryEnum::None) {
+        contig_data
+            .update_from_bam(reference, repository)
+            .unwrap();
+    }
+
+    Ok(contig_data)
 }
