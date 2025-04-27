@@ -957,8 +957,20 @@ impl State {
         }
 
         let mut data_messages = Vec::new();
-        for state_message in translated_messages {
-            data_messages.extend(self.handle_movement_message(state_message)?);
+        for state_message in translated_messages.iter() {
+            match state_message {
+                StateMessage::GotoContigCoordinate(contig, position) => {
+                    data_messages.extend(self.handle_movement_message(state_message.clone())?);
+                    // TODO: handle this shit properly.
+                }
+                StateMessage::GoToGene(gene_id) => {
+                    data_messages.extend(
+                        self.handle_goto_feature_message(state_message.clone())
+                            .await?,
+                    );
+                }
+                _ => {}
+            }
         }
 
         Ok(data_messages)
