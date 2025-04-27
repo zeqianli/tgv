@@ -106,8 +106,6 @@ impl AlignmentRepository for BAMRepository {
         };
 
         let header = bam::Header::from_template(bam.header());
-
-
         get_contig_names_and_lengths_from_header(&header)
         
     }
