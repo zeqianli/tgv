@@ -3,6 +3,7 @@ mod error;
 mod helpers;
 mod models;
 mod rendering;
+mod repository;
 mod settings;
 mod states;
 mod traits;

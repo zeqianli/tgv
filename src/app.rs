@@ -21,7 +21,7 @@ use crate::rendering::{
 use crate::settings::Settings;
 use crate::states::State;
 pub struct App {
-    pub state: State,
+    pub state: State, // Holds all states and data
 }
 
 // initialization
