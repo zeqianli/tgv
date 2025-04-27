@@ -961,6 +961,6 @@ impl State {
             data_messages.extend(self.handle_movement_message(state_message)?);
         }
 
-        return Ok(data_messages);
+        Ok(data_messages)
     }
 }
