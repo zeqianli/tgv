@@ -33,16 +33,16 @@ pub enum StateMessage {
 
     SwitchMode(InputMode),
 
-    AddCharToNormalModeRegisters(char),
-    ClearNormalModeRegisters,
-    NormalModeRegisterError(String),
+    // AddCharToNormalModeRegisters(char),
+    // ClearNormalModeRegisters,
+    // NormalModeRegisterError(String),
 
-    AddCharToCommandModeRegisters(char),
-    ClearCommandModeRegisters,
-    BackspaceCommandModeRegisters,
-    MoveCursorLeft(usize),
-    MoveCursorRight(usize),
-    CommandModeRegisterError(String),
+    // AddCharToCommandModeRegisters(char),
+    // ClearCommandModeRegisters,
+    // BackspaceCommandModeRegisters,
+    // MoveCursorLeft(usize),
+    // MoveCursorRight(usize),
+    // CommandModeRegisterError(String),
 
     Error(String),
 

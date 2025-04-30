@@ -32,6 +32,10 @@ pub enum TGVError {
 
     #[error("Value error: {0}")]
     ValueError(String),
+
+    #[error("Register error: {0}")]
+    RegisterError(String),
+
 }
 
 impl TGVError {

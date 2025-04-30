@@ -22,6 +22,13 @@ use crate::settings::Settings;
 use crate::states::State;
 pub struct App {
     pub state: State, // Holds all states and data
+
+    pub state_handler: StateHandler, // Update states accourding from state messages
+
+    pub register: RegisterEnum, // Controls key event translation to StateMessages. Uses the State pattern. 
+
+    pub render_state: RenderState, // Controls rendering logic. Uses the State pattern.
+
 }
 
 // initialization

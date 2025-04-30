@@ -1,6 +1,6 @@
 use crate::error::TGVError;
 use crate::helpers::is_url;
-use crate::repository::{self, AlignmentRepository, AlignmentRepositoryEnum};
+use crate::repository::{AlignmentRepository, AlignmentRepositoryEnum};
 use crate::models::{
     alignment::Alignment,
     contig_collection::ContigCollection,

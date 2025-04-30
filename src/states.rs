@@ -154,31 +154,41 @@ impl State {
         self.data.close().await?;
         Ok(())
     }
+
+     /// Maximum length of the contig.
+     pub fn contig_length(&self) -> Result<Option<usize>, TGVError> {
+        let contig = self.contig()?;
+
+        if let Some(length) = self.data.contigs.length(&contig) {
+            return Ok(Some(length));
+        }
+        Ok(None)
+    }
 }
 
-impl State {
-    pub async fn handle_key_event(&mut self, key_event: KeyEvent) -> Result<(), TGVError> {
-        let messages = self.translate_key_event(key_event);
-        self.handle(messages).await
-    }
+
+struct StateHandler {}
+
+
+impl StateHandler {
 
     /// Handle initial messages.
     /// This has different error handling strategy (loud) vs handle(...), which suppresses errors.
-    pub async fn handle_initial_messages(
-        &mut self,
-        messages: Vec<StateMessage>,
-    ) -> Result<(), TGVError> {
-        let data_messages = self.handle_state_messages(messages).await?;
-        let _loaded_data = self
-            .data
-            .handle_data_messages(self.settings.reference.as_ref(), data_messages)
-            .await?;
+    // pub async fn handle_initial_messages(
+    //     &mut state,
+    //     messages: Vec<StateMessage>,
+    // ) -> Result<(), TGVError> {
+    //     let data_messages = self.handle_state_messages(messages).await?;
+    //     let _loaded_data = self
+    //         .data
+    //         .handle_data_messages(self.settings.reference.as_ref(), data_messages)
+    //         .await?;
 
-        Ok(())
-    }
+    //     Ok(())
+    // }
 
     /// Handle messages.
-    pub async fn handle(&mut self, messages: Vec<StateMessage>) -> Result<(), TGVError> {
+    pub async fn handle(&mut state, messages: Vec<StateMessage>) -> Result<(), TGVError> {
         let debug_messages_0 = messages
             .iter()
             .map(|m| format!("{:?}", m))
@@ -214,74 +224,12 @@ impl State {
     }
 }
 
-/// State message handling
-impl State {
-    /// Translate key event to a message.
-    fn translate_key_event(&self, key_event: KeyEvent) -> Vec<StateMessage> {
-        let messages = match self.input_mode {
-            InputMode::Normal => {
-                match key_event.code {
-                    // Switch mode
-                    KeyCode::Char(':') => vec![
-                        StateMessage::SwitchMode(InputMode::Command),
-                        StateMessage::ClearNormalModeRegisters,
-                    ],
-                    _ => match self.normal_mode_register.translate(key_event.code) {
-                        Ok(messages) => messages,
-                        Err(error_message) => vec![
-                            StateMessage::NormalModeRegisterError(error_message),
-                            StateMessage::ClearNormalModeRegisters,
-                        ],
-                    },
-                }
-            }
-            InputMode::Command => match key_event.code {
-                KeyCode::Esc => vec![
-                    StateMessage::ClearCommandModeRegisters,
-                    StateMessage::SwitchMode(InputMode::Normal),
-                ],
-                KeyCode::Enter => {
-                    let mut messages = vec![
-                        StateMessage::ClearCommandModeRegisters,
-                        StateMessage::SwitchMode(InputMode::Normal),
-                    ];
-                    messages.extend(match self.command_mode_register.parse() {
-                        Ok(parsed_messages) => parsed_messages,
-                        Err(error_message) => {
-                            vec![StateMessage::CommandModeRegisterError(error_message)]
-                        }
-                    });
-                    messages
-                }
-                _ => match self.command_mode_register.translate(key_event.code) {
-                    Ok(messages) => messages,
-                    Err(error_message) => {
-                        vec![StateMessage::CommandModeRegisterError(error_message)]
-                    }
-                },
-            },
-            InputMode::Help => match key_event.code {
-                KeyCode::Esc => vec![StateMessage::SwitchMode(InputMode::Normal)],
-                _ => vec![],
-            },
-        };
 
-        // Check that if there is a message that requires the reference genome, make sure it is provided.
-        // Otherwise, pass on an error message.
-        for message in messages.iter() {
-            if message.requires_reference() && self.settings.reference.is_none() {
-                return vec![StateMessage::Error(
-                    TGVError::StateError("Reference is not provided".to_string()).to_string(),
-                )];
-            }
-        }
 
-        messages
-    }
 
     /// Handle state messages.
     async fn handle_state_messages(
-        &mut self,
+        &mut state,
         messages: Vec<StateMessage>,
     ) -> Result<Vec<DataMessage>, TGVError> {
         let mut data_messages: Vec<DataMessage> = Vec::new();
@@ -295,7 +243,7 @@ impl State {
 
     /// Main function to route state message handling.
     async fn handle_state_message(
-        &mut self,
+        &mut state,
         message: StateMessage,
     ) -> Result<Vec<DataMessage>, TGVError> {
         let mut data_messages: Vec<DataMessage> = Vec::new();
@@ -494,7 +442,7 @@ impl State {
 // Movement handling
 impl State {
     fn handle_movement_message(
-        &mut self,
+        &mut state,
         message: StateMessage,
     ) -> Result<Vec<DataMessage>, TGVError> {
         let mut data_messages = Vec::new();
@@ -584,7 +532,7 @@ impl State {
 
 /// Zoom handling
 impl State {
-    fn handle_zoom_out(&mut self, r: usize) -> Result<Vec<DataMessage>, TGVError> {
+    fn handle_zoom_out(&mut state, r: usize) -> Result<Vec<DataMessage>, TGVError> {
         let contig_length = self.contig_length()?;
         let current_frame_area = *self.current_frame_area()?;
         let viewing_window = self.viewing_window_mut()?;
@@ -595,7 +543,7 @@ impl State {
         self.get_data_requirements()
     }
 
-    fn handle_zoom_in(&mut self, r: usize) -> Result<Vec<DataMessage>, TGVError> {
+    fn handle_zoom_in(&mut state, r: usize) -> Result<Vec<DataMessage>, TGVError> {
         let contig_length = self.contig_length()?;
         let current_frame_area: Rect = *self.current_frame_area()?;
         let viewing_window = self.viewing_window_mut()?;
@@ -606,21 +554,13 @@ impl State {
         self.get_data_requirements()
     }
 
-    /// Maximum length of the contig.
-    pub fn contig_length(&self) -> Result<Option<usize>, TGVError> {
-        let contig = self.contig()?;
-
-        if let Some(length) = self.data.contigs.length(&contig) {
-            return Ok(Some(length));
-        }
-        Ok(None)
-    }
+   
 }
 
 /// Feature movement handling
 impl State {
     async fn handle_feature_movement_message(
-        &mut self,
+        &mut state,
         message: StateMessage,
     ) -> Result<Vec<DataMessage>, TGVError> {
         let mut state_messages = Vec::new();
@@ -662,7 +602,7 @@ impl State {
                             &contig,
                             middle,
                             n_movements,
-                            &mut self.data.track_cache,
+                            &mut state.data.track_cache,
                         )
                         .await?;
 
@@ -686,7 +626,7 @@ impl State {
                             &self.contig()?,
                             self.middle()?,
                             n_movements,
-                            &mut self.data.track_cache,
+                            &mut state.data.track_cache,
                         )
                         .await?;
 
@@ -709,7 +649,7 @@ impl State {
                             &contig,
                             middle,
                             n_movements,
-                            &mut self.data.track_cache,
+                            &mut state.data.track_cache,
                         )
                         .await?;
 
@@ -733,7 +673,7 @@ impl State {
                             &contig,
                             middle,
                             n_movements,
-                            &mut self.data.track_cache,
+                            &mut state.data.track_cache,
                         )
                         .await?;
 
@@ -757,7 +697,7 @@ impl State {
                             &contig,
                             middle,
                             n_movements,
-                            &mut self.data.track_cache,
+                            &mut state.data.track_cache,
                         )
                         .await?;
 
@@ -781,7 +721,7 @@ impl State {
                             &contig,
                             middle,
                             n_movements,
-                            &mut self.data.track_cache,
+                            &mut state.data.track_cache,
                         )
                         .await?;
 
@@ -805,7 +745,7 @@ impl State {
                             &contig,
                             middle,
                             n_movements,
-                            &mut self.data.track_cache,
+                            &mut state.data.track_cache,
                         )
                         .await?;
 
@@ -829,7 +769,7 @@ impl State {
                             &contig,
                             middle,
                             n_movements,
-                            &mut self.data.track_cache,
+                            &mut state.data.track_cache,
                         )
                         .await?;
 
@@ -851,7 +791,7 @@ impl State {
 /// Absolute feature handling
 impl State {
     async fn handle_goto_feature_message(
-        &mut self,
+        &mut state,
         message: StateMessage,
     ) -> Result<Vec<DataMessage>, TGVError> {
         let mut state_messages = Vec::new();
@@ -866,7 +806,7 @@ impl State {
         if let StateMessage::GoToGene(gene_id) = message {
             if let Some(reference) = self.settings.reference.as_ref() {
                 let gene = track_service
-                    .query_gene_name(reference, &gene_id, &mut self.data.track_cache)
+                    .query_gene_name(reference, &gene_id, &mut state.data.track_cache)
                     .await?;
                 state_messages.push(StateMessage::GotoContigCoordinate(
                     gene.contig().full_name(),
@@ -891,7 +831,7 @@ impl State {
 
 /// Looking for the default region
 impl State {
-    async fn handle_goto_default_message(&mut self) -> Result<Vec<DataMessage>, TGVError> {
+    async fn handle_goto_default_message(&mut state: State) -> Result<Vec<DataMessage>, TGVError> {
         let reference = self.settings.reference.as_ref();
         let mut translated_messages: Vec<StateMessage> = match reference {
             Some(Reference::Hg38) | Some(Reference::Hg19) => {
@@ -918,7 +858,7 @@ impl State {
                         first_contig,
                         0,
                         1,
-                        &mut self.data.track_cache,
+                        &mut state.data.track_cache,
                     )
                     .await
                 {
