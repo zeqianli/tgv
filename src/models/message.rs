@@ -1,4 +1,5 @@
 use crate::models::{contig::Contig, mode::InputMode, region::Region};
+use crate::error::TGVError;
 use strum::Display;
 /// State messages
 #[derive(Debug, Clone, Eq, PartialEq, Display)]
@@ -44,7 +45,7 @@ pub enum StateMessage {
     // MoveCursorRight(usize),
     // CommandModeRegisterError(String),
 
-    Error(String),
+    Message(String),
 
     Quit,
 }

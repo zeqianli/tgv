@@ -219,6 +219,10 @@ impl Data {
     pub fn has_complete_sequence(&self, region: &Region) -> bool {
         self.sequence.is_some() && self.sequence.as_ref().unwrap().has_complete_data(region)
     }
+
+    pub fn track_checked(&self) -> Result<&Track<Gene>, TGVError> {
+        self.track.as_ref().ok_or(TGVError::StateError("Track is not initialized".to_string()))
+    }
 }
 
 /// Contig data looading
