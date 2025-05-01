@@ -19,7 +19,7 @@ use crate::rendering::{
     render_error, render_help, render_sequence, render_sequence_at_2x, render_track,
 };
 use crate::settings::Settings;
-use crate::states::State;
+use crate::states::{State, StateHandler};
 pub struct App {
     pub state: State, // Holds all states and data
 
