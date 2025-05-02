@@ -10,7 +10,6 @@ use crate::models::{
     mode::InputMode,
     reference::Reference,
     region::Region,
-    register::{CommandModeRegister, NormalModeRegister},
     sequence::Sequence,
     services::{
         sequences::SequenceService,
@@ -185,6 +184,21 @@ impl State {
 
     pub fn update_frame_area(&mut self, area: Rect) {
         self.area = Some(area);
+    }
+
+    pub fn alignment_renderable(&self) -> Result<bool, TGVError> {
+        Ok(self.alignment.is_some()
+            && self.viewing_window()?.zoom() <= StateHandler::MAX_ZOOM_TO_DISPLAY_ALIGNMENTS)
+    }
+
+    pub fn sequence_renderable(&self) -> Result<bool, TGVError> {
+        Ok(self.reference.is_some()
+            && self.viewing_window()?.zoom() <= StateHandler::MAX_ZOOM_TO_DISPLAY_SEQUENCES)
+    }
+
+    pub fn track_renderable(&self) -> Result<bool, TGVError> {
+        Ok(self.reference.is_some()
+            && self.viewing_window()?.zoom() <= StateHandler::MAX_ZOOM_TO_DISPLAY_FEATURES)
     }
 }
 

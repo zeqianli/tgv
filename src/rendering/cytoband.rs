@@ -1,10 +1,8 @@
 /// Reference chromosomes on the top of the screen.
-///
-use crate::models::{
-    cytoband::{Cytoband, CytobandSegment, Stain},
-    window::ViewingWindow,
-};
+use crate::error::TGVError;
+use crate::models::cytoband::{Cytoband, CytobandSegment, Stain};
 use crate::rendering::colors;
+use crate::states::State;
 
 use ratatui::{
     buffer::Buffer,
@@ -16,13 +14,7 @@ const CYTOBAND_TEXT_LEFT_SPACING: u16 = 12;
 const CYTOBAND_TEXT_RIGHT_SPACING: u16 = 7;
 const MIN_AREA_WIDTH: u16 = CYTOBAND_TEXT_LEFT_SPACING + CYTOBAND_TEXT_RIGHT_SPACING + 1;
 const MIN_AREA_HEIGHT: u16 = 1;
-pub fn render_cytobands(
-    area: &Rect,
-    buf: &mut Buffer,
-    cytoband: &Cytoband,
-    viewing_window: &ViewingWindow,
-    contig_length: Option<usize>,
-) -> Result<(), TGVError> {
+pub fn render_cytobands(area: &Rect, buf: &mut Buffer, state: &State) -> Result<(), TGVError> {
     if area.width <= MIN_AREA_WIDTH {
         return Ok(());
     }
@@ -30,6 +22,12 @@ pub fn render_cytobands(
     if area.height < MIN_AREA_HEIGHT {
         return Ok(());
     }
+
+    let cytoband = state
+        .current_cytoband()?
+        .ok_or(TGVError::StateError("No cytoband found".to_string()))?;
+    let viewing_window = state.viewing_window()?;
+    let contig_length = state.contig_length()?;
 
     for (x, string, style) in get_cytoband_xs_strings_and_styles(
         cytoband,
@@ -84,6 +82,8 @@ pub fn render_cytobands(
             cell.set_bg(colors::HIGHLIGHT_COLOR);
         }
     }
+
+    Ok(())
 }
 
 fn get_cytoband_total_length_text(length: usize) -> String {

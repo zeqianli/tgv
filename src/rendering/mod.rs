@@ -15,7 +15,7 @@ pub use coverage::render_coverage;
 pub use cytoband::render_cytobands;
 pub use error::render_error;
 pub use help::render_help;
-pub use sequence::{render_sequence, render_sequence_at_2x};
+pub use sequence::render_sequence;
 pub use track::render_track;
 
 use crate::models::register::RegisterEnum;
@@ -75,11 +75,6 @@ impl RenderingState {
         Ok(self)
     }
 
-    fn alignment_renderable(&self, state: &State) -> bool {
-        state.settings.bam_path.is_some()
-            && state.viewing_window()?.zoom() <= StateHandler::MAX_ZOOM_TO_DISPLAY_ALIGNMENTS
-    }
-
     pub fn render(
         &self,
         area: Rect,
@@ -104,83 +99,41 @@ impl RenderingState {
 
                 // Cytobands
                 if let Ok(Some(cytoband)) = state.current_cytoband() {
-                    render_cytobands(
-                        &cytoband_area,
-                        buf,
-                        cytoband,
-                        state.viewing_window()?,
-                        state.contig_length()?,
-                    );
+                    render_cytobands(&cytoband_area, buf, state);
                 }
 
                 // Coordinates
-                render_coordinates(
-                    &coordinate_area,
-                    buf,
-                    state.viewing_window()?,
-                    state.contig_length()?,
-                )
-                .unwrap();
+                render_coordinates(&coordinate_area, buf, state)?;
 
                 // Coverage, Alignments, and Tracks
-                if self.alignment_renderable(&state) {
+                if state.alignment_renderable()? {
                     if let Some(alignment) = &state.alignment {
                         render_coverage(&coverage_area, buf, state.viewing_window()?, alignment)?;
-                        render_alignment(&alignment_area, buf, state.viewing_window()?, alignment)?;
+                        render_alignment(&alignment_area, buf, state.viewing_window()?, alignment);
                     }
                 }
 
-                if state.settings.reference.is_some() {
-                    if state.viewing_window()?.is_basewise() {
-                        match &state.sequence {
-                            Some(sequence) => {
-                                render_sequence(
-                                    &sequence_area,
-                                    buf,
-                                    &state.viewing_region()?,
-                                    sequence,
-                                )
-                                .unwrap();
-                            }
-                            None => {} // TODO: handle error
-                        }
-                    } else if state.viewing_window()?.zoom() == 2 {
-                        match &state.sequence {
-                            Some(sequence) => {
-                                render_sequence_at_2x(
-                                    &sequence_area,
-                                    buf,
-                                    &state.viewing_region()?,
-                                    sequence,
-                                )
-                                .unwrap();
-                            }
-                            None => {} // TODO: handle error
-                        }
-                    }
-
-                    match &state.track {
-                        Some(track) => {
-                            render_track(
-                                &track_area,
-                                buf,
-                                state.viewing_window()?,
-                                track,
-                                state.settings.reference.as_ref(),
-                            );
-                        }
-                        None => {} // TODO: handle error
-                    }
+                // Sequence
+                if state.sequence_renderable()? {
+                    render_sequence(&sequence_area, buf, state)?;
                 }
+
+                // Tracks
+                if state.track_renderable()? {
+                    render_track(&track_area, buf, state)?;
+                }
+
+                // Console
 
                 if state.input_mode == InputMode::Command {
-                    render_console(&console_area, buf, register)
+                    render_console(&console_area, buf, register)?;
                 }
 
-                render_error(&error_area, buf, &state.errors);
+                // Error
+                render_error(&error_area, buf, &state.errors)?;
             }
             RenderingStateEnum::Help => {
-                render_help(area, buf);
+                render_help(area, buf)?;
             }
             RenderingStateEnum::Skip => {
                 // Do nothing

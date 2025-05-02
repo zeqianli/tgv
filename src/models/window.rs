@@ -36,10 +36,6 @@ impl ViewingWindow {
             zoom,
         }
     }
-
-    pub fn is_basewise(&self) -> bool {
-        self.zoom == 1
-    }
 }
 
 pub enum OnScreenCoordinate {
@@ -304,7 +300,7 @@ impl ViewingWindow {
         if r == 0 {
             return Err(TGVError::ValueError("Zoom factor cannot be 0".to_string()));
         }
-        if r == 1 || self.is_basewise() {
+        if r == 1 || self.zoom == 1 {
             return Ok(());
         }
 

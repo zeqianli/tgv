@@ -2,21 +2,21 @@ use crate::{
     error::TGVError,
     models::window::{OnScreenCoordinate, ViewingWindow},
 };
+
+use crate::states::State;
 use itertools::izip;
 use ratatui::{buffer::Buffer, layout::Rect, style::Style};
 
 const MIN_AREA_WIDTH: u16 = 2;
 const MIN_AREA_HEIGHT: u16 = 1;
 
-pub fn render_coordinates(
-    area: &Rect,
-    buf: &mut Buffer,
-    viewing_window: &ViewingWindow,
-    contig_length: Option<usize>,
-) -> Result<(), TGVError> {
+pub fn render_coordinates(area: &Rect, buf: &mut Buffer, state: &State) -> Result<(), TGVError> {
     if area.width < MIN_AREA_WIDTH || area.height < MIN_AREA_HEIGHT {
         return Ok(());
     }
+
+    let viewing_window = state.viewing_window()?;
+    let contig_length = state.contig_length()?;
 
     let (coordinate_texts, coordinate_texts_xs, markers_onscreen_x) =
         calculate_coordinates(viewing_window, area, contig_length);
