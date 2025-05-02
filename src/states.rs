@@ -5,25 +5,23 @@ use crate::models::{
     alignment::Alignment,
     contig::Contig,
     contig_collection::ContigCollection,
-
     cytoband::Cytoband,
-    track::{feature::Gene, track::Track},
     message::{DataMessage, StateMessage},
     mode::InputMode,
     reference::Reference,
     region::Region,
     register::{CommandModeRegister, NormalModeRegister},
+    sequence::Sequence,
     services::{
+        sequences::SequenceService,
         track_service::{
             TrackCache, TrackService, TrackServiceEnum, UcscApiTrackService, UcscDbTrackService,
         },
-
-        sequences::SequenceService
     },
-    sequence::Sequence,
+    track::{feature::Gene, track::Track},
     window::ViewingWindow,
 };
-use crate::settings::{Settings, BackendType};
+use crate::settings::{BackendType, Settings};
 use crate::traits::GenomeInterval;
 use crossterm::event::{KeyCode, KeyEvent};
 use ratatui::layout::Rect;
@@ -46,28 +44,24 @@ pub struct State {
     /// Error messages for display.
     pub errors: Vec<String>,
 
-
     /// Alignment segments.
     pub alignment: Option<Alignment>,
 
     /// Tracks.
     pub track: Option<Track<Gene>>,
     pub track_cache: TrackCache,
-    
 
     /// Sequences.
     pub sequence: Option<Sequence>,
-    
 
     // TODO: in the first implementation, refresh all data when the viewing window is near the boundary.
     /// Contigs in the BAM header
     pub contigs: ContigCollection,
 }
 
-/// Basics
+/// Getters
 impl State {
     pub fn new(settings: &Settings) -> Result<Self, TGVError> {
-
         Ok(Self {
             window: None,
             input_mode: InputMode::Normal,
@@ -83,31 +77,14 @@ impl State {
             track: None,
             track_cache: TrackCache::new(),
             sequence: None,
-            contigs: ContigCollection::new(settings.reference.clone()) // TODO: load this
-
-            
+            contigs: ContigCollection::new(settings.reference.clone()), // TODO: load this
         })
     }
 
-    pub fn update_frame_area(&mut self, area: Rect) {
-        self.area = Some(area);
-    }
-
-    pub fn self_correct_viewing_window(&mut self) {
-        let area = *self.current_frame_area().unwrap();
-        let contig_length = self.contig_length().unwrap();
-        if let Ok(viewing_window) = self.viewing_window_mut() {
-            viewing_window.self_correct(&area, contig_length);
-        }
-    }
-
     pub fn viewing_window(&self) -> Result<&ViewingWindow, TGVError> {
-        if self.window.is_none() {
-            return Err(TGVError::StateError(
-                "Viewing window is not initialized".to_string(),
-            ));
-        }
-        Ok(self.window.as_ref().unwrap())
+        Ok(self.window.as_ref().ok_or(TGVError::StateError(
+            "Viewing window is not initialized".to_string(),
+        ))?)
     }
 
     pub fn viewing_window_mut(&mut self) -> Result<&mut ViewingWindow, TGVError> {
@@ -120,12 +97,9 @@ impl State {
     }
 
     pub fn current_frame_area(&self) -> Result<&Rect, TGVError> {
-        if self.area.is_none() {
-            return Err(TGVError::StateError(
-                "Current frame area is not initialized".to_string(),
-            ));
-        }
-        Ok(self.area.as_ref().unwrap())
+        Ok(self.area.as_ref().ok_or(TGVError::StateError(
+            "Current frame area is not initialized".to_string(),
+        ))?)
     }
 
     pub fn viewing_region(&self) -> Result<Region, TGVError> {
@@ -136,16 +110,6 @@ impl State {
             start: viewing_window.left(),
             end: viewing_window.right(self.current_frame_area()?),
         })
-    }
-
-    pub fn contig(&self) -> Result<Contig, TGVError> {
-        Ok(self.viewing_window()?.contig.clone())
-    }
-
-    pub fn current_cytoband(&self) -> Result<Option<&Cytoband>, TGVError> {
-        let contig = self.contig()?;
-        let cytoband = self.contigs.cytoband(&contig);
-        Ok(cytoband)
     }
 
     /// Start coordinate of bases displayed on the screen.
@@ -166,6 +130,15 @@ impl State {
         Ok(self.viewing_window()?.middle(self.current_frame_area()?))
     }
 
+    pub fn contig(&self) -> Result<Contig, TGVError> {
+        Ok(self.viewing_window()?.contig.clone())
+    }
+
+    pub fn current_cytoband(&self) -> Result<Option<&Cytoband>, TGVError> {
+        let contig = self.contig()?;
+        let cytoband = self.contigs.cytoband(&contig);
+        Ok(cytoband)
+    }
 
     pub fn initialized(&self) -> bool {
         self.window.is_some()
@@ -175,8 +148,8 @@ impl State {
         self.errors.push(error);
     }
 
-     /// Maximum length of the contig.
-     pub fn contig_length(&self) -> Result<Option<usize>, TGVError> {
+    /// Maximum length of the contig.
+    pub fn contig_length(&self) -> Result<Option<usize>, TGVError> {
         let contig = self.contig()?;
 
         if let Some(length) = self.contigs.length(&contig) {
@@ -184,8 +157,6 @@ impl State {
         }
         Ok(None)
     }
-
-
 
     /// Get the reference if set.
     pub fn reference_checked(&self) -> Result<&Reference, TGVError> {
@@ -196,10 +167,26 @@ impl State {
     }
 
     pub fn track_checked(&self) -> Result<&Track<Gene>, TGVError> {
-        self.track.as_ref().ok_or(TGVError::StateError("Track is not initialized".to_string()))
+        self.track
+            .as_ref()
+            .ok_or(TGVError::StateError("Track is not initialized".to_string()))
     }
 }
 
+// mutating methods
+impl State {
+    pub fn self_correct_viewing_window(&mut self) {
+        let area = *self.current_frame_area().unwrap();
+        let contig_length = self.contig_length().unwrap();
+        if let Ok(viewing_window) = self.viewing_window_mut() {
+            viewing_window.self_correct(&area, contig_length);
+        }
+    }
+
+    pub fn update_frame_area(&mut self, area: Rect) {
+        self.area = Some(area);
+    }
+}
 
 pub struct StateHandler {
     alignment_repository: AlignmentRepositoryEnum,
@@ -207,25 +194,19 @@ pub struct StateHandler {
     track_service: Option<TrackServiceEnum>,
 
     sequence_service: Option<SequenceService>,
-
-
-
 }
 
-
 impl StateHandler {
-
-
     pub fn track_service_checked(&self) -> Result<&TrackServiceEnum, TGVError> {
         match self.track_service {
             Some(ref track_service) => Ok(track_service),
-            None => Err(TGVError::StateError("Track service is not initialized".to_string())),
+            None => Err(TGVError::StateError(
+                "Track service is not initialized".to_string(),
+            )),
         }
     }
 
-
     pub async fn new(settings: &Settings) -> Result<Self, TGVError> {
-
         let alignment_repository = AlignmentRepositoryEnum::from(settings)?;
 
         let (track_service, sequence_service): (Option<TrackServiceEnum>, Option<SequenceService>) =
@@ -242,11 +223,11 @@ impl StateHandler {
                 }
                 None => (None, None),
             };
-        
+
         Ok(Self {
             alignment_repository,
             track_service,
-            sequence_service
+            sequence_service,
         })
     }
 
@@ -283,8 +264,8 @@ impl StateHandler {
             .collect::<Vec<String>>()
             .join(", ");
 
-        let mut data_messages = Vec::new(); 
-        
+        let mut data_messages = Vec::new();
+
         for message in messages {
             data_messages.extend(StateHandler::handle_state_message(state, message).await?);
         }
@@ -295,24 +276,24 @@ impl StateHandler {
             .collect::<Vec<String>>()
             .join(", ");
 
-        let loaded_data = Self::handle_data_messages(state.settings.reference.as_ref(), data_messages).await?; // TODO: move somewhere else
+        let loaded_data =
+            Self::handle_data_messages(state.settings.reference.as_ref(), data_messages).await?; // TODO: move somewhere else
 
         if state.settings.debug {
             if loaded_data {
-                StateHandler::add_message(state,format!(
-                    "Data loaded: {}\n{}",
-                    debug_messages_0, debug_message
-                ));
+                StateHandler::add_message(
+                    state,
+                    format!("Data loaded: {}\n{}", debug_messages_0, debug_message),
+                );
             } else {
-                StateHandler::add_message(state,format!(
-                    "Data not loaded: {}\n{}",
-                    debug_messages_0, debug_message
-                ));
+                StateHandler::add_message(
+                    state,
+                    format!("Data not loaded: {}\n{}", debug_messages_0, debug_message),
+                );
             }
         }
         Ok(())
     }
-
 
     /// Main function to route state message handling.
     async fn handle_state_message(
@@ -323,9 +304,8 @@ impl StateHandler {
 
         let data_messages: Vec<DataMessage> = match message {
             // Swithching modes
-            StateMessage::SwitchMode(mode) =>  StateHandler::switch_mode(state, mode)?,
+            StateMessage::SwitchMode(mode) => StateHandler::switch_mode(state, mode)?,
 
-            
             StateMessage::Quit => StateHandler::quit(state)?,
 
             // Movement handling
@@ -334,35 +314,55 @@ impl StateHandler {
             StateMessage::MoveUp(n) => StateHandler::move_up(state, n)?,
             StateMessage::MoveDown(n) => StateHandler::move_down(state, n)?,
             StateMessage::GotoCoordinate(n) => StateHandler::go_to_coordinate(state, n)?,
-            StateMessage::GotoContigCoordinate(contig, n) => StateHandler::go_to_contig_coordinate(state, &contig, n)?,
+            StateMessage::GotoContigCoordinate(contig, n) => {
+                StateHandler::go_to_contig_coordinate(state, &contig, n)?
+            }
 
             // Zoom handling
             StateMessage::ZoomOut(r) => StateHandler::handle_zoom_out(state, r)?,
             StateMessage::ZoomIn(r) => StateHandler::handle_zoom_in(state, r)?,
 
             // Relative feature movement handling
-            StateMessage::GotoNextExonsStart(n) => StateHandler::go_to_next_exons_start(state, n).await?,
-            StateMessage::GotoNextExonsEnd(n) => StateHandler::go_to_next_exons_end(state, n).await?,
-            StateMessage::GotoPreviousExonsStart(n) => StateHandler::go_to_previous_exons_start(state, n).await?,
-            StateMessage::GotoPreviousExonsEnd(n) => StateHandler::go_to_previous_exons_end(state, n).await?,
-            StateMessage::GotoNextGenesStart(n) => StateHandler::go_to_next_genes_start(state, n).await?,
-            StateMessage::GotoNextGenesEnd(n) => StateHandler::go_to_next_genes_end(state, n).await?,
-            StateMessage::GotoPreviousGenesStart(n) => StateHandler::go_to_previous_genes_start(state, n).await?,
-            StateMessage::GotoPreviousGenesEnd(n) => StateHandler::go_to_previous_genes_end(state, n).await?,
+            StateMessage::GotoNextExonsStart(n) => {
+                StateHandler::go_to_next_exons_start(state, n).await?
+            }
+            StateMessage::GotoNextExonsEnd(n) => {
+                StateHandler::go_to_next_exons_end(state, n).await?
+            }
+            StateMessage::GotoPreviousExonsStart(n) => {
+                StateHandler::go_to_previous_exons_start(state, n).await?
+            }
+            StateMessage::GotoPreviousExonsEnd(n) => {
+                StateHandler::go_to_previous_exons_end(state, n).await?
+            }
+            StateMessage::GotoNextGenesStart(n) => {
+                StateHandler::go_to_next_genes_start(state, n).await?
+            }
+            StateMessage::GotoNextGenesEnd(n) => {
+                StateHandler::go_to_next_genes_end(state, n).await?
+            }
+            StateMessage::GotoPreviousGenesStart(n) => {
+                StateHandler::go_to_previous_genes_start(state, n).await?
+            }
+            StateMessage::GotoPreviousGenesEnd(n) => {
+                StateHandler::go_to_previous_genes_end(state, n).await?
+            }
 
             // Absolute feature handling
             StateMessage::GoToGene(_) => StateHandler::go_to_gene(state, message).await?,
-            
 
             // Find the default region
             StateMessage::GoToDefault => StateHandler::go_to_defualt(state).await?,
-            
 
             // Error messages
             StateMessage::Message(message) => StateHandler::add_message(state, message),
 
-            _ => {return Err(TGVError::StateError(format!("Unhandled state message: {:?}", message)));}
-
+            _ => {
+                return Err(TGVError::StateError(format!(
+                    "Unhandled state message: {:?}",
+                    message
+                )));
+            }
         };
 
         Ok(data_messages)
@@ -504,7 +504,6 @@ impl StateHandler {
     //     message: StateMessage,
     // ) -> Result<Vec<DataMessage>, TGVError> {
     fn move_left(state: &mut State, n: usize) -> Result<Vec<DataMessage>, TGVError> {
-
         let current_frame_area = *state.current_frame_area()?;
         let contig_length = state.contig_length()?;
         let viewing_window = state.viewing_window_mut()?;
@@ -553,18 +552,20 @@ impl StateHandler {
         viewing_window.set_middle(&current_frame_area, n, contig_length);
         Self::get_data_requirements(state)
     }
-    fn go_to_contig_coordinate(state: &mut State, contig: &Contig, n: usize) -> Result<Vec<DataMessage>, TGVError> {
+    fn go_to_contig_coordinate(
+        state: &mut State,
+        contig: &Contig,
+        n: usize,
+    ) -> Result<Vec<DataMessage>, TGVError> {
         // If bam_path is provided, check that the contig is valid.
-       
+
         if !state.data.contigs.contains(&contig) {
             return Err(TGVError::StateError(format!(
-                    "Contig {:?} not found for reference {:?}",
-                    contig.full_name(),
-                    state.settings.reference
-                )));
+                "Contig {:?} not found for reference {:?}",
+                contig.full_name(),
+                state.settings.reference
+            )));
         }
-
-               
 
         let current_frame_area = *state.current_frame_area()?;
 
@@ -603,9 +604,10 @@ impl StateHandler {
         Self::get_data_requirements(state)
     }
 
-   
-
-    async fn go_to_next_genes_start(state: &mut State, n: usize) -> Result<Vec<DataMessage>, TGVError> {
+    async fn go_to_next_genes_start(
+        state: &mut State,
+        n: usize,
+    ) -> Result<Vec<DataMessage>, TGVError> {
         if n == 0 {
             return Self::get_data_requirements(state);
         }
@@ -613,7 +615,7 @@ impl StateHandler {
         let middle = state.middle()?;
         let track = state.track_checked()?;
 
-        // The gene is in the track. 
+        // The gene is in the track.
         if let Some(target_gene) = track.get_k_genes_after(middle, n) {
             return Self::go_to_coordinate(state, target_gene.start() + 1);
         }
@@ -633,15 +635,16 @@ impl StateHandler {
                 middle,
                 n,
                 &mut state.data.track_cache,
-        )
-        .await?;
+            )
+            .await?;
 
         return Self::go_to_coordinate(state, gene.start() + 1);
     }
 
-
-    async fn go_to_next_genes_end(state: &mut State, n: usize) -> Result<Vec<DataMessage>, TGVError> {
-
+    async fn go_to_next_genes_end(
+        state: &mut State,
+        n: usize,
+    ) -> Result<Vec<DataMessage>, TGVError> {
         if n == 0 {
             return Self::get_data_requirements(state);
         }
@@ -649,11 +652,10 @@ impl StateHandler {
         let middle = state.middle()?;
         let track = state.track_checked()?;
 
-        if let Some(target_gene) =  track.get_k_genes_after(middle, n) {
+        if let Some(target_gene) = track.get_k_genes_after(middle, n) {
             return Self::go_to_coordinate(state, target_gene.end() + 1);
-        } 
-        
-        
+        }
+
         // Query for the target gene
         let track_service = state.track_service_checked()?;
         let gene = track_service
@@ -669,8 +671,10 @@ impl StateHandler {
         return Self::go_to_coordinate(state, gene.end() + 1);
     }
 
-
-    async fn go_to_previous_genes_start(state: &mut State, n: usize) -> Result<Vec<DataMessage>, TGVError> {
+    async fn go_to_previous_genes_start(
+        state: &mut State,
+        n: usize,
+    ) -> Result<Vec<DataMessage>, TGVError> {
         if n == 0 {
             return Self::get_data_requirements(state);
         }
@@ -680,9 +684,8 @@ impl StateHandler {
 
         if let Some(target_gene) = track.get_k_genes_before(middle, n) {
             return Self::go_to_coordinate(state, target_gene.start() - 1);
-        } 
-        
-        
+        }
+
         // Query for the target gene
         let track_service = state.track_service_checked()?;
         let gene = track_service
@@ -693,13 +696,15 @@ impl StateHandler {
                 n,
                 &mut state.data.track_cache,
             )
-        .await?;
+            .await?;
 
         return Self::go_to_coordinate(state, gene.start() - 1);
     }
 
-
-    async fn go_to_previous_genes_end(state: &mut State, n: usize) -> Result<Vec<DataMessage>, TGVError> {
+    async fn go_to_previous_genes_end(
+        state: &mut State,
+        n: usize,
+    ) -> Result<Vec<DataMessage>, TGVError> {
         if n == 0 {
             return Self::get_data_requirements(state);
         }
@@ -709,13 +714,11 @@ impl StateHandler {
 
         if let Some(target_gene) = track.get_k_genes_before(middle, n) {
             return Self::go_to_coordinate(state, target_gene.end() - 1);
-        } 
-
-        
+        }
 
         // Query for the target gene
         let track_service = state.track_service_checked()?;
-        let  track_cache = &mut state.data.track_cache;
+        let track_cache = &mut state.data.track_cache;
         let gene = track_service
             .query_k_genes_before(
                 state.reference_checked()?,
@@ -729,8 +732,10 @@ impl StateHandler {
         return Self::go_to_coordinate(state, gene.end() - 1);
     }
 
-
-    async fn go_to_next_exons_start(state: &mut State, n: usize) -> Result<Vec<DataMessage>, TGVError> {
+    async fn go_to_next_exons_start(
+        state: &mut State,
+        n: usize,
+    ) -> Result<Vec<DataMessage>, TGVError> {
         if n == 0 {
             return Self::get_data_requirements(state);
         }
@@ -757,7 +762,10 @@ impl StateHandler {
         return Self::go_to_coordinate(state, exon.start() + 1);
     }
 
-    async fn go_to_next_exons_end(state: &mut State, n: usize) -> Result<Vec<DataMessage>, TGVError> {
+    async fn go_to_next_exons_end(
+        state: &mut State,
+        n: usize,
+    ) -> Result<Vec<DataMessage>, TGVError> {
         if n == 0 {
             return Self::get_data_requirements(state);
         }
@@ -777,14 +785,17 @@ impl StateHandler {
                 state.contig()?,
                 middle,
                 n,
-            &mut state.data.track_cache,
-        )
-        .await?;
+                &mut state.data.track_cache,
+            )
+            .await?;
 
         return Self::go_to_coordinate(state, exon.end() + 1);
     }
 
-    async fn go_to_previous_exons_start(state: &mut State, n: usize) -> Result<Vec<DataMessage>, TGVError> {
+    async fn go_to_previous_exons_start(
+        state: &mut State,
+        n: usize,
+    ) -> Result<Vec<DataMessage>, TGVError> {
         if n == 0 {
             return Self::get_data_requirements(state);
         }
@@ -792,10 +803,10 @@ impl StateHandler {
         let middle = state.middle()?;
         let track = state.track_checked()?;
 
-        if let Some(target_exon) = track.get_k_exons_before(middle, n){
+        if let Some(target_exon) = track.get_k_exons_before(middle, n) {
             return Self::go_to_coordinate(state, target_exon.end() + 1);
-        } 
-                
+        }
+
         // Query for the target exon
         let track_service = state.track_service_checked()?;
         let exon = track_service
@@ -810,9 +821,11 @@ impl StateHandler {
 
         return Self::go_to_coordinate(state, exon.end() - 1);
     }
-            
-    async fn go_to_previous_exons_end(state: &mut State, n: usize) -> Result<Vec<DataMessage>, TGVError> {
 
+    async fn go_to_previous_exons_end(
+        state: &mut State,
+        n: usize,
+    ) -> Result<Vec<DataMessage>, TGVError> {
         if n == 0 {
             return Self::get_data_requirements(state);
         }
@@ -824,8 +837,6 @@ impl StateHandler {
         if let Some(target_exon) = target_exon {
             return Self::go_to_coordinate(state, target_exon.end() - 1);
         }
-                    
-
 
         // Query for the target exon
         let track_service = state.track_service_checked()?;
@@ -837,22 +848,18 @@ impl StateHandler {
                 n,
                 &mut state.data.track_cache,
             )
-        .await?;
+            .await?;
 
         return Self::go_to_coordinate(state, exon.end() - 1);
     }
-
 
     async fn go_to_gene(
         state: &mut State,
         message: StateMessage,
     ) -> Result<Vec<DataMessage>, TGVError> {
-
         let track_service = state.track_service_checked()?;
         let reference = state.reference_checked()?;
 
-        
-        
         let gene = track_service
             .query_gene_name(reference, &gene_id, &mut state.data.track_cache)
             .await?;
@@ -879,7 +886,8 @@ impl StateHandler {
             Some(Reference::UcscGenome { .. }) => {
                 // Find the first gene on the first contig. If anything is not found, handle it later.
                 let track_service =
-                    state.data
+                    state
+                        .data
                         .track_service
                         .as_ref()
                         .ok_or(TGVError::StateError(
@@ -902,7 +910,12 @@ impl StateHandler {
                 {
                     Ok(gene) => {
                         // Found a gene, go to its start (using 1-based coordinates for Goto)
-                        return Self::go_to_contig_coordinate(state, gene.contig(), gene.start() + 1).await;
+                        return Self::go_to_contig_coordinate(
+                            state,
+                            gene.contig(),
+                            gene.start() + 1,
+                        )
+                        .await;
                     }
                     Err(_) => {} // Gene not found. Handle later.
                 }
@@ -911,23 +924,19 @@ impl StateHandler {
             _ => {}
         };
 
-        
         // If reaches here, go to the first contig:1
         if let Ok(first_contig) = state.data.contigs.first() {
             return Self::go_to_contig_coordinate(state, first_contig, 1);
         }
 
-       
         Err(TGVError::StateError(
-            "Failed to find a default initial region. Please provide a starting region with -r.".to_string(),
+            "Failed to find a default initial region. Please provide a starting region with -r."
+                .to_string(),
         ))
     }
 }
 
-
 impl StateHandler {
-
-
     pub async fn handle_data_messages(
         &mut self,
         reference: Option<&Reference>, // TODO: improve this.
@@ -950,9 +959,8 @@ impl StateHandler {
 
         match data_message {
             DataMessage::RequiresCompleteAlignments(region) => {
-
                 if !self.has_complete_alignment(&region) {
-                    self.alignment =Some(self.alignment_repository.read_alignment(&region)?); // TODO
+                    self.alignment = Some(self.alignment_repository.read_alignment(&region)?); // TODO
                     loaded_data = true;
                 }
             }
@@ -1059,10 +1067,7 @@ impl StateHandler {
     pub fn has_complete_sequence(&self, region: &Region) -> bool {
         self.sequence.is_some() && self.sequence.as_ref().unwrap().has_complete_data(region)
     }
-
-
 }
-
 
 pub async fn load_contig_data(
     reference: Option<&Reference>,
@@ -1090,10 +1095,8 @@ pub async fn load_contig_data(
         }
     }
 
-    if  !matches!(repository, AlignmentRepositoryEnum::None) {
-        contig_data
-            .update_from_bam(reference, repository)
-            .unwrap();
+    if !matches!(repository, AlignmentRepositoryEnum::None) {
+        contig_data.update_from_bam(reference, repository).unwrap();
     }
 
     Ok(contig_data)

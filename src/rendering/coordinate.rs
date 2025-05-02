@@ -1,4 +1,7 @@
-use crate::models::window::{OnScreenCoordinate, ViewingWindow};
+use crate::{
+    error::TGVError,
+    models::window::{OnScreenCoordinate, ViewingWindow},
+};
 use itertools::izip;
 use ratatui::{buffer::Buffer, layout::Rect, style::Style};
 
@@ -10,7 +13,7 @@ pub fn render_coordinates(
     buf: &mut Buffer,
     viewing_window: &ViewingWindow,
     contig_length: Option<usize>,
-) -> Result<(), ()> {
+) -> Result<(), TGVError> {
     if area.width < MIN_AREA_WIDTH || area.height < MIN_AREA_HEIGHT {
         return Ok(());
     }

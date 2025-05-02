@@ -1,6 +1,5 @@
-use crate::models::region::Region;
-use crate::models::sequence::Sequence;
 use crate::rendering::colors;
+use crate::{error::TGVError, models::region::Region, models::sequence::Sequence};
 use ratatui::{buffer::Buffer, layout::Rect, style::Style};
 const MIN_AREA_WIDTH: u16 = 2;
 const MIN_AREA_HEIGHT: u16 = 1;
@@ -10,7 +9,7 @@ pub fn render_sequence(
     buf: &mut Buffer,
     region: &Region,
     sequence: &Sequence,
-) -> Result<(), ()> {
+) -> Result<(), TGVError> {
     if area.width < MIN_AREA_WIDTH || area.height < MIN_AREA_HEIGHT {
         return Ok(());
     }

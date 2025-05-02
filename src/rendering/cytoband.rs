@@ -22,13 +22,13 @@ pub fn render_cytobands(
     cytoband: &Cytoband,
     viewing_window: &ViewingWindow,
     contig_length: Option<usize>,
-) {
+) -> Result<(), TGVError> {
     if area.width <= MIN_AREA_WIDTH {
-        return;
+        return Ok(());
     }
 
     if area.height < MIN_AREA_HEIGHT {
-        return;
+        return Ok(());
     }
 
     for (x, string, style) in get_cytoband_xs_strings_and_styles(

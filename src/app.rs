@@ -14,31 +14,29 @@ use ratatui::{
 
 use crate::error::TGVError;
 use crate::models::mode::InputMode;
-use crate::rendering:: RenderingState ;
+use crate::models::register::RegisterEnum;
+use crate::rendering::RenderingState;
 use crate::settings::Settings;
 use crate::states::{State, StateHandler};
-use crate::models::register::RegisterEnum;
 pub struct App {
     pub state: State, // Holds all states and data
 
     pub state_handler: StateHandler, // Update states accourding from state messages
 
-    pub register: RegisterEnum, // Controls key event translation to StateMessages. Uses the State pattern. 
+    pub register: RegisterEnum, // Controls key event translation to StateMessages. Uses the State pattern.
 
-    pub rendering_state: RenderingState
-
+    pub rendering_state: RenderingState,
 }
 
 // initialization
 impl App {
     pub async fn new(settings: Settings) -> Result<Self, TGVError> {
-
         Ok(Self {
-             state: State::new(&settings)?,
-             state_handler: StateHandler::new(&settings).await?,
-             register: RegisterEnum::new(InputMode::Normal)?,
-             rendering_state: RenderingState.new()
-            })
+            state: State::new(&settings)?,
+            state_handler: StateHandler::new(&settings).await?,
+            register: RegisterEnum::new(InputMode::Normal)?,
+            rendering_state: RenderingState::new(),
+        })
     }
 }
 
@@ -119,14 +117,9 @@ const MIN_AREA_WIDTH: u16 = 10;
 const MIN_AREA_HEIGHT: u16 = 6;
 impl Widget for &App {
     fn render(self, area: Rect, buf: &mut Buffer) {
-        
-
-        self.rendering_state.update(&self.state.input_mode).render(
-            area,
-            buf,
-            &self.state,
-            &self.register
-        ).unwrap()
-
+        self.rendering_state
+            .update(&self.state.input_mode)
+            .render(area, buf, &self.state, &self.register)
+            .unwrap()
     }
 }

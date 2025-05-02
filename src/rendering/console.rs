@@ -1,4 +1,4 @@
-use crate::models::register::CommandModeRegister;
+use crate::{error::TGVError, models::register::RegisterEnum};
 use ratatui::{
     buffer::Buffer,
     layout::Rect,
@@ -8,13 +8,17 @@ use ratatui::{
 /// Render the command mode console.
 const MIN_AREA_WIDTH: u16 = 2;
 const MIN_AREA_HEIGHT: u16 = 1;
-pub fn render_console(area: &Rect, buf: &mut Buffer, command_mode_register: &CommandModeRegister) {
+pub fn render_console(
+    area: &Rect,
+    buf: &mut Buffer,
+    register: &RegisterEnum,
+) -> Result<(), TGVError> {
     if area.width < MIN_AREA_WIDTH || area.height < MIN_AREA_HEIGHT {
-        return;
+        return Ok(());
     }
 
-    let input = command_mode_register.input();
-    let cursor_position = command_mode_register.cursor_position();
+    let input = register.input();
+    let cursor_position = register.cursor_position();
 
     let cursor_char = if cursor_position >= input.len() {
         ' '
@@ -39,4 +43,5 @@ pub fn render_console(area: &Rect, buf: &mut Buffer, command_mode_register: &Com
         area.width as usize - cursor_char_position as usize,
         cursor_char_style,
     );
+    Ok(())
 }
