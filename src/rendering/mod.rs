@@ -19,7 +19,7 @@ pub use sequence::render_sequence;
 pub use track::render_track;
 
 use crate::models::register::RegisterEnum;
-use crate::states::{State, StateHandler};
+use crate::states::State;
 use crate::{error::TGVError, models::mode::InputMode};
 use ratatui::{
     buffer::Buffer,
@@ -27,9 +27,6 @@ use ratatui::{
         Constraint::{Fill, Length},
         Layout, Rect,
     },
-    prelude::Backend,
-    widgets::Widget,
-    Frame, Terminal,
 };
 
 #[derive(Debug, Clone, Eq, PartialEq)]
@@ -98,7 +95,7 @@ impl RenderingState {
                     .areas(area);
 
                 // Cytobands
-                if let Ok(Some(cytoband)) = state.current_cytoband() {
+                if state.cytoband_renderable()? {
                     render_cytobands(&cytoband_area, buf, state);
                 }
 

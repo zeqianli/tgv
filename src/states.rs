@@ -200,6 +200,13 @@ impl State {
         Ok(self.reference.is_some()
             && self.viewing_window()?.zoom() <= StateHandler::MAX_ZOOM_TO_DISPLAY_FEATURES)
     }
+
+    pub fn cytoband_renderable(&self) -> Result<bool, TGVError> {
+        match self.current_cytoband() {
+            Ok(Some(_)) => return Ok(true),
+            _ => Ok(false),
+        }
+    }
 }
 
 pub struct StateHandler {
