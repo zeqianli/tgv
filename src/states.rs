@@ -2,6 +2,7 @@ use crate::error::TGVError;
 use crate::repository::{AlignmentRepository, AlignmentRepositoryEnum};
 
 use crate::models::{
+    alignment::Alignment,
     contig::Contig,
     contig_collection::ContigCollection,
 
@@ -19,6 +20,7 @@ use crate::models::{
 
         sequences::SequenceService
     },
+    sequence::Sequence,
     window::ViewingWindow,
 };
 use crate::settings::{Settings, BackendType};
@@ -36,12 +38,7 @@ pub struct State {
     window: Option<ViewingWindow>,
     area: Option<Rect>,
 
-    // Data
-    pub data: Data,
-
-    // Registers
-    normal_mode_register: NormalModeRegister,
-    command_mode_register: CommandModeRegister,
+    pub reference: Option<Reference>,
 
     /// Settings
     pub settings: Settings,
@@ -69,20 +66,17 @@ pub struct State {
 
 /// Basics
 impl State {
-    pub async fn new(settings: Settings) -> Result<Self, TGVError> {
-        let data = Data::new(&settings).await?;
+    pub fn new(settings: &Settings) -> Result<Self, TGVError> {
 
         Ok(Self {
             window: None,
             input_mode: InputMode::Normal,
             exit: false,
             area: None,
-            data,
 
-            normal_mode_register: NormalModeRegister::new(),
-            command_mode_register: CommandModeRegister::new(),
+            reference: settings.reference.clone(),
 
-            settings,
+            settings: settings.clone(),
             errors: Vec::new(),
 
             alignment: None,
@@ -150,7 +144,7 @@ impl State {
 
     pub fn current_cytoband(&self) -> Result<Option<&Cytoband>, TGVError> {
         let contig = self.contig()?;
-        let cytoband = self.data.contigs.cytoband(&contig);
+        let cytoband = self.contigs.cytoband(&contig);
         Ok(cytoband)
     }
 
@@ -172,10 +166,6 @@ impl State {
         Ok(self.viewing_window()?.middle(self.current_frame_area()?))
     }
 
-    /// Reference to the command mode register.
-    pub fn command_mode_register(&self) -> &CommandModeRegister {
-        &self.command_mode_register
-    }
 
     pub fn initialized(&self) -> bool {
         self.window.is_some()
@@ -185,16 +175,11 @@ impl State {
         self.errors.push(error);
     }
 
-    pub async fn close(&mut self) -> Result<(), TGVError> {
-        self.data.close().await?;
-        Ok(())
-    }
-
      /// Maximum length of the contig.
      pub fn contig_length(&self) -> Result<Option<usize>, TGVError> {
         let contig = self.contig()?;
 
-        if let Some(length) = self.data.contigs.length(&contig) {
+        if let Some(length) = self.contigs.length(&contig) {
             return Ok(Some(length));
         }
         Ok(None)
@@ -210,16 +195,8 @@ impl State {
         }
     }
 
-    pub fn track_service_checked(&self) -> Result<&TrackServiceEnum, TGVError> {
-        match self.data.track_service {
-            Some(ref track_service) => Ok(track_service),
-            None => Err(TGVError::StateError("Track service is not initialized".to_string())),
-        }
-    }
-
-
     pub fn track_checked(&self) -> Result<&Track<Gene>, TGVError> {
-        self.data.track_checked()
+        self.track.as_ref().ok_or(TGVError::StateError("Track is not initialized".to_string()))
     }
 }
 
@@ -237,6 +214,15 @@ pub struct StateHandler {
 
 
 impl StateHandler {
+
+
+    pub fn track_service_checked(&self) -> Result<&TrackServiceEnum, TGVError> {
+        match self.track_service {
+            Some(ref track_service) => Ok(track_service),
+            None => Err(TGVError::StateError("Track service is not initialized".to_string())),
+        }
+    }
+
 
     pub async fn new(settings: &Settings) -> Result<Self, TGVError> {
 
@@ -309,7 +295,7 @@ impl StateHandler {
             .collect::<Vec<String>>()
             .join(", ");
 
-        let loaded_data = state.data.handle_data_messages(state.settings.reference.as_ref(), data_messages).await?; // TODO: move somewhere else
+        let loaded_data = Self::handle_data_messages(state.settings.reference.as_ref(), data_messages).await?; // TODO: move somewhere else
 
         if state.settings.debug {
             if loaded_data {
@@ -1074,9 +1060,7 @@ impl StateHandler {
         self.sequence.is_some() && self.sequence.as_ref().unwrap().has_complete_data(region)
     }
 
-    pub fn track_checked(&self) -> Result<&Track<Gene>, TGVError> {
-        self.track.as_ref().ok_or(TGVError::StateError("Track is not initialized".to_string()))
-    }
+
 }
 
 

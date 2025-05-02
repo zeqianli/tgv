@@ -14,12 +14,10 @@ use ratatui::{
 
 use crate::error::TGVError;
 use crate::models::mode::InputMode;
-use crate::rendering::{
-    render_alignment, render_console, render_coordinates, render_coverage, render_cytobands,
-    render_error, render_help, render_sequence, render_sequence_at_2x, render_track,
-};
+use crate::rendering:: RenderingState ;
 use crate::settings::Settings;
 use crate::states::{State, StateHandler};
+use crate::models::register::RegisterEnum;
 pub struct App {
     pub state: State, // Holds all states and data
 
@@ -27,16 +25,20 @@ pub struct App {
 
     pub register: RegisterEnum, // Controls key event translation to StateMessages. Uses the State pattern. 
 
-    pub render_state: RenderState, // Controls rendering logic. Uses the State pattern.
+    pub rendering_state: RenderingState
 
 }
 
 // initialization
 impl App {
     pub async fn new(settings: Settings) -> Result<Self, TGVError> {
-        let state = State::new(settings).await?;
 
-        Ok(Self { state })
+        Ok(Self {
+             state: State::new(&settings)?,
+             state_handler: StateHandler::new(&settings).await?,
+             register: RegisterEnum::new(InputMode::Normal)?,
+             rendering_state: RenderingState.new()
+            })
     }
 }
 
@@ -109,7 +111,7 @@ impl App {
 
     /// close connections
     pub async fn close(&mut self) -> Result<(), TGVError> {
-        self.state.close().await?;
+        self.state_handler.close().await?;
         Ok(())
     }
 }
@@ -117,88 +119,14 @@ const MIN_AREA_WIDTH: u16 = 10;
 const MIN_AREA_HEIGHT: u16 = 6;
 impl Widget for &App {
     fn render(self, area: Rect, buf: &mut Buffer) {
-        if area.width < MIN_AREA_WIDTH || area.height < MIN_AREA_HEIGHT {
-            return; // TOO small. Skip rendering to prevent overflow.
-        }
+        
 
-        if self.state.input_mode == InputMode::Help {
-            render_help(area, buf);
-            return;
-        }
+        self.rendering_state.update(&self.state.input_mode).render(
+            area,
+            buf,
+            &self.state,
+            &self.register
+        ).unwrap()
 
-        let contig_length = self.state.contig_length().unwrap();
-        let viewing_window = self.state.viewing_window().unwrap();
-        let viewing_region = self.state.viewing_region().unwrap();
-        let [cytoband_area, coordinate_area, coverage_area, alignment_area, sequence_area, track_area, console_area, error_area] =
-            Layout::vertical([
-                Length(2), // cytobands
-                Length(2), // coordinate
-                Length(6), // coverage
-                Fill(1),   // alignment
-                Length(1), // sequence
-                Length(2), // track
-                Length(2), // console
-                Length(2), // error
-            ])
-            .areas(area);
-
-        if let Ok(Some(cytoband)) = self.state.current_cytoband() {
-            render_cytobands(&cytoband_area, buf, cytoband, viewing_window, contig_length);
-        }
-
-        render_coordinates(&coordinate_area, buf, viewing_window, contig_length).unwrap();
-
-        if self.state.settings.bam_path.is_some()
-            && viewing_window.zoom() <= State::MAX_ZOOM_TO_DISPLAY_ALIGNMENTS
-        {
-            match &self.state.data.alignment {
-                Some(alignment) => {
-                    render_coverage(&coverage_area, buf, viewing_window, alignment).unwrap();
-
-                    render_alignment(&alignment_area, buf, viewing_window, alignment);
-                }
-                None => {} // TODO: handle error
-            }
-        }
-
-        if self.state.settings.reference.is_some() {
-            if viewing_window.is_basewise() {
-                match &self.state.data.sequence {
-                    Some(sequence) => {
-                        render_sequence(&sequence_area, buf, &viewing_region, sequence).unwrap();
-                    }
-                    None => {} // TODO: handle error
-                }
-            } else if viewing_window.zoom() == 2 {
-                match &self.state.data.sequence {
-                    Some(sequence) => {
-                        render_sequence_at_2x(&sequence_area, buf, &viewing_region, sequence)
-                            .unwrap();
-                    }
-                    None => {} // TODO: handle error
-                }
-            }
-
-            match &self.state.data.track {
-                Some(track) => {
-                    render_track(
-                        &track_area,
-                        buf,
-                        viewing_window,
-                        track,
-                        self.state.settings.reference.as_ref(),
-                    );
-                }
-                None => {} // TODO: handle error
-            }
-        }
-
-        if self.state.input_mode == InputMode::Command {
-            render_console(&console_area, buf, self.state.command_mode_register())
-        }
-
-        render_error(&error_area, buf, &self.state.errors);
-
-        // TODO: a proper debug widget
     }
 }
