@@ -1,5 +1,5 @@
 use crate::error::TGVError;
-use crate::{contig::Contig, region::Region};
+use crate::{contig::Contig, display_mode::DisplayMode, region::Region};
 use strum::Display;
 /// State messages
 #[derive(Debug, Clone, Eq, PartialEq, Display)]
@@ -33,6 +33,8 @@ pub enum StateMessage {
     ZoomOut(usize),
 
     Message(String),
+
+    SetDisplayMode(DisplayMode),
 
     Quit,
 }

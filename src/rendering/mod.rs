@@ -18,6 +18,7 @@ pub use help::render_help;
 pub use sequence::render_sequence;
 pub use track::render_track;
 
+use crate::display_mode::DisplayMode;
 use crate::error::TGVError;
 use crate::register::{RegisterType, Registers};
 use crate::states::State;
@@ -29,16 +30,7 @@ use ratatui::{
     },
 };
 
-#[derive(Debug, Clone, Eq, PartialEq)]
-pub enum RenderingStateEnum {
-    Normal, // Display alignments
-    Help,   // Display help screen
-    Skip,   // Skip rendering
-}
-
 pub struct RenderingState {
-    state: RenderingStateEnum,
-
     last_frame_area: Rect,
 
     refresh: bool,
@@ -53,7 +45,6 @@ const MAX_ZOOM_TO_DISPLAY_ALIGNMENTS: u32 = 2;
 impl RenderingState {
     pub fn new() -> Self {
         Self {
-            state: RenderingStateEnum::Normal,
             refresh: false,
             last_frame_area: Rect::default(),
         }
@@ -96,8 +87,8 @@ impl RenderingState {
         state: &State,
         registers: &Registers,
     ) -> Result<(), TGVError> {
-        match &self.state {
-            RenderingStateEnum::Normal => {
+        match &state.display_mode {
+            DisplayMode::Main => {
                 let [cytoband_area, coordinate_area, coverage_area, alignment_area, sequence_area, track_area, console_area, error_area] =
                     Layout::vertical([
                         Length(2), // cytobands
@@ -146,11 +137,8 @@ impl RenderingState {
                 // Error
                 render_error(&error_area, buf, &state.errors)?;
             }
-            RenderingStateEnum::Help => {
+            DisplayMode::Help => {
                 render_help(area, buf)?;
-            }
-            RenderingStateEnum::Skip => {
-                // Do nothing
             }
         }
         Ok(())

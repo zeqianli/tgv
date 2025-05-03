@@ -1,15 +1,15 @@
 use crate::error::TGVError;
-use crate::repository::{AlignmentRepository, AlignmentRepositoryEnum};
-
 use crate::repository::Repository;
+use crate::repository::{AlignmentRepository, AlignmentRepositoryEnum};
 use crate::settings::Settings;
-use crate::track_service::{TrackCache, TrackService, TrackServiceEnum};
+use crate::track_service::{TrackCache, TrackService};
 use crate::traits::GenomeInterval;
 use crate::{
     alignment::Alignment,
     contig::Contig,
     contig_collection::ContigCollection,
     cytoband::Cytoband,
+    display_mode::DisplayMode,
     feature::Gene,
     message::{DataMessage, StateMessage},
     reference::Reference,
@@ -50,6 +50,9 @@ pub struct State {
     // TODO: in the first implementation, refresh all data when the viewing window is near the boundary.
     /// Contigs in the BAM header
     pub contigs: ContigCollection,
+
+    /// Display mode
+    pub display_mode: DisplayMode,
 }
 
 /// Getters
@@ -70,6 +73,8 @@ impl State {
             track_cache: TrackCache::new(),
             sequence: None,
             contigs: ContigCollection::new(settings.reference.clone()), // TODO: load this
+
+            display_mode: DisplayMode::Main,
         })
     }
 
@@ -379,6 +384,10 @@ impl StateHandler {
 
             // Error messages
             StateMessage::Message(message) => StateHandler::add_message(state, message)?,
+
+            StateMessage::SetDisplayMode(display_mode) => {
+                state.display_mode = display_mode;
+            }
 
             _ => {
                 return Err(TGVError::StateError(format!(

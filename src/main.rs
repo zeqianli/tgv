@@ -3,6 +3,7 @@ mod app;
 mod contig;
 mod contig_collection;
 mod cytoband;
+mod display_mode;
 mod error;
 mod feature;
 mod helpers;

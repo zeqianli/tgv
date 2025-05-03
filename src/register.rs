@@ -1,4 +1,4 @@
-use crate::{contig::Contig, error::TGVError, message::StateMessage, states::State};
+use crate::{contig::Contig, display_mode::DisplayMode, error::TGVError, message::StateMessage};
 use crossterm::event::{Event, KeyCode, KeyEvent};
 
 use strum::Display;
@@ -7,6 +7,7 @@ use strum::Display;
 pub enum RegisterType {
     Normal,
     Command,
+    Help,
 }
 
 /// Register stores inputs and translates key event to StateMessages.
@@ -21,6 +22,7 @@ pub struct Registers {
     pub current: RegisterType,
     pub normal: NormalModeRegister,
     pub command: CommandModeRegister,
+    pub help: HelpModeRegister,
 }
 
 impl Registers {
@@ -29,7 +31,13 @@ impl Registers {
             current: RegisterType::Normal,
             normal: NormalModeRegister::new(),
             command: CommandModeRegister::new(),
+            help: HelpModeRegister::new(),
         })
+    }
+
+    fn clear(&mut self) {
+        self.normal.clear();
+        self.command.clear();
     }
 }
 
@@ -42,17 +50,28 @@ impl Register for Registers {
     fn update_key_event(&mut self, key_event: KeyEvent) -> Result<Vec<StateMessage>, TGVError> {
         match (key_event.code, self.current.clone()) {
             (KeyCode::Char(':'), RegisterType::Normal) => {
-                self.normal.clear();
+                self.clear();
                 self.current = RegisterType::Command;
 
                 return Ok(vec![]);
             }
             (KeyCode::Esc, RegisterType::Command) => {
                 self.current = RegisterType::Normal;
-                self.command.clear();
+                self.clear();
                 return Ok(vec![]);
             }
+            (KeyCode::Esc, RegisterType::Help) => {
+                self.current = RegisterType::Normal;
+                self.clear();
+                return Ok(vec![StateMessage::SetDisplayMode(DisplayMode::Main)]);
+            }
+
             (KeyCode::Enter, RegisterType::Command) => {
+                if self.command.input() == "h" {
+                    self.current = RegisterType::Help;
+                    self.clear();
+                    return Ok(vec![StateMessage::SetDisplayMode(DisplayMode::Help)]);
+                }
                 let output = self
                     .command
                     .parse()
@@ -67,10 +86,10 @@ impl Register for Registers {
         Ok(match self.current {
             RegisterType::Normal => self.normal.update_key_event(key_event),
             RegisterType::Command => self.command.update_key_event(key_event),
+            RegisterType::Help => self.help.update_key_event(key_event),
         }
         .unwrap_or_else(|e| {
-            self.command.clear();
-            self.normal.clear();
+            self.clear();
             vec![StateMessage::Message(format!("{}", e))]
         }))
     }
@@ -392,6 +411,23 @@ impl CommandModeRegister {
                 "Invalid command mode input: {}",
                 self.input
             ))),
+        }
+    }
+}
+
+pub struct HelpModeRegister {}
+
+impl HelpModeRegister {
+    pub fn new() -> Self {
+        Self {}
+    }
+}
+
+impl Register for HelpModeRegister {
+    fn update_key_event(&mut self, key_event: KeyEvent) -> Result<Vec<StateMessage>, TGVError> {
+        match key_event.code {
+            KeyCode::Esc => Ok(vec![StateMessage::SetDisplayMode(DisplayMode::Main)]),
+            _ => Ok(vec![]),
         }
     }
 }
