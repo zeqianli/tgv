@@ -1,6 +1,5 @@
-/// Reference chromosomes on the top of the screen.
+use crate::cytoband::{Cytoband, CytobandSegment, Stain};
 use crate::error::TGVError;
-use crate::models::cytoband::{Cytoband, CytobandSegment, Stain};
 use crate::rendering::colors;
 use crate::states::State;
 

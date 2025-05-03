@@ -19,7 +19,7 @@ pub use sequence::render_sequence;
 pub use track::render_track;
 
 use crate::error::TGVError;
-use crate::models::register::{RegisterType, Registers};
+use crate::register::{RegisterType, Registers};
 use crate::states::State;
 use ratatui::{
     buffer::Buffer,

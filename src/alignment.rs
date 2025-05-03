@@ -1,5 +1,5 @@
 use crate::error::TGVError;
-use crate::models::{contig::Contig, region::Region};
+use crate::{contig::Contig, region::Region};
 use rust_htslib::bam::ext::BamRecordExtensions;
 use rust_htslib::bam::{Header, IndexedReader, Read, Record};
 use std::collections::{BTreeMap, HashMap};

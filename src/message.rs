@@ -1,5 +1,5 @@
 use crate::error::TGVError;
-use crate::models::{contig::Contig, region::Region};
+use crate::{contig::Contig, region::Region};
 use strum::Display;
 /// State messages
 #[derive(Debug, Clone, Eq, PartialEq, Display)]

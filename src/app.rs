@@ -10,7 +10,7 @@ use ratatui::{
 };
 
 use crate::error::TGVError;
-use crate::models::register::{Register, Registers};
+use crate::register::{Register, Registers};
 use crate::rendering::RenderingState;
 use crate::repository::Repository;
 use crate::settings::Settings;

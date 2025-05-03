@@ -1,13 +1,11 @@
 use crate::traits::GenomeInterval;
 use crate::{
     error::TGVError,
-    models::{
-        feature::{Gene, SubGeneFeatureType},
-        strand::Strand,
-        track::Track,
-        window::{OnScreenCoordinate, ViewingWindow},
-    },
+    feature::{Gene, SubGeneFeatureType},
     states::State,
+    strand::Strand,
+    track::Track,
+    window::{OnScreenCoordinate, ViewingWindow},
 };
 use ratatui::{
     buffer::Buffer,

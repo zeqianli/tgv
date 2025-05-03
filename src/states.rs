@@ -1,7 +1,11 @@
 use crate::error::TGVError;
 use crate::repository::{AlignmentRepository, AlignmentRepositoryEnum};
 
-use crate::models::{
+use crate::repository::Repository;
+use crate::settings::Settings;
+use crate::track_service::{TrackCache, TrackService, TrackServiceEnum};
+use crate::traits::GenomeInterval;
+use crate::{
     alignment::Alignment,
     contig::Contig,
     contig_collection::ContigCollection,
@@ -14,10 +18,6 @@ use crate::models::{
     track::Track,
     window::ViewingWindow,
 };
-use crate::repository::Repository;
-use crate::settings::Settings;
-use crate::track_service::{TrackCache, TrackService, TrackServiceEnum};
-use crate::traits::GenomeInterval;
 use ratatui::layout::Rect;
 
 /// Holds states of the application.

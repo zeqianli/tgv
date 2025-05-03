@@ -1,6 +1,6 @@
 use crate::error::TGVError;
 use crate::helpers::is_url;
-use crate::models::{contig::Contig, message::StateMessage, reference::Reference};
+use crate::{contig::Contig, message::StateMessage, reference::Reference};
 use clap::{Parser, ValueEnum};
 
 #[derive(Clone, Debug, PartialEq, Eq, ValueEnum)]
@@ -210,8 +210,8 @@ impl Settings {
 mod tests {
     use super::*;
 
-    use crate::models::message::StateMessage;
-    use crate::models::reference::Reference;
+    use crate::message::StateMessage;
+    use crate::reference::Reference;
     use rstest::rstest;
 
     // Helper function to create default settings for comparison

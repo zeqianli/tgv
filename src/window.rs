@@ -1,5 +1,5 @@
+use crate::contig::Contig;
 use crate::error::TGVError;
-use crate::models::contig::Contig;
 use ratatui::layout::Rect;
 
 #[derive(Clone)]

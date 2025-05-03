@@ -1,6 +1,6 @@
+use crate::contig::Contig;
 use crate::error::TGVError;
-use crate::models::contig::Contig;
-use crate::models::reference::Reference;
+use crate::reference::Reference;
 use csv::Reader;
 use ratatui::style::Color;
 use serde::Deserialize;
@@ -13,8 +13,8 @@ const VALID_CHROMOSOMES: [&str; 25] = [
 ];
 
 // Include the csv files as static bytes
-const HG19_CYTOBAND: &[u8] = include_bytes!("../resources/hg19_cytoband.csv");
-const HG38_CYTOBAND: &[u8] = include_bytes!("../resources/hg38_cytoband.csv");
+const HG19_CYTOBAND: &[u8] = include_bytes!("resources/hg19_cytoband.csv");
+const HG38_CYTOBAND: &[u8] = include_bytes!("resources/hg38_cytoband.csv");
 
 #[derive(Debug, Clone, Eq, PartialEq)]
 pub enum Stain {

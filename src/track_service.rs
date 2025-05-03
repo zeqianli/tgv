@@ -1,5 +1,6 @@
 use crate::error::TGVError;
-use crate::models::{
+use crate::traits::GenomeInterval;
+use crate::{
     contig::Contig,
     cytoband::{Cytoband, CytobandSegment, Stain},
     feature::{Gene, SubGeneFeature},
@@ -8,7 +9,6 @@ use crate::models::{
     strand::Strand,
     track::Track,
 };
-use crate::traits::GenomeInterval;
 use async_trait::async_trait;
 use reqwest::{Client, StatusCode};
 use serde::de::Error as _;

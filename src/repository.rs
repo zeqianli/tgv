@@ -1,13 +1,11 @@
 use crate::{
+    alignment::{Alignment, AlignmentBuilder},
+    contig::Contig,
     error::TGVError,
     helpers::is_url,
-    models::{
-        alignment::{Alignment, AlignmentBuilder},
-        contig::Contig,
-        reference::Reference,
-        region::Region,
-        sequence::Sequence,
-    },
+    reference::Reference,
+    region::Region,
+    sequence::Sequence,
     settings::{BackendType, Settings},
     track_service::{
         TrackCache, TrackService, TrackServiceEnum, UcscApiTrackService, UcscDbTrackService,

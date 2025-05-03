@@ -1,7 +1,7 @@
 use crate::error::TGVError;
 use crate::helpers::is_url;
-use crate::models::{contig::Contig, cytoband::Cytoband, reference::Reference};
 use crate::repository::{AlignmentRepository, AlignmentRepositoryEnum};
+use crate::{contig::Contig, cytoband::Cytoband, reference::Reference};
 use std::collections::HashMap;
 use std::fmt;
 use std::fmt::Display;

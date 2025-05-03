@@ -1,10 +1,8 @@
 use crate::{
+    alignment::{AlignedRead, Alignment},
     error::TGVError,
-    models::{
-        alignment::{AlignedRead, Alignment},
-        window::{OnScreenCoordinate, ViewingWindow},
-    },
     rendering::colors,
+    window::{OnScreenCoordinate, ViewingWindow},
 };
 use ratatui::{buffer::Buffer, layout::Rect, style::Style};
 use rust_htslib::bam::record::Cigar;

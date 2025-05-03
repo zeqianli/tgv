@@ -1,8 +1,4 @@
-use crate::{
-    error::TGVError,
-    models::{contig::Contig, message::StateMessage},
-    states::State,
-};
+use crate::{contig::Contig, error::TGVError, message::StateMessage, states::State};
 use crossterm::event::{Event, KeyCode, KeyEvent};
 
 use strum::Display;
@@ -395,7 +391,7 @@ impl CommandModeRegister {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::models::message::StateMessage;
+    use crate::message::StateMessage;
     use rstest::rstest;
 
     #[rstest]

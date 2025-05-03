@@ -5,9 +5,9 @@ use ratatui::{
     widgets::{Sparkline, Widget},
 };
 
+use crate::alignment::Alignment;
 use crate::error::TGVError;
-use crate::models::alignment::Alignment;
-use crate::models::window::ViewingWindow;
+use crate::window::ViewingWindow;
 
 const MIN_AREA_WIDTH: u16 = 2;
 const MIN_AREA_HEIGHT: u16 = 1;

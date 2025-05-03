@@ -1,4 +1,4 @@
-use crate::{error::TGVError, models::register::CommandModeRegister};
+use crate::{error::TGVError, register::CommandModeRegister};
 use ratatui::{
     buffer::Buffer,
     layout::Rect,

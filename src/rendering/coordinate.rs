@@ -1,6 +1,6 @@
 use crate::{
     error::TGVError,
-    models::window::{OnScreenCoordinate, ViewingWindow},
+    window::{OnScreenCoordinate, ViewingWindow},
 };
 
 use crate::states::State;
