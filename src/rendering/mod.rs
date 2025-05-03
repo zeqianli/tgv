@@ -18,7 +18,7 @@ pub use help::render_help;
 pub use sequence::render_sequence;
 pub use track::render_track;
 
-use crate::models::register::RegisterEnum;
+use crate::models::register::Registers;
 use crate::states::State;
 use crate::{error::TGVError, models::mode::InputMode};
 use ratatui::{
@@ -39,6 +39,8 @@ pub enum RenderingStateEnum {
 pub struct RenderingState {
     state: RenderingStateEnum,
 
+    last_frame_area: Rect,
+
     refresh: bool,
 }
 
@@ -53,7 +55,12 @@ impl RenderingState {
         Self {
             state: RenderingStateEnum::Normal,
             refresh: false,
+            last_frame_area: Rect::default(),
         }
+    }
+
+    pub fn needs_refresh(&self) -> bool {
+        self.refresh
     }
 
     pub fn update(&mut self, state: &State) -> Result<&mut Self, TGVError> {
@@ -68,7 +75,16 @@ impl RenderingState {
             _ => false,
         };
 
+        // check if the frame area has changed
+        if self.last_frame_area.width != state.current_frame_area()?.width
+            || self.last_frame_area.height != state.current_frame_area()?.height
+        {
+            self.refresh = true;
+        }
+        self.last_frame_area = state.current_frame_area()?.clone();
+
         self.state = new_state;
+
         Ok(self)
     }
 
@@ -77,7 +93,7 @@ impl RenderingState {
         area: Rect,
         buf: &mut Buffer,
         state: &State,
-        register: &RegisterEnum,
+        registers: &Registers,
     ) -> Result<(), TGVError> {
         match &self.state {
             RenderingStateEnum::Normal => {
@@ -123,7 +139,7 @@ impl RenderingState {
                 // Console
 
                 if state.input_mode == InputMode::Command {
-                    render_console(&console_area, buf, register)?;
+                    render_console(&console_area, buf, registers.command()?)?;
                 }
 
                 // Error

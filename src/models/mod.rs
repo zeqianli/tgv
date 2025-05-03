@@ -8,7 +8,6 @@ pub mod reference;
 pub mod region;
 pub mod register;
 pub mod sequence;
-pub mod services;
 pub mod strand;
 pub mod track;
 pub mod window;

@@ -1,4 +1,7 @@
-use crate::{error::TGVError, models::register::RegisterEnum};
+use crate::{
+    error::TGVError,
+    models::register::{CommandModeRegister, RegisterEnum},
+};
 use ratatui::{
     buffer::Buffer,
     layout::Rect,
@@ -11,7 +14,7 @@ const MIN_AREA_HEIGHT: u16 = 1;
 pub fn render_console(
     area: &Rect,
     buf: &mut Buffer,
-    register: &RegisterEnum,
+    register: &CommandModeRegister,
 ) -> Result<(), TGVError> {
     if area.width < MIN_AREA_WIDTH || area.height < MIN_AREA_HEIGHT {
         return Ok(());

@@ -11,7 +11,6 @@ use crate::models::{
     reference::Reference,
     region::Region,
     sequence::Sequence,
-    services::sequences_repository::SequenceService,
     track::{feature::Gene, track::Track},
     window::ViewingWindow,
 };
@@ -209,24 +208,34 @@ impl State {
 pub struct StateHandler {}
 
 impl StateHandler {
+    pub async fn new(settings: &Settings) -> Result<Self, TGVError> {
+        Ok(Self {})
+    }
+
     /// Handle initial messages.
     /// This has different error handling strategy (loud) vs handle(...), which suppresses errors.
-    // pub async fn handle_initial_messages(
-    //     &mut state,
-    //     messages: Vec<StateMessage>,
-    // ) -> Result<(), TGVError> {
-    //     let data_messages = self.handle_state_messages(messages).await?;
-    //     let _loaded_data = self
-    //         .data
-    //         .handle_data_messages(self.settings.reference.as_ref(), data_messages)
-    //         .await?;
+    pub async fn handle_initial_messages(
+        state: &mut State,
+        repository: &Repository,
+        messages: Vec<StateMessage>,
+    ) -> Result<(), TGVError> {
+        let mut data_messages = Vec::new();
 
-    //     Ok(())
-    // }
+        for message in messages {
+            data_messages
+                .extend(StateHandler::handle_state_message(state, repository, message).await?);
+        }
+
+        let mut loaded_data = false;
+        for data_message in data_messages {
+            loaded_data = Self::handle_data_message(state, repository, data_message).await?;
+        }
+
+        Ok(())
+    }
 
     /// Handle messages.
     pub async fn handle(
-        &mut self,
         state: &mut State,
         repository: &Repository,
         messages: Vec<StateMessage>,
@@ -252,7 +261,7 @@ impl StateHandler {
 
         let mut loaded_data = false;
         for data_message in data_messages {
-            loaded_data = self.handle_data_message(state, data_message).await?;
+            loaded_data = Self::handle_data_message(state, repository, data_message).await?;
         }
 
         if state.settings.debug {
@@ -301,16 +310,16 @@ impl StateHandler {
 
             // Relative feature movement handling
             StateMessage::GotoNextExonsStart(n) => {
-                StateHandler::go_to_next_exons_start(state, n).await?
+                StateHandler::go_to_next_exons_start(state, repository, n).await?
             }
             StateMessage::GotoNextExonsEnd(n) => {
-                StateHandler::go_to_next_exons_end(state, n).await?
+                StateHandler::go_to_next_exons_end(state, repository, n).await?
             }
             StateMessage::GotoPreviousExonsStart(n) => {
-                StateHandler::go_to_previous_exons_start(state, n).await?
+                StateHandler::go_to_previous_exons_start(state, repository, n).await?
             }
             StateMessage::GotoPreviousExonsEnd(n) => {
-                StateHandler::go_to_previous_exons_end(state, n).await?
+                StateHandler::go_to_previous_exons_end(state, repository, n).await?
             }
             StateMessage::GotoNextGenesStart(n) => {
                 StateHandler::go_to_next_genes_start(state, repository, n).await?
@@ -319,17 +328,19 @@ impl StateHandler {
                 StateHandler::go_to_next_genes_end(state, repository, n).await?
             }
             StateMessage::GotoPreviousGenesStart(n) => {
-                StateHandler::go_to_previous_genes_start(state, n).await?
+                StateHandler::go_to_previous_genes_start(state, repository, n).await?
             }
             StateMessage::GotoPreviousGenesEnd(n) => {
-                StateHandler::go_to_previous_genes_end(state, n).await?
+                StateHandler::go_to_previous_genes_end(state, repository, n).await?
             }
 
             // Absolute feature handling
-            StateMessage::GoToGene(_) => StateHandler::go_to_gene(state, message).await?,
+            StateMessage::GoToGene(gene_id) => {
+                StateHandler::go_to_gene(state, repository, gene_id).await?
+            }
 
             // Find the default region
-            StateMessage::GoToDefault => StateHandler::go_to_defualt(state).await?,
+            StateMessage::GoToDefault => StateHandler::go_to_default(state, repository).await?,
 
             // Error messages
             StateMessage::Message(message) => StateHandler::add_message(state, message)?,
@@ -889,8 +900,7 @@ impl StateHandler {
                             state,
                             gene.contig(),
                             gene.start() + 1,
-                        )
-                        .await;
+                        );
                     }
                     Err(_) => {} // Gene not found. Handle later.
                 }
@@ -900,7 +910,7 @@ impl StateHandler {
         };
 
         // If reaches here, go to the first contig:1
-        if let Ok(first_contig) = state.contigs.first() {
+        if let Ok(ref first_contig) = state.contigs.first().cloned() {
             return Self::go_to_contig_coordinate(state, first_contig, 1);
         }
 
@@ -914,7 +924,6 @@ impl StateHandler {
 impl StateHandler {
     // TODO: async
     pub async fn handle_data_message(
-        &mut self,
         state: &mut State,
         repository: &Repository,
         data_message: DataMessage,
@@ -932,7 +941,7 @@ impl StateHandler {
             DataMessage::RequiresCompleteFeatures(region) => {
                 let has_complete_track = Self::has_complete_track(state, &region);
                 if let (Some(ref reference), Some(ref track_service)) =
-                    (state.reference.clone(), repository.track_service)
+                    (state.reference.clone(), repository.track_service.as_ref())
                 {
                     if !has_complete_track {
                         if let Ok(track) = track_service
@@ -975,7 +984,7 @@ impl StateHandler {
                 }
 
                 if let (Some(ref reference), Some(track_service)) =
-                    (state.reference.clone(), repository.track_service)
+                    (state.reference.clone(), repository.track_service.as_ref())
                 {
                     let cytoband = track_service.get_cytoband(reference, &contig).await?;
                     state.contigs.update_cytoband(&contig, cytoband);
@@ -992,32 +1001,28 @@ impl StateHandler {
     }
 
     pub async fn load_all_data(
-        &mut self,
         state: &mut State,
         repository: &Repository,
         region: Region,
     ) -> Result<bool, TGVError> {
-        let loaded_alignment = self
-            .handle_data_message(
-                state,
-                repository,
-                DataMessage::RequiresCompleteAlignments(region.clone()),
-            )
-            .await?;
-        let loaded_track = self
-            .handle_data_message(
-                state,
-                repository,
-                DataMessage::RequiresCompleteFeatures(region.clone()),
-            )
-            .await?;
-        let loaded_sequence = self
-            .handle_data_message(
-                state,
-                repository,
-                DataMessage::RequiresCompleteSequences(region.clone()),
-            )
-            .await?;
+        let loaded_alignment = Self::handle_data_message(
+            state,
+            repository,
+            DataMessage::RequiresCompleteAlignments(region.clone()),
+        )
+        .await?;
+        let loaded_track = Self::handle_data_message(
+            state,
+            repository,
+            DataMessage::RequiresCompleteFeatures(region.clone()),
+        )
+        .await?;
+        let loaded_sequence = Self::handle_data_message(
+            state,
+            repository,
+            DataMessage::RequiresCompleteSequences(region.clone()),
+        )
+        .await?;
         Ok(loaded_alignment || loaded_track || loaded_sequence)
     }
 

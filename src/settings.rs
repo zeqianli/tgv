@@ -1,6 +1,6 @@
 use crate::error::TGVError;
 use crate::helpers::is_url;
-use crate::models::{message::StateMessage, reference::Reference};
+use crate::models::{contig::Contig, message::StateMessage, reference::Reference};
 use clap::{Parser, ValueEnum};
 
 #[derive(Clone, Debug, PartialEq, Eq, ValueEnum)]
@@ -176,7 +176,7 @@ impl Settings {
             match split[1].parse::<usize>() {
                 Ok(n) => {
                     return Ok(vec![StateMessage::GotoContigCoordinate(
-                        split[0].to_string(),
+                        Contig::chrom(split[0]),
                         n,
                     )]);
                 }
@@ -229,7 +229,10 @@ mod tests {
     #[case("tgv wrong.extension", Err(TGVError::CliError("".to_string())))]
     #[case("tgv input.bam -r chr1:12345", Ok(Settings {
         bam_path: Some("input.bam".to_string()),
-        initial_state_messages: vec![StateMessage::GotoContigCoordinate("chr1".to_string(), 12345)],
+        initial_state_messages: vec![StateMessage::GotoContigCoordinate(
+            Contig::chrom("chr1"),
+            12345,
+        )],
         ..default_settings()
     }))]
     #[case("tgv input.bam -r chr1:invalid", Err(TGVError::CliError("".to_string())))]
@@ -254,7 +257,10 @@ mod tests {
     #[case("tgv input.bam -r 1:12345 --no-reference", Ok(Settings {
         bam_path: Some("input.bam".to_string()),
         reference: None,
-        initial_state_messages: vec![StateMessage::GotoContigCoordinate("1".to_string(), 12345)],
+        initial_state_messages: vec![StateMessage::GotoContigCoordinate(
+            Contig::chrom("1"),
+            12345,
+        )],
         ..default_settings()
     }))]
     #[case("tgv input.bam -r TP53 -g hg19 --no-reference", Err(TGVError::CliError("".to_string())))]

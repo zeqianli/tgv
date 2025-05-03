@@ -1,33 +1,70 @@
-use crate::{error::TGVError, models::{message::StateMessage, mode::InputMode}, states::State};
-use crossterm::event::{Event, KeyEvent, KeyCode};
+use crate::{
+    error::TGVError,
+    models::{contig::Contig, message::StateMessage, mode::InputMode},
+    states::State,
+};
+use crossterm::event::{Event, KeyCode, KeyEvent};
 
-
-
-/// Register stores inputs and translates key event to StateMessages. 
+/// Register stores inputs and translates key event to StateMessages.
 pub trait Register {
-
-
-    /// Update with a new event. 
-    /// If applicable, return 
+    /// Update with a new event.
+    /// If applicable, return
     /// If this event triggers an error, returns Error.
     fn update(&mut self, event: Event) -> Result<Vec<StateMessage>, TGVError>;
-
 }
 
-pub enum RegisterEnum {
-    Normal(NormalModeRegister),
-    Command(CommandModeRegister)
+pub struct Registers {
+    normal: RegisterEnum,
+    command: RegisterEnum,
 }
 
-impl RegisterEnum {
-    pub fn new(mode: InputMode) -> Result<Self, TGVError> {
-        match mode {
-            InputMode::Normal | InputMode::Help => Ok(RegisterEnum::Normal(NormalModeRegister::new())),
-            InputMode::Command => Ok(RegisterEnum::Command(CommandModeRegister::new()))
+impl Registers {
+    pub fn new() -> Result<Self, TGVError> {
+        Ok(Self {
+            normal: RegisterEnum::Normal(NormalModeRegister::new()),
+            command: RegisterEnum::Command(CommandModeRegister::new()),
+        })
+    }
+
+    pub fn get(&mut self, state: &State) -> Result<&mut RegisterEnum, TGVError> {
+        match state.input_mode {
+            InputMode::Normal | InputMode::Help => Ok(&mut self.normal),
+            InputMode::Command => Ok(&mut self.command),
+        }
+    }
+
+    pub fn normal(&self) -> Result<&NormalModeRegister, TGVError> {
+        match &self.normal {
+            RegisterEnum::Normal(register) => Ok(register),
+            RegisterEnum::Command(_) => Err(TGVError::RegisterError(
+                "Normal mode register is not active".to_string(),
+            )),
+        }
+    }
+
+    pub fn command(&self) -> Result<&CommandModeRegister, TGVError> {
+        match &self.command {
+            RegisterEnum::Normal(_) => Err(TGVError::RegisterError(
+                "Command mode register is not active".to_string(),
+            )),
+            RegisterEnum::Command(register) => Ok(register),
         }
     }
 }
 
+pub enum RegisterEnum {
+    Normal(NormalModeRegister),
+    Command(CommandModeRegister),
+}
+
+impl Register for RegisterEnum {
+    fn update(&mut self, event: Event) -> Result<Vec<StateMessage>, TGVError> {
+        match self {
+            RegisterEnum::Normal(register) => register.update(event),
+            RegisterEnum::Command(register) => register.update(event),
+        }
+    }
+}
 #[derive(Clone)]
 pub struct NormalModeRegister {
     input: String,
@@ -79,25 +116,32 @@ impl NormalModeRegister {
     ];
 
     /// Translate key input to a state message. This does not mute states. States are muted downstream by handling state messages.
-    pub fn update_by_char(&mut self, char: char) -> Result<Vec<StateMessage>, TGVError> { 
-
-        // TODO: clear logic is not right here. 
+    pub fn update_by_char(&mut self, char: char) -> Result<Vec<StateMessage>, TGVError> {
+        // TODO: clear logic is not right here.
         // Add to registers
         let messages = match char {
             '1' | '2' | '3' | '4' | '5' | '6' | '7' | '8' | '9' => {
                 if self.input.is_empty() || self.input.parse::<usize>().is_ok() {
-                    vec![StateMessage::AddCharToNormalModeRegisters(char)]
+                    self.add_char(char);
+                    return Ok(vec![]); // Don't clear the register
                 } else {
-                    return Err(TGVError::RegisterError(format!("Invalid input: {}", self.input)))
+                    return Err(TGVError::RegisterError(format!(
+                        "Invalid input: {}",
+                        self.input
+                    )));
                 }
-            },
+            }
             '0' => match self.input.len() {
                 0 => return Err(TGVError::RegisterError("Empty input".to_string())),
                 _ => {
                     if self.input.parse::<usize>().is_ok() {
-                        vec![StateMessage::AddCharToNormalModeRegisters('0')]
+                        self.add_char('0');
+                        return Ok(vec![]); // Don't clear the register
                     } else {
-                        return Err(TGVError::RegisterError(format!("Invalid input: {}", self.input)));
+                        return Err(TGVError::RegisterError(format!(
+                            "Invalid input: {}",
+                            self.input
+                        )));
                     }
                 }
             },
@@ -105,9 +149,12 @@ impl NormalModeRegister {
             'g' => {
                 if self.input.is_empty() || self.input.parse::<usize>().is_ok() {
                     self.add_char('g');
-                    return Ok(vec![]) // Don't clear the register
+                    return Ok(vec![]); // Don't clear the register
                 } else {
-                    return Err(TGVError::RegisterError(format!("Invalid input: {}", self.input)))
+                    return Err(TGVError::RegisterError(format!(
+                        "Invalid input: {}",
+                        self.input
+                    )));
                 }
             }
 
@@ -124,7 +171,10 @@ impl NormalModeRegister {
                 }
 
                 if suffix.is_none() {
-                    return Err(TGVError::RegisterError(format!("Invalid normal mode input: {}", string)));
+                    return Err(TGVError::RegisterError(format!(
+                        "Invalid normal mode input: {}",
+                        string
+                    )));
                 }
 
                 let suffix = suffix.unwrap();
@@ -136,32 +186,54 @@ impl NormalModeRegister {
                 } else {
                     match string[0..string.len() - suffix.len()].parse::<usize>() {
                         Ok(n) => n_movements = n,
-                        Err(_) => return Err(TGVError::RegisterError(format!("Invalid normal mode input: {}", string))),
+                        Err(_) => {
+                            return Err(TGVError::RegisterError(format!(
+                                "Invalid normal mode input: {}",
+                                string
+                            )))
+                        }
                     }
                 }
 
                 match suffix.as_str() {
-                    "ge" => vec![StateMessage::GotoPreviousExonsEnd(n_movements),],
-                    "gE" => vec![StateMessage::GotoPreviousGenesEnd(n_movements),],
-                    "w" => vec![StateMessage::GotoNextExonsStart(n_movements),],
-                    "b" => vec![StateMessage::GotoPreviousExonsStart(n_movements),],
-                    "e" => vec![StateMessage::GotoNextExonsEnd(n_movements),],
-                    "W" => vec![StateMessage::GotoNextGenesStart(n_movements),],
-                    "B" => vec![StateMessage::GotoPreviousGenesStart(n_movements),],
-                    "E" => vec![StateMessage::GotoNextGenesEnd(n_movements),],
-                    "h" => vec![StateMessage::MoveLeft(n_movements * Self::SMALL_HORIZONTAL_STEP),],
-                    "l" => vec![StateMessage::MoveRight(n_movements * Self::SMALL_HORIZONTAL_STEP),],
-                    "j" => vec![StateMessage::MoveDown(n_movements * Self::SMALL_VERTICAL_STEP),],
-                    "k" => vec![StateMessage::MoveUp(n_movements * Self::SMALL_VERTICAL_STEP),],
+                    "ge" => vec![StateMessage::GotoPreviousExonsEnd(n_movements)],
+                    "gE" => vec![StateMessage::GotoPreviousGenesEnd(n_movements)],
+                    "w" => vec![StateMessage::GotoNextExonsStart(n_movements)],
+                    "b" => vec![StateMessage::GotoPreviousExonsStart(n_movements)],
+                    "e" => vec![StateMessage::GotoNextExonsEnd(n_movements)],
+                    "W" => vec![StateMessage::GotoNextGenesStart(n_movements)],
+                    "B" => vec![StateMessage::GotoPreviousGenesStart(n_movements)],
+                    "E" => vec![StateMessage::GotoNextGenesEnd(n_movements)],
+                    "h" => vec![StateMessage::MoveLeft(
+                        n_movements * Self::SMALL_HORIZONTAL_STEP,
+                    )],
+                    "l" => vec![StateMessage::MoveRight(
+                        n_movements * Self::SMALL_HORIZONTAL_STEP,
+                    )],
+                    "j" => vec![StateMessage::MoveDown(
+                        n_movements * Self::SMALL_VERTICAL_STEP,
+                    )],
+                    "k" => vec![StateMessage::MoveUp(
+                        n_movements * Self::SMALL_VERTICAL_STEP,
+                    )],
 
-                    "y" => vec![StateMessage::MoveLeft(Self::LARGE_HORIZONTAL_STEP * n_movements),],
-                    "p" => vec![StateMessage::MoveRight(Self::LARGE_HORIZONTAL_STEP * n_movements),],
+                    "y" => vec![StateMessage::MoveLeft(
+                        Self::LARGE_HORIZONTAL_STEP * n_movements,
+                    )],
+                    "p" => vec![StateMessage::MoveRight(
+                        Self::LARGE_HORIZONTAL_STEP * n_movements,
+                    )],
 
-                    "z" => vec![StateMessage::ZoomIn(Self::ZOOM_STEP * n_movements),],
-                    "o" => vec![StateMessage::ZoomOut(Self::ZOOM_STEP * n_movements),],
-                    "{" => vec![StateMessage::GotoPreviousContig(n_movements),],
-                    "}" => vec![StateMessage::GotoNextContig(n_movements),],
-                    _ => return Err(TGVError::RegisterError(format!("Invalid normal mode input: {}", string))),
+                    "z" => vec![StateMessage::ZoomIn(Self::ZOOM_STEP * n_movements)],
+                    "o" => vec![StateMessage::ZoomOut(Self::ZOOM_STEP * n_movements)],
+                    "{" => vec![StateMessage::GotoPreviousContig(n_movements)],
+                    "}" => vec![StateMessage::GotoNextContig(n_movements)],
+                    _ => {
+                        return Err(TGVError::RegisterError(format!(
+                            "Invalid normal mode input: {}",
+                            string
+                        )))
+                    }
                 }
             }
         };
@@ -172,29 +244,24 @@ impl NormalModeRegister {
     }
 }
 
-
 impl Register for NormalModeRegister {
     fn update(&mut self, event: Event) -> Result<Vec<StateMessage>, TGVError> {
         match event {
-            Event::Key(key_event) => {
-                match key_event.code {
-                    KeyCode::Char(':') => {
-                        self.clear();
-                        return Ok(vec![StateMessage::SwitchMode(InputMode::Normal)])
-                    }
-                    KeyCode::Char(char) => return self.update_by_char(char),
-                    _ => {
-                        self.clear();
-                        return Err(TGVError::RegisterError(format!(
-                            "Invalid input: {:?}",
-                            key_event
-                        )))
-
-                    }
+            Event::Key(key_event) => match key_event.code {
+                KeyCode::Char(':') => {
+                    self.clear();
+                    return Ok(vec![StateMessage::SwitchMode(InputMode::Normal)]);
                 }
-            }
-            _ => Ok(vec![])
-
+                KeyCode::Char(char) => return self.update_by_char(char),
+                _ => {
+                    self.clear();
+                    return Err(TGVError::RegisterError(format!(
+                        "Invalid input: {:?}",
+                        key_event
+                    )));
+                }
+            },
+            _ => Ok(vec![]),
         }
     }
 }
@@ -256,21 +323,34 @@ impl CommandModeRegister {
 }
 
 impl Register for CommandModeRegister {
-    pub fn udpate(&self, event: Event) -> Result<Vec<StateMessage>, TGVError> {
-
+    fn update(&mut self, event: Event) -> Result<Vec<StateMessage>, TGVError> {
         // TODO
-        match c {
-            KeyCode::Char(c) => Ok(vec![StateMessage::AddCharToCommandModeRegisters(c)]),
-            KeyCode::Backspace => Ok(vec![StateMessage::BackspaceCommandModeRegisters]),
-            KeyCode::Left => Ok(vec![StateMessage::MoveCursorLeft(1)]),
-            KeyCode::Right => Ok(vec![StateMessage::MoveCursorRight(1)]),
-            _ => Err("Invalid input".to_string()),
+        match event {
+            Event::Key(key_event) => match key_event.code {
+                KeyCode::Char(c) => {
+                    self.add_char(c);
+                    Ok(vec![])
+                }
+                KeyCode::Backspace => {
+                    self.backspace();
+                    Ok(vec![])
+                }
+                KeyCode::Left => {
+                    self.move_cursor_left(1);
+                    Ok(vec![])
+                }
+                KeyCode::Right => {
+                    self.move_cursor_right(1);
+                    Ok(vec![])
+                }
+                _ => Err(TGVError::RegisterError("Invalid input".to_string())),
+            },
+            _ => Ok(vec![]),
         }
     }
 }
 
 impl CommandModeRegister {
-
     /// Supported commands:
     /// :q: Quit.
     /// :h: Help.
@@ -294,7 +374,7 @@ impl CommandModeRegister {
             },
             2 => match split[1].parse::<usize>() {
                 Ok(n) => Ok(vec![StateMessage::GotoContigCoordinate(
-                    split[0].to_string(),
+                    Contig::chrom(split[0]),
                     n,
                 )]),
                 Err(_) => Err(format!("Invalid command mode input: {}", self.input)),
@@ -306,7 +386,7 @@ impl CommandModeRegister {
 
 // TODO: HelpMode
 // Old code:
-/* 
+/*
 
 fn translate_key_event(&self, key_event: KeyEvent) -> Vec<StateMessage> {
     let messages = match self.input_mode {
@@ -371,8 +451,6 @@ fn translate_key_event(&self, key_event: KeyEvent) -> Vec<StateMessage> {
 }
 */
 
-
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -382,8 +460,14 @@ mod tests {
     #[rstest]
     #[case("q", Ok(vec![StateMessage::Quit]))]
     #[case("1234", Ok(vec![StateMessage::GotoCoordinate(1234)]))]
-    #[case("chr1:1000", Ok(vec![StateMessage::GotoContigCoordinate("chr1".to_string(), 1000)]))]
-    #[case("17:7572659", Ok(vec![StateMessage::GotoContigCoordinate("17".to_string(), 7572659)]))]
+    #[case("chr1:1000", Ok(vec![StateMessage::GotoContigCoordinate(
+        Contig::chrom("chr1"),
+        1000,
+    )]))]
+    #[case("17:7572659", Ok(vec![StateMessage::GotoContigCoordinate(
+        Contig::chrom("17"),
+        7572659,
+    )]))]
     #[case("TP53", Ok(vec![StateMessage::GoToGene("TP53".to_string())]))]
     #[case("invalid:command:format", Err("Invalid command mode input: invalid:command:format".to_string()))]
     #[case("chr1:invalid", Err("Invalid command mode input: chr1:invalid".to_string()))]

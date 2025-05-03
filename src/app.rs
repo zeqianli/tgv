@@ -14,16 +14,18 @@ use ratatui::{
 
 use crate::error::TGVError;
 use crate::models::mode::InputMode;
-use crate::models::register::RegisterEnum;
+use crate::models::register::{Register, RegisterEnum, Registers};
 use crate::rendering::RenderingState;
+use crate::repository::Repository;
 use crate::settings::Settings;
 use crate::states::{State, StateHandler};
 pub struct App {
     pub state: State, // Holds all states and data
 
-    pub state_handler: StateHandler, // Update states accourding from state messages
+    //pub state_handler: StateHandler, // Update states accourding from state messages
+    pub repository: Repository, // Data CRUD interface
 
-    pub register: RegisterEnum, // Controls key event translation to StateMessages. Uses the State pattern.
+    pub registers: Registers, // Controls key event translation to StateMessages. Uses the State pattern.
 
     pub rendering_state: RenderingState,
 }
@@ -33,8 +35,9 @@ impl App {
     pub async fn new(settings: Settings) -> Result<Self, TGVError> {
         Ok(Self {
             state: State::new(&settings)?,
-            state_handler: StateHandler::new(&settings).await?,
-            register: RegisterEnum::new(InputMode::Normal)?,
+            //state_handler: StateHandler::new(&settings).await?,
+            repository: Repository::new(&settings).await?,
+            registers: Registers::new()?,
             rendering_state: RenderingState::new(),
         })
     }
@@ -44,18 +47,40 @@ impl App {
 impl App {
     /// Main loop
     pub async fn run<B: Backend>(&mut self, terminal: &mut Terminal<B>) -> Result<(), TGVError> {
-        let mut last_frame_mode = InputMode::Normal;
-
         while !self.state.exit {
             let frame_area = terminal.get_frame().area();
             self.state.update_frame_area(frame_area);
 
             if !self.state.initialized() {
                 // Handle the initial messages
+                let initial_state_messages = self.state.settings.initial_state_messages.clone();
+                StateHandler::handle_initial_messages(
+                    &mut self.state,
+                    &self.repository,
+                    initial_state_messages,
+                )
+                .await?;
+            }
 
-                self.state
-                    .handle(self.state.settings.initial_state_messages.clone())
-                    .await?;
+            // handle events
+            if !self.state.settings.test_mode {
+                match event::read() {
+                    Ok(event) => {
+                        let state_messages = self.registers.get(&self.state)?.update(event)?;
+                        StateHandler::handle(&mut self.state, &self.repository, state_messages)
+                            .await?;
+                    }
+                    _ => {}
+                }
+            }
+            self.rendering_state.update(&self.state);
+
+            if self.rendering_state.needs_refresh() {
+                let _ = terminal.clear();
+            }
+
+            if self.state.settings.test_mode {
+                break;
             }
 
             terminal
@@ -63,38 +88,6 @@ impl App {
                     self.draw(frame);
                 })
                 .unwrap();
-
-            // handle events
-            if !self.state.settings.test_mode {
-                match event::read() {
-                    Ok(Event::Key(key_event)) if key_event.kind == KeyEventKind::Press => {
-                        self.state.handle_key_event(key_event).await?;
-                    }
-                    Ok(Event::Resize(_width, _height)) => {
-                        self.state.self_correct_viewing_window();
-                    }
-
-                    _ => {}
-                };
-            }
-
-            // terminal.clear() is needed when the layout changes significantly, or the last frame is burned into the new frame.
-            let need_screen_refresh = ((last_frame_mode == InputMode::Help)
-                && (self.state.input_mode != InputMode::Help))
-                || ((last_frame_mode != InputMode::Help)
-                    && (self.state.input_mode == InputMode::Help))
-                || frame_area.width != terminal.get_frame().area().width
-                || frame_area.height != terminal.get_frame().area().height;
-
-            if need_screen_refresh {
-                let _ = terminal.clear();
-            }
-
-            last_frame_mode = self.state.input_mode.clone();
-
-            if self.state.settings.test_mode {
-                break;
-            }
         }
         Ok(())
     }
@@ -109,7 +102,7 @@ impl App {
 
     /// close connections
     pub async fn close(&mut self) -> Result<(), TGVError> {
-        self.state_handler.close().await?;
+        self.repository.close().await?;
         Ok(())
     }
 }
@@ -118,8 +111,7 @@ const MIN_AREA_HEIGHT: u16 = 6;
 impl Widget for &App {
     fn render(self, area: Rect, buf: &mut Buffer) {
         self.rendering_state
-            .update(&self.state.input_mode)
-            .render(area, buf, &self.state, &self.register)
+            .render(area, buf, &self.state, &self.registers)
             .unwrap()
     }
 }
