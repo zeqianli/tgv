@@ -112,7 +112,7 @@ impl RenderingState {
 
                 // Cytobands
                 if state.cytoband_renderable()? {
-                    render_cytobands(&cytoband_area, buf, state);
+                    render_cytobands(&cytoband_area, buf, state)?;
                 }
 
                 // Coordinates
@@ -122,7 +122,7 @@ impl RenderingState {
                 if state.alignment_renderable()? {
                     if let Some(alignment) = &state.alignment {
                         render_coverage(&coverage_area, buf, state.viewing_window()?, alignment)?;
-                        render_alignment(&alignment_area, buf, state.viewing_window()?, alignment);
+                        render_alignment(&alignment_area, buf, state.viewing_window()?, alignment)?;
                     }
                 }
 

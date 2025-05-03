@@ -225,7 +225,7 @@ impl StateHandler {
     pub async fn load_contig_data(
         state: &mut State,
         repository: &Repository,
-    ) -> Result<ContigCollection, TGVError> {
+    ) -> Result<(), TGVError> {
         let reference = state.reference.as_ref();
         let track_service = repository.track_service.as_ref();
 
@@ -243,7 +243,8 @@ impl StateHandler {
             match &reference {
                 Reference::Hg19 | Reference::Hg38 => {
                     for cytoband in Cytoband::from_human_reference(reference)?.iter() {
-                        contig_data.update_cytoband(&cytoband.contig, Some(cytoband.clone()));
+                        let _ = contig_data
+                            .update_cytoband(&cytoband.contig, Some(cytoband.clone()))?;
                     }
                 }
                 _ => {}
@@ -259,7 +260,9 @@ impl StateHandler {
                 .unwrap();
         }
 
-        Ok(contig_data)
+        state.contigs = contig_data;
+
+        Ok(())
     }
 
     /// Handle initial messages.

@@ -10,7 +10,7 @@ pub trait Register {
     /// Update with a new event.
     /// If applicable, return
     /// If this event triggers an error, returns Error.
-    fn update(&mut self, event: Event) -> Result<Vec<StateMessage>, TGVError>;
+    fn update_key_event(&mut self, event: KeyEvent) -> Result<Vec<StateMessage>, TGVError>;
 }
 
 pub struct Registers {
@@ -58,10 +58,10 @@ pub enum RegisterEnum {
 }
 
 impl Register for RegisterEnum {
-    fn update(&mut self, event: Event) -> Result<Vec<StateMessage>, TGVError> {
+    fn update_key_event(&mut self, key_event: KeyEvent) -> Result<Vec<StateMessage>, TGVError> {
         match self {
-            RegisterEnum::Normal(register) => register.update(event),
-            RegisterEnum::Command(register) => register.update(event),
+            RegisterEnum::Normal(register) => register.update_key_event(key_event),
+            RegisterEnum::Command(register) => register.update_key_event(key_event),
         }
     }
 }
@@ -245,23 +245,20 @@ impl NormalModeRegister {
 }
 
 impl Register for NormalModeRegister {
-    fn update(&mut self, event: Event) -> Result<Vec<StateMessage>, TGVError> {
-        match event {
-            Event::Key(key_event) => match key_event.code {
-                KeyCode::Char(':') => {
-                    self.clear();
-                    return Ok(vec![StateMessage::SwitchMode(InputMode::Normal)]);
-                }
-                KeyCode::Char(char) => return self.update_by_char(char),
-                _ => {
-                    self.clear();
-                    return Err(TGVError::RegisterError(format!(
-                        "Invalid input: {:?}",
-                        key_event
-                    )));
-                }
-            },
-            _ => Ok(vec![]),
+    fn update_key_event(&mut self, key_event: KeyEvent) -> Result<Vec<StateMessage>, TGVError> {
+        match key_event.code {
+            KeyCode::Char(':') => {
+                self.clear();
+                return Ok(vec![StateMessage::SwitchMode(InputMode::Normal)]);
+            }
+            KeyCode::Char(char) => return self.update_by_char(char),
+            _ => {
+                self.clear();
+                return Err(TGVError::RegisterError(format!(
+                    "Invalid input: {:?}",
+                    key_event
+                )));
+            }
         }
     }
 }
@@ -323,29 +320,26 @@ impl CommandModeRegister {
 }
 
 impl Register for CommandModeRegister {
-    fn update(&mut self, event: Event) -> Result<Vec<StateMessage>, TGVError> {
+    fn update_key_event(&mut self, key_event: KeyEvent) -> Result<Vec<StateMessage>, TGVError> {
         // TODO
-        match event {
-            Event::Key(key_event) => match key_event.code {
-                KeyCode::Char(c) => {
-                    self.add_char(c);
-                    Ok(vec![])
-                }
-                KeyCode::Backspace => {
-                    self.backspace();
-                    Ok(vec![])
-                }
-                KeyCode::Left => {
-                    self.move_cursor_left(1);
-                    Ok(vec![])
-                }
-                KeyCode::Right => {
-                    self.move_cursor_right(1);
-                    Ok(vec![])
-                }
-                _ => Err(TGVError::RegisterError("Invalid input".to_string())),
-            },
-            _ => Ok(vec![]),
+        match key_event.code {
+            KeyCode::Char(c) => {
+                self.add_char(c);
+                Ok(vec![])
+            }
+            KeyCode::Backspace => {
+                self.backspace();
+                Ok(vec![])
+            }
+            KeyCode::Left => {
+                self.move_cursor_left(1);
+                Ok(vec![])
+            }
+            KeyCode::Right => {
+                self.move_cursor_right(1);
+                Ok(vec![])
+            }
+            _ => Err(TGVError::RegisterError("Invalid input".to_string())),
         }
     }
 }

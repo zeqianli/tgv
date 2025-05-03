@@ -3,8 +3,11 @@ use crate::helpers::is_url;
 use crate::models::{contig::Contig, cytoband::Cytoband, reference::Reference};
 use crate::repository::{AlignmentRepository, AlignmentRepositoryEnum};
 use std::collections::HashMap;
+use std::fmt;
+use std::fmt::Display;
 use url::Url;
 
+#[derive(Debug)]
 pub struct ContigDatum {
     contig: Contig,             // Name
     length: Option<usize>,      // Length
@@ -14,6 +17,7 @@ pub struct ContigDatum {
 }
 
 /// A collection of contigs. This helps relative contig movements.
+#[derive(Debug)]
 pub struct ContigCollection {
     reference: Option<Reference>,
     contigs: Vec<ContigDatum>,
@@ -150,5 +154,14 @@ impl ContigCollection {
                 contig.full_name()
             )))?;
         Ok(self.contigs[*index].cytoband_loaded)
+    }
+}
+
+impl Display for ContigCollection {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        for contig in &self.contigs {
+            write!(f, "{}: {:?}\n", contig.contig.full_name(), contig.length)?;
+        }
+        Ok(())
     }
 }

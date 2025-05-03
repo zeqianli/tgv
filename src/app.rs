@@ -1,6 +1,6 @@
 /// The main app object
 ///
-use crossterm::event;
+use crossterm::event::{self, Event, KeyEventKind};
 use ratatui::{
     buffer::Buffer,
     layout::{Layout, Rect},
@@ -54,20 +54,6 @@ impl App {
                 StateHandler::initialize(&mut self.state, &self.repository, &self.settings).await?;
             }
 
-            // handle events
-            if !self.settings.test_mode {
-                if let Ok(event) = event::read() {
-                    let state_messages = self.registers.get(&self.state)?.update(event)?;
-                    StateHandler::handle(
-                        &mut self.state,
-                        &self.repository,
-                        &self.settings,
-                        state_messages,
-                    )
-                    .await?;
-                }
-            }
-
             // Prepare rendering
             self.rendering_state.update(&self.state)?;
 
@@ -86,6 +72,32 @@ impl App {
                     self.draw(frame);
                 })
                 .unwrap();
+
+            // handle events
+            if !self.settings.test_mode {
+                match event::read() {
+                    Ok(Event::Key(key_event)) if key_event.kind == KeyEventKind::Press => {
+                        let state_messages = self
+                            .registers
+                            .get(&self.state)?
+                            .update_key_event(key_event)?;
+                        StateHandler::handle(
+                            &mut self.state,
+                            &self.repository,
+                            &self.settings,
+                            state_messages,
+                        )
+                        .await?;
+                    }
+
+                    Ok(Event::Resize(_width, _height)) => {
+                        self.state.self_correct_viewing_window();
+                    }
+                    _ => {
+                        panic!("test4");
+                    }
+                };
+            }
         }
         Ok(())
     }
