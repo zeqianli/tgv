@@ -33,7 +33,7 @@ pub struct State {
     pub reference: Option<Reference>,
 
     /// Settings
-    pub settings: Settings,
+    ///pub settings: Settings,
 
     /// Error messages for display.
     pub errors: Vec<String>,
@@ -64,7 +64,7 @@ impl State {
 
             reference: settings.reference.clone(),
 
-            settings: settings.clone(),
+            // /settings: settings.clone(),
             errors: Vec::new(),
 
             alignment: None,
@@ -154,7 +154,7 @@ impl State {
 
     /// Get the reference if set.
     pub fn reference_checked(&self) -> Result<&Reference, TGVError> {
-        match self.settings.reference {
+        match self.reference {
             Some(ref reference) => Ok(reference),
             None => Err(TGVError::StateError("Reference is not set".to_string())),
         }
@@ -207,8 +207,59 @@ impl State {
 pub struct StateHandler {}
 
 impl StateHandler {
-    pub async fn new(settings: &Settings) -> Result<Self, TGVError> {
-        Ok(Self {})
+    pub async fn initialize(
+        state: &mut State,
+        repository: &Repository,
+        settings: &Settings,
+    ) -> Result<(), TGVError> {
+        // Load contigs from reference and bam file.
+        StateHandler::load_contig_data(state, repository).await?;
+
+        // Handle the initial messages
+        let initial_state_messages = settings.initial_state_messages.clone();
+        StateHandler::handle_initial_messages(state, repository, initial_state_messages).await?;
+
+        Ok(())
+    }
+
+    pub async fn load_contig_data(
+        state: &mut State,
+        repository: &Repository,
+    ) -> Result<ContigCollection, TGVError> {
+        let reference = state.reference.as_ref();
+        let track_service = repository.track_service.as_ref();
+
+        let mut contig_data = ContigCollection::new(reference.cloned());
+
+        if let (Some(reference), Some(track_service)) = (reference, track_service) {
+            for (contig, length) in track_service.get_all_contigs(reference).await? {
+                contig_data
+                    .update_or_add_contig(contig, Some(length))
+                    .unwrap();
+            }
+        }
+
+        if let Some(reference) = reference {
+            match &reference {
+                Reference::Hg19 | Reference::Hg38 => {
+                    for cytoband in Cytoband::from_human_reference(reference)?.iter() {
+                        contig_data.update_cytoband(&cytoband.contig, Some(cytoband.clone()));
+                    }
+                }
+                _ => {}
+            }
+        }
+
+        if !matches!(
+            repository.alignment_repository,
+            AlignmentRepositoryEnum::None
+        ) {
+            contig_data
+                .update_from_bam(reference, &repository.alignment_repository)
+                .unwrap();
+        }
+
+        Ok(contig_data)
     }
 
     /// Handle initial messages.
@@ -237,6 +288,7 @@ impl StateHandler {
     pub async fn handle(
         state: &mut State,
         repository: &Repository,
+        settings: &Settings,
         messages: Vec<StateMessage>,
     ) -> Result<(), TGVError> {
         let debug_messages_0 = messages
@@ -263,7 +315,7 @@ impl StateHandler {
             loaded_data = Self::handle_data_message(state, repository, data_message).await?;
         }
 
-        if state.settings.debug {
+        if settings.debug {
             if loaded_data {
                 StateHandler::add_message(
                     state,
@@ -384,7 +436,7 @@ impl StateHandler {
         let viewing_window = state.viewing_window()?;
         let viewing_region = state.viewing_region()?;
 
-        if state.settings.bam_path.is_some()
+        if state.alignment.is_some() // TODO: might have a better way.
             && viewing_window.zoom() <= Self::MAX_ZOOM_TO_DISPLAY_ALIGNMENTS
             && !Self::has_complete_alignment(state, &viewing_region)
         {
@@ -394,7 +446,7 @@ impl StateHandler {
             ));
         }
 
-        if state.settings.reference.is_some() {
+        if state.reference.is_some() {
             if !Self::has_complete_track(state, &viewing_region) {
                 // viewing_window.zoom() <= Self::MAX_ZOOM_TO_DISPLAY_FEATURES is always true
                 let track_cache_region = Self::track_cache_region(state, &viewing_region)?;
@@ -550,7 +602,7 @@ impl StateHandler {
             return Err(TGVError::StateError(format!(
                 "Contig {:?} not found for reference {:?}",
                 contig.full_name(),
-                state.settings.reference
+                state.reference
             )));
         }
 
@@ -869,7 +921,7 @@ impl StateHandler {
         state: &mut State,
         repository: &Repository,
     ) -> Result<Vec<DataMessage>, TGVError> {
-        let reference = state.settings.reference.as_ref();
+        let reference = state.reference.as_ref();
         match reference {
             Some(Reference::Hg38) | Some(Reference::Hg19) => {
                 return Self::go_to_gene(state, repository, "TP53".to_string()).await;
@@ -1037,37 +1089,4 @@ impl StateHandler {
     pub fn has_complete_sequence(state: &State, region: &Region) -> bool {
         state.sequence.is_some() && state.sequence.as_ref().unwrap().has_complete_data(region)
     }
-}
-
-pub async fn load_contig_data(
-    reference: Option<&Reference>,
-    track_service: Option<&TrackServiceEnum>,
-    repository: &AlignmentRepositoryEnum,
-) -> Result<ContigCollection, TGVError> {
-    let mut contig_data = ContigCollection::new(reference.cloned());
-
-    if let (Some(reference), Some(track_service)) = (reference, track_service) {
-        for (contig, length) in track_service.get_all_contigs(reference).await? {
-            contig_data
-                .update_or_add_contig(contig, Some(length))
-                .unwrap();
-        }
-    }
-
-    if let Some(reference) = reference {
-        match &reference {
-            Reference::Hg19 | Reference::Hg38 => {
-                for cytoband in Cytoband::from_human_reference(reference)?.iter() {
-                    contig_data.update_cytoband(&cytoband.contig, Some(cytoband.clone()));
-                }
-            }
-            _ => {}
-        }
-    }
-
-    if !matches!(repository, AlignmentRepositoryEnum::None) {
-        contig_data.update_from_bam(reference, repository).unwrap();
-    }
-
-    Ok(contig_data)
 }

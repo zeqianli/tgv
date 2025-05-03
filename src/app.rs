@@ -18,6 +18,8 @@ use crate::states::{State, StateHandler};
 pub struct App {
     pub state: State, // Holds all states and data
 
+    pub settings: Settings,
+
     //pub state_handler: StateHandler, // Update states accourding from state messages
     pub repository: Repository, // Data CRUD interface
 
@@ -31,6 +33,7 @@ impl App {
     pub async fn new(settings: Settings) -> Result<Self, TGVError> {
         Ok(Self {
             state: State::new(&settings)?,
+            settings: settings.clone(),
             //state_handler: StateHandler::new(&settings).await?,
             repository: Repository::new(&settings).await?,
             registers: Registers::new()?,
@@ -48,36 +51,35 @@ impl App {
             self.state.update_frame_area(frame_area);
 
             if !self.state.initialized() {
-                // Handle the initial messages
-                let initial_state_messages = self.state.settings.initial_state_messages.clone();
-                StateHandler::handle_initial_messages(
-                    &mut self.state,
-                    &self.repository,
-                    initial_state_messages,
-                )
-                .await?;
+                StateHandler::initialize(&mut self.state, &self.repository, &self.settings).await?;
             }
 
             // handle events
-            if !self.state.settings.test_mode {
-                match event::read() {
-                    Ok(event) => {
-                        let state_messages = self.registers.get(&self.state)?.update(event)?;
-                        StateHandler::handle(&mut self.state, &self.repository, state_messages)
-                            .await?;
-                    }
-                    _ => {}
+            if !self.settings.test_mode {
+                if let Ok(event) = event::read() {
+                    let state_messages = self.registers.get(&self.state)?.update(event)?;
+                    StateHandler::handle(
+                        &mut self.state,
+                        &self.repository,
+                        &self.settings,
+                        state_messages,
+                    )
+                    .await?;
                 }
             }
-            self.rendering_state.update(&self.state);
+
+            // Prepare rendering
+            self.rendering_state.update(&self.state)?;
 
             if self.rendering_state.needs_refresh() {
                 let _ = terminal.clear();
             }
 
-            if self.state.settings.test_mode {
+            if self.settings.test_mode {
                 break;
             }
+
+            // Render
 
             terminal
                 .draw(|frame| {
