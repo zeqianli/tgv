@@ -53,7 +53,10 @@ impl Register for Registers {
                 return Ok(vec![]);
             }
             (KeyCode::Enter, RegisterType::Command) => {
-                let output = self.command.parse()?;
+                let output = self
+                    .command
+                    .parse()
+                    .unwrap_or_else(|e| vec![StateMessage::Message(format!("{}", e))]);
                 self.current = RegisterType::Normal;
                 self.command.clear();
                 return Ok(output);
@@ -61,10 +64,15 @@ impl Register for Registers {
             _ => {}
         }
 
-        match self.current {
+        Ok(match self.current {
             RegisterType::Normal => self.normal.update_key_event(key_event),
             RegisterType::Command => self.command.update_key_event(key_event),
         }
+        .unwrap_or_else(|e| {
+            self.command.clear();
+            self.normal.clear();
+            vec![StateMessage::Message(format!("{}", e))]
+        }))
     }
 }
 

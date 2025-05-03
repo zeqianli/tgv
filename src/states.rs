@@ -288,53 +288,33 @@ impl StateHandler {
         Ok(())
     }
 
-    /// Handle messages.
+    /// Handle messages after initialization. This blocks any error messages instead of propagating them.
     pub async fn handle(
         state: &mut State,
         repository: &Repository,
         settings: &Settings,
         messages: Vec<StateMessage>,
     ) -> Result<(), TGVError> {
-        let debug_messages_0 = messages
-            .iter()
-            .map(|m| format!("{:?}", m))
-            .collect::<Vec<String>>()
-            .join(", ");
+        StateHandler::clear_messages(state)?;
 
-        let mut data_messages = Vec::new();
+        let mut data_messages: Vec<DataMessage> = Vec::new();
 
         for message in messages {
-            data_messages.extend(
-                StateHandler::handle_state_message(state, repository, settings, message).await?,
-            );
+            match StateHandler::handle_state_message(state, repository, settings, message).await {
+                Ok(messages) => data_messages.extend(messages),
+                Err(e) => return StateHandler::add_message(state, e.to_string()),
+            }
         }
 
         let data_messages = StateHandler::get_data_requirements(state, settings)?;
 
-        let debug_message = data_messages
-            .iter()
-            .map(|m| format!("{:?}", m))
-            .collect::<Vec<String>>()
-            .join(", ");
-
-        let mut loaded_data = false;
         for data_message in data_messages {
-            loaded_data = Self::handle_data_message(state, repository, data_message).await?;
-        }
-
-        if settings.debug {
-            if loaded_data {
-                StateHandler::add_message(
-                    state,
-                    format!("Data loaded: {}\n{}", debug_messages_0, debug_message),
-                );
-            } else {
-                StateHandler::add_message(
-                    state,
-                    format!("Data not loaded: {}\n{}", debug_messages_0, debug_message),
-                );
+            match Self::handle_data_message(state, repository, data_message).await {
+                Ok(_) => {}
+                Err(e) => return StateHandler::add_message(state, e.to_string()),
             }
         }
+
         Ok(())
     }
 
@@ -426,6 +406,11 @@ impl StateHandler {
 
     fn add_message(state: &mut State, message: String) -> Result<(), TGVError> {
         state.errors.push(message);
+        Ok(())
+    }
+
+    fn clear_messages(state: &mut State) -> Result<(), TGVError> {
+        state.errors.clear();
         Ok(())
     }
 

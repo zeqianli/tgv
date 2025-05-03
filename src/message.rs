@@ -32,16 +32,6 @@ pub enum StateMessage {
     ZoomIn(usize),
     ZoomOut(usize),
 
-    // AddCharToNormalModeRegisters(char),
-    // ClearNormalModeRegisters,
-    // NormalModeRegisterError(String),
-
-    // AddCharToCommandModeRegisters(char),
-    // ClearCommandModeRegisters,
-    // BackspaceCommandModeRegisters,
-    // MoveCursorLeft(usize),
-    // MoveCursorRight(usize),
-    // CommandModeRegisterError(String),
     Message(String),
 
     Quit,
