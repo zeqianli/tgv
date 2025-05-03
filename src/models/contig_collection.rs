@@ -1,8 +1,7 @@
 use crate::error::TGVError;
 use crate::helpers::is_url;
 use crate::models::{contig::Contig, cytoband::Cytoband, reference::Reference};
-use crate::repository::{AlignmentRepositoryEnum, AlignmentRepository};
-use rust_htslib::bam::{self, IndexedReader, Read};
+use crate::repository::{AlignmentRepository, AlignmentRepositoryEnum};
 use std::collections::HashMap;
 use url::Url;
 
@@ -82,13 +81,11 @@ impl ContigCollection {
     pub fn update_from_bam(
         &mut self,
         reference: Option<&Reference>,
-        bam: &AlignmentRepositoryEnum
+        bam: &AlignmentRepositoryEnum,
     ) -> Result<(), TGVError> {
         // Use the indexed_reader::Builder pattern as shown in alignment.rs
-        
 
         for (contig_name, contig_length) in bam.read_header()? {
-            
             let contig = match reference {
                 // If the reference is human, interpret contig names as chromosomes. This allows abbreviated matching (chr1 <-> 1).
                 Some(Reference::Hg19) => Contig::chrom(&contig_name),
@@ -101,9 +98,6 @@ impl ContigCollection {
 
             self.update_or_add_contig(contig, contig_length)?;
         }
-            
-        
-    
 
         Ok(())
     }

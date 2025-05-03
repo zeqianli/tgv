@@ -1,19 +1,15 @@
 /// The main app object
 ///
-use crossterm::event::{self, Event, KeyEventKind};
+use crossterm::event;
 use ratatui::{
     buffer::Buffer,
-    layout::{
-        Constraint::{Fill, Length},
-        Layout, Rect,
-    },
+    layout::{Layout, Rect},
     prelude::Backend,
     widgets::Widget,
     Frame, Terminal,
 };
 
 use crate::error::TGVError;
-use crate::models::mode::InputMode;
 use crate::models::register::{Register, RegisterEnum, Registers};
 use crate::rendering::RenderingState;
 use crate::repository::Repository;

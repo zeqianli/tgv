@@ -35,7 +35,6 @@ pub enum TGVError {
 
     #[error("Register error: {0}")]
     RegisterError(String),
-
 }
 
 impl TGVError {

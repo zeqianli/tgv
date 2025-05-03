@@ -1,5 +1,4 @@
 use crate::error::TGVError;
-use crate::helpers::is_url;
 use crate::models::{contig::Contig, region::Region};
 use rust_htslib::bam::ext::BamRecordExtensions;
 use rust_htslib::bam::{Header, IndexedReader, Read, Record};
@@ -66,7 +65,6 @@ pub struct Alignment {
     depth: usize,
 }
 
-
 /// Data loading
 impl Alignment {
     /// Check if data in [left, right] is all loaded.
@@ -118,9 +116,7 @@ impl Alignment {
     }
 }
 
-
 pub struct AlignmentBuilder {
-
     aligned_reads: Vec<AlignedRead>,
     coverage_hashmap: HashMap<usize, usize>,
 
@@ -130,15 +126,14 @@ pub struct AlignmentBuilder {
     track_most_left_bound: usize,
     track_most_right_bound: usize,
 
-    region: Option<Region>
-
+    region: Option<Region>,
 }
 
 impl AlignmentBuilder {
-    pub fn new() -> Result<Self, TGVError> { 
-        Ok(Self { 
+    pub fn new() -> Result<Self, TGVError> {
+        Ok(Self {
             aligned_reads: Vec::new(),
-            coverage_hashmap:  HashMap::new(),
+            coverage_hashmap: HashMap::new(),
             track_left_bounds: Vec::new(),
             track_right_bounds: Vec::new(),
 
@@ -150,7 +145,7 @@ impl AlignmentBuilder {
     }
 
     /// Add a read to the alignment. Note that this function does not update coverage.
-    pub fn add_read(&mut self, read: Record) -> Result<&mut Self, TGVError>{
+    pub fn add_read(&mut self, read: Record) -> Result<&mut Self, TGVError> {
         let read_start = read.pos() as usize + 1;
         let read_end = read.reference_end() as usize;
         let leading_softclips = read.cigar().leading_softclips() as usize;
@@ -197,7 +192,7 @@ impl AlignmentBuilder {
 
         // update coverge hashmap
         for i in aligned_read.range() {
-        // TODO: check exclusivity here
+            // TODO: check exclusivity here
             *self.coverage_hashmap.entry(i).or_insert(1) += 1;
         }
 
@@ -230,14 +225,13 @@ impl AlignmentBuilder {
     }
 
     /// Set the alignment complete region.
-    pub fn region(&mut self, region: &Region) -> Result<&mut Self, TGVError>{
+    pub fn region(&mut self, region: &Region) -> Result<&mut Self, TGVError> {
         self.region = Some(region.clone());
 
         Ok(self)
     }
 
     pub fn build(&self) -> Result<Alignment, TGVError> {
-
         let mut coverage: BTreeMap<usize, usize> = BTreeMap::new();
 
         // Convert hashmap to BTreeMap
@@ -245,27 +239,22 @@ impl AlignmentBuilder {
             *coverage.entry(*k).or_insert(*v) += v;
         }
 
-        if self.region.is_none(){
+        if self.region.is_none() {
             return Err(TGVError::StateError(
-                "AlignmentBuilder is missin Region.".to_string()
-            ))
+                "AlignmentBuilder is missin Region.".to_string(),
+            ));
         }
 
         let region = self.region.clone().unwrap();
-        
-        Ok(Alignment { 
-            reads: self.aligned_reads.clone(), // TODO: lookup on how to move this 
-            contig: region.contig, 
-            coverage: coverage, 
-            data_complete_left_bound: region.start, 
-            data_complete_right_bound: region.end, 
 
-            depth: self.track_left_bounds.len()
+        Ok(Alignment {
+            reads: self.aligned_reads.clone(), // TODO: lookup on how to move this
+            contig: region.contig,
+            coverage: coverage,
+            data_complete_left_bound: region.start,
+            data_complete_right_bound: region.end,
+
+            depth: self.track_left_bounds.len(),
         })
-        
     }
-
-    
-
-    
 }

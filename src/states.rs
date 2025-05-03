@@ -18,7 +18,6 @@ use crate::repository::Repository;
 use crate::settings::Settings;
 use crate::track_service::{TrackCache, TrackService, TrackServiceEnum};
 use crate::traits::GenomeInterval;
-use crossterm::event::{KeyCode, KeyEvent};
 use ratatui::layout::Rect;
 
 /// Holds states of the application.
