@@ -6,12 +6,12 @@ use crate::models::{
     contig::Contig,
     contig_collection::ContigCollection,
     cytoband::Cytoband,
+    feature::Gene,
     message::{DataMessage, StateMessage},
-    mode::InputMode,
     reference::Reference,
     region::Region,
     sequence::Sequence,
-    track::{feature::Gene, track::Track},
+    track::Track,
     window::ViewingWindow,
 };
 use crate::repository::Repository;
@@ -23,7 +23,6 @@ use ratatui::layout::Rect;
 /// Holds states of the application.
 pub struct State {
     /// Basics
-    pub input_mode: InputMode,
     pub exit: bool,
 
     /// Viewing window.
@@ -58,7 +57,6 @@ impl State {
     pub fn new(settings: &Settings) -> Result<Self, TGVError> {
         Ok(Self {
             window: None,
-            input_mode: InputMode::Normal,
             exit: false,
             area: None,
 
@@ -344,8 +342,6 @@ impl StateHandler {
 
         let data_messages: Vec<DataMessage> = match message {
             // Swithching modes
-            StateMessage::SwitchMode(mode) => StateHandler::switch_mode(state, mode)?,
-
             StateMessage::Quit => StateHandler::quit(state)?,
 
             // Movement handling
@@ -417,11 +413,6 @@ impl StateHandler {
     pub const MAX_ZOOM_TO_DISPLAY_FEATURES: usize = usize::MAX;
     pub const MAX_ZOOM_TO_DISPLAY_ALIGNMENTS: usize = 32;
     pub const MAX_ZOOM_TO_DISPLAY_SEQUENCES: usize = 2;
-
-    fn switch_mode(state: &mut State, mode: InputMode) -> Result<Vec<DataMessage>, TGVError> {
-        state.input_mode = mode;
-        Ok(Vec::new())
-    }
 
     fn quit(state: &mut State) -> Result<Vec<DataMessage>, TGVError> {
         state.exit = true;

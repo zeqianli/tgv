@@ -1,9 +1,17 @@
 use crate::{
     error::TGVError,
-    models::{contig::Contig, message::StateMessage, mode::InputMode},
+    models::{contig::Contig, message::StateMessage},
     states::State,
 };
 use crossterm::event::{Event, KeyCode, KeyEvent};
+
+use strum::Display;
+
+#[derive(Debug, Clone, Eq, PartialEq, Display)]
+pub enum RegisterType {
+    Normal,
+    Command,
+}
 
 /// Register stores inputs and translates key event to StateMessages.
 pub trait Register {
@@ -14,57 +22,56 @@ pub trait Register {
 }
 
 pub struct Registers {
-    normal: RegisterEnum,
-    command: RegisterEnum,
+    pub current: RegisterType,
+    pub normal: NormalModeRegister,
+    pub command: CommandModeRegister,
 }
 
 impl Registers {
     pub fn new() -> Result<Self, TGVError> {
         Ok(Self {
-            normal: RegisterEnum::Normal(NormalModeRegister::new()),
-            command: RegisterEnum::Command(CommandModeRegister::new()),
+            current: RegisterType::Normal,
+            normal: NormalModeRegister::new(),
+            command: CommandModeRegister::new(),
         })
     }
-
-    pub fn get(&mut self, state: &State) -> Result<&mut RegisterEnum, TGVError> {
-        match state.input_mode {
-            InputMode::Normal | InputMode::Help => Ok(&mut self.normal),
-            InputMode::Command => Ok(&mut self.command),
-        }
-    }
-
-    pub fn normal(&self) -> Result<&NormalModeRegister, TGVError> {
-        match &self.normal {
-            RegisterEnum::Normal(register) => Ok(register),
-            RegisterEnum::Command(_) => Err(TGVError::RegisterError(
-                "Normal mode register is not active".to_string(),
-            )),
-        }
-    }
-
-    pub fn command(&self) -> Result<&CommandModeRegister, TGVError> {
-        match &self.command {
-            RegisterEnum::Normal(_) => Err(TGVError::RegisterError(
-                "Command mode register is not active".to_string(),
-            )),
-            RegisterEnum::Command(register) => Ok(register),
-        }
-    }
 }
 
-pub enum RegisterEnum {
-    Normal(NormalModeRegister),
-    Command(CommandModeRegister),
-}
+// pub enum RegisterEnum {
+//     Normal(NormalModeRegister),
+//     Command(CommandModeRegister),
+// }
 
-impl Register for RegisterEnum {
+impl Register for Registers {
     fn update_key_event(&mut self, key_event: KeyEvent) -> Result<Vec<StateMessage>, TGVError> {
-        match self {
-            RegisterEnum::Normal(register) => register.update_key_event(key_event),
-            RegisterEnum::Command(register) => register.update_key_event(key_event),
+        match (key_event.code, self.current.clone()) {
+            (KeyCode::Char(':'), RegisterType::Normal) => {
+                self.normal.clear();
+                self.current = RegisterType::Command;
+
+                return Ok(vec![]);
+            }
+            (KeyCode::Esc, RegisterType::Command) => {
+                self.current = RegisterType::Normal;
+                self.command.clear();
+                return Ok(vec![]);
+            }
+            (KeyCode::Enter, RegisterType::Command) => {
+                let output = self.command.parse()?;
+                self.current = RegisterType::Normal;
+                self.command.clear();
+                return Ok(output);
+            }
+            _ => {}
+        }
+
+        match self.current {
+            RegisterType::Normal => self.normal.update_key_event(key_event),
+            RegisterType::Command => self.command.update_key_event(key_event),
         }
     }
 }
+
 #[derive(Clone)]
 pub struct NormalModeRegister {
     input: String,
@@ -247,15 +254,11 @@ impl NormalModeRegister {
 impl Register for NormalModeRegister {
     fn update_key_event(&mut self, key_event: KeyEvent) -> Result<Vec<StateMessage>, TGVError> {
         match key_event.code {
-            KeyCode::Char(':') => {
-                self.clear();
-                return Ok(vec![StateMessage::SwitchMode(InputMode::Normal)]);
-            }
             KeyCode::Char(char) => return self.update_by_char(char),
             _ => {
                 self.clear();
                 return Err(TGVError::RegisterError(format!(
-                    "Invalid input: {:?}",
+                    "Invalid normal mode input: {:?}",
                     key_event
                 )));
             }
@@ -339,7 +342,10 @@ impl Register for CommandModeRegister {
                 self.move_cursor_right(1);
                 Ok(vec![])
             }
-            _ => Err(TGVError::RegisterError("Invalid input".to_string())),
+            _ => Err(TGVError::RegisterError(format!(
+                "Invalid command mode input: {:?}",
+                key_event
+            ))),
         }
     }
 }
@@ -350,13 +356,15 @@ impl CommandModeRegister {
     /// :h: Help.
     /// :1234: Go to position 1234 on the same contig.
     /// :12:1234: Go to position 1234 on contig 12.
-    pub fn parse(&self) -> Result<Vec<StateMessage>, String> {
+    pub fn parse(&self) -> Result<Vec<StateMessage>, TGVError> {
         if self.input == "q" {
             return Ok(vec![StateMessage::Quit]);
         }
 
         if self.input == "h" {
-            return Ok(vec![StateMessage::SwitchMode(InputMode::Help)]);
+            return Err(TGVError::RegisterError(format!(
+                "TODO: help screen is not implemented"
+            )));
         }
 
         let split = self.input.split(":").collect::<Vec<&str>>();
@@ -371,79 +379,18 @@ impl CommandModeRegister {
                     Contig::chrom(split[0]),
                     n,
                 )]),
-                Err(_) => Err(format!("Invalid command mode input: {}", self.input)),
+                Err(_) => Err(TGVError::RegisterError(format!(
+                    "Invalid command mode input: {}",
+                    self.input
+                ))),
             },
-            _ => Err(format!("Invalid command mode input: {}", self.input)),
+            _ => Err(TGVError::RegisterError(format!(
+                "Invalid command mode input: {}",
+                self.input
+            ))),
         }
     }
 }
-
-// TODO: HelpMode
-// Old code:
-/*
-
-fn translate_key_event(&self, key_event: KeyEvent) -> Vec<StateMessage> {
-    let messages = match self.input_mode {
-        InputMode::Normal => {
-            match key_event.code {
-                // Switch mode
-                KeyCode::Char(':') => vec![
-                    StateMessage::SwitchMode(InputMode::Command),
-                    StateMessage::ClearNormalModeRegisters,
-                ],
-                _ => match self.normal_mode_register.translate(key_event.code) {
-                    Ok(messages) => messages,
-                    Err(error_message) => vec![
-                        StateMessage::NormalModeRegisterError(error_message),
-                        StateMessage::ClearNormalModeRegisters,
-                    ],
-                },
-            }
-        }
-        InputMode::Command => match key_event.code {
-            KeyCode::Esc => vec![
-                StateMessage::ClearCommandModeRegisters,
-                StateMessage::SwitchMode(InputMode::Normal),
-            ],
-            KeyCode::Enter => {
-                let mut messages = vec![
-                    StateMessage::ClearCommandModeRegisters,
-                    StateMessage::SwitchMode(InputMode::Normal),
-                ];
-                messages.extend(match self.command_mode_register.parse() {
-                    Ok(parsed_messages) => parsed_messages,
-                    Err(error_message) => {
-                        vec![StateMessage::CommandModeRegisterError(error_message)]
-                    }
-                });
-                messages
-            }
-            _ => match self.command_mode_register.translate(key_event.code) {
-                Ok(messages) => messages,
-                Err(error_message) => {
-                    vec![StateMessage::CommandModeRegisterError(error_message)]
-                }
-            },
-        },
-        InputMode::Help => match key_event.code {
-            KeyCode::Esc => vec![StateMessage::SwitchMode(InputMode::Normal)],
-            _ => vec![],
-        },
-    };
-
-    // Check that if there is a message that requires the reference genome, make sure it is provided.
-    // Otherwise, pass on an error message.
-    for message in messages.iter() {
-        if message.requires_reference() && self.settings.reference.is_none() {
-            return vec![StateMessage::Error(
-                TGVError::StateError("Reference is not provided".to_string()).to_string(),
-            )];
-        }
-    }
-
-    messages
-}
-*/
 
 #[cfg(test)]
 mod tests {

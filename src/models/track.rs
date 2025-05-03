@@ -2,8 +2,8 @@ use crate::{
     error::TGVError,
     models::{
         contig::Contig,
+        feature::{Gene, SubGeneFeature},
         region::Region,
-        track::feature::{Gene, SubGeneFeature},
     },
     traits::GenomeInterval,
 };

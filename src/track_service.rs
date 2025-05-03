@@ -2,13 +2,11 @@ use crate::error::TGVError;
 use crate::models::{
     contig::Contig,
     cytoband::{Cytoband, CytobandSegment, Stain},
+    feature::{Gene, SubGeneFeature},
     reference::Reference,
     region::Region,
     strand::Strand,
-    track::{
-        feature::{Gene, SubGeneFeature},
-        track::Track,
-    },
+    track::Track,
 };
 use crate::traits::GenomeInterval;
 use async_trait::async_trait;

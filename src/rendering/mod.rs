@@ -18,9 +18,9 @@ pub use help::render_help;
 pub use sequence::render_sequence;
 pub use track::render_track;
 
-use crate::models::register::Registers;
+use crate::error::TGVError;
+use crate::models::register::{RegisterType, Registers};
 use crate::states::State;
-use crate::{error::TGVError, models::mode::InputMode};
 use ratatui::{
     buffer::Buffer,
     layout::{
@@ -31,9 +31,9 @@ use ratatui::{
 
 #[derive(Debug, Clone, Eq, PartialEq)]
 pub enum RenderingStateEnum {
-    Normal,
-    Help,
-    Skip,
+    Normal, // Display alignments
+    Help,   // Display help screen
+    Skip,   // Skip rendering
 }
 
 pub struct RenderingState {
@@ -64,16 +64,17 @@ impl RenderingState {
     }
 
     pub fn update(&mut self, state: &State) -> Result<&mut Self, TGVError> {
-        let new_state = match state.input_mode {
-            InputMode::Command | InputMode::Normal => RenderingStateEnum::Normal,
-            InputMode::Help => RenderingStateEnum::Help,
-        };
+        // TODO: help screen
+        // let new_state = match state.input_mode.clone() {
+        //     InputMode::Command | InputMode::Normal => RenderingStateEnum::Normal,
+        //     InputMode::Help => RenderingStateEnum::Help,
+        // };
 
-        self.refresh = match (&self.state, &new_state) {
-            (RenderingStateEnum::Normal, RenderingStateEnum::Help) => true,
-            (RenderingStateEnum::Help, RenderingStateEnum::Normal) => true,
-            _ => false,
-        };
+        // self.refresh = match (&self.state, &new_state) {
+        //     (RenderingStateEnum::Normal, RenderingStateEnum::Help) => true,
+        //     (RenderingStateEnum::Help, RenderingStateEnum::Normal) => true,
+        //     _ => false,
+        // };
 
         // check if the frame area has changed
         if self.last_frame_area.width != state.current_frame_area()?.width
@@ -83,7 +84,7 @@ impl RenderingState {
         }
         self.last_frame_area = state.current_frame_area()?.clone();
 
-        self.state = new_state;
+        //self.state = new_state;
 
         Ok(self)
     }
@@ -138,8 +139,8 @@ impl RenderingState {
 
                 // Console
 
-                if state.input_mode == InputMode::Command {
-                    render_console(&console_area, buf, registers.command()?)?;
+                if registers.current == RegisterType::Command {
+                    render_console(&console_area, buf, &registers.command)?;
                 }
 
                 // Error

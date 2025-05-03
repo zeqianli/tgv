@@ -2,11 +2,9 @@ use crate::traits::GenomeInterval;
 use crate::{
     error::TGVError,
     models::{
+        feature::{Gene, SubGeneFeatureType},
         strand::Strand,
-        track::{
-            feature::{Gene, SubGeneFeatureType},
-            track::Track,
-        },
+        track::Track,
         window::{OnScreenCoordinate, ViewingWindow},
     },
     states::State,

@@ -1,5 +1,5 @@
 use crate::error::TGVError;
-use crate::models::{contig::Contig, mode::InputMode, region::Region};
+use crate::models::{contig::Contig, region::Region};
 use strum::Display;
 /// State messages
 #[derive(Debug, Clone, Eq, PartialEq, Display)]
@@ -31,8 +31,6 @@ pub enum StateMessage {
 
     ZoomIn(usize),
     ZoomOut(usize),
-
-    SwitchMode(InputMode),
 
     // AddCharToNormalModeRegisters(char),
     // ClearNormalModeRegisters,

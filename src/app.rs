@@ -10,7 +10,7 @@ use ratatui::{
 };
 
 use crate::error::TGVError;
-use crate::models::register::{Register, RegisterEnum, Registers};
+use crate::models::register::{Register, Registers};
 use crate::rendering::RenderingState;
 use crate::repository::Repository;
 use crate::settings::Settings;
@@ -77,10 +77,7 @@ impl App {
             if !self.settings.test_mode {
                 match event::read() {
                     Ok(Event::Key(key_event)) if key_event.kind == KeyEventKind::Press => {
-                        let state_messages = self
-                            .registers
-                            .get(&self.state)?
-                            .update_key_event(key_event)?;
+                        let state_messages = self.registers.update_key_event(key_event)?;
                         StateHandler::handle(
                             &mut self.state,
                             &self.repository,
