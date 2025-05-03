@@ -10,6 +10,7 @@ mod traits;
 use app::App;
 use clap::Parser;
 use error::TGVError;
+mod track_service;
 use settings::{Cli, Settings};
 
 #[tokio::main]

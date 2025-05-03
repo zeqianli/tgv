@@ -1,5 +1,5 @@
-use crate::models::{contig::Contig, mode::InputMode, region::Region};
 use crate::error::TGVError;
+use crate::models::{contig::Contig, mode::InputMode, region::Region};
 use strum::Display;
 /// State messages
 #[derive(Debug, Clone, Eq, PartialEq, Display)]
@@ -10,8 +10,8 @@ pub enum StateMessage {
     MoveDown(usize),
 
     GotoCoordinate(usize),
-    GotoContig(String), // The state object decide if "chr" prefix is needed.
-    GotoContigCoordinate(String, usize), // The state object decide if "chr" prefix is needed.
+    GotoContig(Contig),
+    GotoContigCoordinate(Contig, usize),
 
     GotoNextExonsStart(usize),
     GotoNextExonsEnd(usize),
@@ -44,7 +44,6 @@ pub enum StateMessage {
     // MoveCursorLeft(usize),
     // MoveCursorRight(usize),
     // CommandModeRegisterError(String),
-
     Message(String),
 
     Quit,

@@ -1,15 +1,88 @@
 use crate::{
     error::TGVError,
     helpers::is_url,
-    settings::Settings,
-    models::{alignment::{Alignment, AlignmentBuilder}, contig::Contig, reference::Reference, region::Region},
+    models::{
+        alignment::{Alignment, AlignmentBuilder},
+        contig::Contig,
+        reference::Reference,
+        region::Region,
+        sequence::Sequence,
+    },
+    settings::{BackendType, Settings},
+    track_service::{
+        TrackCache, TrackService, TrackServiceEnum, UcscApiTrackService, UcscDbTrackService,
+    },
 };
+
+use reqwest::Client;
 use rust_htslib::bam;
 use rust_htslib::bam::{Header, IndexedReader, Read, Record};
-use url::Url;
+use serde::Deserialize;
 use std::path::Path;
+use url::Url;
 
+pub struct Repository {
+    pub alignment_repository: AlignmentRepositoryEnum,
 
+    pub track_service: Option<TrackServiceEnum>,
+
+    pub sequence_service: Option<SequenceService>,
+}
+
+impl Repository {
+    pub async fn new(settings: &Settings) -> Result<Self, TGVError> {
+        let alignment_repository = AlignmentRepositoryEnum::from(settings)?;
+
+        let (track_service, sequence_service): (Option<TrackServiceEnum>, Option<SequenceService>) =
+            match settings.reference.as_ref() {
+                Some(reference) => {
+                    let ts = match settings.backend {
+                        BackendType::Api => TrackServiceEnum::Api(UcscApiTrackService::new()?),
+                        BackendType::Db => {
+                            TrackServiceEnum::Db(UcscDbTrackService::new(reference).await?)
+                        }
+                    };
+                    let ss = SequenceService::new(reference.clone())?;
+                    (Some(ts), Some(ss))
+                }
+                None => (None, None),
+            };
+
+        Ok(Self {
+            alignment_repository,
+            track_service,
+            sequence_service,
+        })
+    }
+
+    pub fn track_service_checked(&self) -> Result<&TrackServiceEnum, TGVError> {
+        match self.track_service {
+            Some(ref track_service) => Ok(track_service),
+            None => Err(TGVError::StateError(
+                "Track service is not initialized".to_string(),
+            )),
+        }
+    }
+
+    pub fn sequence_service_checked(&self) -> Result<&SequenceService, TGVError> {
+        match self.sequence_service {
+            Some(ref sequence_service) => Ok(sequence_service),
+            None => Err(TGVError::StateError(
+                "Sequence service is not initialized".to_string(),
+            )),
+        }
+    }
+
+    pub async fn close(&mut self) -> Result<(), TGVError> {
+        if let Some(ts) = self.track_service.as_mut() {
+            ts.close().await?;
+        }
+        if let Some(ss) = self.sequence_service.as_mut() {
+            ss.close().await?;
+        }
+        Ok(())
+    }
+}
 
 #[derive(Debug)]
 enum RemoteSource {
@@ -19,14 +92,12 @@ enum RemoteSource {
 }
 
 impl RemoteSource {
-
     fn from(path: &String) -> Result<Self, TGVError> {
-
         if path.starts_with("s3://") {
             Ok(Self::S3)
         } else if path.starts_with("http://") || path.starts_with("https://") {
             Ok(Self::HTTP)
-        } else  if path.starts_with("gss://") {
+        } else if path.starts_with("gss://") {
             Ok(Self::GS)
         } else {
             Err(TGVError::ValueError(format!(
@@ -35,9 +106,7 @@ impl RemoteSource {
             )))
         }
     }
-
 }
-
 
 pub trait AlignmentRepository {
     fn read_alignment(&self, region: &Region) -> Result<Alignment, TGVError>;
@@ -53,7 +122,7 @@ pub struct BamRepository {
 
 impl BamRepository {
     fn new(bam_path: String, bai_path: Option<String>) -> Result<Self, TGVError> {
-        if is_url(&bam_path){
+        if is_url(&bam_path) {
             return Err(TGVError::IOError(format!(
                 "{} is a remote path. Use RemoteBamRepository for remote BAM IO",
                 bam_path
@@ -68,13 +137,13 @@ impl BamRepository {
         }
 
         match &bai_path {
-            Some(bai_path ) => {
+            Some(bai_path) => {
                 if !Path::new(bai_path).exists() {
                     return Err(TGVError::IOError(format!(
-                    "BAM index file {} not found. Only indexed BAM files are supported.",
-                    bai_path
-                )));
-             }
+                        "BAM index file {} not found. Only indexed BAM files are supported.",
+                        bai_path
+                    )));
+                }
             }
             None => {
                 if !Path::new(&format!("{}.bai", bam_path)).exists() {
@@ -86,23 +155,17 @@ impl BamRepository {
             }
         }
 
-        Ok(Self{
-            bam_path,
-            bai_path
-        })
+        Ok(Self { bam_path, bai_path })
     }
-
-    
 }
-
-
 
 impl AlignmentRepository for BamRepository {
     fn read_alignment(&self, region: &Region) -> Result<Alignment, TGVError> {
-
         let mut bam = match self.bai_path.as_ref() {
-            Some(bai_path) => IndexedReader::from_path_and_index(self.bam_path.clone(), bai_path.clone())?,
-            None =>  IndexedReader::from_path(self.bam_path.clone())?
+            Some(bai_path) => {
+                IndexedReader::from_path_and_index(self.bam_path.clone(), bai_path.clone())?
+            }
+            None => IndexedReader::from_path(self.bam_path.clone())?,
         };
 
         let header = bam::Header::from_template(bam.header());
@@ -128,15 +191,15 @@ impl AlignmentRepository for BamRepository {
     /// Read BAM headers and return contig namesa and lengths.
     /// Note that this function does not interprete the contig name as contg vs chromosome.
     fn read_header(&self) -> Result<Vec<(String, Option<usize>)>, TGVError> {
-
         let mut bam = match self.bai_path.as_ref() {
-            Some(bai_path) => IndexedReader::from_path_and_index(self.bam_path.clone(), bai_path.clone())?,
-            None =>  IndexedReader::from_path(self.bam_path.clone())?
+            Some(bai_path) => {
+                IndexedReader::from_path_and_index(self.bam_path.clone(), bai_path.clone())?
+            }
+            None => IndexedReader::from_path(self.bam_path.clone())?,
         };
 
         let header = bam::Header::from_template(bam.header());
         get_contig_names_and_lengths_from_header(&header)
-        
     }
 }
 
@@ -147,24 +210,21 @@ pub struct RemoteBamRepository {
 }
 
 impl RemoteBamRepository {
-    pub fn new(bam_path: &String) -> Result<Self, TGVError>{
-
-        Ok(Self{
-            bam_path: bam_path.clone(), 
-            source: RemoteSource::from(bam_path)?
+    pub fn new(bam_path: &String) -> Result<Self, TGVError> {
+        Ok(Self {
+            bam_path: bam_path.clone(),
+            source: RemoteSource::from(bam_path)?,
         })
     }
 }
 
-impl AlignmentRepository for RemoteBamRepository{
-
+impl AlignmentRepository for RemoteBamRepository {
     fn read_alignment(&self, region: &Region) -> Result<Alignment, TGVError> {
         let mut bam = IndexedReader::from_url(
             &Url::parse(&self.bam_path).map_err(|e| TGVError::IOError(e.to_string()))?,
         )?;
 
         let header = bam::Header::from_template(bam.header());
-
 
         let query_contig_string = get_query_contig_string(&header, region)?;
         bam.fetch((
@@ -184,7 +244,7 @@ impl AlignmentRepository for RemoteBamRepository{
         alignment_builder.region(region)?.build()
     }
 
-    fn read_header(&self) -> Result<Vec<(String, Option<usize>)>, TGVError>{
+    fn read_header(&self) -> Result<Vec<(String, Option<usize>)>, TGVError> {
         let mut bam = IndexedReader::from_url(
             &Url::parse(&self.bam_path).map_err(|e| TGVError::IOError(e.to_string()))?,
         )?;
@@ -194,24 +254,19 @@ impl AlignmentRepository for RemoteBamRepository{
     }
 }
 
-
-
-
 // fn is_remote_path {
 //     IndexedReader::from_url(
 //         &Url::parse(bam_path).map_err(|e| TGVError::IOError(e.to_string()))?,
 //     )
 //     .unwrap();
 
-
-
 // struct CRAMRepository {
 //     cram_path: String,
 // }
 
-
-fn get_contig_names_and_lengths_from_header(header: &Header) -> Result<Vec<(String, Option<usize>)>, TGVError>  {
-
+fn get_contig_names_and_lengths_from_header(
+    header: &Header,
+) -> Result<Vec<(String, Option<usize>)>, TGVError> {
     let mut output = Vec::new();
 
     for (_key, records) in header.to_hashmap().iter() {
@@ -232,7 +287,7 @@ fn get_contig_names_and_lengths_from_header(header: &Header) -> Result<Vec<(Stri
     Ok(output)
 }
 
- /// Get the query string for a region.
+/// Get the query string for a region.
 /// Look through the header to decide if the bam file chromosome names are abbreviated or full.
 fn get_query_contig_string(header: &Header, region: &Region) -> Result<String, TGVError> {
     let full_chromsome_str = region.contig.full_name();
@@ -260,50 +315,96 @@ fn get_query_contig_string(header: &Header, region: &Region) -> Result<String, T
 pub enum AlignmentRepositoryEnum {
     None,
     Bam(BamRepository),
-    RemoteBam(RemoteBamRepository)
+    RemoteBam(RemoteBamRepository),
 }
 
 impl AlignmentRepositoryEnum {
     pub fn from(settings: &Settings) -> Result<Self, TGVError> {
-
         if settings.bam_path.is_none() {
             return Ok(AlignmentRepositoryEnum::None);
         }
 
         let bam_path = settings.bam_path.clone().unwrap();
 
-
         if is_url(&bam_path) {
             return Ok(AlignmentRepositoryEnum::RemoteBam(
-                RemoteBamRepository::new(&bam_path)?
-            ))
+                RemoteBamRepository::new(&bam_path)?,
+            ));
         }
 
-        return Ok(AlignmentRepositoryEnum::Bam(
-            BamRepository::new(bam_path, settings.bai_path.clone())?
-        ))
-        
-
-
+        return Ok(AlignmentRepositoryEnum::Bam(BamRepository::new(
+            bam_path,
+            settings.bai_path.clone(),
+        )?));
     }
 }
 
-impl AlignmentRepository for AlignmentRepositoryEnum{
+impl AlignmentRepository for AlignmentRepositoryEnum {
     fn read_alignment(&self, region: &Region) -> Result<Alignment, TGVError> {
         match self {
             AlignmentRepositoryEnum::Bam(repository) => repository.read_alignment(region),
             AlignmentRepositoryEnum::RemoteBam(repository) => repository.read_alignment(region),
-            AlignmentRepositoryEnum::None => Err(TGVError::IOError("No alignment".to_string()))
+            AlignmentRepositoryEnum::None => Err(TGVError::IOError("No alignment".to_string())),
         }
     }
 
-    fn read_header(&self) -> Result<Vec<(String, Option<usize>)>, TGVError>{
+    fn read_header(&self) -> Result<Vec<(String, Option<usize>)>, TGVError> {
         match self {
             AlignmentRepositoryEnum::Bam(repository) => repository.read_header(),
             AlignmentRepositoryEnum::RemoteBam(repository) => repository.read_header(),
-            AlignmentRepositoryEnum::None => Err(TGVError::IOError("No alignment".to_string()))
+            AlignmentRepositoryEnum::None => Err(TGVError::IOError("No alignment".to_string())),
         }
     }
+}
 
+#[derive(Debug, Deserialize)]
+struct UcscResponse {
+    dna: String,
+}
 
+pub struct SequenceService {
+    client: Client,
+    reference: Reference,
+}
+
+impl SequenceService {
+    pub fn new(reference: Reference) -> Result<Self, TGVError> {
+        Ok(Self {
+            client: Client::new(),
+            reference,
+        })
+    }
+
+    pub async fn close(&self) -> Result<(), TGVError> {
+        // Reqwest client does not need to be closed.
+        Ok(())
+    }
+
+    pub async fn query_sequence(&self, region: &Region) -> Result<Sequence, TGVError> {
+        let url = self
+            .get_api_url(&region.contig, region.start, region.end)
+            .unwrap();
+
+        let response: UcscResponse = self.client.get(&url).send().await?.json().await?;
+
+        Ok(Sequence {
+            start: region.start,
+            sequence: response.dna,
+            contig: region.contig.clone(),
+        })
+    }
+
+    /// start / end: 1-based, inclusive.
+    fn get_api_url(&self, chrom: &Contig, start: usize, end: usize) -> Result<String, TGVError> {
+        match self.reference {
+            Reference::Hg19 | Reference::Hg38 | Reference::UcscGenome(_) => Ok(format!(
+                "https://api.genome.ucsc.edu/getData/sequence?genome={};chrom={};start={};end={}",
+                self.reference.to_string(),
+                chrom.full_name(),
+                start - 1, // start is 0-based, inclusive.
+                end
+            )),
+            _ => Err(TGVError::IOError("Unsupported reference".to_string())),
+        }
+    }
 }

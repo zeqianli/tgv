@@ -11,16 +11,13 @@ use crate::models::{
     reference::Reference,
     region::Region,
     sequence::Sequence,
-    services::{
-        sequences::SequenceService,
-        track_service::{
-            TrackCache, TrackService, TrackServiceEnum, UcscApiTrackService, UcscDbTrackService,
-        },
-    },
+    services::sequences_repository::SequenceService,
     track::{feature::Gene, track::Track},
     window::ViewingWindow,
 };
-use crate::settings::{BackendType, Settings};
+use crate::repository::Repository;
+use crate::settings::Settings;
+use crate::track_service::{TrackCache, TrackService, TrackServiceEnum};
 use crate::traits::GenomeInterval;
 use crossterm::event::{KeyCode, KeyEvent};
 use ratatui::layout::Rect;
@@ -209,59 +206,9 @@ impl State {
     }
 }
 
-pub struct StateHandler {
-    alignment_repository: AlignmentRepositoryEnum,
-
-    track_service: Option<TrackServiceEnum>,
-
-    sequence_service: Option<SequenceService>,
-}
+pub struct StateHandler {}
 
 impl StateHandler {
-    pub fn track_service_checked(&self) -> Result<&TrackServiceEnum, TGVError> {
-        match self.track_service {
-            Some(ref track_service) => Ok(track_service),
-            None => Err(TGVError::StateError(
-                "Track service is not initialized".to_string(),
-            )),
-        }
-    }
-
-    pub async fn new(settings: &Settings) -> Result<Self, TGVError> {
-        let alignment_repository = AlignmentRepositoryEnum::from(settings)?;
-
-        let (track_service, sequence_service): (Option<TrackServiceEnum>, Option<SequenceService>) =
-            match settings.reference.as_ref() {
-                Some(reference) => {
-                    let ts = match settings.backend {
-                        BackendType::Api => TrackServiceEnum::Api(UcscApiTrackService::new()?),
-                        BackendType::Db => {
-                            TrackServiceEnum::Db(UcscDbTrackService::new(reference).await?)
-                        }
-                    };
-                    let ss = SequenceService::new(reference.clone())?;
-                    (Some(ts), Some(ss))
-                }
-                None => (None, None),
-            };
-
-        Ok(Self {
-            alignment_repository,
-            track_service,
-            sequence_service,
-        })
-    }
-
-    pub async fn close(&mut self) -> Result<(), TGVError> {
-        if let Some(ts) = self.track_service.as_mut() {
-            ts.close().await?;
-        }
-        if let Some(ss) = self.sequence_service.as_mut() {
-            ss.close().await?;
-        }
-        Ok(())
-    }
-
     /// Handle initial messages.
     /// This has different error handling strategy (loud) vs handle(...), which suppresses errors.
     // pub async fn handle_initial_messages(
@@ -278,7 +225,12 @@ impl StateHandler {
     // }
 
     /// Handle messages.
-    pub async fn handle(state: &mut State, messages: Vec<StateMessage>) -> Result<(), TGVError> {
+    pub async fn handle(
+        &mut self,
+        state: &mut State,
+        repository: &Repository,
+        messages: Vec<StateMessage>,
+    ) -> Result<(), TGVError> {
         let debug_messages_0 = messages
             .iter()
             .map(|m| format!("{:?}", m))
@@ -288,7 +240,8 @@ impl StateHandler {
         let mut data_messages = Vec::new();
 
         for message in messages {
-            data_messages.extend(StateHandler::handle_state_message(state, message).await?);
+            data_messages
+                .extend(StateHandler::handle_state_message(state, repository, message).await?);
         }
 
         let debug_message = data_messages
@@ -297,8 +250,10 @@ impl StateHandler {
             .collect::<Vec<String>>()
             .join(", ");
 
-        let loaded_data =
-            Self::handle_data_messages(state.settings.reference.as_ref(), data_messages).await?; // TODO: move somewhere else
+        let mut loaded_data = false;
+        for data_message in data_messages {
+            loaded_data = self.handle_data_message(state, data_message).await?;
+        }
 
         if state.settings.debug {
             if loaded_data {
@@ -319,6 +274,7 @@ impl StateHandler {
     /// Main function to route state message handling.
     async fn handle_state_message(
         state: &mut State,
+        repository: &Repository,
         message: StateMessage,
     ) -> Result<Vec<DataMessage>, TGVError> {
         let mut data_messages: Vec<DataMessage> = Vec::new();
@@ -357,10 +313,10 @@ impl StateHandler {
                 StateHandler::go_to_previous_exons_end(state, n).await?
             }
             StateMessage::GotoNextGenesStart(n) => {
-                StateHandler::go_to_next_genes_start(state, n).await?
+                StateHandler::go_to_next_genes_start(state, repository, n).await?
             }
             StateMessage::GotoNextGenesEnd(n) => {
-                StateHandler::go_to_next_genes_end(state, n).await?
+                StateHandler::go_to_next_genes_end(state, repository, n).await?
             }
             StateMessage::GotoPreviousGenesStart(n) => {
                 StateHandler::go_to_previous_genes_start(state, n).await?
@@ -376,7 +332,7 @@ impl StateHandler {
             StateMessage::GoToDefault => StateHandler::go_to_defualt(state).await?,
 
             // Error messages
-            StateMessage::Message(message) => StateHandler::add_message(state, message),
+            StateMessage::Message(message) => StateHandler::add_message(state, message)?,
 
             _ => {
                 return Err(TGVError::StateError(format!(
@@ -420,25 +376,25 @@ impl StateHandler {
 
         if state.settings.bam_path.is_some()
             && viewing_window.zoom() <= Self::MAX_ZOOM_TO_DISPLAY_ALIGNMENTS
-            && !state.data.has_complete_alignment(&viewing_region)
+            && !Self::has_complete_alignment(state, &viewing_region)
         {
-            let alignment_cache_region = state.alignment_cache_region(&viewing_region)?;
+            let alignment_cache_region = Self::alignment_cache_region(state, &viewing_region)?;
             data_messages.push(DataMessage::RequiresCompleteAlignments(
                 alignment_cache_region,
             ));
         }
 
         if state.settings.reference.is_some() {
-            if !state.data.has_complete_track(&viewing_region) {
+            if !Self::has_complete_track(state, &viewing_region) {
                 // viewing_window.zoom() <= Self::MAX_ZOOM_TO_DISPLAY_FEATURES is always true
-                let track_cache_region = state.track_cache_region(&viewing_region)?;
+                let track_cache_region = Self::track_cache_region(state, &viewing_region)?;
                 data_messages.push(DataMessage::RequiresCompleteFeatures(track_cache_region));
             }
 
             if (viewing_window.zoom() <= Self::MAX_ZOOM_TO_DISPLAY_SEQUENCES)
-                && !state.data.has_complete_sequence(&viewing_region)
+                && !Self::has_complete_sequence(state, &viewing_region)
             {
-                let sequence_cache_region = state.sequence_cache_region(&viewing_region)?;
+                let sequence_cache_region = Self::sequence_cache_region(state, &viewing_region)?;
                 data_messages.push(DataMessage::RequiresCompleteSequences(
                     sequence_cache_region,
                 ));
@@ -580,7 +536,7 @@ impl StateHandler {
     ) -> Result<Vec<DataMessage>, TGVError> {
         // If bam_path is provided, check that the contig is valid.
 
-        if !state.data.contigs.contains(&contig) {
+        if !state.contigs.contains(&contig) {
             return Err(TGVError::StateError(format!(
                 "Contig {:?} not found for reference {:?}",
                 contig.full_name(),
@@ -627,6 +583,7 @@ impl StateHandler {
 
     async fn go_to_next_genes_start(
         state: &mut State,
+        repository: &Repository,
         n: usize,
     ) -> Result<Vec<DataMessage>, TGVError> {
         if n == 0 {
@@ -642,20 +599,20 @@ impl StateHandler {
         }
 
         // Query for the target gene
-        if state.data.track_service.is_none() {
+        if repository.track_service.is_none() {
             return Err(TGVError::StateError(
                 "Track service not initialized".to_string(),
             ));
         }
 
-        let track_service = state.data.track_service.as_mut().unwrap();
+        let track_service = repository.track_service.as_ref().unwrap();
         let gene = track_service
             .query_k_genes_after(
-                state.reference_checked()?,
-                &state.contig()?,
+                &state.reference_checked()?.clone(),
+                &state.contig()?.clone(),
                 middle,
                 n,
-                &mut state.data.track_cache,
+                &mut state.track_cache,
             )
             .await?;
 
@@ -664,6 +621,7 @@ impl StateHandler {
 
     async fn go_to_next_genes_end(
         state: &mut State,
+        repository: &Repository,
         n: usize,
     ) -> Result<Vec<DataMessage>, TGVError> {
         if n == 0 {
@@ -678,14 +636,14 @@ impl StateHandler {
         }
 
         // Query for the target gene
-        let track_service = state.track_service_checked()?;
+        let track_service = repository.track_service_checked()?;
         let gene = track_service
             .query_k_genes_after(
-                state.reference_checked()?,
-                state.contig()?,
+                &state.reference_checked()?.clone(),
+                &state.contig()?.clone(),
                 middle,
                 n,
-                &mut state.data.track_cache,
+                &mut state.track_cache,
             )
             .await?;
 
@@ -694,6 +652,7 @@ impl StateHandler {
 
     async fn go_to_previous_genes_start(
         state: &mut State,
+        repository: &Repository,
         n: usize,
     ) -> Result<Vec<DataMessage>, TGVError> {
         if n == 0 {
@@ -708,14 +667,14 @@ impl StateHandler {
         }
 
         // Query for the target gene
-        let track_service = state.track_service_checked()?;
+        let track_service = repository.track_service_checked()?;
         let gene = track_service
             .query_k_genes_before(
-                state.reference_checked()?,
-                state.contig()?,
+                &state.reference_checked()?.clone(),
+                &state.contig()?.clone(),
                 middle,
                 n,
-                &mut state.data.track_cache,
+                &mut state.track_cache,
             )
             .await?;
 
@@ -724,6 +683,7 @@ impl StateHandler {
 
     async fn go_to_previous_genes_end(
         state: &mut State,
+        repository: &Repository,
         n: usize,
     ) -> Result<Vec<DataMessage>, TGVError> {
         if n == 0 {
@@ -738,15 +698,14 @@ impl StateHandler {
         }
 
         // Query for the target gene
-        let track_service = state.track_service_checked()?;
-        let track_cache = &mut state.data.track_cache;
+        let track_service = repository.track_service_checked()?;
         let gene = track_service
             .query_k_genes_before(
-                state.reference_checked()?,
-                &state.contig()?,
+                &state.reference_checked()?.clone(),
+                &state.contig()?.clone(),
                 middle,
                 n,
-                track_cache,
+                &mut state.track_cache,
             )
             .await?;
 
@@ -755,6 +714,7 @@ impl StateHandler {
 
     async fn go_to_next_exons_start(
         state: &mut State,
+        repository: &Repository,
         n: usize,
     ) -> Result<Vec<DataMessage>, TGVError> {
         if n == 0 {
@@ -769,14 +729,14 @@ impl StateHandler {
         }
 
         // Query for the target exon
-        let track_service = state.track_service_checked()?;
+        let track_service = repository.track_service_checked()?;
         let exon = track_service
             .query_k_exons_after(
-                state.reference_checked()?,
-                state.contig()?,
+                &state.reference_checked()?.clone(),
+                &state.contig()?.clone(),
                 middle,
                 n,
-                &mut state.data.track_cache,
+                &mut state.track_cache,
             )
             .await?;
 
@@ -785,6 +745,7 @@ impl StateHandler {
 
     async fn go_to_next_exons_end(
         state: &mut State,
+        repository: &Repository,
         n: usize,
     ) -> Result<Vec<DataMessage>, TGVError> {
         if n == 0 {
@@ -799,14 +760,14 @@ impl StateHandler {
         }
 
         // Query for the target exon
-        let track_service = state.track_service_checked()?;
+        let track_service = repository.track_service_checked()?;
         let exon = track_service
             .query_k_exons_after(
-                state.reference_checked()?,
-                state.contig()?,
+                &state.reference_checked()?.clone(),
+                &state.contig()?.clone(),
                 middle,
                 n,
-                &mut state.data.track_cache,
+                &mut state.track_cache,
             )
             .await?;
 
@@ -815,6 +776,7 @@ impl StateHandler {
 
     async fn go_to_previous_exons_start(
         state: &mut State,
+        repository: &Repository,
         n: usize,
     ) -> Result<Vec<DataMessage>, TGVError> {
         if n == 0 {
@@ -829,14 +791,14 @@ impl StateHandler {
         }
 
         // Query for the target exon
-        let track_service = state.track_service_checked()?;
+        let track_service = repository.track_service_checked()?;
         let exon = track_service
             .query_k_exons_after(
-                state.reference_checked()?,
+                &state.reference_checked()?.clone(),
                 &state.contig()?.clone(),
                 middle,
                 n,
-                &mut state.data.track_cache,
+                &mut state.track_cache,
             )
             .await?;
 
@@ -845,6 +807,7 @@ impl StateHandler {
 
     async fn go_to_previous_exons_end(
         state: &mut State,
+        repository: &Repository,
         n: usize,
     ) -> Result<Vec<DataMessage>, TGVError> {
         if n == 0 {
@@ -860,14 +823,14 @@ impl StateHandler {
         }
 
         // Query for the target exon
-        let track_service = state.track_service_checked()?;
+        let track_service = repository.track_service_checked()?;
         let exon = track_service
             .query_k_exons_before(
-                state.reference_checked()?,
-                state.contig()?,
+                &state.reference_checked()?.clone(),
+                &state.contig()?.clone(),
                 middle,
                 n,
-                &mut state.data.track_cache,
+                &mut state.track_cache,
             )
             .await?;
 
@@ -876,56 +839,47 @@ impl StateHandler {
 
     async fn go_to_gene(
         state: &mut State,
-        message: StateMessage,
+        repository: &Repository,
+        gene_id: String,
     ) -> Result<Vec<DataMessage>, TGVError> {
-        let track_service = state.track_service_checked()?;
-        let reference = state.reference_checked()?;
+        let track_service = repository.track_service_checked()?;
 
         let gene = track_service
-            .query_gene_name(reference, &gene_id, &mut state.data.track_cache)
+            .query_gene_name(
+                &state.reference_checked()?.clone(),
+                &gene_id,
+                &mut state.track_cache,
+            )
             .await?;
-        state_messages.push(StateMessage::GotoContigCoordinate(
-            gene.contig().full_name(),
-            gene.start(),
-        ));
 
-        let mut data_messages = Vec::new();
-        for state_message in state_messages {
-            data_messages.extend(StateHandler::handle_movement_message(state_message)?);
-        }
-
-        Ok(data_messages)
+        return Self::go_to_contig_coordinate(state, gene.contig(), gene.start() + 1);
     }
 
-    async fn go_to_defualt(state: &mut State) -> Result<Vec<DataMessage>, TGVError> {
+    async fn go_to_default(
+        state: &mut State,
+        repository: &Repository,
+    ) -> Result<Vec<DataMessage>, TGVError> {
         let reference = state.settings.reference.as_ref();
         match reference {
             Some(Reference::Hg38) | Some(Reference::Hg19) => {
-                return Self::go_to_gene(state, StateMessage::GoToGene("TP53".to_string())).await;
+                return Self::go_to_gene(state, repository, "TP53".to_string()).await;
             }
 
             Some(Reference::UcscGenome { .. }) => {
                 // Find the first gene on the first contig. If anything is not found, handle it later.
-                let track_service =
-                    state
-                        .data
-                        .track_service
-                        .as_ref()
-                        .ok_or(TGVError::StateError(
-                            "Track service not initialized".to_string(),
-                        ))?;
+                let track_service = repository.track_service_checked()?;
 
-                let first_contig = state.data.contigs.first()?;
+                let first_contig = state.contigs.first()?;
 
                 // Try to get the first gene in the first contig.
                 // We use query_k_genes_after starting from coordinate 0 with k=1.
                 match track_service
                     .query_k_genes_after(
-                        reference.unwrap(),
+                        &state.reference_checked()?.clone(),
                         first_contig,
                         0,
                         1,
-                        &mut state.data.track_cache,
+                        &mut state.track_cache,
                     )
                     .await
                 {
@@ -946,7 +900,7 @@ impl StateHandler {
         };
 
         // If reaches here, go to the first contig:1
-        if let Ok(first_contig) = state.data.contigs.first() {
+        if let Ok(first_contig) = state.contigs.first() {
             return Self::go_to_contig_coordinate(state, first_contig, 1);
         }
 
@@ -958,50 +912,40 @@ impl StateHandler {
 }
 
 impl StateHandler {
-    pub async fn handle_data_messages(
-        &mut self,
-        reference: Option<&Reference>, // TODO: improve this.
-        data_messages: Vec<DataMessage>,
-    ) -> Result<bool, TGVError> {
-        let mut loaded_data = false;
-        for data_message in data_messages {
-            loaded_data = self.handle_data_message(reference, data_message).await?;
-        }
-        Ok(loaded_data)
-    }
-
     // TODO: async
     pub async fn handle_data_message(
         &mut self,
-        reference: Option<&Reference>, // TODO: improve this.
+        state: &mut State,
+        repository: &Repository,
         data_message: DataMessage,
     ) -> Result<bool, TGVError> {
         let mut loaded_data = false;
 
         match data_message {
             DataMessage::RequiresCompleteAlignments(region) => {
-                if !self.has_complete_alignment(&region) {
-                    self.alignment = Some(self.alignment_repository.read_alignment(&region)?); // TODO
+                if !Self::has_complete_alignment(state, &region) {
+                    state.alignment =
+                        Some(repository.alignment_repository.read_alignment(&region)?); // TODO: use repository
                     loaded_data = true;
                 }
             }
             DataMessage::RequiresCompleteFeatures(region) => {
-                let has_complete_track = self.has_complete_track(&region);
-                if let (Some(reference), Some(track_service)) =
-                    (reference, self.track_service.as_mut())
+                let has_complete_track = Self::has_complete_track(state, &region);
+                if let (Some(ref reference), Some(ref track_service)) =
+                    (state.reference.clone(), repository.track_service)
                 {
                     if !has_complete_track {
                         if let Ok(track) = track_service
-                            .query_gene_track(reference, &region, &mut self.track_cache)
+                            .query_gene_track(reference, &region, &mut state.track_cache)
                             .await
                         {
-                            self.track = Some(track);
+                            state.track = Some(track);
                             loaded_data = true;
                         } else {
                             // Do nothing (track not found). TODO: fix this shit properly.
                         }
                     }
-                } else if reference.is_none() {
+                } else if state.reference.is_none() {
                     // No reference provided, cannot load features
                 } else {
                     return Err(TGVError::StateError(
@@ -1010,15 +954,12 @@ impl StateHandler {
                 }
             }
             DataMessage::RequiresCompleteSequences(region) => {
-                if self.sequence_service.is_none() {
-                    return Err(TGVError::IOError("Sequence service not found".to_string()));
-                }
-                let sequence_service = self.sequence_service.as_ref().unwrap();
+                let sequence_service = repository.sequence_service_checked()?;
 
-                if !self.has_complete_sequence(&region) {
+                if !Self::has_complete_sequence(state, &region) {
                     match sequence_service.query_sequence(&region).await {
                         Ok(sequence) => {
-                            self.sequence = Some(sequence);
+                            state.sequence = Some(sequence);
                             loaded_data = true;
                         }
                         Err(_) => {
@@ -1029,17 +970,17 @@ impl StateHandler {
             }
 
             DataMessage::RequiresCytobands(contig) => {
-                if self.contigs.cytoband_is_loaded(&contig)? {
+                if state.contigs.cytoband_is_loaded(&contig)? {
                     return Ok(false);
                 }
 
-                if let (Some(reference), Some(track_service)) =
-                    (reference, self.track_service.as_ref())
+                if let (Some(ref reference), Some(track_service)) =
+                    (state.reference.clone(), repository.track_service)
                 {
                     let cytoband = track_service.get_cytoband(reference, &contig).await?;
-                    self.contigs.update_cytoband(&contig, cytoband);
+                    state.contigs.update_cytoband(&contig, cytoband);
                     loaded_data = true;
-                } else if reference.is_none() {
+                } else if state.reference.is_none() {
                     // Cannot load cytobands without reference
                 } else {
                     // track service not available
@@ -1052,41 +993,45 @@ impl StateHandler {
 
     pub async fn load_all_data(
         &mut self,
-        reference: Option<&Reference>, // TODO: improve this.
+        state: &mut State,
+        repository: &Repository,
         region: Region,
     ) -> Result<bool, TGVError> {
         let loaded_alignment = self
             .handle_data_message(
-                reference,
+                state,
+                repository,
                 DataMessage::RequiresCompleteAlignments(region.clone()),
             )
             .await?;
         let loaded_track = self
             .handle_data_message(
-                reference,
+                state,
+                repository,
                 DataMessage::RequiresCompleteFeatures(region.clone()),
             )
             .await?;
         let loaded_sequence = self
             .handle_data_message(
-                reference,
+                state,
+                repository,
                 DataMessage::RequiresCompleteSequences(region.clone()),
             )
             .await?;
         Ok(loaded_alignment || loaded_track || loaded_sequence)
     }
 
-    pub fn has_complete_alignment(&self, region: &Region) -> bool {
-        self.alignment.is_some() && self.alignment.as_ref().unwrap().has_complete_data(region)
+    pub fn has_complete_alignment(state: &State, region: &Region) -> bool {
+        state.alignment.is_some() && state.alignment.as_ref().unwrap().has_complete_data(region)
     }
 
-    pub fn has_complete_track(&self, region: &Region) -> bool {
+    pub fn has_complete_track(state: &State, region: &Region) -> bool {
         // self.track_cache.get_track(region.contig()) == Some(None)
-        self.track.is_some() && self.track.as_ref().unwrap().has_complete_data(region)
+        state.track.is_some() && state.track.as_ref().unwrap().has_complete_data(region)
     }
 
-    pub fn has_complete_sequence(&self, region: &Region) -> bool {
-        self.sequence.is_some() && self.sequence.as_ref().unwrap().has_complete_data(region)
+    pub fn has_complete_sequence(state: &State, region: &Region) -> bool {
+        state.sequence.is_some() && state.sequence.as_ref().unwrap().has_complete_data(region)
     }
 }
 
