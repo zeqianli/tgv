@@ -55,27 +55,14 @@ impl RenderingState {
     }
 
     pub fn update(&mut self, state: &State) -> Result<&mut Self, TGVError> {
-        // TODO: help screen
-        // let new_state = match state.input_mode.clone() {
-        //     InputMode::Command | InputMode::Normal => RenderingStateEnum::Normal,
-        //     InputMode::Help => RenderingStateEnum::Help,
-        // };
-
-        // self.refresh = match (&self.state, &new_state) {
-        //     (RenderingStateEnum::Normal, RenderingStateEnum::Help) => true,
-        //     (RenderingStateEnum::Help, RenderingStateEnum::Normal) => true,
-        //     _ => false,
-        // };
-
-        // check if the frame area has changed
         if self.last_frame_area.width != state.current_frame_area()?.width
             || self.last_frame_area.height != state.current_frame_area()?.height
         {
             self.refresh = true;
+            self.last_frame_area = state.current_frame_area()?.clone();
+        } else {
+            self.refresh = false;
         }
-        self.last_frame_area = state.current_frame_area()?.clone();
-
-        //self.state = new_state;
 
         Ok(self)
     }

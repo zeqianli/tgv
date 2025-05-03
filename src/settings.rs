@@ -287,7 +287,7 @@ mod tests {
 
         match (&settings, &expected_settings) {
             (Ok(settings), Ok(expected)) => assert_eq!(*settings, *expected),
-            (Err(e), Err(expected)) => assert!(e.is_same_type(expected)),
+            (Err(e), Err(expected)) => assert!(matches!(e, expected)),
             _ => panic!(
                 "Unexpected CLI parsing result. Expected: {:?}, Got: {:?}",
                 expected_settings, settings

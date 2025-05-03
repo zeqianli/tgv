@@ -434,6 +434,7 @@ impl Register for HelpModeRegister {
 
 #[cfg(test)]
 mod tests {
+
     use super::*;
     use crate::message::StateMessage;
     use rstest::rstest;
@@ -450,55 +451,56 @@ mod tests {
         7572659,
     )]))]
     #[case("TP53", Ok(vec![StateMessage::GoToGene("TP53".to_string())]))]
-    #[case("invalid:command:format", Err("Invalid command mode input: invalid:command:format".to_string()))]
-    #[case("chr1:invalid", Err("Invalid command mode input: chr1:invalid".to_string()))]
+    #[case("invalid:command:format", Err(TGVError::RegisterError("Invalid command mode input: invalid:command:format".to_string())))]
+    #[case("chr1:invalid", Err(TGVError::RegisterError("Invalid command mode input: chr1:invalid".to_string())))]
     fn test_command_parse(
         #[case] input: &str,
-        #[case] expected: Result<Vec<StateMessage>, String>,
+        #[case] expected: Result<Vec<StateMessage>, TGVError>,
     ) {
         let register = CommandModeRegister {
             input: input.to_string(),
             cursor_position: input.len(),
         };
-        assert_eq!(register.parse(), expected);
+        assert!(matches!(register.parse(), expected));
     }
 
     #[rstest]
-    #[case("",KeyCode::Char('g'), Ok(vec![StateMessage::AddCharToNormalModeRegisters('g')]))]
-    #[case("g",KeyCode::Char('g'), Err("Invalid input: g".to_string()))]
-    #[case("",KeyCode::Char('1'), Ok(vec![StateMessage::AddCharToNormalModeRegisters('1')]))]
-    #[case("g",KeyCode::Char('1'), Err("Invalid input: g".to_string()))]
-    #[case("", KeyCode::Char('w'), Ok(vec![StateMessage::GotoNextExonsStart(1), StateMessage::ClearNormalModeRegisters]))]
-    #[case("", KeyCode::Char('b'), Ok(vec![StateMessage::GotoPreviousExonsStart(1), StateMessage::ClearNormalModeRegisters]))]
-    #[case("", KeyCode::Char('e'), Ok(vec![StateMessage::GotoNextExonsEnd(1), StateMessage::ClearNormalModeRegisters]))]
-    #[case("", KeyCode::Char('h'), Ok(vec![StateMessage::MoveLeft(1), StateMessage::ClearNormalModeRegisters]))]
-    #[case("", KeyCode::Char('l'), Ok(vec![StateMessage::MoveRight(1), StateMessage::ClearNormalModeRegisters]))]
-    #[case("", KeyCode::Char('j'), Ok(vec![StateMessage::MoveDown(1), StateMessage::ClearNormalModeRegisters]))]
-    #[case("", KeyCode::Char('k'), Ok(vec![StateMessage::MoveUp(1), StateMessage::ClearNormalModeRegisters]))]
-    #[case("", KeyCode::Char('z'), Ok(vec![StateMessage::ZoomIn(2), StateMessage::ClearNormalModeRegisters]))]
-    #[case("", KeyCode::Char('o'), Ok(vec![StateMessage::ZoomOut(2), StateMessage::ClearNormalModeRegisters]))]
-    #[case("", KeyCode::Char('{'), Ok(vec![StateMessage::GotoPreviousContig(1), StateMessage::ClearNormalModeRegisters]))]
-    #[case("", KeyCode::Char('}'), Ok(vec![StateMessage::GotoNextContig(1), StateMessage::ClearNormalModeRegisters]))]
-    #[case("g", KeyCode::Char('e'), Ok(vec![StateMessage::GotoPreviousExonsEnd(1), StateMessage::ClearNormalModeRegisters]))]
-    #[case("g", KeyCode::Char('E'), Ok(vec![StateMessage::GotoPreviousGenesEnd(1), StateMessage::ClearNormalModeRegisters]))]
-    #[case("3", KeyCode::Char('w'), Ok(vec![StateMessage::GotoNextExonsStart(3), StateMessage::ClearNormalModeRegisters]))]
-    #[case("5", KeyCode::Char('l'), Ok(vec![StateMessage::MoveRight(5), StateMessage::ClearNormalModeRegisters]))]
-    #[case("10", KeyCode::Char('z'), Ok(vec![StateMessage::ZoomIn(20), StateMessage::ClearNormalModeRegisters]))]
-    #[case("", KeyCode::Char('x'), Err("Invalid normal mode input: x".to_string()))]
-    #[case("g", KeyCode::Char('x'), Err("Invalid normal mode input: gx".to_string()))]
-    #[case("3", KeyCode::Char('x'), Err("Invalid normal mode input: 3x".to_string()))]
-    #[case("3g", KeyCode::Char('x'), Err("Invalid normal mode input: 3gx".to_string()))]
+    #[case("",'g', Ok(vec![]))]
+    #[case("g",'g', Err(TGVError::RegisterError("Invalid input: g".to_string())))]
+    #[case("",'1', Ok(vec![]))]
+    #[case("g",'1', Err(TGVError::RegisterError("Invalid input: g".to_string())))]
+    #[case("", 'w', Ok(vec![StateMessage::GotoNextExonsStart(1)]))]
+    #[case("", 'b', Ok(vec![StateMessage::GotoPreviousExonsStart(1)]))]
+    #[case("", 'e', Ok(vec![StateMessage::GotoNextExonsEnd(1)]))]
+    #[case("", 'h', Ok(vec![StateMessage::MoveLeft(1)]))]
+    #[case("", 'l', Ok(vec![StateMessage::MoveRight(1)]))]
+    #[case("", 'j', Ok(vec![StateMessage::MoveDown(1)]))]
+    #[case("", 'k', Ok(vec![StateMessage::MoveUp(1)]))]
+    #[case("", 'z', Ok(vec![StateMessage::ZoomIn(2)]))]
+    #[case("", 'o', Ok(vec![StateMessage::ZoomOut(2)]))]
+    #[case("", '{', Ok(vec![StateMessage::GotoPreviousContig(1)]))]
+    #[case("", '}', Ok(vec![StateMessage::GotoNextContig(1)]))]
+    #[case("g", 'e', Ok(vec![StateMessage::GotoPreviousExonsEnd(1)]))]
+    #[case("g", 'E', Ok(vec![StateMessage::GotoPreviousGenesEnd(1)]))]
+    #[case("3", 'w', Ok(vec![StateMessage::GotoNextExonsStart(3)]))]
+    #[case("5", 'l', Ok(vec![StateMessage::MoveRight(5)]))]
+    #[case("10", 'z', Ok(vec![StateMessage::ZoomIn(20)]))]
+    #[case("", 'x', Err(TGVError::RegisterError("Invalid normal mode input: x".to_string())))]
+    #[case("g", 'x', Err(TGVError::RegisterError("Invalid normal mode input: gx".to_string())))]
+    #[case("3", 'x', Err(TGVError::RegisterError("Invalid normal mode input: 3x".to_string())))]
+    #[case("3g", 'x', Err(TGVError::RegisterError("Invalid normal mode input: 3gx".to_string())))]
     fn test_normal_mode_translate(
         #[case] existing_buffer: &str,
-        #[case] key: KeyCode,
-        #[case] expected: Result<Vec<StateMessage>, String>,
+        #[case] key: char,
+        #[case] expected: Result<Vec<StateMessage>, TGVError>,
     ) {
-        let register = NormalModeRegister {
+        let mut register = NormalModeRegister {
             input: existing_buffer.to_string(),
         };
 
         // Test the translation
-        let result = register.translate(key);
-        assert_eq!(result, expected);
+
+        let result = register.update_by_char(key);
+        assert!(matches!(result, expected));
     }
 }

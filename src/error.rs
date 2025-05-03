@@ -37,10 +37,10 @@ pub enum TGVError {
     RegisterError(String),
 }
 
-impl TGVError {
-    pub fn is_same_type(&self, other: &TGVError) -> bool {
-        matches!(self, other)
-    }
-}
+// impl TGVError {
+//     pub fn is_same_type(&self, other: &TGVError) -> bool {
+//         matches!(self, other)
+//     }
+// }
 
 // TODO: tracing
