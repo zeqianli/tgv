@@ -63,6 +63,18 @@ pub struct Settings {
 }
 
 impl Settings {
+    pub fn needs_alignment(&self) -> bool {
+        self.bam_path.is_some()
+    }
+
+    pub fn needs_track(&self) -> bool {
+        self.reference.is_some()
+    }
+
+    pub fn needs_sequence(&self) -> bool {
+        self.reference.is_some()
+    }
+
     pub fn new(cli: Cli, test_mode: bool) -> Result<Self, TGVError> {
         let mut bam_path = None;
         // let mut vcf_path = None;

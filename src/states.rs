@@ -215,7 +215,8 @@ impl StateHandler {
 
         // Handle the initial messages
         let initial_state_messages = settings.initial_state_messages.clone();
-        StateHandler::handle_initial_messages(state, repository, initial_state_messages).await?;
+        StateHandler::handle_initial_messages(state, repository, settings, initial_state_messages)
+            .await?;
 
         Ok(())
     }
@@ -268,13 +269,15 @@ impl StateHandler {
     pub async fn handle_initial_messages(
         state: &mut State,
         repository: &Repository,
+        settings: &Settings,
         messages: Vec<StateMessage>,
     ) -> Result<(), TGVError> {
         let mut data_messages = Vec::new();
 
         for message in messages {
-            data_messages
-                .extend(StateHandler::handle_state_message(state, repository, message).await?);
+            data_messages.extend(
+                StateHandler::handle_state_message(state, repository, settings, message).await?,
+            );
         }
 
         let mut loaded_data = false;
@@ -301,9 +304,12 @@ impl StateHandler {
         let mut data_messages = Vec::new();
 
         for message in messages {
-            data_messages
-                .extend(StateHandler::handle_state_message(state, repository, message).await?);
+            data_messages.extend(
+                StateHandler::handle_state_message(state, repository, settings, message).await?,
+            );
         }
+
+        let data_messages = StateHandler::get_data_requirements(state, settings)?;
 
         let debug_message = data_messages
             .iter()
@@ -336,11 +342,10 @@ impl StateHandler {
     async fn handle_state_message(
         state: &mut State,
         repository: &Repository,
+        settings: &Settings,
         message: StateMessage,
     ) -> Result<Vec<DataMessage>, TGVError> {
-        let mut data_messages: Vec<DataMessage> = Vec::new();
-
-        let data_messages: Vec<DataMessage> = match message {
+        match message {
             // Swithching modes
             StateMessage::Quit => StateHandler::quit(state)?,
 
@@ -403,7 +408,7 @@ impl StateHandler {
             }
         };
 
-        Ok(data_messages)
+        Self::get_data_requirements(state, settings)
     }
 }
 
@@ -414,23 +419,26 @@ impl StateHandler {
     pub const MAX_ZOOM_TO_DISPLAY_ALIGNMENTS: usize = 32;
     pub const MAX_ZOOM_TO_DISPLAY_SEQUENCES: usize = 2;
 
-    fn quit(state: &mut State) -> Result<Vec<DataMessage>, TGVError> {
+    fn quit(state: &mut State) -> Result<(), TGVError> {
         state.exit = true;
-        Ok(Vec::new())
+        Ok(())
     }
 
-    fn add_message(state: &mut State, message: String) -> Result<Vec<DataMessage>, TGVError> {
+    fn add_message(state: &mut State, message: String) -> Result<(), TGVError> {
         state.errors.push(message);
-        Ok(Vec::new())
+        Ok(())
     }
 
-    fn get_data_requirements(state: &State) -> Result<Vec<DataMessage>, TGVError> {
+    fn get_data_requirements(
+        state: &State,
+        settings: &Settings,
+    ) -> Result<Vec<DataMessage>, TGVError> {
         let mut data_messages = Vec::new();
 
         let viewing_window = state.viewing_window()?;
         let viewing_region = state.viewing_region()?;
 
-        if state.alignment.is_some() // TODO: might have a better way.
+        if settings.needs_alignment()
             && viewing_window.zoom() <= Self::MAX_ZOOM_TO_DISPLAY_ALIGNMENTS
             && !Self::has_complete_alignment(state, &viewing_region)
         {
@@ -440,13 +448,18 @@ impl StateHandler {
             ));
         }
 
-        if state.reference.is_some() {
+        if settings.needs_track() {
             if !Self::has_complete_track(state, &viewing_region) {
                 // viewing_window.zoom() <= Self::MAX_ZOOM_TO_DISPLAY_FEATURES is always true
                 let track_cache_region = Self::track_cache_region(state, &viewing_region)?;
                 data_messages.push(DataMessage::RequiresCompleteFeatures(track_cache_region));
             }
 
+            // Cytobands
+            data_messages.push(DataMessage::RequiresCytobands(state.contig()?));
+        }
+
+        if settings.needs_sequence() {
             if (viewing_window.zoom() <= Self::MAX_ZOOM_TO_DISPLAY_SEQUENCES)
                 && !Self::has_complete_sequence(state, &viewing_region)
             {
@@ -455,9 +468,6 @@ impl StateHandler {
                     sequence_cache_region,
                 ));
             }
-
-            // Cytobands
-            data_messages.push(DataMessage::RequiresCytobands(state.contig()?));
         }
 
         Ok(data_messages)
@@ -532,11 +542,7 @@ impl StateHandler {
 
 // Movement handling
 impl StateHandler {
-    // fn handle_movement_message(
-    //     state: &mut State,
-    //     message: StateMessage,
-    // ) -> Result<Vec<DataMessage>, TGVError> {
-    fn move_left(state: &mut State, n: usize) -> Result<Vec<DataMessage>, TGVError> {
+    fn move_left(state: &mut State, n: usize) -> Result<(), TGVError> {
         let current_frame_area = *state.current_frame_area()?;
         let contig_length = state.contig_length()?;
         let viewing_window = state.viewing_window_mut()?;
@@ -548,9 +554,9 @@ impl StateHandler {
             &current_frame_area,
             contig_length,
         );
-        Self::get_data_requirements(state)
+        Ok(())
     }
-    fn move_right(state: &mut State, n: usize) -> Result<Vec<DataMessage>, TGVError> {
+    fn move_right(state: &mut State, n: usize) -> Result<(), TGVError> {
         let current_frame_area = *state.current_frame_area()?;
 
         let contig_length: Option<usize> = state.contig_length()?;
@@ -563,33 +569,33 @@ impl StateHandler {
             &current_frame_area,
             contig_length,
         );
-        Self::get_data_requirements(state)
+        Ok(())
     }
-    fn move_up(state: &mut State, n: usize) -> Result<Vec<DataMessage>, TGVError> {
+    fn move_up(state: &mut State, n: usize) -> Result<(), TGVError> {
         let viewing_window = state.viewing_window_mut()?;
 
         viewing_window.set_top(viewing_window.top().saturating_sub(n));
-        Self::get_data_requirements(state)
+        Ok(())
     }
-    fn move_down(state: &mut State, n: usize) -> Result<Vec<DataMessage>, TGVError> {
+    fn move_down(state: &mut State, n: usize) -> Result<(), TGVError> {
         let viewing_window = state.viewing_window_mut()?;
 
         viewing_window.set_top(viewing_window.top().saturating_add(n));
-        Self::get_data_requirements(state)
+        Ok(())
     }
-    fn go_to_coordinate(state: &mut State, n: usize) -> Result<Vec<DataMessage>, TGVError> {
+    fn go_to_coordinate(state: &mut State, n: usize) -> Result<(), TGVError> {
         let current_frame_area = *state.current_frame_area()?;
         let contig_length = state.contig_length()?;
         let viewing_window = state.viewing_window_mut()?;
 
         viewing_window.set_middle(&current_frame_area, n, contig_length);
-        Self::get_data_requirements(state)
+        Ok(())
     }
     fn go_to_contig_coordinate(
         state: &mut State,
         contig: &Contig,
         n: usize,
-    ) -> Result<Vec<DataMessage>, TGVError> {
+    ) -> Result<(), TGVError> {
         // If bam_path is provided, check that the contig is valid.
 
         if !state.contigs.contains(&contig) {
@@ -612,10 +618,10 @@ impl StateHandler {
                 state.window = Some(ViewingWindow::new_basewise_window(contig.clone(), n, 0));
             }
         }
-        Self::get_data_requirements(state)
+        Ok(())
     }
 
-    fn handle_zoom_out(state: &mut State, r: usize) -> Result<Vec<DataMessage>, TGVError> {
+    fn handle_zoom_out(state: &mut State, r: usize) -> Result<(), TGVError> {
         let contig_length = state.contig_length()?;
         let current_frame_area = *state.current_frame_area()?;
         let viewing_window = state.viewing_window_mut()?;
@@ -623,10 +629,10 @@ impl StateHandler {
         viewing_window
             .zoom_out(r, &current_frame_area, contig_length)
             .unwrap();
-        Self::get_data_requirements(state)
+        Ok(())
     }
 
-    fn handle_zoom_in(state: &mut State, r: usize) -> Result<Vec<DataMessage>, TGVError> {
+    fn handle_zoom_in(state: &mut State, r: usize) -> Result<(), TGVError> {
         let contig_length = state.contig_length()?;
         let current_frame_area: Rect = *state.current_frame_area()?;
         let viewing_window = state.viewing_window_mut()?;
@@ -634,16 +640,16 @@ impl StateHandler {
         viewing_window
             .zoom_in(r, &current_frame_area, contig_length)
             .unwrap();
-        Self::get_data_requirements(state)
+        Ok(())
     }
 
     async fn go_to_next_genes_start(
         state: &mut State,
         repository: &Repository,
         n: usize,
-    ) -> Result<Vec<DataMessage>, TGVError> {
+    ) -> Result<(), TGVError> {
         if n == 0 {
-            return Self::get_data_requirements(state);
+            return Ok(());
         }
 
         let middle = state.middle()?;
@@ -679,9 +685,9 @@ impl StateHandler {
         state: &mut State,
         repository: &Repository,
         n: usize,
-    ) -> Result<Vec<DataMessage>, TGVError> {
+    ) -> Result<(), TGVError> {
         if n == 0 {
-            return Self::get_data_requirements(state);
+            return Ok(());
         }
 
         let middle = state.middle()?;
@@ -710,9 +716,9 @@ impl StateHandler {
         state: &mut State,
         repository: &Repository,
         n: usize,
-    ) -> Result<Vec<DataMessage>, TGVError> {
+    ) -> Result<(), TGVError> {
         if n == 0 {
-            return Self::get_data_requirements(state);
+            return Ok(());
         }
 
         let middle = state.middle()?;
@@ -741,9 +747,9 @@ impl StateHandler {
         state: &mut State,
         repository: &Repository,
         n: usize,
-    ) -> Result<Vec<DataMessage>, TGVError> {
+    ) -> Result<(), TGVError> {
         if n == 0 {
-            return Self::get_data_requirements(state);
+            return Ok(());
         }
 
         let middle = state.middle()?;
@@ -772,9 +778,9 @@ impl StateHandler {
         state: &mut State,
         repository: &Repository,
         n: usize,
-    ) -> Result<Vec<DataMessage>, TGVError> {
+    ) -> Result<(), TGVError> {
         if n == 0 {
-            return Self::get_data_requirements(state);
+            return Ok(());
         }
 
         let middle = state.middle()?;
@@ -803,9 +809,9 @@ impl StateHandler {
         state: &mut State,
         repository: &Repository,
         n: usize,
-    ) -> Result<Vec<DataMessage>, TGVError> {
+    ) -> Result<(), TGVError> {
         if n == 0 {
-            return Self::get_data_requirements(state);
+            return Ok(());
         }
 
         let middle = state.middle()?;
@@ -834,9 +840,9 @@ impl StateHandler {
         state: &mut State,
         repository: &Repository,
         n: usize,
-    ) -> Result<Vec<DataMessage>, TGVError> {
+    ) -> Result<(), TGVError> {
         if n == 0 {
-            return Self::get_data_requirements(state);
+            return Ok(());
         }
 
         let middle = state.middle()?;
@@ -865,9 +871,9 @@ impl StateHandler {
         state: &mut State,
         repository: &Repository,
         n: usize,
-    ) -> Result<Vec<DataMessage>, TGVError> {
+    ) -> Result<(), TGVError> {
         if n == 0 {
-            return Self::get_data_requirements(state);
+            return Ok(());
         }
 
         let middle = state.middle()?;
@@ -897,7 +903,7 @@ impl StateHandler {
         state: &mut State,
         repository: &Repository,
         gene_id: String,
-    ) -> Result<Vec<DataMessage>, TGVError> {
+    ) -> Result<(), TGVError> {
         let track_service = repository.track_service_checked()?;
 
         let gene = track_service
@@ -911,10 +917,7 @@ impl StateHandler {
         return Self::go_to_contig_coordinate(state, gene.contig(), gene.start() + 1);
     }
 
-    async fn go_to_default(
-        state: &mut State,
-        repository: &Repository,
-    ) -> Result<Vec<DataMessage>, TGVError> {
+    async fn go_to_default(state: &mut State, repository: &Repository) -> Result<(), TGVError> {
         let reference = state.reference.as_ref();
         match reference {
             Some(Reference::Hg38) | Some(Reference::Hg19) => {

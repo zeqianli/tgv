@@ -82,6 +82,18 @@ impl Repository {
         }
         Ok(())
     }
+
+    pub fn has_alignment(&self) -> bool {
+        self.alignment_repository.has_alignment()
+    }
+
+    pub fn has_track(&self) -> bool {
+        self.track_service.is_some()
+    }
+
+    pub fn has_sequence(&self) -> bool {
+        self.sequence_service.is_some()
+    }
 }
 
 #[derive(Debug)]
@@ -336,6 +348,14 @@ impl AlignmentRepositoryEnum {
             bam_path,
             settings.bai_path.clone(),
         )?));
+    }
+
+    pub fn has_alignment(&self) -> bool {
+        match self {
+            AlignmentRepositoryEnum::Bam(_) => true,
+            AlignmentRepositoryEnum::RemoteBam(_) => true,
+            AlignmentRepositoryEnum::None => false,
+        }
     }
 }
 
