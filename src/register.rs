@@ -461,7 +461,15 @@ mod tests {
             input: input.to_string(),
             cursor_position: input.len(),
         };
-        assert!(matches!(register.parse(), expected));
+        match (&register.parse(), &expected) {
+            (Ok(result), Ok(expected)) => assert_eq!(result, expected),
+            (Err(e), Err(expected)) => {} // OK
+            _ => panic!(
+                "Test failed.  result: {:?}, expected: {:?}",
+                register.parse(),
+                expected
+            ),
+        }
     }
 
     #[rstest]
@@ -501,6 +509,13 @@ mod tests {
         // Test the translation
 
         let result = register.update_by_char(key);
-        assert!(matches!(result, expected));
+        match (&result, &expected) {
+            (Ok(result), Ok(expected)) => assert_eq!(result, expected),
+            (Err(e), Err(expected)) => {} // OK
+            _ => panic!(
+                "Test failed.  result: {:?}, expected: {:?}",
+                result, expected
+            ),
+        }
     }
 }
