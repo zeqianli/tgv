@@ -29,7 +29,7 @@ pub fn render_cytobands(area: &Rect, buf: &mut Buffer, state: &State) -> Result<
     };
 
     let contig_description = match state.contig() {
-        Ok(contig) => contig.full_name().to_string(),
+        Ok(contig) => contig.name.clone(),
         Err(_) => "".to_string(),
     };
 

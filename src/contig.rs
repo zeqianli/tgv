@@ -1,9 +1,14 @@
 use std::default::Default;
 
-#[derive(Debug, Clone)]
-pub enum Contig {
-    Chromosome { name: String },
-    Contig { name: String },
+#[derive(Debug, Clone, Default)]
+pub struct Contig {
+    // name should match with the UCSC genome browser.
+    pub name: String,
+
+    /// Aliases:
+    /// - chr1 -> 1
+    /// - chromAlias table in the UCSC database
+    pub aliases: Vec<String>,
 }
 
 impl Contig {
@@ -12,61 +17,85 @@ impl Contig {
         "17", "18", "19", "20", "21", "22", "X", "Y", "MT",
     ];
 
-    pub fn chrom(s: &str) -> Self {
-        if Contig::APPREVIATABLE_CHROMOSOMES.contains(&s) {
-            Contig::Chromosome {
-                name: format!("chr{}", s),
-            }
-        } else {
-            Contig::Chromosome { name: s.to_owned() }
+    pub fn new(name: &str) -> Self {
+        let mut aliases = Vec::new();
+        if Contig::APPREVIATABLE_CHROMOSOMES.contains(&name) {
+            aliases.push(format!("chr{}", name));
+        }
+
+        if name.starts_with("chr") && Contig::APPREVIATABLE_CHROMOSOMES.contains(&&name[3..]) {
+            aliases.push(name[3..].to_string());
+        }
+
+        Contig {
+            name: name.to_string(),
+            aliases,
         }
     }
 
-    #[allow(clippy::self_named_constructors)]
-    pub fn contig(s: &str) -> Self {
-        Contig::Contig { name: s.to_owned() }
+    pub fn alias(mut self, alias: &str) -> Self {
+        self.aliases.push(alias.to_string());
+        self
     }
 
-    /// Full name with the "chr" prefix, if applicable.
-    pub fn full_name(&self) -> String {
-        match self {
-            Contig::Chromosome { name } => name.clone(),
-            Contig::Contig { name } => name.clone(),
-        }
+    pub fn aliases(mut self, aliases: Vec<String>) -> Self {
+        self.aliases.extend(aliases);
+        self
     }
 
-    pub fn abbreviated_name(&self) -> String {
-        match self {
-            Contig::Chromosome { name } => {
-                if let Some(stripped) = name.strip_prefix("chr") {
-                    stripped.to_string()
-                } else {
-                    name.clone()
-                }
-            }
-            Contig::Contig { name } => name.clone(),
-        }
-    }
+    // #[allow(clippy::self_named_constructors)]
+    // pub fn contig(s: &str) -> Self {
+    //     Contig::Contig { name: s.to_owned() }
+    // }
+
+    // /// Full name with the "chr" prefix, if applicable.
+    // pub fn full_name(&self) -> String {
+    //     match self {
+    //         Contig::newosome { name } => name.clone(),
+    //         Contig::Contig { name } => name.clone(),
+    //     }
+    // }
+
+    // pub fn abbreviated_name(&self) -> String {
+    //     match self {
+    //         Contig::newosome { name } => {
+    //             if let Some(stripped) = name.strip_prefix("chr") {
+    //                 stripped.to_string()
+    //             } else {
+    //                 name.clone()
+    //             }
+    //         }
+    //         Contig::Contig { name } => name.clone(),
+    //     }
+    // }
 }
 
 impl Eq for Contig {}
 
 impl PartialEq for Contig {
     fn eq(&self, other: &Self) -> bool {
-        match (self, other) {
-            (Contig::Chromosome { name: name1 }, Contig::Chromosome { name: name2 }) => {
-                name1 == name2
-            }
-            (Contig::Contig { name: name1 }, Contig::Contig { name: name2 }) => name1 == name2,
-            _ => false,
+        if self.name == other.name {
+            return true;
         }
-    }
-}
 
-impl Default for Contig {
-    fn default() -> Self {
-        Contig::Chromosome {
-            name: String::new(),
+        for alias in other.aliases.iter() {
+            if alias == &self.name {
+                return true;
+            }
         }
+
+        for alias in self.aliases.iter() {
+            if alias == &other.name {
+                return true;
+            }
+
+            for alias in other.aliases.iter() {
+                if alias == &self.name {
+                    return true;
+                }
+            }
+        }
+
+        false
     }
 }

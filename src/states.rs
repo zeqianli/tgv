@@ -595,8 +595,7 @@ impl StateHandler {
         if !state.contigs.contains(contig) {
             return Err(TGVError::StateError(format!(
                 "Contig {:?} not found for reference {:?}",
-                contig.full_name(),
-                state.reference
+                contig.name, state.reference
             )));
         }
 

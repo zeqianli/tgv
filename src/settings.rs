@@ -193,7 +193,7 @@ impl Settings {
             match split[1].parse::<usize>() {
                 Ok(n) => {
                     return Ok(vec![StateMessage::GotoContigCoordinate(
-                        Contig::chrom(split[0]),
+                        Contig::new(split[0]),
                         n,
                     )]);
                 }
@@ -247,7 +247,7 @@ mod tests {
     #[case("tgv input.bam -r chr1:12345", Ok(Settings {
         bam_path: Some("input.bam".to_string()),
         initial_state_messages: vec![StateMessage::GotoContigCoordinate(
-            Contig::chrom("chr1"),
+            Contig::new("chr1"),
             12345,
         )],
         ..default_settings()
@@ -275,7 +275,7 @@ mod tests {
         bam_path: Some("input.bam".to_string()),
         reference: None,
         initial_state_messages: vec![StateMessage::GotoContigCoordinate(
-            Contig::chrom("1"),
+            Contig::new("1"),
             12345,
         )],
         ..default_settings()

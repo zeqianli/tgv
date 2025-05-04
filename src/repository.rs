@@ -298,9 +298,6 @@ fn get_contig_names_and_lengths_from_header(
 /// Get the query string for a region.
 /// Look through the header to decide if the bam file chromosome names are abbreviated or full.
 fn get_query_contig_string(header: &Header, region: &Region) -> Result<String, TGVError> {
-    let full_chromsome_str = region.contig.full_name();
-    let abbreviated_chromsome_str = region.contig.abbreviated_name();
-
     let mut bam_headers = Vec::new();
 
     for (_key, records) in header.to_hashmap().iter() {
@@ -308,12 +305,10 @@ fn get_query_contig_string(header: &Header, region: &Region) -> Result<String, T
             if record.contains_key("SN") {
                 let reference_name = record["SN"].to_string();
 
-                if &reference_name == &full_chromsome_str {
-                    return Ok(full_chromsome_str);
-                }
-
-                if &reference_name == &abbreviated_chromsome_str {
-                    return Ok(abbreviated_chromsome_str);
+                if &reference_name == &region.contig.name
+                    || region.contig.aliases.contains(&reference_name)
+                {
+                    return Ok(reference_name);
                 }
 
                 bam_headers.push(reference_name);
@@ -322,8 +317,9 @@ fn get_query_contig_string(header: &Header, region: &Region) -> Result<String, T
     }
 
     Err(TGVError::IOError(format!(
-        "Contig {} not found in the bam file header. BAM file has {} contigs: {}",
-        full_chromsome_str,
+        "Contig {} (aliases: {}) not found in the bam file header. BAM file has {} contigs: {}",
+        region.contig.name,
+        region.contig.aliases.join(", "),
         bam_headers.len(),
         bam_headers.join(", ")
     )))
@@ -421,12 +417,12 @@ impl SequenceService {
     }
 
     /// start / end: 1-based, inclusive.
-    fn get_api_url(&self, chrom: &Contig, start: usize, end: usize) -> Result<String, TGVError> {
+    fn get_api_url(&self, contig: &Contig, start: usize, end: usize) -> Result<String, TGVError> {
         match self.reference {
             Reference::Hg19 | Reference::Hg38 | Reference::UcscGenome(_) => Ok(format!(
                 "https://api.genome.ucsc.edu/getData/sequence?genome={};chrom={};start={};end={}",
                 self.reference.to_string(),
-                chrom.full_name(),
+                contig.name,
                 start - 1, // start is 0-based, inclusive.
                 end
             )),

@@ -92,7 +92,7 @@ where
     D: serde::Deserializer<'de>,
 {
     let s = String::deserialize(deserializer)?;
-    Ok(Contig::chrom(&s))
+    Ok(Contig::new(&s))
 }
 
 fn deserialize_start_from_0_based<'de, D>(deserializer: D) -> Result<usize, D::Error>
@@ -172,7 +172,7 @@ impl Cytoband {
                 continue;
             }
 
-            let contig = Contig::chrom(&contig_string);
+            let contig = Contig::new(&contig_string);
             let start = record[1]
                 .parse::<usize>()
                 .map_err(|e| TGVError::ParsingError(e.to_string()))?;
