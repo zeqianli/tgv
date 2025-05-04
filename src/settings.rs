@@ -75,7 +75,7 @@ impl Settings {
         self.reference.is_some()
     }
 
-    pub fn new(cli: Cli, test_mode: bool) -> Result<Self, TGVError> {
+    pub fn new(cli: Cli) -> Result<Self, TGVError> {
         let mut bam_path = None;
         // let mut vcf_path = None;
         // let mut bed_path = None;
@@ -132,18 +132,7 @@ impl Settings {
             }
         }
 
-        // // 2. If no bam file is provided, the initial state message cannot be GoToContigCoordinate
-        // if bam_path.is_none() {
-        //     for m in initial_state_messages.iter() {
-        //         if let StateMessage::GotoContigCoordinate(_, _) = m {
-        //             return Err(TGVError::CliError(
-        //                 "Bam file is required to go to a contig coordinate".to_string(),
-        //             ));
-        //         }
-        //     }
-        // }
-
-        // 3. bam file and reference cannot both be none
+        // 2. bam file and reference cannot both be none
         if bam_path.is_none() && reference.is_none() {
             return Err(TGVError::CliError(
                 "Bam file and reference cannot both be none".to_string(),
@@ -158,9 +147,14 @@ impl Settings {
             reference,
             backend,
             initial_state_messages,
-            test_mode,
+            test_mode: false,
             debug: cli.debug,
         })
+    }
+
+    pub fn test_mode(mut self) -> Self {
+        self.test_mode = true;
+        self
     }
 
     fn translate_initial_state_messages(
@@ -283,7 +277,7 @@ mod tests {
     ) {
         let cli = Cli::parse_from(shlex::split(command_line).unwrap());
 
-        let settings = Settings::new(cli.clone(), false);
+        let settings = Settings::new(cli.clone());
 
         match (&settings, &expected_settings) {
             (Ok(settings), Ok(expected)) => assert_eq!(*settings, *expected),

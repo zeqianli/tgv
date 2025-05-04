@@ -191,11 +191,13 @@ impl State {
 
     pub fn sequence_renderable(&self) -> Result<bool, TGVError> {
         Ok(self.reference.is_some()
+            && self.sequence.is_some()
             && self.viewing_window()?.zoom() <= StateHandler::MAX_ZOOM_TO_DISPLAY_SEQUENCES)
     }
 
     pub fn track_renderable(&self) -> Result<bool, TGVError> {
         Ok(self.reference.is_some()
+            && self.track.is_some()
             && self.viewing_window()?.zoom() <= StateHandler::MAX_ZOOM_TO_DISPLAY_FEATURES)
     }
 

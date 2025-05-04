@@ -55,10 +55,6 @@ impl App {
                 let _ = terminal.clear();
             }
 
-            if self.settings.test_mode {
-                break;
-            }
-
             // Render
 
             terminal
@@ -67,27 +63,28 @@ impl App {
                 })
                 .unwrap();
 
-            // handle events
-            if !self.settings.test_mode {
-                match event::read() {
-                    Ok(Event::Key(key_event)) if key_event.kind == KeyEventKind::Press => {
-                        let state_messages = self.registers.update_key_event(key_event)?;
-                        StateHandler::handle(
-                            &mut self.state,
-                            &self.repository,
-                            &self.settings,
-                            state_messages,
-                        )
-                        .await?;
-                    }
+            if self.settings.test_mode {
+                break;
+            }
 
-                    Ok(Event::Resize(_width, _height)) => {
-                        self.state.self_correct_viewing_window();
-                    }
-                    _ => {
-                        panic!("test4");
-                    }
-                };
+            // handle events
+            match event::read() {
+                Ok(Event::Key(key_event)) if key_event.kind == KeyEventKind::Press => {
+                    let state_messages = self.registers.update_key_event(key_event)?;
+                    StateHandler::handle(
+                        &mut self.state,
+                        &self.repository,
+                        &self.settings,
+                        state_messages,
+                    )
+                    .await?;
+                }
+
+                Ok(Event::Resize(_width, _height)) => {
+                    self.state.self_correct_viewing_window();
+                }
+
+                _ => {}
             }
         }
         Ok(())

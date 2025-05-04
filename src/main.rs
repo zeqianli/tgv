@@ -29,7 +29,7 @@ use settings::{Cli, Settings};
 #[tokio::main]
 async fn main() -> Result<(), TGVError> {
     let cli = Cli::parse();
-    let settings: Settings = Settings::new(cli, false).unwrap();
+    let settings: Settings = Settings::new(cli)?;
 
     let mut terminal = ratatui::init();
 
@@ -92,7 +92,7 @@ mod tests {
         };
 
         let cli = Cli::parse_from(shlex::split(&args_string).unwrap());
-        let settings = Settings::new(cli, true).unwrap();
+        let settings = Settings::new(cli).unwrap().test_mode();
 
         let mut terminal = Terminal::new(TestBackend::new(50, 20)).unwrap();
 
