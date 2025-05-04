@@ -843,13 +843,13 @@ impl StateHandler {
         let track = state.track_checked()?;
 
         if let Some(target_exon) = track.get_k_exons_before(middle, n) {
-            return Self::go_to_coordinate(state, target_exon.end() + 1);
+            return Self::go_to_coordinate(state, target_exon.start() - 1);
         }
 
         // Query for the target exon
         let track_service = repository.track_service_checked()?;
         let exon = track_service
-            .query_k_exons_after(
+            .query_k_exons_before(
                 &state.reference_checked()?.clone(),
                 &state.contig()?.clone(),
                 middle,
@@ -858,7 +858,7 @@ impl StateHandler {
             )
             .await?;
 
-        Self::go_to_coordinate(state, exon.end() - 1)
+        Self::go_to_coordinate(state, exon.start() - 1)
     }
 
     async fn go_to_previous_exons_end(
