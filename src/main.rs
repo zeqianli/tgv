@@ -24,11 +24,32 @@ use app::App;
 use clap::Parser;
 use error::TGVError;
 mod track_service;
+use crate::reference::Reference;
+use crate::track_service::{TrackService, UcscDbTrackService};
 use settings::{Cli, Settings};
-
 #[tokio::main]
 async fn main() -> Result<(), TGVError> {
     let cli = Cli::parse();
+
+    if cli.list_common_genomes {
+        let n = print_common_genomes()?;
+        println!("{} common genomes", n);
+        println!("Browse a genome: tgv -g <genome> (e.g. tgv -g rat)");
+        return Ok(());
+    }
+
+    if cli.list_ucsc_assemblies {
+        let n = print_ucsc_assemblies().await?;
+        println!("{} UCSC assemblies", n);
+        println!("Browse a genome: tgv -g <genome> (e.g. tgv -g rn7)");
+        return Ok(());
+    }
+
+    // if cli.list_ucsc_accessions {
+    //     print_common_genomes()?;
+    //     print_ucsc_accessions()?;
+    //     return Ok(());
+    // }
     let settings: Settings = Settings::new(cli)?;
 
     let mut terminal = ratatui::init();
@@ -48,6 +69,34 @@ async fn main() -> Result<(), TGVError> {
     app.close().await?;
     app_result
 }
+
+fn print_common_genomes() -> Result<usize, TGVError> {
+    println!("{}", Reference::HG19);
+    println!("{}", Reference::HG38);
+    let genomes = Reference::get_common_genome_names()?;
+    for (genome, name) in &genomes {
+        println!("{} (UCSC assembly: {})", genome, name);
+    }
+    Ok(genomes.len() + 2)
+}
+
+async fn print_ucsc_assemblies() -> Result<usize, TGVError> {
+    let assemblies = UcscDbTrackService::list_assemblies(None).await?;
+
+    for (name, common_name) in &assemblies {
+        println!("{} (Organism: {})", name, common_name);
+    }
+    Ok(assemblies.len())
+}
+
+// async fn print_ucsc_accessions(n: usize, offset: usize) -> Result<(), TGVError> {
+//     let accessions = UcscDbTrackService::list_accessions(n, 0).await?;
+
+//     for (name, common_name) in accessions {
+//         println!("{} (Organism: {})", name, common_name);
+//     }
+//     Ok(())
+// }
 
 #[cfg(test)]
 mod tests {

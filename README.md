@@ -21,17 +21,31 @@ See [Installation](https://github.com/zeqianli/tgv/wiki/Installation)
 tgv
 ```
 
-- Quit: `:q`
-- Movement:
-  - Left / down / up / right: `h/j/k/l`:
-  - Faster left / right: `y/p`
-  - Next gene / previous gene / next exon / previous exon: `W/B/w/b`
-  - Repeat movements: `_number_` + `_movement_` (e.g. `20B`: left by 20 genes)
-- Zoom in / out: `z/o`
-- Go to gene: `:_gene_` (e.g. `:TP53`)
-- Go to a chromosome position: `:_chr_:_position_`: (e.g. `:1:2345`)
+- `:q`: Quit
+- `h/j/k/l`: Left / down / up / right
+- `y/p`: Faster left / right
+- `W/B/w/b`: Next gene / previous gene / next exon / previous exon:
+- `z/o`: Zoom in / out
+- `:_gene_`: Go to gene: (e.g. `:TP53`)
+- `:_chr_:_position_`: Go to a chromosome position (e.g. `:1:2345`)
+- `_number_` + `_movement_`: Repeat movements (e.g. `20B`: left by 20 genes)
 
 [Full key bindings](https://github.com/zeqianli/tgv/wiki/Usage)
+<!-- 
+[Pre-release] TGV supports all genomes on the [UCSC genome browser](https://genome.ucsc.edu/cgi-bin/hgGateway):
+
+```bash
+tgv -g rat
+tgv -g mm10
+tgv -g tibetanfrog
+tgv -g covid
+
+# List common genomes
+tgv --list
+
+# Or, all UCSC assemblies
+tgv --list-more
+``` -->
 
 ## View alignments
 
@@ -45,15 +59,15 @@ tgv sorted.bam -r 12:25398142 -g hg19
 # View a indexed remote BAM, starting at TP53, using the hg38 reference genome
 tgv s3://my-bucket/sorted.bam -r TP53
 
-# Use --no-reference for non-human alignments
-# (Sequence / feature display not supported yet)
+# No reference genome
 tgv non_human.bam -r 1:123 --no-reference
 ```
 
 Supported formats (see [wiki](https://github.com/zeqianli/tgv/wiki/Usage)):
+
 - BAM (index and sorted; `.bai` file is needed): local, AWS S3, HTTP, FTP, Google Cloud
 
-## Contribution is welcome!
+## Contribution is welcome
 
 See [wiki](https://github.com/zeqianli/tgv/wiki/Contribution-is-welcome!). Also join the [Discord](https://discord.gg/NKGg684M) to discuss ideas.
 
@@ -64,4 +78,4 @@ See [wiki](https://github.com/zeqianli/tgv/wiki/Contribution-is-welcome!). Also 
 
 - **Where are the reference genome data from?**  
   - Sequences: [UCSC Genome Browser API](https://genome.ucsc.edu/goldenPath/help/api.html)
-  - Annotation: [UCSC MariaDB](https://genome.ucsc.edu/goldenPath/help/mysql.html), `hg19` / `hg38`, table `ncbiRefSeqSelect` (same as IGV)
+  - Annotation: [UCSC MariaDB](https://genome.ucsc.edu/goldenPath/help/mysql.html)

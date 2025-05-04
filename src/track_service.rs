@@ -226,6 +226,58 @@ impl UcscDbTrackService {
             ))),
         }
     }
+
+    pub async fn list_assemblies(n: Option<usize>) -> Result<Vec<(String, String)>, TGVError> {
+        let connection = MySqlPoolOptions::new()
+            .max_connections(5)
+            .connect("mysql://genome@genome-mysql.soe.ucsc.edu/hgcentral")
+            .await?;
+
+        let rows = if let Some(n) = n {
+            sqlx::query("SELECT name, organism FROM dbDb LIMIT ?")
+                .bind(n as i32)
+                .fetch_all(&connection)
+                .await?
+        } else {
+            sqlx::query("SELECT name, organism FROM dbDb")
+                .fetch_all(&connection)
+                .await?
+        };
+
+        let mut assemblies = Vec::new();
+        for row in rows {
+            let name: String = row.try_get("name")?;
+            let organism: String = row.try_get("organism")?;
+            assemblies.push((name, organism));
+        }
+
+        Ok(assemblies)
+    }
+
+    pub async fn list_accessions(
+        n: usize,
+        offset: usize,
+    ) -> Result<Vec<(String, String)>, TGVError> {
+        let connection = MySqlPoolOptions::new()
+            .max_connections(5)
+            .connect("mysql://genome@genome-mysql.soe.ucsc.edu/hgcentral")
+            .await?;
+
+        let rows =
+            sqlx::query("SELECT name, organism FROM dbDb ORDER BY organism, name LIMIT ? OFFSET ?")
+                .bind(n as i32)
+                .bind(offset as i32)
+                .fetch_all(&connection)
+                .await?;
+
+        let mut assemblies = Vec::new();
+        for row in rows {
+            let name: String = row.try_get("name")?;
+            let common_name: String = row.try_get("commonName")?;
+            assemblies.push((name, common_name));
+        }
+        Ok(assemblies)
+    }
 }
 
 #[async_trait]

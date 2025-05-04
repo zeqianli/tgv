@@ -1,0 +1,116 @@
+"genome","name"
+Human,hg38
+Mouse,mm10
+Rat,rn6
+Zoo,zooHuman3
+SARS,sc1
+C. elegans,ce11
+C. briggsae,cb3
+Fugu,fr3
+D. melanogaster,dm6
+D. pseudoobscura,dp3
+S. cerevisiae,sacCer3
+Chimp,panTro6
+Chicken,galGal6
+Dog,canFam4
+C. intestinalis,ci3
+D. yakuba,droYak2
+Zebrafish,danRer11
+A. gambiae,anoGam3
+Tetraodon,tetNig2
+X. tropicalis,xenTro10
+D. mojavensis,droMoj2
+A. mellifera,apiMel2
+D. virilis,droVir2
+D. ananassae,droAna2
+Opossum,monDom5
+Cow,bosTau9
+Rhesus,rheMac10
+D. simulans,droSim1
+D. erecta,droEre1
+D. grimshawi,droGri1
+D. persimilis,droPer1
+D. sechellia,droSec1
+S. purpuratus,strPur2
+Stickleback,gasAcu1
+Cat,felCat9
+Medaka,oryLat2
+Lizard,anoCar2
+Platypus,ornAna2
+Horse,equCab3
+C. remanei,caeRem3
+C. brenneri,caePb2
+P. pacificus,priPac1
+Orangutan,ponAbe3
+Marmoset,calJac4
+Guinea Pig,cavPor3
+Lancelet,braFlo1
+Lamprey,petMar2
+C. japonica,caeJap1
+Zebra finch,taeGut2
+Sea Hare,aplCal1
+Elephant,loxAfr3
+Panda,ailMel1
+Rabbit,oryCun2
+Pig,susScr11
+Sheep,oviAri4
+Turkey,melGal5
+Microbat,myoLuc2
+Gorilla,gorGor6
+Gibbon,nomLeu3
+Wallaby,macEug2
+Naked mole-rat,hetGla2
+Painted turtle,chrPic1
+Tenrec,echTel2
+Tasmanian devil,sarHar1
+Medium ground finch,geoFor1
+Sloth,choHof1
+Kangaroo rat,dipOrd1
+Hedgehog,eriEur2
+Mouse lemur,micMur2
+Manatee,triMan1
+Squirrel,speTri2
+Squirrel monkey,saiBol1
+Baboon,papAnu4
+Rock hyrax,proCap1
+Megabat,pteVam1
+Shrew,sorAra2
+Tarsier,tarSyr2
+Tree shrew,tupBel1
+Alpaca,vicPac2
+Atlantic cod,gadMor1
+Coelacanth,latCha1
+Budgerigar,melUnd1
+Bushbaby,otoGar3
+Armadillo,dasNov3
+Pika,ochPri3
+Nile tilapia,oreNil2
+Dolphin,turTru2
+White rhinoceros,cerSim1
+Ferret,musFur1
+American alligator,allMis1
+Minke whale,balAcu1
+Chinese hamster,criGriChoV2
+Elephant shark,calMil1
+Ebola virus,eboVir3
+Southern sea otter,enhLutNer1
+SARS-CoV-2,wuhCor1
+Bonobo,panPan3
+Brown kiwi,aptMan1
+Crab-eating macaque,macFas5
+Wuhan market virus,wuhCor1
+Malayan flying lemur,galVar1
+Green monkey,chlSab2
+Golden snub-nosed monkey,rhiRox1
+Proboscis monkey,nasLar1
+Bison,bisBis1
+Tibetan frog,nanPar1
+Chinese pangolin,manPen1
+Golden eagle,aquChr2
+African clawed frog,xenLae2
+Garter snake,thaSir1
+Hawaiian monk seal,neoSch1
+Little brown bat,myoLuc2
+Monkeypox virus,mpxvRivers
+covid,wuhCor1
+celegans,ce11

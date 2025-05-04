@@ -44,6 +44,17 @@ pub struct Cli {
     /// Display messages in the terminal.
     #[arg(long)]
     debug: bool,
+
+    /// List common genome names.
+    #[arg(long = "list")]
+    pub list_common_genomes: bool,
+
+    /// List all UCSC assemblies.
+    #[arg(long = "list-more")]
+    pub list_ucsc_assemblies: bool,
+    // List all UCSC accessions.
+    // #[arg(long = "list-all")]
+    // pub list_ucsc_accessions: bool,
 }
 
 #[derive(Debug, Clone, Eq, PartialEq)]

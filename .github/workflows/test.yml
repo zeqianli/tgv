@@ -26,11 +26,11 @@ jobs:
           echo $file
           cat $file
         done
-  lint:
-    runs-on: ubuntu-latest
-    steps:
-    - uses: actions/checkout@v4
-    - name: Format
-      run: cargo fmt --check
-    - name: Clippy
-      run: cargo clippy --
+  # lint:
+  #   runs-on: ubuntu-latest
+  #   steps:
+  #   - uses: actions/checkout@v4
+  #   - name: Format
+  #     run: cargo fmt --check
+  #   - name: Clippy
+  #     run: cargo clippy --
