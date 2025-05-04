@@ -9,10 +9,10 @@ use ratatui::{
     style::Style,
 };
 
-const CYTOBAND_TEXT_LEFT_SPACING: u16 = 12;
+const CYTOBAND_TEXT_MIN_LEFT_SPACING: u16 = 12;
 const CYTOBAND_TEXT_RIGHT_SPACING: u16 = 7;
-const MIN_AREA_WIDTH: u16 = CYTOBAND_TEXT_LEFT_SPACING + CYTOBAND_TEXT_RIGHT_SPACING + 1;
-const MIN_AREA_HEIGHT: u16 = 1;
+const MIN_AREA_WIDTH: u16 = CYTOBAND_TEXT_MIN_LEFT_SPACING + CYTOBAND_TEXT_RIGHT_SPACING + 1;
+const MIN_AREA_HEIGHT: u16 = 2;
 pub fn render_cytobands(area: &Rect, buf: &mut Buffer, state: &State) -> Result<(), TGVError> {
     if area.width <= MIN_AREA_WIDTH {
         return Ok(());
@@ -22,30 +22,39 @@ pub fn render_cytobands(area: &Rect, buf: &mut Buffer, state: &State) -> Result<
         return Ok(());
     }
 
-    let cytoband = state
-        .current_cytoband()?
-        .ok_or(TGVError::StateError("No cytoband found".to_string()))?;
+    // Left label: chromosome name
+    let reference_description = match &state.reference {
+        Some(reference) => reference.to_string(),
+        None => "".to_string(),
+    };
+
+    let contig_description = match state.contig() {
+        Ok(contig) => contig.full_name().to_string(),
+        Err(_) => "".to_string(),
+    };
+
+    let cytoband_left_spacing = u16::max(
+        CYTOBAND_TEXT_MIN_LEFT_SPACING,
+        reference_description.len() as u16 + 1,
+    );
+
     let viewing_window = state.viewing_window()?;
     let contig_length = state.contig_length()?;
 
+    let cytoband = state
+        .current_cytoband()?
+        .ok_or(TGVError::StateError("No cytoband found".to_string()))?;
+
     for (x, string, style) in get_cytoband_xs_strings_and_styles(
         cytoband,
-        CYTOBAND_TEXT_LEFT_SPACING,
+        cytoband_left_spacing,
         area.width - CYTOBAND_TEXT_RIGHT_SPACING,
     ) {
         buf.set_string(area.x + x, area.y, string, style);
     }
 
-    // Left label: chromosome name
-    let description = match (&cytoband.reference, &cytoband.contig) {
-        (Some(reference), contig) => format!("{}:{}", reference, contig.full_name()),
-        (None, contig) => contig.full_name().to_string(),
-    }
-    .chars()
-    .take(CYTOBAND_TEXT_LEFT_SPACING as usize)
-    .collect::<String>();
-
-    buf.set_string(area.x, area.y, description, Style::default());
+    buf.set_string(area.x, area.y, reference_description, Style::default());
+    buf.set_string(area.x, area.y + 1, contig_description, Style::default());
 
     // Right label: total length
 
@@ -61,7 +70,7 @@ pub fn render_cytobands(area: &Rect, buf: &mut Buffer, state: &State) -> Result<
     let viewing_window_start = linear_scale(
         viewing_window.left(),
         cytoband.length(),
-        CYTOBAND_TEXT_LEFT_SPACING,
+        cytoband_left_spacing,
         area.width - CYTOBAND_TEXT_RIGHT_SPACING,
     );
     let viewing_window_end = linear_scale(
@@ -70,7 +79,7 @@ pub fn render_cytobands(area: &Rect, buf: &mut Buffer, state: &State) -> Result<
             None => viewing_window.right(area),
         },
         cytoband.length(),
-        CYTOBAND_TEXT_LEFT_SPACING,
+        cytoband_left_spacing,
         area.width - CYTOBAND_TEXT_RIGHT_SPACING,
     );
 
