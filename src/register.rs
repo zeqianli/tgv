@@ -1,4 +1,4 @@
-use crate::{contig::Contig, display_mode::DisplayMode, error::TGVError, message::StateMessage};
+use crate::{display_mode::DisplayMode, error::TGVError, message::StateMessage};
 use crossterm::event::{KeyCode, KeyEvent};
 
 use strum::Display;
@@ -405,7 +405,7 @@ impl CommandModeRegister {
             },
             2 => match split[1].parse::<usize>() {
                 Ok(n) => Ok(vec![StateMessage::GotoContigCoordinate(
-                    Contig::chrom(split[0]),
+                    split[0].to_string(),
                     n,
                 )]),
                 Err(_) => Err(TGVError::RegisterError(format!(
@@ -455,11 +455,11 @@ mod tests {
     #[case("q", Ok(vec![StateMessage::Quit]))]
     #[case("1234", Ok(vec![StateMessage::GotoCoordinate(1234)]))]
     #[case("chr1:1000", Ok(vec![StateMessage::GotoContigCoordinate(
-        Contig::chrom("chr1"),
+        "chr1".to_string(),
         1000,
     )]))]
     #[case("17:7572659", Ok(vec![StateMessage::GotoContigCoordinate(
-        Contig::chrom("17"),
+        "17".to_string(),
         7572659,
     )]))]
     #[case("TP53", Ok(vec![StateMessage::GoToGene("TP53".to_string())]))]

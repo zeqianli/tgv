@@ -32,7 +32,7 @@ impl GenomeInterval for Region {
 
 impl fmt::Display for Region {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{}:{}-{}", self.contig.full_name(), self.start, self.end)
+        write!(f, "{}:{}-{}", self.contig.name, self.start, self.end)
     }
 }
 

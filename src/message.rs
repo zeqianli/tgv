@@ -1,4 +1,4 @@
-use crate::{contig::Contig, display_mode::DisplayMode, region::Region};
+use crate::{display_mode::DisplayMode, region::Region};
 use strum::Display;
 /// State messages
 #[derive(Debug, Clone, Eq, PartialEq, Display)]
@@ -9,8 +9,8 @@ pub enum StateMessage {
     MoveDown(usize),
 
     GotoCoordinate(usize),
-    GotoContig(Contig),
-    GotoContigCoordinate(Contig, usize),
+    GotoContig(String), // Here is string because it can be an alias. The handler will look up the string from the contig collection.
+    GotoContigCoordinate(String, usize), // Here is string because it can be an alias. The handler will look up the string from the contig collection.
 
     GotoNextExonsStart(usize),
     GotoNextExonsEnd(usize),
@@ -64,5 +64,5 @@ pub enum DataMessage {
     RequiresCompleteFeatures(Region),
     RequiresCompleteSequences(Region),
 
-    RequiresCytobands(Contig),
+    RequiresCytobands(String), // Here is string because it can be an alias. The handler will look up the string from the contig collection.
 }
