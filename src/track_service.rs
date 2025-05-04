@@ -316,7 +316,10 @@ impl TrackService for UcscDbTrackService {
     ) -> Result<Vec<(Contig, usize)>, TGVError> {
         let rows = sqlx::query(
             "SELECT chromInfo.chrom as chrom, chromInfo.size as size, chromAlias.alias as alias
-             FROM chromInfo LEFT JOIN chromAlias ON chromAlias.chrom = chromInfo.chrom",
+             FROM chromInfo 
+             LEFT JOIN chromAlias ON chromAlias.chrom = chromInfo.chrom
+             WHERE chromInfo.chrom NOT LIKE 'chr%\\_%'
+             ORDER BY chromInfo.chrom",
         )
         .fetch_all(&*self.pool)
         .await?;
