@@ -27,7 +27,7 @@ impl Reference {
                 common_genome_names.push((genome.to_string(), name.to_string()));
             }
         }
-        return Ok(common_genome_names);
+        Ok(common_genome_names)
     }
 
     pub fn from_str(s: &str) -> Result<Self, TGVError> {
@@ -58,7 +58,7 @@ impl Reference {
         // Silently ignore lines that don't split correctly
 
         // Last option: treat it as a UcscGenome name directly.
-        return Ok(Self::UcscGenome(s.to_string()));
+        Ok(Self::UcscGenome(s.to_string()))
     }
 
     pub fn to_string(&self) -> String {
@@ -155,5 +155,5 @@ fn standardize_common_genome_name(s: &str) -> Result<String, TGVError> {
         .replace("-", "")
         .replace("_", "")
         .replace(" ", "");
-    return Ok(lower_s);
+    Ok(lower_s)
 }
