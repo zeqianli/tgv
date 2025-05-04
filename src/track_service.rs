@@ -316,35 +316,27 @@ impl TrackService for UcscDbTrackService {
         &self,
         reference: &Reference,
     ) -> Result<Vec<(Contig, usize)>, TGVError> {
-        let chrom_size_rows =
-            sqlx::query("SELECT chrom, size FROM chromInfo").fetch_all(&*self.pool);
+        let rows =
+            sqlx::query("SELECT chromInfo.chrom as chrom, chromInfo.size as size, chromAlias.alias as alias
+             FROM chromInfo LEFT JOIN chromAlias ON chromAlias.chrom = chromInfo.chrom").fetch_all(&*self.pool).await?;
 
-        let chrom_aliases_rows =
-            sqlx::query("SELECT chrom, alias FROM chromAlias").fetch_all(&*self.pool);
-
-        let chrom_size_rows = chrom_size_rows.await?;
-        let mut contigs_hashmap = HashMap::new();
-        for row in chrom_size_rows {
+        let mut contigs_hashmap: HashMap<String, (Contig, usize)> = HashMap::new();
+        for row in rows {
             let chrom: String = row.try_get("chrom")?;
             let size: u32 = row.try_get("size")?;
-
-            contigs_hashmap.insert(chrom.clone(), (Contig::new(&chrom), size as usize));
-        }
-
-        let chrom_aliases_rows = chrom_aliases_rows.await?;
-
-        for row in chrom_aliases_rows {
-            let chrom: String = row.try_get("chrom")?;
             let alias: String = row.try_get("alias")?;
 
             match contigs_hashmap.get_mut(&chrom) {
                 Some((ref mut contig, _)) => {
                     contig.alias(&alias);
                 }
-                None => {}
+                None => {
+                    let mut contig = Contig::new(&chrom);
+                    contig.alias(&alias);
+                    contigs_hashmap.insert(chrom.clone(), (contig, size as usize));
+                }
             }
         }
-
         let contigs = contigs_hashmap.values().cloned().collect();
 
         Ok(contigs)

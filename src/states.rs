@@ -245,16 +245,16 @@ impl StateHandler {
             }
         }
 
-        if let Some(reference) = reference {
-            match &reference {
-                Reference::Hg19 | Reference::Hg38 => {
-                    for cytoband in Cytoband::from_human_reference(reference)?.iter() {
-                        contig_data.update_cytoband(&cytoband.contig, Some(cytoband.clone()))?;
-                    }
-                }
-                _ => {}
-            }
-        }
+        // if let Some(reference) = reference {
+        //     match &reference {
+        //         Reference::Hg19 | Reference::Hg38 => {
+        //             for cytoband in Cytoband::from_human_reference(reference)?.iter() {
+        //                 contig_data.update_cytoband(&cytoband.contig, Some(cytoband.clone()))?;
+        //             }
+        //         }
+        //         _ => {}
+        //     }
+        // }
 
         if !matches!(
             repository.alignment_repository,
