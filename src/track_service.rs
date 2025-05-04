@@ -462,7 +462,6 @@ impl TrackService for UcscDbTrackService {
         }
 
         let preferred_track = preferred_track.unwrap();
-
         let rows = sqlx::query(
             format!(
                 "SELECT *
