@@ -33,14 +33,19 @@ impl Contig {
         }
     }
 
-    pub fn alias(mut self, alias: &str) -> Self {
+    pub fn alias(&mut self, alias: &str) {
         self.aliases.push(alias.to_string());
-        self
     }
 
-    pub fn aliases(mut self, aliases: Vec<String>) -> Self {
+    pub fn aliases(&mut self, aliases: Vec<String>) {
         self.aliases.extend(aliases);
-        self
+    }
+
+    pub fn all_aliases(&self) -> Vec<String> {
+        let mut all_aliases = Vec::new();
+        all_aliases.push(self.name.clone());
+        all_aliases.extend(self.aliases.clone());
+        all_aliases
     }
 
     // #[allow(clippy::self_named_constructors)]

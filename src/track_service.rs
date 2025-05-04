@@ -316,23 +316,36 @@ impl TrackService for UcscDbTrackService {
         &self,
         reference: &Reference,
     ) -> Result<Vec<(Contig, usize)>, TGVError> {
-        let rows = sqlx::query("SELECT chrom, size FROM chromInfo")
-            .fetch_all(&*self.pool)
-            .await?;
+        let chrom_size_rows =
+            sqlx::query("SELECT chrom, size FROM chromInfo").fetch_all(&*self.pool);
 
-        let mut contigs = Vec::new();
-        for row in rows {
+        let chrom_aliases_rows =
+            sqlx::query("SELECT chrom, alias FROM chromAlias").fetch_all(&*self.pool);
+
+        let chrom_size_rows = chrom_size_rows.await?;
+        let mut contigs_hashmap = HashMap::new();
+        for row in chrom_size_rows {
             let chrom: String = row.try_get("chrom")?;
             let size: u32 = row.try_get("size")?;
 
-            // Create a Contig based on reference type
-            let contig = match reference {
-                Reference::Hg19 | Reference::Hg38 => Contig::new(&chrom),
-                _ => Contig::new(&chrom),
-            };
-
-            contigs.push((contig, size as usize));
+            contigs_hashmap.insert(chrom.clone(), (Contig::new(&chrom), size as usize));
         }
+
+        let chrom_aliases_rows = chrom_aliases_rows.await?;
+
+        for row in chrom_aliases_rows {
+            let chrom: String = row.try_get("chrom")?;
+            let alias: String = row.try_get("alias")?;
+
+            match contigs_hashmap.get_mut(&chrom) {
+                Some((ref mut contig, _)) => {
+                    contig.alias(&alias);
+                }
+                None => {}
+            }
+        }
+
+        let contigs = contigs_hashmap.values().cloned().collect();
 
         Ok(contigs)
     }
@@ -345,7 +358,7 @@ impl TrackService for UcscDbTrackService {
         let rows = sqlx::query(
             "SELECT chrom, chromStart, chromEnd, name, gieStain FROM cytoBandIdeo WHERE chrom = ?",
         )
-        .bind(contig.full_name()) // Assuming full_name includes "chr" prefix if needed
+        .bind(contig.name.clone())
         .fetch_all(&*self.pool)
         .await?;
 
@@ -424,15 +437,16 @@ impl TrackService for UcscDbTrackService {
             return Err(TGVError::IOError("No preferred track found".to_string()));
         }
 
+        let preferred_track = preferred_track.unwrap();
         let rows = sqlx::query(
             format!(
                 "SELECT name, chrom, strand, txStart, txEnd, name2, exonStarts, exonEnds, cdsStart, cdsEnd
              FROM {} 
              WHERE chrom = ? AND (txStart <= ?) AND (txEnd >= ?)",
-                preferred_track.unwrap()
+                preferred_track,
             ).as_str()
         )
-        .bind(region.contig.full_name()) // Requires "chr" prefix?
+        .bind(region.contig.name.clone()) 
         .bind(u64::try_from(region.end).unwrap()) // end is 1-based inclusive, UCSC is 0-based exclusive
         .bind(u64::try_from(region.start.saturating_sub(1)).unwrap()) // start is 1-based inclusive, UCSC is 0-based inclusive
         .fetch_all(&*self.pool)
@@ -492,15 +506,17 @@ impl TrackService for UcscDbTrackService {
             return Err(TGVError::IOError("No preferred track found".to_string()));
         }
 
+        let preferred_track = preferred_track.unwrap();
+
         let row = sqlx::query(
             format!(
                 "SELECT name, chrom, strand, txStart, txEnd, name2, exonStarts, exonEnds, cdsStart, cdsEnd
              FROM {} 
              WHERE chrom = ? AND txStart <= ? AND txEnd >= ?",
-                preferred_track.unwrap()
+                preferred_track,
             ).as_str()
         )
-        .bind(contig.full_name())
+        .bind(contig.name.clone())
         .bind(u32::try_from(coord.saturating_sub(1)).unwrap()) // coord is 1-based inclusive, UCSC is 0-based inclusive
         .bind(u32::try_from(coord).unwrap()) // coord is 1-based inclusive, UCSC is 0-based exclusive
         .fetch_optional(&*self.pool)
@@ -634,16 +650,18 @@ impl TrackService for UcscDbTrackService {
             return Err(TGVError::IOError("No preferred track found".to_string()));
         }
 
+        let preferred_track = preferred_track.unwrap();
+
         let rows = sqlx::query(
             format!(
                 "SELECT name, chrom, strand, txStart, txEnd, name2, exonStarts, exonEnds, cdsStart, cdsEnd
              FROM {} 
              WHERE chrom = ? AND txEnd >= ? 
              ORDER BY txEnd ASC LIMIT ?",
-                preferred_track.unwrap()
+                preferred_track,
             ).as_str()
         )
-        .bind(contig.full_name())
+        .bind(contig.name.clone())
         .bind(u32::try_from(coord).unwrap()) // coord is 1-based inclusive, UCSC is 0-based exclusive
         .bind(u32::try_from(k + 1).unwrap())
         .fetch_all(&*self.pool)
@@ -720,16 +738,18 @@ impl TrackService for UcscDbTrackService {
             return Err(TGVError::IOError("No preferred track found".to_string()));
         }
 
+        let preferred_track = preferred_track.unwrap();
+
         let rows = sqlx::query(
             format!(
                 "SELECT name, chrom, strand, txStart, txEnd, name2, exonStarts, exonEnds, cdsStart, cdsEnd
              FROM {} 
              WHERE chrom = ? AND txStart <= ? 
              ORDER BY txStart DESC LIMIT ?",
-                preferred_track.unwrap()
+                preferred_track,
             ).as_str()
         )
-        .bind(contig.full_name())
+        .bind(contig.name.clone())
         .bind(u32::try_from(coord.saturating_sub(1)).unwrap()) // coord is 1-based inclusive, UCSC is 0-based inclusive
         .bind(u32::try_from(k+1).unwrap())
         .fetch_all(&*self.pool)
@@ -806,16 +826,18 @@ impl TrackService for UcscDbTrackService {
             return Err(TGVError::IOError("No preferred track found".to_string()));
         }
 
+        let preferred_track = preferred_track.unwrap();
+
         let rows = sqlx::query(
             format!(
                 "SELECT name, chrom, strand, txStart, txEnd, name2, exonStarts, exonEnds, cdsStart, cdsEnd
              FROM {} 
              WHERE chrom = ? AND txEnd >= ? 
              ORDER BY txEnd ASC LIMIT ?",
-                preferred_track.unwrap()
+                preferred_track,
             ).as_str()
         )
-        .bind(contig.full_name())
+        .bind(contig.name.clone())
         .bind(u32::try_from(coord).unwrap()) // coord is 1-based inclusive, UCSC is 0-based exclusive
         .bind(u32::try_from(k+1).unwrap())
         .fetch_all(&*self.pool)
@@ -886,16 +908,18 @@ impl TrackService for UcscDbTrackService {
             return Err(TGVError::IOError("No preferred track found".to_string()));
         }
 
+        let preferred_track = preferred_track.unwrap();
+
         let rows = sqlx::query(
             format!(
                 "SELECT name, chrom, strand, txStart, txEnd, name2, exonStarts, exonEnds, cdsStart, cdsEnd
              FROM {} 
              WHERE chrom = ? AND txStart <= ? 
              ORDER BY txStart DESC LIMIT ?",
-                preferred_track.unwrap()
+                preferred_track,
             ).as_str()
         )
-        .bind(contig.full_name())
+        .bind(contig.name.clone())
         .bind(u32::try_from(coord.saturating_sub(1)).unwrap()) // coord is 1-based inclusive, UCSC is 0-based inclusive
         .bind(u32::try_from(k+1).unwrap())
         .fetch_all(&*self.pool)
@@ -983,7 +1007,7 @@ impl UcscApiTrackService {
                     .await?
                     .ok_or(TGVError::IOError(format!(
                         "Failed to get prefered track for {} from UCSC API",
-                        contig.full_name()
+                        contig.name
                     )))?; // TODO: proper handling
 
             cache.set_preferred_track_name(Some(preferred_track));
@@ -994,7 +1018,7 @@ impl UcscApiTrackService {
         if preferred_track.is_none() {
             return Err(TGVError::IOError(format!(
                 "Failed to get prefered track for {} from UCSC API",
-                contig.full_name()
+                contig.name
             )));
         } // TODO: proper handling
 
@@ -1025,7 +1049,7 @@ impl UcscApiTrackService {
                 "https://api.genome.ucsc.edu/getData/track?genome={}&track={}&chrom={}",
                 reference.to_string(),
                 track_name,
-                contig.full_name()
+                contig.name
             )),
             _ => Err(TGVError::IOError("Unsupported reference".to_string())),
         }
@@ -1123,7 +1147,7 @@ impl TrackService for UcscApiTrackService {
             "https://api.genome.ucsc.edu/getData/track?genome={}&track={}&chrom={}",
             reference.to_string(),
             Self::CYTOBAND_TRACK,
-            contig.full_name()
+            contig.name
         );
 
         let response = self.client.get(query_url).send().await?;
@@ -1217,7 +1241,7 @@ impl TrackService for UcscApiTrackService {
         } else {
             Err(TGVError::IOError(format!(
                 "Track not found for contig {}",
-                region.contig().full_name()
+                region.contig().name
             )))
         }
     }
@@ -1238,7 +1262,7 @@ impl TrackService for UcscApiTrackService {
         } else {
             Err(TGVError::IOError(format!(
                 "Track not found for contig {}",
-                contig.full_name()
+                contig.name
             )))
         }
     }
@@ -1291,7 +1315,7 @@ impl TrackService for UcscApiTrackService {
         } else {
             Err(TGVError::IOError(format!(
                 "Track not found for contig {}",
-                contig.full_name()
+                contig.name
             )))
         }
     }
@@ -1316,7 +1340,7 @@ impl TrackService for UcscApiTrackService {
         } else {
             Err(TGVError::IOError(format!(
                 "Track not found for contig {}",
-                contig.full_name()
+                contig.name // TODO: this things needs chromAlias
             )))
         }
     }
@@ -1340,7 +1364,7 @@ impl TrackService for UcscApiTrackService {
         } else {
             Err(TGVError::IOError(format!(
                 "Track not found for contig {}",
-                contig.full_name()
+                contig.name // TODO: this things needs chromAlias
             )))
         }
     }
@@ -1364,7 +1388,7 @@ impl TrackService for UcscApiTrackService {
         } else {
             Err(TGVError::IOError(format!(
                 "Track not found for contig {}",
-                contig.full_name()
+                contig.name // TODO: this things needs chromAlias
             )))
         }
     }

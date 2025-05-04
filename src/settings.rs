@@ -5,7 +5,7 @@ use clap::{Parser, ValueEnum};
 
 #[derive(Clone, Debug, PartialEq, Eq, ValueEnum)]
 pub enum BackendType {
-    Api,
+    //Api,
     Db,
 }
 
@@ -193,7 +193,7 @@ impl Settings {
             match split[1].parse::<usize>() {
                 Ok(n) => {
                     return Ok(vec![StateMessage::GotoContigCoordinate(
-                        Contig::new(split[0]),
+                        split[0].to_string(),
                         n,
                     )]);
                 }
@@ -247,7 +247,7 @@ mod tests {
     #[case("tgv input.bam -r chr1:12345", Ok(Settings {
         bam_path: Some("input.bam".to_string()),
         initial_state_messages: vec![StateMessage::GotoContigCoordinate(
-            Contig::new("chr1"),
+            "chr1".to_string(),
             12345,
         )],
         ..default_settings()
@@ -275,7 +275,7 @@ mod tests {
         bam_path: Some("input.bam".to_string()),
         reference: None,
         initial_state_messages: vec![StateMessage::GotoContigCoordinate(
-            Contig::new("1"),
+            "1".to_string(),
             12345,
         )],
         ..default_settings()

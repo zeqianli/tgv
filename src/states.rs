@@ -341,8 +341,8 @@ impl StateHandler {
             StateMessage::MoveUp(n) => StateHandler::move_up(state, n)?,
             StateMessage::MoveDown(n) => StateHandler::move_down(state, n)?,
             StateMessage::GotoCoordinate(n) => StateHandler::go_to_coordinate(state, n)?,
-            StateMessage::GotoContigCoordinate(contig, n) => {
-                StateHandler::go_to_contig_coordinate(state, &contig, n)?
+            StateMessage::GotoContigCoordinate(contig_str, n) => {
+                StateHandler::go_to_contig_coordinate(state, &contig_str, n)?
             }
 
             // Zoom handling
@@ -451,7 +451,7 @@ impl StateHandler {
             }
 
             // Cytobands
-            data_messages.push(DataMessage::RequiresCytobands(state.contig()?));
+            data_messages.push(DataMessage::RequiresCytobands(state.contig()?.name));
         }
 
         if settings.needs_sequence()
@@ -587,31 +587,31 @@ impl StateHandler {
     }
     fn go_to_contig_coordinate(
         state: &mut State,
-        contig: &Contig,
+        contig_str: &str,
         n: usize,
     ) -> Result<(), TGVError> {
         // If bam_path is provided, check that the contig is valid.
 
-        if !state.contigs.contains(contig) {
+        if let Some(contig) = state.contigs.get_contig_by_str(contig_str) {
+            let current_frame_area = *state.current_frame_area()?;
+
+            match state.window {
+                Some(ref mut window) => {
+                    window.contig = contig.clone();
+                    window.set_middle(&current_frame_area, n, None); // Don't know contig length yet.
+                    window.set_top(0);
+                }
+                None => {
+                    state.window = Some(ViewingWindow::new_basewise_window(contig.clone(), n, 0));
+                }
+            }
+            Ok(())
+        } else {
             return Err(TGVError::StateError(format!(
                 "Contig {:?} not found for reference {:?}",
-                contig.name, state.reference
+                contig_str, state.reference
             )));
         }
-
-        let current_frame_area = *state.current_frame_area()?;
-
-        match state.window {
-            Some(ref mut window) => {
-                window.contig = contig.clone();
-                window.set_middle(&current_frame_area, n, None); // Don't know contig length yet.
-                window.set_top(0);
-            }
-            None => {
-                state.window = Some(ViewingWindow::new_basewise_window(contig.clone(), n, 0));
-            }
-        }
-        Ok(())
     }
 
     fn handle_zoom_out(state: &mut State, r: usize) -> Result<(), TGVError> {
@@ -907,7 +907,7 @@ impl StateHandler {
             )
             .await?;
 
-        Self::go_to_contig_coordinate(state, gene.contig(), gene.start() + 1)
+        Self::go_to_contig_coordinate(state, gene.contig().name.as_str(), gene.start() + 1)
     }
 
     async fn go_to_default(state: &mut State, repository: &Repository) -> Result<(), TGVError> {
@@ -939,7 +939,7 @@ impl StateHandler {
                         // Found a gene, go to its start (using 1-based coordinates for Goto)
                         return Self::go_to_contig_coordinate(
                             state,
-                            gene.contig(),
+                            gene.contig().name.as_str(),
                             gene.start() + 1,
                         );
                     }
@@ -952,7 +952,7 @@ impl StateHandler {
 
         // If reaches here, go to the first contig:1
         if let Ok(ref first_contig) = state.contigs.first().cloned() {
-            return Self::go_to_contig_coordinate(state, first_contig, 1);
+            return Self::go_to_contig_coordinate(state, first_contig.name.as_str(), 1);
         }
 
         Err(TGVError::StateError(
@@ -1019,7 +1019,15 @@ impl StateHandler {
                 }
             }
 
-            DataMessage::RequiresCytobands(contig) => {
+            DataMessage::RequiresCytobands(contig_name) => {
+                let contig = state
+                    .contigs
+                    .get_contig_by_str(&contig_name)
+                    .ok_or(TGVError::StateError(format!(
+                        "Contig {:?} not found for reference {:?}",
+                        contig_name, state.reference
+                    )))?
+                    .clone();
                 if state.contigs.cytoband_is_loaded(&contig)? {
                     return Ok(false);
                 }

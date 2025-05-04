@@ -55,6 +55,13 @@ impl ContigCollection {
         }
     }
 
+    pub fn get_contig_by_str(&self, s: &str) -> Option<&Contig> {
+        match self.contig_index.get(s) {
+            Some(index) => Some(&self.contigs[*index].contig),
+            None => None,
+        }
+    }
+
     pub fn update_cytoband(
         &mut self,
         contig: &Contig,
@@ -84,10 +91,9 @@ impl ContigCollection {
             }
             None => {
                 self.contig_index
-                    .insert(contig.name.clone(), self.contigs.len() - 1);
+                    .insert(contig.name.clone(), self.contigs.len());
                 for alias in contig.aliases.iter() {
-                    self.contig_index
-                        .insert(alias.clone(), self.contigs.len() - 1);
+                    self.contig_index.insert(alias.clone(), self.contigs.len());
                 }
                 self.contigs.push(ContigDatum {
                     contig,

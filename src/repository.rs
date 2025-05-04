@@ -33,7 +33,7 @@ impl Repository {
             match settings.reference.as_ref() {
                 Some(reference) => {
                     let ts = match settings.backend {
-                        BackendType::Api => TrackServiceEnum::Api(UcscApiTrackService::new()?),
+                        //BackendType::Api => TrackServiceEnum::Api(UcscApiTrackService::new()?),
                         BackendType::Db => {
                             TrackServiceEnum::Db(UcscDbTrackService::new(reference).await?)
                         }
