@@ -38,56 +38,64 @@ pub fn render_cytobands(area: &Rect, buf: &mut Buffer, state: &State) -> Result<
         reference_description.len() as u16 + 1,
     );
 
-    let viewing_window = state.viewing_window()?;
-    let contig_length = state.contig_length()?;
-
-    let cytoband = state
-        .current_cytoband()?
-        .ok_or(TGVError::StateError("No cytoband found".to_string()))?;
-
-    for (x, string, style) in get_cytoband_xs_strings_and_styles(
-        cytoband,
-        cytoband_left_spacing,
-        area.width - CYTOBAND_TEXT_RIGHT_SPACING,
-    ) {
-        buf.set_string(area.x + x, area.y, string, style);
-    }
-
+    // Left labels
     buf.set_string(area.x, area.y, reference_description, Style::default());
     buf.set_string(area.x, area.y + 1, contig_description, Style::default());
 
-    // Right label: total length
+    // Right labels
 
-    buf.set_string(
-        area.width - CYTOBAND_TEXT_RIGHT_SPACING + 1,
-        area.y,
-        get_cytoband_total_length_text(cytoband.length()),
-        Style::default(),
-    );
+    if let Some(contig_length) = state.contig_length()? {
+        buf.set_string(
+            area.width - CYTOBAND_TEXT_RIGHT_SPACING + 1,
+            area.y,
+            get_cytoband_total_length_text(contig_length),
+            Style::default(),
+        );
+    }
+
+    // Cytoband
+
+    if let Some(cytoband) = state.current_cytoband()? {
+        let viewing_window = state.viewing_window()?;
+        let contig_length = state.contig_length()?;
+
+        for (x, string, style) in get_cytoband_xs_strings_and_styles(
+            cytoband,
+            cytoband_left_spacing,
+            area.width - CYTOBAND_TEXT_RIGHT_SPACING,
+        ) {
+            buf.set_string(area.x + x, area.y, string, style);
+        }
+    } else {
+        buf.set_string(
+            area.x + cytoband_left_spacing,
+            area.y,
+            "▅".repeat((area.width - cytoband_left_spacing - CYTOBAND_TEXT_RIGHT_SPACING) as usize),
+            Style::default(),
+        );
+    }
 
     // Highlight the current viewing window
+    if let Some(contig_length) = state.contig_length()? {
+        let viewing_window_start = linear_scale(
+            state.viewing_window()?.left(),
+            contig_length,
+            cytoband_left_spacing,
+            area.width - CYTOBAND_TEXT_RIGHT_SPACING,
+        );
+        let viewing_window_end = linear_scale(
+            state.viewing_window()?.right(area),
+            contig_length,
+            cytoband_left_spacing,
+            area.width - CYTOBAND_TEXT_RIGHT_SPACING,
+        );
 
-    let viewing_window_start = linear_scale(
-        viewing_window.left(),
-        cytoband.length(),
-        cytoband_left_spacing,
-        area.width - CYTOBAND_TEXT_RIGHT_SPACING,
-    );
-    let viewing_window_end = linear_scale(
-        match contig_length {
-            Some(length) => usize::min(viewing_window.right(area), length),
-            None => viewing_window.right(area),
-        },
-        cytoband.length(),
-        cytoband_left_spacing,
-        area.width - CYTOBAND_TEXT_RIGHT_SPACING,
-    );
-
-    for x in viewing_window_start..viewing_window_end + 1 {
-        let cell = buf.cell_mut(Position::new(area.x + x, area.y));
-        if let Some(cell) = cell {
-            cell.set_char(' ');
-            cell.set_bg(colors::HIGHLIGHT_COLOR);
+        for x in viewing_window_start..viewing_window_end + 1 {
+            let cell = buf.cell_mut(Position::new(area.x + x, area.y));
+            if let Some(cell) = cell {
+                cell.set_char(' ');
+                cell.set_bg(colors::HIGHLIGHT_COLOR);
+            }
         }
     }
 

@@ -96,9 +96,8 @@ impl RenderingState {
                     .areas(area);
 
                 // Cytobands
-                if state.cytoband_renderable()? {
-                    render_cytobands(&cytoband_area, buf, state)?;
-                }
+
+                render_cytobands(&cytoband_area, buf, state)?;
 
                 // Coordinates
                 render_coordinates(&coordinate_area, buf, state)?;

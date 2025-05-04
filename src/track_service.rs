@@ -314,7 +314,7 @@ impl TrackService for UcscDbTrackService {
         &self,
         reference: &Reference,
     ) -> Result<Vec<(Contig, usize)>, TGVError> {
-        let rows = sqlx::query(
+        if let Ok(rows_with_alias) = sqlx::query(
             "SELECT chromInfo.chrom as chrom, chromInfo.size as size, chromAlias.alias as alias
              FROM chromInfo 
              LEFT JOIN chromAlias ON chromAlias.chrom = chromInfo.chrom
@@ -322,28 +322,47 @@ impl TrackService for UcscDbTrackService {
              ORDER BY chromInfo.chrom",
         )
         .fetch_all(&*self.pool)
-        .await?;
+        .await
+        {
+            let mut contigs_hashmap: HashMap<String, (Contig, usize)> = HashMap::new();
+            for row in rows_with_alias {
+                let chrom: String = row.try_get("chrom")?;
+                let size: u32 = row.try_get("size")?;
+                let alias: String = row.try_get("alias")?;
 
-        let mut contigs_hashmap: HashMap<String, (Contig, usize)> = HashMap::new();
-        for row in rows {
-            let chrom: String = row.try_get("chrom")?;
-            let size: u32 = row.try_get("size")?;
-            let alias: String = row.try_get("alias")?;
-
-            match contigs_hashmap.get_mut(&chrom) {
-                Some((ref mut contig, _)) => {
-                    contig.alias(&alias);
-                }
-                None => {
-                    let mut contig = Contig::new(&chrom);
-                    contig.alias(&alias);
-                    contigs_hashmap.insert(chrom.clone(), (contig, size as usize));
+                match contigs_hashmap.get_mut(&chrom) {
+                    Some((ref mut contig, _)) => {
+                        contig.alias(&alias);
+                    }
+                    None => {
+                        let mut contig = Contig::new(&chrom);
+                        contig.alias(&alias);
+                        contigs_hashmap.insert(chrom.clone(), (contig, size as usize));
+                    }
                 }
             }
-        }
-        let contigs = contigs_hashmap.values().cloned().collect();
+            return Ok(contigs_hashmap.values().cloned().collect());
+        } else {
+            let rows = sqlx::query(
+                "SELECT chromInfo.chrom as chrom, chromInfo.size as size
+                 FROM chromInfo
+                 WHERE chromInfo.chrom NOT LIKE 'chr%\\_%'
+                 ORDER BY chromInfo.chrom",
+            )
+            .fetch_all(&*self.pool)
+            .await?;
 
-        Ok(contigs)
+            let contigs = rows
+                .into_iter()
+                .map(|row| {
+                    let chrom: String = row.try_get("chrom")?;
+                    let size: u32 = row.try_get("size")?;
+                    Ok((Contig::new(&chrom), size as usize))
+                })
+                .collect::<Result<Vec<(Contig, usize)>, TGVError>>()?;
+
+            return Ok(contigs);
+        }
     }
 
     async fn get_cytoband(
@@ -351,40 +370,44 @@ impl TrackService for UcscDbTrackService {
         reference: &Reference,
         contig: &Contig,
     ) -> Result<Option<Cytoband>, TGVError> {
-        let rows = sqlx::query(
+        if let Ok(rows) = sqlx::query(
             "SELECT chrom, chromStart, chromEnd, name, gieStain FROM cytoBandIdeo WHERE chrom = ?",
         )
         .bind(contig.name.clone())
         .fetch_all(&*self.pool)
-        .await?;
+        .await
+        {
+            if rows.is_empty() {
+                return Ok(None);
+            }
 
-        if rows.is_empty() {
+            let mut segments = Vec::with_capacity(rows.len());
+            for row in rows {
+                let chrom_start: u32 = row.try_get("chromStart")?;
+                let chrom_end: u32 = row.try_get("chromEnd")?;
+                let name: String = row.try_get("name")?;
+                let gie_stain_str: String = row.try_get("gieStain")?;
+
+                let stain = Stain::from(&gie_stain_str)?;
+
+                segments.push(CytobandSegment {
+                    contig: contig.clone(),          // Use the input contig
+                    start: chrom_start as usize + 1, // 0-based to 1-based
+                    end: chrom_end as usize,
+                    name,
+                    stain,
+                });
+            }
+
+            return Ok(Some(Cytoband {
+                reference: Some(reference.clone()),
+                contig: contig.clone(),
+                segments,
+            }));
+        } else {
+            /// Cytoband table is not available.
             return Ok(None);
         }
-
-        let mut segments = Vec::with_capacity(rows.len());
-        for row in rows {
-            let chrom_start: u32 = row.try_get("chromStart")?;
-            let chrom_end: u32 = row.try_get("chromEnd")?;
-            let name: String = row.try_get("name")?;
-            let gie_stain_str: String = row.try_get("gieStain")?;
-
-            let stain = Stain::from(&gie_stain_str)?;
-
-            segments.push(CytobandSegment {
-                contig: contig.clone(),          // Use the input contig
-                start: chrom_start as usize + 1, // 0-based to 1-based
-                end: chrom_end as usize,
-                name,
-                stain,
-            });
-        }
-
-        Ok(Some(Cytoband {
-            reference: Some(reference.clone()),
-            contig: contig.clone(),
-            segments,
-        }))
     }
 
     async fn get_preferred_track_name(
