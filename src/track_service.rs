@@ -316,9 +316,12 @@ impl TrackService for UcscDbTrackService {
         &self,
         reference: &Reference,
     ) -> Result<Vec<(Contig, usize)>, TGVError> {
-        let rows =
-            sqlx::query("SELECT chromInfo.chrom as chrom, chromInfo.size as size, chromAlias.alias as alias
-             FROM chromInfo LEFT JOIN chromAlias ON chromAlias.chrom = chromInfo.chrom").fetch_all(&*self.pool).await?;
+        let rows = sqlx::query(
+            "SELECT chromInfo.chrom as chrom, chromInfo.size as size, chromAlias.alias as alias
+             FROM chromInfo LEFT JOIN chromAlias ON chromAlias.chrom = chromInfo.chrom",
+        )
+        .fetch_all(&*self.pool)
+        .await?;
 
         let mut contigs_hashmap: HashMap<String, (Contig, usize)> = HashMap::new();
         for row in rows {
@@ -438,7 +441,7 @@ impl TrackService for UcscDbTrackService {
                 preferred_track,
             ).as_str()
         )
-        .bind(region.contig.name.clone()) 
+        .bind(region.contig.name.clone())
         .bind(u64::try_from(region.end).unwrap()) // end is 1-based inclusive, UCSC is 0-based exclusive
         .bind(u64::try_from(region.start.saturating_sub(1)).unwrap()) // start is 1-based inclusive, UCSC is 0-based inclusive
         .fetch_all(&*self.pool)
@@ -1110,8 +1113,10 @@ impl TrackService for UcscApiTrackService {
 
                 let response = self.client.get(query_url).send().await?.text().await?;
 
-                let err =
-                    TGVError::IOError(format!("Failed to deserialize chromosomes for {}", reference.to_string()));
+                let err = TGVError::IOError(format!(
+                    "Failed to deserialize chromosomes for {}",
+                    reference.to_string()
+                ));
 
                 // schema: {..., "chromosomes": [{"__name__", len}]}
 
