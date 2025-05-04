@@ -31,8 +31,8 @@ tgv
 - `_number_` + `_movement_`: Repeat movements (e.g. `20B`: left by 20 genes)
 
 [Full key bindings](https://github.com/zeqianli/tgv/wiki/Usage)
-
-TGV supports all genomes on the [UCSC genome browser](https://genome.ucsc.edu/cgi-bin/hgGateway):
+<!-- 
+[Pre-release] TGV supports all genomes on the [UCSC genome browser](https://genome.ucsc.edu/cgi-bin/hgGateway):
 
 ```bash
 tgv -g rat
@@ -45,7 +45,7 @@ tgv --list
 
 # Or, all UCSC assemblies
 tgv --list-more
-```
+``` -->
 
 ## View alignments
 
