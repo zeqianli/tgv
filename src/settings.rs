@@ -1,6 +1,6 @@
 use crate::error::TGVError;
 use crate::helpers::is_url;
-use crate::{contig::Contig, message::StateMessage, reference::Reference};
+use crate::{message::StateMessage, reference::Reference};
 use clap::{Parser, ValueEnum};
 
 #[derive(Clone, Debug, PartialEq, Eq, ValueEnum)]

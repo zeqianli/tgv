@@ -607,10 +607,10 @@ impl StateHandler {
             }
             Ok(())
         } else {
-            return Err(TGVError::StateError(format!(
+            Err(TGVError::StateError(format!(
                 "Contig {:?} not found for reference {:?}",
                 contig_str, state.reference
-            )));
+            )))
         }
     }
 

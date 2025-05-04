@@ -73,10 +73,8 @@ impl TrackCache {
     /// Note that this returns None both when the contig is not queried,
     ///    and returns Some(None) when the contig is queried but the track data is not found.
     pub fn get_track(&self, contig: &Contig) -> Option<Option<&Track<Gene>>> {
-        match self.get_track_index(contig) {
-            Some(index) => Some(self.tracks[index].as_ref()),
-            None => None,
-        }
+        self.get_track_index(contig)
+            .map(|index| self.tracks[index].as_ref())
     }
 
     pub fn includes_gene(&self, gene_name: &str) -> bool {

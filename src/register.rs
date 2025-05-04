@@ -1,4 +1,4 @@
-use crate::{contig::Contig, display_mode::DisplayMode, error::TGVError, message::StateMessage};
+use crate::{display_mode::DisplayMode, error::TGVError, message::StateMessage};
 use crossterm::event::{KeyCode, KeyEvent};
 
 use strum::Display;

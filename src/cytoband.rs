@@ -1,10 +1,8 @@
 use crate::contig::Contig;
 use crate::error::TGVError;
 use crate::reference::Reference;
-use csv::Reader;
 use ratatui::style::Color;
 use serde::Deserialize;
-use std::io::BufReader;
 
 // const VALID_CHROMOSOMES: [&str; 25] = [
 //     "chr1", "chr2", "chr3", "chr4", "chr5", "chr6", "chr7", "chr8", "chr9", "chr10", "chr11",

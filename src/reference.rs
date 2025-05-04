@@ -1,4 +1,3 @@
-use crate::contig::Contig;
 use crate::error::TGVError;
 use std::fmt;
 

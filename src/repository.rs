@@ -7,7 +7,7 @@ use crate::{
     region::Region,
     sequence::Sequence,
     settings::{BackendType, Settings},
-    track_service::{TrackService, TrackServiceEnum, UcscApiTrackService, UcscDbTrackService},
+    track_service::{TrackService, TrackServiceEnum, UcscDbTrackService},
 };
 
 use reqwest::Client;
@@ -305,7 +305,7 @@ fn get_query_contig_string(header: &Header, region: &Region) -> Result<String, T
             if record.contains_key("SN") {
                 let reference_name = record["SN"].to_string();
 
-                if &reference_name == &region.contig.name
+                if reference_name == region.contig.name
                     || region.contig.aliases.contains(&reference_name)
                 {
                     return Ok(reference_name);
