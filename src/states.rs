@@ -247,8 +247,7 @@ impl StateHandler {
             match &reference {
                 Reference::Hg19 | Reference::Hg38 => {
                     for cytoband in Cytoband::from_human_reference(reference)?.iter() {
-                        contig_data
-                            .update_cytoband(&cytoband.contig, Some(cytoband.clone()))?;
+                        contig_data.update_cytoband(&cytoband.contig, Some(cytoband.clone()))?;
                     }
                 }
                 _ => {}
@@ -453,7 +452,10 @@ impl StateHandler {
             data_messages.push(DataMessage::RequiresCytobands(state.contig()?));
         }
 
-        if settings.needs_sequence() && (viewing_window.zoom() <= Self::MAX_ZOOM_TO_DISPLAY_SEQUENCES) && !Self::has_complete_sequence(state, &viewing_region) {
+        if settings.needs_sequence()
+            && (viewing_window.zoom() <= Self::MAX_ZOOM_TO_DISPLAY_SEQUENCES)
+            && !Self::has_complete_sequence(state, &viewing_region)
+        {
             let sequence_cache_region = Self::sequence_cache_region(state, &viewing_region)?;
             data_messages.push(DataMessage::RequiresCompleteSequences(
                 sequence_cache_region,

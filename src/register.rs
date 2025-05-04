@@ -391,7 +391,9 @@ impl CommandModeRegister {
         }
 
         if self.input == "h" {
-            return Err(TGVError::RegisterError("TODO: help screen is not implemented".to_string()));
+            return Err(TGVError::RegisterError(
+                "TODO: help screen is not implemented".to_string(),
+            ));
         }
 
         let split = self.input.split(":").collect::<Vec<&str>>();

@@ -7,9 +7,7 @@ use crate::{
     region::Region,
     sequence::Sequence,
     settings::{BackendType, Settings},
-    track_service::{
-        TrackService, TrackServiceEnum, UcscApiTrackService, UcscDbTrackService,
-    },
+    track_service::{TrackService, TrackServiceEnum, UcscApiTrackService, UcscDbTrackService},
 };
 
 use reqwest::Client;
