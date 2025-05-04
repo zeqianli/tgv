@@ -34,12 +34,11 @@ tgv
 
 [Full key bindings](https://github.com/zeqianli/tgv/wiki/Usage)
 
-[Experimental feature] TGV supports all genomes on the [UCSC genome browser](https://genome.ucsc.edu/cgi-bin/hgGateway):
+TGV supports all genomes on the [UCSC genome browser](https://genome.ucsc.edu/cgi-bin/hgGateway):
 
 ```bash
-tgv -g rat
 tgv -g mm10
-tgv -g tibetanfrog
+tgv -g cat
 tgv -g covid
 
 # List common genomes
