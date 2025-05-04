@@ -412,21 +412,26 @@ impl TrackService for UcscDbTrackService {
 
     async fn get_preferred_track_name(
         &self,
-        _reference: &Reference,
+        reference: &Reference,
     ) -> Result<Option<String>, TGVError> {
-        let gene_track_rows = sqlx::query("SELECT tableName FROM trackDb")
-            .fetch_all(&*self.pool)
-            .await?;
+        match reference {
+            // Speed up for human genomes
+            Reference::Hg19 | Reference::Hg38 => return Ok(Some("ncbiRefSeqSelect".to_string())),
+            _ => {}
+        }
+
+        let gene_track_rows = sqlx::query("SHOW TABLES").fetch_all(&*self.pool).await?;
 
         let available_gene_tracks: Vec<String> = gene_track_rows
             .into_iter()
-            .map(|row| row.try_get("tableName"))
-            .collect::<Result<_, _>>()?;
+            .map(|row| row.try_get::<String, usize>(0))
+            .collect::<Result<Vec<String>, sqlx::Error>>()?;
 
         let preferences = [
             "ncbiRefSeqSelect",
             "ncbiRefSeqCurated",
             "ncbiRefSeq",
+            "ncbiGene",
             "refGenes",
         ];
 
@@ -457,13 +462,15 @@ impl TrackService for UcscDbTrackService {
         }
 
         let preferred_track = preferred_track.unwrap();
+
         let rows = sqlx::query(
             format!(
-                "SELECT name, chrom, strand, txStart, txEnd, name2, exonStarts, exonEnds, cdsStart, cdsEnd
+                "SELECT *
              FROM {} 
              WHERE chrom = ? AND (txStart <= ?) AND (txEnd >= ?)",
                 preferred_track,
-            ).as_str()
+            )
+            .as_str(),
         )
         .bind(region.contig.name.clone())
         .bind(u64::try_from(region.end).unwrap()) // end is 1-based inclusive, UCSC is 0-based exclusive
@@ -480,7 +487,11 @@ impl TrackService for UcscDbTrackService {
             let tx_end: u64 = row.try_get("txEnd")?;
             let cds_start: u64 = row.try_get("cdsStart")?;
             let cds_end: u64 = row.try_get("cdsEnd")?;
-            let name2: String = row.try_get("name2")?;
+
+            let name2: String = match row.try_get("name2") {
+                Ok(name2) => name2,
+                Err(e) => name.clone(),
+            };
             let exon_starts_blob: Vec<u8> = row.try_get("exonStarts")?;
             let exon_ends_blob: Vec<u8> = row.try_get("exonEnds")?;
 
@@ -529,11 +540,12 @@ impl TrackService for UcscDbTrackService {
 
         let row = sqlx::query(
             format!(
-                "SELECT name, chrom, strand, txStart, txEnd, name2, exonStarts, exonEnds, cdsStart, cdsEnd
+                "SELECT *
              FROM {} 
              WHERE chrom = ? AND txStart <= ? AND txEnd >= ?",
                 preferred_track,
-            ).as_str()
+            )
+            .as_str(),
         )
         .bind(contig.name.clone())
         .bind(u32::try_from(coord.saturating_sub(1)).unwrap()) // coord is 1-based inclusive, UCSC is 0-based inclusive
@@ -549,7 +561,10 @@ impl TrackService for UcscDbTrackService {
             let tx_end: u32 = row.try_get("txEnd")?;
             let cds_start: u32 = row.try_get("cdsStart")?;
             let cds_end: u32 = row.try_get("cdsEnd")?;
-            let name2: String = row.try_get("name2")?;
+            let name2: String = match row.try_get("name2") {
+                Ok(name2) => name2,
+                Err(e) => name.clone(),
+            };
             let exon_starts_blob: Vec<u8> = row.try_get("exonStarts")?;
             let exon_ends_blob: Vec<u8> = row.try_get("exonEnds")?;
 
@@ -595,11 +610,12 @@ impl TrackService for UcscDbTrackService {
 
         let row = sqlx::query(
             format!(
-                "SELECT name, name2, strand, chrom, txStart, txEnd, exonStarts, exonEnds, cdsStart, cdsEnd
+                "SELECT *
             FROM {} 
             WHERE name2 = ?",
                 preferred_track.unwrap()
-            ).as_str()
+            )
+            .as_str(),
         )
         .bind(gene_id)
         .fetch_optional(&*self.pool)
@@ -610,7 +626,10 @@ impl TrackService for UcscDbTrackService {
             // https://genome-blog.gi.ucsc.edu/blog/2015/12/12/the-ucsc-genome-browser-coordinate-counting-systems/
 
             let name: String = row.try_get("name")?;
-            let name2: String = row.try_get("name2")?;
+            let name2: String = match row.try_get("name2") {
+                Ok(name2) => name2,
+                Err(e) => name.clone(),
+            };
             let strand_str: String = row.try_get("strand")?;
             let chrom: String = row.try_get("chrom")?;
             let tx_start: u32 = row.try_get("txStart")?;
@@ -673,12 +692,13 @@ impl TrackService for UcscDbTrackService {
 
         let rows = sqlx::query(
             format!(
-                "SELECT name, chrom, strand, txStart, txEnd, name2, exonStarts, exonEnds, cdsStart, cdsEnd
+                "SELECT *
              FROM {} 
              WHERE chrom = ? AND txEnd >= ? 
              ORDER BY txEnd ASC LIMIT ?",
                 preferred_track,
-            ).as_str()
+            )
+            .as_str(),
         )
         .bind(contig.name.clone())
         .bind(u32::try_from(coord).unwrap()) // coord is 1-based inclusive, UCSC is 0-based exclusive
@@ -698,7 +718,10 @@ impl TrackService for UcscDbTrackService {
             let strand_str: String = row.try_get("strand")?;
             let tx_start: u32 = row.try_get("txStart")?;
             let tx_end: u32 = row.try_get("txEnd")?;
-            let name2: String = row.try_get("name2")?;
+            let name2: String = match row.try_get("name2") {
+                Ok(name2) => name2,
+                Err(e) => name.clone(),
+            };
             let exon_starts_blob: Vec<u8> = row.try_get("exonStarts")?;
             let exon_ends_blob: Vec<u8> = row.try_get("exonEnds")?;
             let cds_start: u32 = row.try_get("cdsStart")?;
@@ -761,16 +784,17 @@ impl TrackService for UcscDbTrackService {
 
         let rows = sqlx::query(
             format!(
-                "SELECT name, chrom, strand, txStart, txEnd, name2, exonStarts, exonEnds, cdsStart, cdsEnd
+                "SELECT *
              FROM {} 
              WHERE chrom = ? AND txStart <= ? 
              ORDER BY txStart DESC LIMIT ?",
                 preferred_track,
-            ).as_str()
+            )
+            .as_str(),
         )
         .bind(contig.name.clone())
         .bind(u32::try_from(coord.saturating_sub(1)).unwrap()) // coord is 1-based inclusive, UCSC is 0-based inclusive
-        .bind(u32::try_from(k+1).unwrap())
+        .bind(u32::try_from(k + 1).unwrap())
         .fetch_all(&*self.pool)
         .await?;
 
@@ -786,7 +810,10 @@ impl TrackService for UcscDbTrackService {
             let strand_str: String = row.try_get("strand")?;
             let tx_start: u32 = row.try_get("txStart")?;
             let tx_end: u32 = row.try_get("txEnd")?;
-            let name2: String = row.try_get("name2")?;
+            let name2: String = match row.try_get("name2") {
+                Ok(name2) => name2,
+                Err(e) => name.clone(),
+            };
             let exon_starts_blob: Vec<u8> = row.try_get("exonStarts")?;
             let exon_ends_blob: Vec<u8> = row.try_get("exonEnds")?;
             let cds_start: u32 = row.try_get("cdsStart")?;
@@ -849,16 +876,17 @@ impl TrackService for UcscDbTrackService {
 
         let rows = sqlx::query(
             format!(
-                "SELECT name, chrom, strand, txStart, txEnd, name2, exonStarts, exonEnds, cdsStart, cdsEnd
+                "SELECT *
              FROM {} 
              WHERE chrom = ? AND txEnd >= ? 
              ORDER BY txEnd ASC LIMIT ?",
                 preferred_track,
-            ).as_str()
+            )
+            .as_str(),
         )
         .bind(contig.name.clone())
         .bind(u32::try_from(coord).unwrap()) // coord is 1-based inclusive, UCSC is 0-based exclusive
-        .bind(u32::try_from(k+1).unwrap())
+        .bind(u32::try_from(k + 1).unwrap())
         .fetch_all(&*self.pool)
         .await?;
 
@@ -869,7 +897,10 @@ impl TrackService for UcscDbTrackService {
             let strand_str: String = row.try_get("strand")?;
             let tx_start: u32 = row.try_get("txStart")?;
             let tx_end: u32 = row.try_get("txEnd")?;
-            let name2: String = row.try_get("name2")?;
+            let name2: String = match row.try_get("name2") {
+                Ok(name2) => name2,
+                Err(e) => name.clone(),
+            };
             let exon_starts_blob: Vec<u8> = row.try_get("exonStarts")?;
             let exon_ends_blob: Vec<u8> = row.try_get("exonEnds")?;
             let cds_start: u32 = row.try_get("cdsStart")?;
@@ -931,16 +962,17 @@ impl TrackService for UcscDbTrackService {
 
         let rows = sqlx::query(
             format!(
-                "SELECT name, chrom, strand, txStart, txEnd, name2, exonStarts, exonEnds, cdsStart, cdsEnd
+                "SELECT *
              FROM {} 
              WHERE chrom = ? AND txStart <= ? 
              ORDER BY txStart DESC LIMIT ?",
                 preferred_track,
-            ).as_str()
+            )
+            .as_str(),
         )
         .bind(contig.name.clone())
         .bind(u32::try_from(coord.saturating_sub(1)).unwrap()) // coord is 1-based inclusive, UCSC is 0-based inclusive
-        .bind(u32::try_from(k+1).unwrap())
+        .bind(u32::try_from(k + 1).unwrap())
         .fetch_all(&*self.pool)
         .await?;
 
@@ -951,7 +983,10 @@ impl TrackService for UcscDbTrackService {
             let strand_str: String = row.try_get("strand")?;
             let tx_start: u32 = row.try_get("txStart")?;
             let tx_end: u32 = row.try_get("txEnd")?;
-            let name2: String = row.try_get("name2")?;
+            let name2: String = match row.try_get("name2") {
+                Ok(name2) => name2,
+                Err(e) => name.clone(),
+            };
             let exon_starts_blob: Vec<u8> = row.try_get("exonStarts")?;
             let exon_ends_blob: Vec<u8> = row.try_get("exonEnds")?;
             let cds_start: u32 = row.try_get("cdsStart")?;
