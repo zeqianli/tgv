@@ -82,70 +82,70 @@ impl fmt::Display for Reference {
     }
 }
 
-impl Reference {
-    pub fn contigs_and_lengths(&self) -> Result<Vec<(Contig, usize)>, TGVError> {
-        match self {
-            Self::Hg19 => {
-                Ok(vec![
-                    (Contig::new("chr1"), 249250621),
-                    (Contig::new("chr2"), 243199373),
-                    (Contig::new("chr3"), 198022430),
-                    (Contig::new("chr4"), 191154276),
-                    (Contig::new("chr5"), 180915260),
-                    (Contig::new("chr6"), 171115067),
-                    (Contig::new("chr7"), 159138663),
-                    (Contig::new("chr8"), 155270560),
-                    (Contig::new("chr9"), 146364022),
-                    (Contig::new("chr10"), 141213431),
-                    (Contig::new("chr11"), 135534747),
-                    (Contig::new("chr12"), 135006516),
-                    (Contig::new("chr13"), 133851895),
-                    (Contig::new("chr14"), 115169878),
-                    (Contig::new("chr15"), 107349540),
-                    (Contig::new("chr16"), 102531392),
-                    (Contig::new("chr17"), 90354753),
-                    (Contig::new("chr18"), 81195210),
-                    (Contig::new("chr19"), 78077248),
-                    (Contig::new("chr20"), 63025520),
-                    (Contig::new("chr21"), 59373566),
-                    (Contig::new("chr22"), 59128983),
-                    (Contig::new("chrX"), 51304566),
-                    (Contig::new("chrY"), 48129895),
-                ]) // TODO: MT
-            }
-            Self::Hg38 => Ok(vec![
-                (Contig::new("chr1"), 248956422),
-                (Contig::new("chr2"), 242193529),
-                (Contig::new("chr3"), 198295559),
-                (Contig::new("chr4"), 190214555),
-                (Contig::new("chr5"), 181538259),
-                (Contig::new("chr6"), 170805979),
-                (Contig::new("chr7"), 159345973),
-                (Contig::new("chrX"), 156040895),
-                (Contig::new("chr8"), 145138636),
-                (Contig::new("chr9"), 138394717),
-                (Contig::new("chr11"), 135086622),
-                (Contig::new("chr10"), 133797422),
-                (Contig::new("chr12"), 133275309),
-                (Contig::new("chr13"), 114364328),
-                (Contig::new("chr14"), 107043718),
-                (Contig::new("chr15"), 101991189),
-                (Contig::new("chr16"), 90338345),
-                (Contig::new("chr17"), 83257441),
-                (Contig::new("chr18"), 80373285),
-                (Contig::new("chr20"), 64444167),
-                (Contig::new("chr19"), 58617616),
-                (Contig::new("chrY"), 57227415),
-                (Contig::new("chr22"), 50818468),
-                (Contig::new("chr21"), 46709983),
-            ]),
-            _ => Err(TGVError::IOError(format!(
-                "Cannot get contigs for this reference: {}. Need to query the UCSC API.",
-                self
-            ))),
-        }
-    }
-}
+// impl Reference {
+//     pub fn contigs_and_lengths(&self) -> Result<Vec<(Contig, usize)>, TGVError> {
+//         match self {
+//             Self::Hg19 => {
+//                 Ok(vec![
+//                     (Contig::new("chr1"), 249250621),
+//                     (Contig::new("chr2"), 243199373),
+//                     (Contig::new("chr3"), 198022430),
+//                     (Contig::new("chr4"), 191154276),
+//                     (Contig::new("chr5"), 180915260),
+//                     (Contig::new("chr6"), 171115067),
+//                     (Contig::new("chr7"), 159138663),
+//                     (Contig::new("chr8"), 155270560),
+//                     (Contig::new("chr9"), 146364022),
+//                     (Contig::new("chr10"), 141213431),
+//                     (Contig::new("chr11"), 135534747),
+//                     (Contig::new("chr12"), 135006516),
+//                     (Contig::new("chr13"), 133851895),
+//                     (Contig::new("chr14"), 115169878),
+//                     (Contig::new("chr15"), 107349540),
+//                     (Contig::new("chr16"), 102531392),
+//                     (Contig::new("chr17"), 90354753),
+//                     (Contig::new("chr18"), 81195210),
+//                     (Contig::new("chr19"), 78077248),
+//                     (Contig::new("chr20"), 63025520),
+//                     (Contig::new("chr21"), 59373566),
+//                     (Contig::new("chr22"), 59128983),
+//                     (Contig::new("chrX"), 51304566),
+//                     (Contig::new("chrY"), 48129895),
+//                 ]) // TODO: MT
+//             }
+//             Self::Hg38 => Ok(vec![
+//                 (Contig::new("chr1"), 248956422),
+//                 (Contig::new("chr2"), 242193529),
+//                 (Contig::new("chr3"), 198295559),
+//                 (Contig::new("chr4"), 190214555),
+//                 (Contig::new("chr5"), 181538259),
+//                 (Contig::new("chr6"), 170805979),
+//                 (Contig::new("chr7"), 159345973),
+//                 (Contig::new("chrX"), 156040895),
+//                 (Contig::new("chr8"), 145138636),
+//                 (Contig::new("chr9"), 138394717),
+//                 (Contig::new("chr11"), 135086622),
+//                 (Contig::new("chr10"), 133797422),
+//                 (Contig::new("chr12"), 133275309),
+//                 (Contig::new("chr13"), 114364328),
+//                 (Contig::new("chr14"), 107043718),
+//                 (Contig::new("chr15"), 101991189),
+//                 (Contig::new("chr16"), 90338345),
+//                 (Contig::new("chr17"), 83257441),
+//                 (Contig::new("chr18"), 80373285),
+//                 (Contig::new("chr20"), 64444167),
+//                 (Contig::new("chr19"), 58617616),
+//                 (Contig::new("chrY"), 57227415),
+//                 (Contig::new("chr22"), 50818468),
+//                 (Contig::new("chr21"), 46709983),
+//             ]),
+//             _ => Err(TGVError::IOError(format!(
+//                 "Cannot get contigs for this reference: {}. Need to query the UCSC API.",
+//                 self
+//             ))),
+//         }
+//     }
+// }
 
 // to lowercase; remove ."-_
 fn standardize_common_genome_name(s: &str) -> Result<String, TGVError> {

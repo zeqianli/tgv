@@ -1110,17 +1110,16 @@ impl TrackService for UcscApiTrackService {
         reference: &Reference,
     ) -> Result<Vec<(Contig, usize)>, TGVError> {
         match reference {
-            Reference::Hg19 | Reference::Hg38 => reference.contigs_and_lengths(), // TODO: query
-            Reference::UcscGenome(genome) => {
+            Reference::Hg19 | Reference::Hg38 | Reference::UcscGenome(_) => {
                 let query_url = format!(
                     "https://api.genome.ucsc.edu/list/chromosomes?genome={}",
-                    genome
+                    reference.to_string()
                 );
 
                 let response = self.client.get(query_url).send().await?.text().await?;
 
                 let err =
-                    TGVError::IOError(format!("Failed to deserialize chromosomes for {}", genome));
+                    TGVError::IOError(format!("Failed to deserialize chromosomes for {}", reference.to_string()));
 
                 // schema: {..., "chromosomes": [{"__name__", len}]}
 
@@ -1340,7 +1339,7 @@ impl TrackService for UcscApiTrackService {
         } else {
             Err(TGVError::IOError(format!(
                 "Track not found for contig {}",
-                contig.name // TODO: this things needs chromAlias
+                contig.name
             )))
         }
     }
@@ -1364,7 +1363,7 @@ impl TrackService for UcscApiTrackService {
         } else {
             Err(TGVError::IOError(format!(
                 "Track not found for contig {}",
-                contig.name // TODO: this things needs chromAlias
+                contig.name
             )))
         }
     }
@@ -1388,7 +1387,7 @@ impl TrackService for UcscApiTrackService {
         } else {
             Err(TGVError::IOError(format!(
                 "Track not found for contig {}",
-                contig.name // TODO: this things needs chromAlias
+                contig.name
             )))
         }
     }
