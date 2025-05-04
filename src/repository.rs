@@ -301,22 +301,32 @@ fn get_query_contig_string(header: &Header, region: &Region) -> Result<String, T
     let full_chromsome_str = region.contig.full_name();
     let abbreviated_chromsome_str = region.contig.abbreviated_name();
 
+    let mut bam_headers = Vec::new();
+
     for (_key, records) in header.to_hashmap().iter() {
         for record in records {
             if record.contains_key("SN") {
                 let reference_name = record["SN"].to_string();
-                if reference_name == full_chromsome_str {
+
+                if &reference_name == &full_chromsome_str {
                     return Ok(full_chromsome_str);
                 }
 
-                if reference_name == abbreviated_chromsome_str {
+                if &reference_name == &abbreviated_chromsome_str {
                     return Ok(abbreviated_chromsome_str);
                 }
+
+                bam_headers.push(reference_name);
             }
         }
     }
 
-    Err(TGVError::IOError("Contig not found in header".to_string()))
+    Err(TGVError::IOError(format!(
+        "Contig {} not found in the bam file header. BAM file has {} contigs: {}",
+        full_chromsome_str,
+        bam_headers.len(),
+        bam_headers.join(", ")
+    )))
 }
 
 #[derive(Debug)]
