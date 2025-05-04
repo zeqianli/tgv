@@ -291,7 +291,7 @@ impl TrackService for UcscDbTrackService {
         &self,
         reference: &Reference,
     ) -> Result<Vec<(Contig, usize)>, TGVError> {
-        let rows = sqlx::query("SELECT chrom, size FROM chromInfo ORDER BY chrom")
+        let rows = sqlx::query("SELECT chrom, size FROM chromInfo")
             .fetch_all(&*self.pool)
             .await?;
 
