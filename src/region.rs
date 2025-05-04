@@ -1,4 +1,4 @@
-use crate::models::contig::Contig;
+use crate::contig::Contig;
 use crate::traits::GenomeInterval;
 use std::fmt;
 

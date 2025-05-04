@@ -1,6 +1,6 @@
 use crate::error::TGVError;
 use crate::helpers::is_url;
-use crate::models::{message::StateMessage, reference::Reference};
+use crate::{contig::Contig, message::StateMessage, reference::Reference};
 use clap::{Parser, ValueEnum};
 
 #[derive(Clone, Debug, PartialEq, Eq, ValueEnum)]
@@ -63,7 +63,19 @@ pub struct Settings {
 }
 
 impl Settings {
-    pub fn new(cli: Cli, test_mode: bool) -> Result<Self, TGVError> {
+    pub fn needs_alignment(&self) -> bool {
+        self.bam_path.is_some()
+    }
+
+    pub fn needs_track(&self) -> bool {
+        self.reference.is_some()
+    }
+
+    pub fn needs_sequence(&self) -> bool {
+        self.reference.is_some()
+    }
+
+    pub fn new(cli: Cli) -> Result<Self, TGVError> {
         let mut bam_path = None;
         // let mut vcf_path = None;
         // let mut bed_path = None;
@@ -120,18 +132,7 @@ impl Settings {
             }
         }
 
-        // // 2. If no bam file is provided, the initial state message cannot be GoToContigCoordinate
-        // if bam_path.is_none() {
-        //     for m in initial_state_messages.iter() {
-        //         if let StateMessage::GotoContigCoordinate(_, _) = m {
-        //             return Err(TGVError::CliError(
-        //                 "Bam file is required to go to a contig coordinate".to_string(),
-        //             ));
-        //         }
-        //     }
-        // }
-
-        // 3. bam file and reference cannot both be none
+        // 2. bam file and reference cannot both be none
         if bam_path.is_none() && reference.is_none() {
             return Err(TGVError::CliError(
                 "Bam file and reference cannot both be none".to_string(),
@@ -146,9 +147,14 @@ impl Settings {
             reference,
             backend,
             initial_state_messages,
-            test_mode,
+            test_mode: false,
             debug: cli.debug,
         })
+    }
+
+    pub fn test_mode(mut self) -> Self {
+        self.test_mode = true;
+        self
     }
 
     fn translate_initial_state_messages(
@@ -176,7 +182,7 @@ impl Settings {
             match split[1].parse::<usize>() {
                 Ok(n) => {
                     return Ok(vec![StateMessage::GotoContigCoordinate(
-                        split[0].to_string(),
+                        Contig::chrom(split[0]),
                         n,
                     )]);
                 }
@@ -198,8 +204,8 @@ impl Settings {
 mod tests {
     use super::*;
 
-    use crate::models::message::StateMessage;
-    use crate::models::reference::Reference;
+    use crate::message::StateMessage;
+    use crate::reference::Reference;
     use rstest::rstest;
 
     // Helper function to create default settings for comparison
@@ -229,7 +235,10 @@ mod tests {
     #[case("tgv wrong.extension", Err(TGVError::CliError("".to_string())))]
     #[case("tgv input.bam -r chr1:12345", Ok(Settings {
         bam_path: Some("input.bam".to_string()),
-        initial_state_messages: vec![StateMessage::GotoContigCoordinate("chr1".to_string(), 12345)],
+        initial_state_messages: vec![StateMessage::GotoContigCoordinate(
+            Contig::chrom("chr1"),
+            12345,
+        )],
         ..default_settings()
     }))]
     #[case("tgv input.bam -r chr1:invalid", Err(TGVError::CliError("".to_string())))]
@@ -254,7 +263,10 @@ mod tests {
     #[case("tgv input.bam -r 1:12345 --no-reference", Ok(Settings {
         bam_path: Some("input.bam".to_string()),
         reference: None,
-        initial_state_messages: vec![StateMessage::GotoContigCoordinate("1".to_string(), 12345)],
+        initial_state_messages: vec![StateMessage::GotoContigCoordinate(
+            Contig::chrom("1"),
+            12345,
+        )],
         ..default_settings()
     }))]
     #[case("tgv input.bam -r TP53 -g hg19 --no-reference", Err(TGVError::CliError("".to_string())))]
@@ -265,11 +277,11 @@ mod tests {
     ) {
         let cli = Cli::parse_from(shlex::split(command_line).unwrap());
 
-        let settings = Settings::new(cli.clone(), false);
+        let settings = Settings::new(cli.clone());
 
         match (&settings, &expected_settings) {
             (Ok(settings), Ok(expected)) => assert_eq!(*settings, *expected),
-            (Err(e), Err(expected)) => assert!(e.is_same_type(expected)),
+            (Err(e), Err(expected)) => {} // OK
             _ => panic!(
                 "Unexpected CLI parsing result. Expected: {:?}, Got: {:?}",
                 expected_settings, settings

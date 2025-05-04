@@ -1,8 +1,9 @@
-use crate::models::{
+use crate::{
     alignment::{AlignedRead, Alignment},
+    error::TGVError,
+    rendering::colors,
     window::{OnScreenCoordinate, ViewingWindow},
 };
-use crate::rendering::colors;
 use ratatui::{buffer::Buffer, layout::Rect, style::Style};
 use rust_htslib::bam::record::Cigar;
 
@@ -12,7 +13,7 @@ pub fn render_alignment(
     buf: &mut Buffer,
     window: &ViewingWindow,
     alignment: &Alignment,
-) {
+) -> Result<(), TGVError> {
     // This iterates through all cached reads and re-calculates coordinates for each movement.
     // Consider improvement.
     for read in alignment.reads.iter() {
@@ -20,6 +21,7 @@ pub fn render_alignment(
             buf.set_string(x as u16 + area.x, y as u16 + area.y, onscreen_string, style);
         }
     }
+    Ok(())
 }
 
 fn get_read_rendering_info(

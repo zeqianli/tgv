@@ -1,10 +1,11 @@
 use crate::error::TGVError;
-use crate::helpers::is_url;
-use crate::models::{contig::Contig, cytoband::Cytoband, reference::Reference};
-use rust_htslib::bam::{self, IndexedReader, Read};
+use crate::repository::{AlignmentRepository, AlignmentRepositoryEnum};
+use crate::{contig::Contig, cytoband::Cytoband, reference::Reference};
 use std::collections::HashMap;
-use url::Url;
+use std::fmt;
+use std::fmt::Display;
 
+#[derive(Debug)]
 pub struct ContigDatum {
     contig: Contig,             // Name
     length: Option<usize>,      // Length
@@ -14,6 +15,7 @@ pub struct ContigDatum {
 }
 
 /// A collection of contigs. This helps relative contig movements.
+#[derive(Debug)]
 pub struct ContigCollection {
     reference: Option<Reference>,
     contigs: Vec<ContigDatum>,
@@ -80,58 +82,23 @@ impl ContigCollection {
 
     pub fn update_from_bam(
         &mut self,
-        path: &String,
-        bai_path: Option<&String>,
         reference: Option<&Reference>,
+        bam: &AlignmentRepositoryEnum,
     ) -> Result<(), TGVError> {
         // Use the indexed_reader::Builder pattern as shown in alignment.rs
-        let is_remote_path = is_url(path);
-        let bam = match bai_path {
-            Some(bai_path) => {
-                if is_remote_path {
-                    return Err(TGVError::IOError(
-                        "Custom .bai path for remote BAM files are not supported yet.".to_string(),
-                    ));
-                }
-                IndexedReader::from_path_and_index(path, bai_path)?
-            }
-            None => {
-                if is_remote_path {
-                    IndexedReader::from_url(
-                        &Url::parse(path).map_err(|e| TGVError::IOError(e.to_string()))?,
-                    )
-                    .unwrap()
-                } else {
-                    IndexedReader::from_path(path)?
-                }
-            }
-        };
 
-        let header = bam::Header::from_template(bam.header());
+        for (contig_name, contig_length) in bam.read_header()? {
+            let contig = match reference {
+                // If the reference is human, interpret contig names as chromosomes. This allows abbreviated matching (chr1 <-> 1).
+                Some(Reference::Hg19) => Contig::chrom(&contig_name),
+                Some(Reference::Hg38) => Contig::chrom(&contig_name),
+                Some(Reference::UcscGenome(genome)) => Contig::chrom(genome),
 
-        for (_key, records) in header.to_hashmap().iter() {
-            for record in records {
-                if record.contains_key("SN") {
-                    let contig_name = record["SN"].to_string();
-                    let contig = match reference {
-                        // If the reference is human, interpret contig names as chromosomes. This allows abbreviated matching (chr1 <-> 1).
-                        Some(Reference::Hg19) => Contig::chrom(&contig_name),
-                        Some(Reference::Hg38) => Contig::chrom(&contig_name),
-                        Some(Reference::UcscGenome(genome)) => Contig::chrom(genome),
+                // Otherwise, interpret contig names as contigs. This does not allow abbreviated matching.
+                _ => Contig::contig(&contig_name),
+            };
 
-                        // Otherwise, interpret contig names as contigs. This does not allow abbreviated matching.
-                        _ => Contig::contig(&contig_name),
-                    };
-
-                    let contig_length = if record.contains_key("LN") {
-                        record["LN"].to_string().parse::<usize>().ok()
-                    } else {
-                        None
-                    };
-
-                    self.update_or_add_contig(contig, contig_length)?;
-                }
-            }
+            self.update_or_add_contig(contig, contig_length)?;
         }
 
         Ok(())
@@ -185,5 +152,14 @@ impl ContigCollection {
                 contig.full_name()
             )))?;
         Ok(self.contigs[*index].cytoband_loaded)
+    }
+}
+
+impl Display for ContigCollection {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        for contig in &self.contigs {
+            writeln!(f, "{}: {:?}", contig.contig.full_name(), contig.length)?;
+        }
+        Ok(())
     }
 }

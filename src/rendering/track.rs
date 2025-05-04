@@ -1,13 +1,11 @@
-use crate::models::{
-    reference::Reference,
+use crate::traits::GenomeInterval;
+use crate::{
+    error::TGVError,
+    feature::{Gene, SubGeneFeatureType},
+    states::State,
     strand::Strand,
-    track::{
-        feature::{Gene, SubGeneFeatureType},
-        track::Track,
-    },
     window::{OnScreenCoordinate, ViewingWindow},
 };
-use crate::traits::GenomeInterval;
 use ratatui::{
     buffer::Buffer,
     layout::Rect,
@@ -21,16 +19,13 @@ const MIN_AREA_HEIGHT: u16 = 2;
 type TrackRenderInfo = (usize, String, Style, Option<(usize, String)>);
 
 /// Render the genome features.
-pub fn render_track(
-    area: &Rect,
-    buf: &mut Buffer,
-    window: &ViewingWindow,
-    track: &Track<Gene>,
-    _reference: Option<&Reference>,
-) {
+pub fn render_track(area: &Rect, buf: &mut Buffer, state: &State) -> Result<(), TGVError> {
     if area.width < MIN_AREA_WIDTH || area.height < MIN_AREA_HEIGHT {
-        return;
+        return Ok(());
     }
+
+    let track = state.track_checked()?;
+    let window = state.viewing_window()?;
 
     let mut right_most_label_onscreen_x = 0;
     for feature in track.genes().iter() {
@@ -58,6 +53,8 @@ pub fn render_track(
             }
         }
     }
+
+    Ok(())
 }
 
 const MIN_GENE_ON_SCREEN_LENGTH_TO_SHOW_EXONS: usize = 10;

@@ -1,10 +1,8 @@
 use crate::{
+    contig::Contig,
     error::TGVError,
-    models::{
-        contig::Contig,
-        region::Region,
-        track::feature::{Gene, SubGeneFeature},
-    },
+    feature::{Gene, SubGeneFeature},
+    region::Region,
     traits::GenomeInterval,
 };
 
@@ -447,7 +445,7 @@ impl Track<Gene> {
 #[cfg(test)]
 mod tests {
 
-    use crate::models::strand::Strand;
+    use crate::strand::Strand;
 
     /// Test track: [gene1: [2,5], [8,10]], [gene_no_exon (21-30)], [gene2: [41,50]]
     fn get_test_track() -> Track<Gene> {

@@ -1,21 +1,38 @@
-use crate::models::region::Region;
-use crate::models::sequence::Sequence;
 use crate::rendering::colors;
+use crate::states::State;
+use crate::{error::TGVError, region::Region, sequence::Sequence};
 use ratatui::{buffer::Buffer, layout::Rect, style::Style};
+
 const MIN_AREA_WIDTH: u16 = 2;
 const MIN_AREA_HEIGHT: u16 = 1;
 
-pub fn render_sequence(
+pub fn render_sequence(area: &Rect, buf: &mut Buffer, state: &State) -> Result<(), TGVError> {
+    let region = &state.viewing_region()?;
+
+    if let Some(sequence) = &state.sequence {
+        match state.viewing_window()?.zoom() {
+            1 => render_sequence_at_1x(area, buf, region, sequence),
+            2 => render_sequence_at_2x(area, buf, region, sequence),
+            _ => Ok(()),
+        }
+    } else {
+        Ok(())
+    }
+}
+
+fn render_sequence_at_1x(
     area: &Rect,
     buf: &mut Buffer,
     region: &Region,
     sequence: &Sequence,
-) -> Result<(), ()> {
+) -> Result<(), TGVError> {
     if area.width < MIN_AREA_WIDTH || area.height < MIN_AREA_HEIGHT {
         return Ok(());
     }
 
-    let sequence_string = sequence.get_sequence(region).ok_or(())?;
+    let sequence_string = sequence
+        .get_sequence(region)
+        .ok_or(TGVError::StateError("Sequence not found".to_string()))?;
 
     for i in 0..sequence_string.len() {
         let base = sequence_string.chars().nth(i).unwrap();
@@ -40,13 +57,15 @@ pub fn render_sequence(
     Ok(())
 }
 
-pub fn render_sequence_at_2x(
+fn render_sequence_at_2x(
     area: &Rect,
     buf: &mut Buffer,
     region: &Region,
     sequence: &Sequence,
-) -> Result<(), ()> {
-    let sequence_string = sequence.get_sequence(region).ok_or(())?;
+) -> Result<(), TGVError> {
+    let sequence_string = sequence
+        .get_sequence(region)
+        .ok_or(TGVError::StateError("Sequence not found".to_string()))?;
 
     for i in 0..sequence_string.len() / 2 {
         let base_1 = sequence_string.chars().nth(i * 2).unwrap();

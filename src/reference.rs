@@ -1,5 +1,5 @@
+use crate::contig::Contig;
 use crate::error::TGVError;
-use crate::models::contig::Contig;
 use std::fmt;
 
 #[derive(Debug, Clone, Eq, PartialEq)]

@@ -1,20 +1,17 @@
 use crate::error::TGVError;
-use crate::models::{
+use crate::traits::GenomeInterval;
+use crate::{
     contig::Contig,
     cytoband::{Cytoband, CytobandSegment, Stain},
+    feature::{Gene, SubGeneFeature},
     reference::Reference,
     region::Region,
     strand::Strand,
-    track::{
-        feature::{Gene, SubGeneFeature},
-        track::Track,
-    },
+    track::Track,
 };
-use crate::traits::GenomeInterval;
 use async_trait::async_trait;
 use reqwest::{Client, StatusCode};
 use serde::de::Error as _;
-use serde_json;
 use sqlx::{mysql::MySqlPoolOptions, MySqlPool, Row};
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -99,8 +96,6 @@ pub trait TrackService {
     /// Close the track service.
     async fn close(&self) -> Result<(), TGVError>;
 
-    // Contigs and cytobands
-
     // Return all contigs given a reference.
     async fn get_all_contigs(
         &self,
@@ -113,8 +108,6 @@ pub trait TrackService {
         reference: &Reference,
         contig: &Contig,
     ) -> Result<Option<Cytoband>, TGVError>;
-
-    // Genes and tracks
 
     /// Return a Track<Gene> that covers a region.
     async fn query_gene_track(
@@ -206,8 +199,7 @@ pub struct UcscDbTrackService {
 }
 
 impl UcscDbTrackService {
-    /// Initialize the database connect.
-    /// Reference is needed to find the corresponding schema.
+    /// Initialize the database connections. Reference is needed to find the corresponding schema.
     pub async fn new(reference: &Reference) -> Result<Self, TGVError> {
         let mysql_url = UcscDbTrackService::get_mysql_url(reference)?;
         let pool = MySqlPoolOptions::new()

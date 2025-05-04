@@ -1,5 +1,5 @@
-use crate::models::contig::Contig;
-use crate::models::region::Region;
+use crate::contig::Contig;
+use crate::region::Region;
 /// Sequences of a genome region.
 pub struct Sequence {
     /// 1-based genome coordinate of sequence[0].

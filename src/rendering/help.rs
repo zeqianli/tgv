@@ -1,3 +1,4 @@
+use crate::error::TGVError;
 use ratatui::{
     buffer::Buffer,
     layout::Rect,
@@ -8,9 +9,9 @@ use ratatui::{
 const MIN_AREA_WIDTH: u16 = 2;
 const MIN_AREA_HEIGHT: u16 = 1;
 
-pub fn render_help(area: Rect, buf: &mut Buffer) {
+pub fn render_help(area: Rect, buf: &mut Buffer) -> Result<(), TGVError> {
     if area.width < MIN_AREA_WIDTH || area.height < MIN_AREA_HEIGHT {
-        return;
+        return Ok(());
     }
 
     let help_text = format!(
@@ -46,4 +47,5 @@ pub fn render_help(area: Rect, buf: &mut Buffer) {
     ));
 
     paragraph.render(area, buf);
+    Ok(())
 }

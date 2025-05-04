@@ -1,7 +1,4 @@
-use crate::{
-    models::{contig::Contig, strand::Strand},
-    traits::GenomeInterval,
-};
+use crate::{contig::Contig, strand::Strand, traits::GenomeInterval};
 use serde::Deserialize;
 
 // A feature is a interval on a contig.

@@ -1,20 +1,35 @@
+mod alignment;
 mod app;
+mod contig;
+mod contig_collection;
+mod cytoband;
+mod display_mode;
 mod error;
+mod feature;
 mod helpers;
-mod models;
+mod message;
+mod reference;
+mod region;
+mod register;
 mod rendering;
+mod repository;
+mod sequence;
 mod settings;
 mod states;
+mod strand;
+mod track;
 mod traits;
+mod window;
 use app::App;
 use clap::Parser;
 use error::TGVError;
+mod track_service;
 use settings::{Cli, Settings};
 
 #[tokio::main]
 async fn main() -> Result<(), TGVError> {
     let cli = Cli::parse();
-    let settings: Settings = Settings::new(cli, false).unwrap();
+    let settings: Settings = Settings::new(cli)?;
 
     let mut terminal = ratatui::init();
 
@@ -77,7 +92,7 @@ mod tests {
         };
 
         let cli = Cli::parse_from(shlex::split(&args_string).unwrap());
-        let settings = Settings::new(cli, true).unwrap();
+        let settings = Settings::new(cli).unwrap().test_mode();
 
         let mut terminal = Terminal::new(TestBackend::new(50, 20)).unwrap();
 
