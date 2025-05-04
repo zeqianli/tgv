@@ -128,6 +128,20 @@ pub struct Cytoband {
 }
 
 impl Cytoband {
+    pub fn default(reference: &Reference, contig: &Contig, contig_length: usize) -> Self {
+        Self {
+            reference: Some(reference.clone()),
+            contig: contig.clone(),
+            segments: vec![CytobandSegment {
+                contig: contig.clone(),
+                start: 1,
+                end: contig_length,
+                name: contig.name.clone(),
+                stain: Stain::Other("unknown".to_string()),
+            }],
+        }
+    }
+
     pub fn start(&self) -> usize {
         1
     }
