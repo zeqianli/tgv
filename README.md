@@ -6,7 +6,7 @@ Explore omics data without leaving the terminal.
 
 Light, blazing fast 🚀, vim motion, memory safe.
 
-<https://github.com/user-attachments/assets/b250f901-8e4d-4d5d-b150-fa9195b08e14>
+https://github.com/user-attachments/assets/1c74ed21-c026-4535-8627-e4acd9a4313d
 
 *TGV is at a very early stage. Please don't rely on it for your papers (yet) :)*
 
