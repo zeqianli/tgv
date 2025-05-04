@@ -39,10 +39,9 @@ async fn main() -> Result<(), TGVError> {
     }
 
     if cli.list_ucsc_assemblies {
-        let mut n = print_common_genomes()?;
-        n += print_ucsc_assemblies().await?;
-        println!("{} common genomes and UCSC assemblies", n);
-        println!("Browse a genome: tgv -g <genome> (e.g. tgv -g rn6)");
+        let n = print_ucsc_assemblies().await?;
+        println!("{} UCSC assemblies", n);
+        println!("Browse a genome: tgv -g <genome> (e.g. tgv -g rn7)");
         return Ok(());
     }
 
