@@ -1,11 +1,9 @@
 use crate::error::TGVError;
-use crate::helpers::is_url;
 use crate::repository::{AlignmentRepository, AlignmentRepositoryEnum};
 use crate::{contig::Contig, cytoband::Cytoband, reference::Reference};
 use std::collections::HashMap;
 use std::fmt;
 use std::fmt::Display;
-use url::Url;
 
 #[derive(Debug)]
 pub struct ContigDatum {
@@ -160,7 +158,7 @@ impl ContigCollection {
 impl Display for ContigCollection {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         for contig in &self.contigs {
-            write!(f, "{}: {:?}\n", contig.contig.full_name(), contig.length)?;
+            writeln!(f, "{}: {:?}", contig.contig.full_name(), contig.length)?;
         }
         Ok(())
     }

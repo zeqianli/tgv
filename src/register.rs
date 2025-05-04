@@ -1,5 +1,5 @@
 use crate::{contig::Contig, display_mode::DisplayMode, error::TGVError, message::StateMessage};
-use crossterm::event::{Event, KeyCode, KeyEvent};
+use crossterm::event::{KeyCode, KeyEvent};
 
 use strum::Display;
 
@@ -98,6 +98,12 @@ impl Register for Registers {
 #[derive(Clone)]
 pub struct NormalModeRegister {
     input: String,
+}
+
+impl Default for NormalModeRegister {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl NormalModeRegister {
@@ -277,13 +283,13 @@ impl NormalModeRegister {
 impl Register for NormalModeRegister {
     fn update_key_event(&mut self, key_event: KeyEvent) -> Result<Vec<StateMessage>, TGVError> {
         match key_event.code {
-            KeyCode::Char(char) => return self.update_by_char(char),
+            KeyCode::Char(char) => self.update_by_char(char),
             _ => {
                 self.clear();
-                return Err(TGVError::RegisterError(format!(
+                Err(TGVError::RegisterError(format!(
                     "Invalid normal mode input: {:?}",
                     key_event
-                )));
+                )))
             }
         }
     }
@@ -385,9 +391,7 @@ impl CommandModeRegister {
         }
 
         if self.input == "h" {
-            return Err(TGVError::RegisterError(format!(
-                "TODO: help screen is not implemented"
-            )));
+            return Err(TGVError::RegisterError("TODO: help screen is not implemented".to_string()));
         }
 
         let split = self.input.split(":").collect::<Vec<&str>>();
@@ -416,6 +420,12 @@ impl CommandModeRegister {
 }
 
 pub struct HelpModeRegister {}
+
+impl Default for HelpModeRegister {
+    fn default() -> Self {
+        Self::new()
+    }
+}
 
 impl HelpModeRegister {
     pub fn new() -> Self {

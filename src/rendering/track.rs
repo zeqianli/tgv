@@ -4,7 +4,6 @@ use crate::{
     feature::{Gene, SubGeneFeatureType},
     states::State,
     strand::Strand,
-    track::Track,
     window::{OnScreenCoordinate, ViewingWindow},
 };
 use ratatui::{

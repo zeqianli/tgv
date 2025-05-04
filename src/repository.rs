@@ -8,13 +8,13 @@ use crate::{
     sequence::Sequence,
     settings::{BackendType, Settings},
     track_service::{
-        TrackCache, TrackService, TrackServiceEnum, UcscApiTrackService, UcscDbTrackService,
+        TrackService, TrackServiceEnum, UcscApiTrackService, UcscDbTrackService,
     },
 };
 
 use reqwest::Client;
 use rust_htslib::bam;
-use rust_htslib::bam::{Header, IndexedReader, Read, Record};
+use rust_htslib::bam::{Header, IndexedReader, Read};
 use serde::Deserialize;
 use std::path::Path;
 use url::Url;
@@ -201,7 +201,7 @@ impl AlignmentRepository for BamRepository {
     /// Read BAM headers and return contig namesa and lengths.
     /// Note that this function does not interprete the contig name as contg vs chromosome.
     fn read_header(&self) -> Result<Vec<(String, Option<usize>)>, TGVError> {
-        let mut bam = match self.bai_path.as_ref() {
+        let bam = match self.bai_path.as_ref() {
             Some(bai_path) => {
                 IndexedReader::from_path_and_index(self.bam_path.clone(), bai_path.clone())?
             }
@@ -255,7 +255,7 @@ impl AlignmentRepository for RemoteBamRepository {
     }
 
     fn read_header(&self) -> Result<Vec<(String, Option<usize>)>, TGVError> {
-        let mut bam = IndexedReader::from_url(
+        let bam = IndexedReader::from_url(
             &Url::parse(&self.bam_path).map_err(|e| TGVError::IOError(e.to_string()))?,
         )?;
 
@@ -342,10 +342,10 @@ impl AlignmentRepositoryEnum {
             ));
         }
 
-        return Ok(AlignmentRepositoryEnum::Bam(BamRepository::new(
+        Ok(AlignmentRepositoryEnum::Bam(BamRepository::new(
             bam_path,
             settings.bai_path.clone(),
-        )?));
+        )?))
     }
 
     pub fn has_alignment(&self) -> bool {

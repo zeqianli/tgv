@@ -79,9 +79,9 @@ impl State {
     }
 
     pub fn viewing_window(&self) -> Result<&ViewingWindow, TGVError> {
-        Ok(self.window.as_ref().ok_or(TGVError::StateError(
+        self.window.as_ref().ok_or(TGVError::StateError(
             "Viewing window is not initialized".to_string(),
-        ))?)
+        ))
     }
 
     pub fn viewing_window_mut(&mut self) -> Result<&mut ViewingWindow, TGVError> {
@@ -94,9 +94,9 @@ impl State {
     }
 
     pub fn current_frame_area(&self) -> Result<&Rect, TGVError> {
-        Ok(self.area.as_ref().ok_or(TGVError::StateError(
+        self.area.as_ref().ok_or(TGVError::StateError(
             "Current frame area is not initialized".to_string(),
-        ))?)
+        ))
     }
 
     pub fn viewing_region(&self) -> Result<Region, TGVError> {
@@ -201,7 +201,7 @@ impl State {
 
     pub fn cytoband_renderable(&self) -> Result<bool, TGVError> {
         match self.current_cytoband() {
-            Ok(Some(_)) => return Ok(true),
+            Ok(Some(_)) => Ok(true),
             _ => Ok(false),
         }
     }
@@ -247,7 +247,7 @@ impl StateHandler {
             match &reference {
                 Reference::Hg19 | Reference::Hg38 => {
                     for cytoband in Cytoband::from_human_reference(reference)?.iter() {
-                        let _ = contig_data
+                        contig_data
                             .update_cytoband(&cytoband.contig, Some(cytoband.clone()))?;
                     }
                 }
@@ -453,15 +453,11 @@ impl StateHandler {
             data_messages.push(DataMessage::RequiresCytobands(state.contig()?));
         }
 
-        if settings.needs_sequence() {
-            if (viewing_window.zoom() <= Self::MAX_ZOOM_TO_DISPLAY_SEQUENCES)
-                && !Self::has_complete_sequence(state, &viewing_region)
-            {
-                let sequence_cache_region = Self::sequence_cache_region(state, &viewing_region)?;
-                data_messages.push(DataMessage::RequiresCompleteSequences(
-                    sequence_cache_region,
-                ));
-            }
+        if settings.needs_sequence() && (viewing_window.zoom() <= Self::MAX_ZOOM_TO_DISPLAY_SEQUENCES) && !Self::has_complete_sequence(state, &viewing_region) {
+            let sequence_cache_region = Self::sequence_cache_region(state, &viewing_region)?;
+            data_messages.push(DataMessage::RequiresCompleteSequences(
+                sequence_cache_region,
+            ));
         }
 
         Ok(data_messages)
@@ -592,7 +588,7 @@ impl StateHandler {
     ) -> Result<(), TGVError> {
         // If bam_path is provided, check that the contig is valid.
 
-        if !state.contigs.contains(&contig) {
+        if !state.contigs.contains(contig) {
             return Err(TGVError::StateError(format!(
                 "Contig {:?} not found for reference {:?}",
                 contig.full_name(),
@@ -672,7 +668,7 @@ impl StateHandler {
             )
             .await?;
 
-        return Self::go_to_coordinate(state, gene.start() + 1);
+        Self::go_to_coordinate(state, gene.start() + 1)
     }
 
     async fn go_to_next_genes_end(
@@ -703,7 +699,7 @@ impl StateHandler {
             )
             .await?;
 
-        return Self::go_to_coordinate(state, gene.end() + 1);
+        Self::go_to_coordinate(state, gene.end() + 1)
     }
 
     async fn go_to_previous_genes_start(
@@ -734,7 +730,7 @@ impl StateHandler {
             )
             .await?;
 
-        return Self::go_to_coordinate(state, gene.start() - 1);
+        Self::go_to_coordinate(state, gene.start() - 1)
     }
 
     async fn go_to_previous_genes_end(
@@ -765,7 +761,7 @@ impl StateHandler {
             )
             .await?;
 
-        return Self::go_to_coordinate(state, gene.end() - 1);
+        Self::go_to_coordinate(state, gene.end() - 1)
     }
 
     async fn go_to_next_exons_start(
@@ -796,7 +792,7 @@ impl StateHandler {
             )
             .await?;
 
-        return Self::go_to_coordinate(state, exon.start() + 1);
+        Self::go_to_coordinate(state, exon.start() + 1)
     }
 
     async fn go_to_next_exons_end(
@@ -827,7 +823,7 @@ impl StateHandler {
             )
             .await?;
 
-        return Self::go_to_coordinate(state, exon.end() + 1);
+        Self::go_to_coordinate(state, exon.end() + 1)
     }
 
     async fn go_to_previous_exons_start(
@@ -858,7 +854,7 @@ impl StateHandler {
             )
             .await?;
 
-        return Self::go_to_coordinate(state, exon.end() - 1);
+        Self::go_to_coordinate(state, exon.end() - 1)
     }
 
     async fn go_to_previous_exons_end(
@@ -890,7 +886,7 @@ impl StateHandler {
             )
             .await?;
 
-        return Self::go_to_coordinate(state, exon.end() - 1);
+        Self::go_to_coordinate(state, exon.end() - 1)
     }
 
     async fn go_to_gene(
@@ -908,7 +904,7 @@ impl StateHandler {
             )
             .await?;
 
-        return Self::go_to_contig_coordinate(state, gene.contig(), gene.start() + 1);
+        Self::go_to_contig_coordinate(state, gene.contig(), gene.start() + 1)
     }
 
     async fn go_to_default(state: &mut State, repository: &Repository) -> Result<(), TGVError> {
@@ -982,7 +978,7 @@ impl StateHandler {
             }
             DataMessage::RequiresCompleteFeatures(region) => {
                 let has_complete_track = Self::has_complete_track(state, &region);
-                if let (Some(ref reference), Some(ref track_service)) =
+                if let (Some(ref reference), Some(track_service)) =
                     (state.reference.clone(), repository.track_service.as_ref())
                 {
                     if !has_complete_track {

@@ -12,7 +12,6 @@ use crate::{
 use async_trait::async_trait;
 use reqwest::{Client, StatusCode};
 use serde::de::Error as _;
-use serde_json;
 use sqlx::{mysql::MySqlPoolOptions, MySqlPool, Row};
 use std::collections::HashMap;
 use std::sync::Arc;

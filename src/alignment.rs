@@ -1,9 +1,8 @@
 use crate::error::TGVError;
 use crate::{contig::Contig, region::Region};
 use rust_htslib::bam::ext::BamRecordExtensions;
-use rust_htslib::bam::{Header, IndexedReader, Read, Record};
+use rust_htslib::bam::{Read, Record};
 use std::collections::{BTreeMap, HashMap};
-use url::Url;
 
 #[derive(Clone, Debug)]
 /// An aligned read with viewing coordinates.
@@ -250,7 +249,7 @@ impl AlignmentBuilder {
         Ok(Alignment {
             reads: self.aligned_reads.clone(), // TODO: lookup on how to move this
             contig: region.contig,
-            coverage: coverage,
+            coverage,
             data_complete_left_bound: region.start,
             data_complete_right_bound: region.end,
 

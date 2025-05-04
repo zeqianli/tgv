@@ -42,6 +42,12 @@ pub struct RenderingState {
 
 const MAX_ZOOM_TO_DISPLAY_ALIGNMENTS: u32 = 2;
 
+impl Default for RenderingState {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl RenderingState {
     pub fn new() -> Self {
         Self {
@@ -59,7 +65,7 @@ impl RenderingState {
             || self.last_frame_area.height != state.current_frame_area()?.height
         {
             self.refresh = true;
-            self.last_frame_area = state.current_frame_area()?.clone();
+            self.last_frame_area = *state.current_frame_area()?;
         } else {
             self.refresh = false;
         }
