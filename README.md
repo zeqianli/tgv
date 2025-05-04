@@ -1,5 +1,7 @@
 # Terminal Genome Viewer
 
+[![Discord Badge]][Discord Server]
+
 Explore omics data without leaving the terminal.
 
 Light, blazing fast 🚀, vim motion, memory safe.
@@ -8,7 +10,7 @@ Light, blazing fast 🚀, vim motion, memory safe.
 
 *TGV is at a very early stage. Please don't rely on it for your papers (yet) :)*
 
-*Contribution and bug reports are welcome! Also join the [Discord](https://discord.gg/NKGg684M) to discuss ideas.*
+*Contribution and bug reports are welcome! Join the [Discord][Discord Server] to discuss ideas.*
 
 ## Installation
 
@@ -31,8 +33,8 @@ tgv
 - `_number_` + `_movement_`: Repeat movements (e.g. `20B`: left by 20 genes)
 
 [Full key bindings](https://github.com/zeqianli/tgv/wiki/Usage)
-<!-- 
-[Pre-release] TGV supports all genomes on the [UCSC genome browser](https://genome.ucsc.edu/cgi-bin/hgGateway):
+
+[Experimental feature] TGV supports all genomes on the [UCSC genome browser](https://genome.ucsc.edu/cgi-bin/hgGateway):
 
 ```bash
 tgv -g rat
@@ -45,7 +47,7 @@ tgv --list
 
 # Or, all UCSC assemblies
 tgv --list-more
-``` -->
+```
 
 ## View alignments
 
@@ -79,3 +81,6 @@ See [wiki](https://github.com/zeqianli/tgv/wiki/Contribution-is-welcome!). Also 
 - **Where are the reference genome data from?**  
   - Sequences: [UCSC Genome Browser API](https://genome.ucsc.edu/goldenPath/help/api.html)
   - Annotation: [UCSC MariaDB](https://genome.ucsc.edu/goldenPath/help/mysql.html)
+
+[Discord Badge]: https://img.shields.io/discord/1358313687399792662?label=discord&logo=discord&style=flat-square&color=1370D3&logoColor=1370D3
+[Discord Server]: https://discord.com/invite/z2c9TY7e
