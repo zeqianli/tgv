@@ -34,6 +34,11 @@ pub struct TrackCache {
     /// Some(None): Queried but not found.
     /// Some(Some(name)): Queried and found.
     preferred_track_name: Option<Option<String>>,
+
+    /// hub_url for UCSC accessions.
+    /// None: Not initialized.
+    /// Some(url): Queried and found.
+    hub_url: Option<String>,
 }
 
 impl Default for TrackCache {
@@ -49,6 +54,7 @@ impl TrackCache {
             tracks_by_contig: HashMap::new(),
             gene_by_name: HashMap::new(),
             preferred_track_name: None,
+            hub_url: None,
         }
     }
 
@@ -123,6 +129,7 @@ pub trait TrackService {
     async fn get_all_contigs(
         &self,
         reference: &Reference,
+        cache: &mut TrackCache,
     ) -> Result<Vec<(Contig, usize)>, TGVError>;
 
     // Return the cytoband data given a reference and a contig.
@@ -130,6 +137,7 @@ pub trait TrackService {
         &self,
         reference: &Reference,
         contig: &Contig,
+        cache: &mut TrackCache,
     ) -> Result<Option<Cytoband>, TGVError>;
 
     /// Return a Track<Gene> that covers a region.
@@ -149,6 +157,7 @@ pub trait TrackService {
     async fn get_preferred_track_name(
         &self,
         reference: &Reference,
+        cache: &mut TrackCache,
     ) -> Result<Option<String>, TGVError>;
 
     /// Return a list of genes that overlap with a region.
@@ -313,6 +322,7 @@ impl TrackService for UcscDbTrackService {
     async fn get_all_contigs(
         &self,
         reference: &Reference,
+        cache: &mut TrackCache,
     ) -> Result<Vec<(Contig, usize)>, TGVError> {
         if let Ok(rows_with_alias) = sqlx::query(
             "SELECT chromInfo.chrom as chrom, chromInfo.size as size, chromAlias.alias as alias
@@ -369,6 +379,7 @@ impl TrackService for UcscDbTrackService {
         &self,
         reference: &Reference,
         contig: &Contig,
+        cache: &mut TrackCache,
     ) -> Result<Option<Cytoband>, TGVError> {
         if let Ok(rows) = sqlx::query(
             "SELECT chrom, chromStart, chromEnd, name, gieStain FROM cytoBandIdeo WHERE chrom = ?",
@@ -413,6 +424,7 @@ impl TrackService for UcscDbTrackService {
     async fn get_preferred_track_name(
         &self,
         reference: &Reference,
+        cache: &mut TrackCache,
     ) -> Result<Option<String>, TGVError> {
         match reference {
             // Speed up for human genomes
@@ -427,21 +439,7 @@ impl TrackService for UcscDbTrackService {
             .map(|row| row.try_get::<String, usize>(0))
             .collect::<Result<Vec<String>, sqlx::Error>>()?;
 
-        let preferences = [
-            "ncbiRefSeqSelect",
-            "ncbiRefSeqCurated",
-            "ncbiRefSeq",
-            "ncbiGene",
-            "refGenes",
-        ];
-
-        for pref in preferences {
-            if available_gene_tracks.contains(&pref.to_string()) {
-                return Ok(Some(pref.to_string()));
-            }
-        }
-
-        Ok(None)
+        get_preferred_track_name_from_vec(&available_gene_tracks)
     }
 
     async fn query_genes_overlapping(
@@ -451,7 +449,7 @@ impl TrackService for UcscDbTrackService {
         cache: &mut TrackCache,
     ) -> Result<Vec<Gene>, TGVError> {
         if cache.get_preferred_track_name().is_none() {
-            let preferred_track = self.get_preferred_track_name(reference).await?;
+            let preferred_track = self.get_preferred_track_name(reference, cache).await?;
             cache.set_preferred_track_name(preferred_track);
         }
 
@@ -525,7 +523,7 @@ impl TrackService for UcscDbTrackService {
         cache: &mut TrackCache,
     ) -> Result<Option<Gene>, TGVError> {
         if cache.get_preferred_track_name().is_none() {
-            let preferred_track = self.get_preferred_track_name(reference).await?;
+            let preferred_track = self.get_preferred_track_name(reference, cache).await?;
             cache.set_preferred_track_name(preferred_track);
         }
 
@@ -597,7 +595,7 @@ impl TrackService for UcscDbTrackService {
         cache: &mut TrackCache,
     ) -> Result<Gene, TGVError> {
         if cache.get_preferred_track_name().is_none() {
-            let preferred_track = self.get_preferred_track_name(reference).await?;
+            let preferred_track = self.get_preferred_track_name(reference, cache).await?;
             cache.set_preferred_track_name(preferred_track);
         }
 
@@ -677,7 +675,7 @@ impl TrackService for UcscDbTrackService {
         }
 
         if cache.get_preferred_track_name().is_none() {
-            let preferred_track = self.get_preferred_track_name(reference).await?;
+            let preferred_track = self.get_preferred_track_name(reference, cache).await?;
             cache.set_preferred_track_name(preferred_track);
         }
 
@@ -769,7 +767,7 @@ impl TrackService for UcscDbTrackService {
         }
 
         if cache.get_preferred_track_name().is_none() {
-            let preferred_track = self.get_preferred_track_name(reference).await?;
+            let preferred_track = self.get_preferred_track_name(reference, cache).await?;
             cache.set_preferred_track_name(preferred_track);
         }
 
@@ -861,7 +859,7 @@ impl TrackService for UcscDbTrackService {
         }
 
         if cache.get_preferred_track_name().is_none() {
-            let preferred_track = self.get_preferred_track_name(reference).await?;
+            let preferred_track = self.get_preferred_track_name(reference, cache).await?;
             cache.set_preferred_track_name(preferred_track);
         }
 
@@ -947,7 +945,7 @@ impl TrackService for UcscDbTrackService {
         }
 
         if cache.get_preferred_track_name().is_none() {
-            let preferred_track = self.get_preferred_track_name(reference).await?;
+            let preferred_track = self.get_preferred_track_name(reference, cache).await?;
             cache.set_preferred_track_name(preferred_track);
         }
 
@@ -1055,30 +1053,33 @@ impl UcscApiTrackService {
         cache: &mut TrackCache,
     ) -> Result<Track<Gene>, TGVError> {
         if cache.get_preferred_track_name().is_none() {
-            let preferred_track =
-                self.get_preferred_track_name(reference)
-                    .await?
-                    .ok_or(TGVError::IOError(format!(
-                        "Failed to get prefered track for {} from UCSC API",
-                        contig.name
-                    )))?; // TODO: proper handling
+            let preferred_track = self
+                .get_preferred_track_name(reference, cache)
+                .await?
+                .ok_or(TGVError::IOError(format!(
+                    "Failed to get prefered track for {} from UCSC API",
+                    contig.name
+                )))?; // TODO: proper handling
 
             cache.set_preferred_track_name(Some(preferred_track));
         }
 
         let preferred_track = cache.get_preferred_track_name().unwrap();
 
-        if preferred_track.is_none() {
-            return Err(TGVError::IOError(format!(
-                "Failed to get prefered track for {} from UCSC API",
-                contig.name
-            )));
-        } // TODO: proper handling
+        let preferred_track = preferred_track.ok_or(TGVError::IOError(format!(
+            "Failed to get prefered track for {} from UCSC API",
+            contig.name
+        )))?;
 
-        let preferred_track = preferred_track.unwrap();
+        let query_url = self
+            .get_track_data_url(reference, contig, preferred_track.clone(), cache)
+            .await?;
 
-        let query_url = self.get_track_data_url(reference, contig, preferred_track.clone())?;
+        //panic!("{:?}", query_url);
+
         let response = self.client.get(query_url).send().await?.text().await?;
+
+        // panic!("{:?}", response);
         let mut value: serde_json::Value = serde_json::from_str(&response)?;
         let mut genes: Vec<Gene> = serde_json::from_value(value[preferred_track].take())?;
 
@@ -1086,16 +1087,19 @@ impl UcscApiTrackService {
             gene.contig = contig.clone();
         }
 
+        panic!("{:?}", genes);
+
         Track::from_genes(genes, contig.clone())
     }
 
     const CYTOBAND_TRACK: &str = "cytoBandIdeo";
 
-    fn get_track_data_url(
+    async fn get_track_data_url(
         &self,
         reference: &Reference,
         contig: &Contig,
         track_name: String,
+        cache: &mut TrackCache,
     ) -> Result<String, TGVError> {
         match reference {
             Reference::Hg19 | Reference::Hg38 | Reference::UcscGenome(_) => Ok(format!(
@@ -1104,51 +1108,98 @@ impl UcscApiTrackService {
                 track_name,
                 contig.name
             )),
-            _ => Err(TGVError::IOError("Unsupported reference".to_string())),
+            Reference::UcscAccession(genome) => {
+                if cache.hub_url.is_none() {
+                    let hub_url = self.get_hub_url_for_genark_accession(genome).await?;
+                    cache.hub_url = Some(hub_url);
+                }
+                let hub_url = cache.hub_url.as_ref().unwrap();
+                Ok(format!(
+                    "https://api.genome.ucsc.edu/getData/track?hubUrl={}&genome={}&track={}&chrom={}",
+                    hub_url, genome, track_name, contig.name
+                ))
+            }
         }
+    }
+
+    async fn get_hub_url_for_genark_accession(&self, accession: &str) -> Result<String, TGVError> {
+        let query_url = format!(
+            "https://api.genome.ucsc.edu/list/genarkGenomes?genome={}",
+            accession
+        );
+        let response = self.client.get(query_url).send().await?;
+
+        // Example response:
+        // {
+        //     "downloadTime": "2025:05:06T03:46:07Z",
+        //     "downloadTimeStamp": 1746503167,
+        //     "dataTime": "2025-04-29T10:42:00",
+        //     "dataTimeStamp": 1745948520,
+        //     "hubUrlPrefix": "/gbdb/genark",
+        //     "genarkGenomes": {
+        //       "GCF_028858775.2": {
+        //         "hubUrl": "GCF/028/858/775/GCF_028858775.2/hub.txt",
+        //         "asmName": "NHGRI_mPanTro3-v2.0_pri",
+        //         "scientificName": "Pan troglodytes",
+        //         "commonName": "chimpanzee (v2 AG18354 primary hap 2024 refseq)",
+        //         "taxId": 9598,
+        //         "priority": 138,
+        //         "clade": "primates"
+        //       }
+        //     },
+        //     "totalAssemblies": 5691,
+        //     "itemsReturned": 1
+        //   }
+
+        let response_text = response.text().await?;
+        let value: serde_json::Value = serde_json::from_str(&response_text)?;
+
+        Ok(format!(
+            "https://hgdownload.soe.ucsc.edu/hubs/{}",
+            value["genarkGenomes"][accession]["hubUrl"]
+                .as_str()
+                .ok_or(TGVError::IOError(format!(
+                    "Failed to get hub url for {}",
+                    accession
+                )))?
+        ))
     }
 }
 
 /// Get the preferred track name recursively.
-fn get_preferred_track_name(
-    key: &str,
-    content: &serde_json::Value,
-    preferred_track_name: Option<String>,
-    is_top_level: bool,
-) -> Result<Option<String>, TGVError> {
-    let mut prefered_track_name = preferred_track_name;
-
+fn get_all_track_names(content: &serde_json::Value) -> Result<Vec<String>, TGVError> {
     let err = TGVError::IOError("Failed to get genome from UCSC API".to_string());
 
-    if content.get("compositeContainer").is_some() || is_top_level {
-        // do this recursively
-        for (track_name, track_content) in content.as_object().ok_or(err)?.iter() {
-            if track_content.is_object() {
-                prefered_track_name = get_preferred_track_name(
-                    track_name,
-                    track_content,
-                    prefered_track_name,
-                    false,
-                )?;
-            }
+    let mut names = Vec::new();
+
+    for (key, value) in content.as_object().ok_or(err)?.iter() {
+        if value.get("compositeContainer").is_some() {
+            // do this recursively
+            names.extend(get_all_track_names(value)?);
+        } else {
+            names.push(key.to_string());
         }
-    } else if prefered_track_name == Some("ncbiRefSeqSelect".to_string()) {
-    } else if key == "ncbiRefSeqSelect" {
-        prefered_track_name = Some(key.to_string());
-    } else if key == "ncbiRefSeqCurated" {
-        prefered_track_name = Some(key.to_string());
-    } else if *key == "ncbiRefSeq".to_string()
-        && prefered_track_name != Some("ncbiRefSeqCurated".to_string())
-    {
-        prefered_track_name = Some(key.to_string());
-    } else if *key == "refGene".to_string()
-        && (prefered_track_name != Some("ncbiRefSeqCurated".to_string())
-            && prefered_track_name != Some("ncbiRefSeq".to_string()))
-    {
-        prefered_track_name = Some(key.to_string());
     }
 
-    Ok(prefered_track_name)
+    Ok(names)
+}
+
+fn get_preferred_track_name_from_vec(names: &Vec<String>) -> Result<Option<String>, TGVError> {
+    let preferences = [
+        "ncbiRefSeqSelect",
+        "ncbiRefSeqCurated",
+        "ncbiRefSeq",
+        "ncbiGene",
+        "refGenes",
+    ];
+
+    for pref in preferences {
+        if names.contains(&pref.to_string()) {
+            return Ok(Some(pref.to_string()));
+        }
+    }
+
+    Ok(None)
 }
 
 #[async_trait]
@@ -1161,6 +1212,7 @@ impl TrackService for UcscApiTrackService {
     async fn get_all_contigs(
         &self,
         reference: &Reference,
+        track_cache: &mut TrackCache,
     ) -> Result<Vec<(Contig, usize)>, TGVError> {
         match reference {
             Reference::Hg19 | Reference::Hg38 | Reference::UcscGenome(_) => {
@@ -1188,7 +1240,54 @@ impl TrackService for UcscApiTrackService {
 
                 Ok(output)
             }
-            _ => Err(TGVError::IOError("Unsupported reference".to_string())),
+            Reference::UcscAccession(genome) => {
+                if track_cache.hub_url.is_none() {
+                    let hub_url = self.get_hub_url_for_genark_accession(genome).await?;
+                    track_cache.hub_url = Some(hub_url);
+                }
+                let hub_url = track_cache.hub_url.as_ref().unwrap();
+
+                let query_url = format!(
+                    "https://api.genome.ucsc.edu/list/chromosomes?hubUrl={};genome={}",
+                    hub_url, genome
+                );
+
+                let response = self
+                    .client
+                    .get(query_url)
+                    .send()
+                    .await?
+                    .json::<serde_json::Value>()
+                    .await?;
+
+                let mut output = Vec::new();
+
+                for (k, v) in response
+                    .get("chromosomes")
+                    .ok_or(TGVError::IOError(format!(
+                        "Failed to parse response for chromosomes for UCSC accession {}. Response: {:?}",
+                        genome, response
+                    )))?
+                    .as_object()
+                    .ok_or(TGVError::IOError(format!(
+                        "Failed to parse response for chromosomes for UCSC accession {}. Response: {:?}",
+                        genome, response
+                    )))?
+                    .iter()
+                {
+                    output.push((
+                        Contig::new(k),
+                        v.as_u64()
+                            .ok_or(TGVError::IOError(format!(
+                                "Failed to get contig {} length for UCSC accession {}. Response: {:?}",
+                                k, genome, response
+                            )))?
+                            as usize,
+                    ));
+                }
+
+                Ok(output)
+            }
         }
     }
 
@@ -1196,13 +1295,27 @@ impl TrackService for UcscApiTrackService {
         &self,
         reference: &Reference,
         contig: &Contig,
+        cache: &mut TrackCache,
     ) -> Result<Option<Cytoband>, TGVError> {
-        let query_url = format!(
-            "https://api.genome.ucsc.edu/getData/track?genome={}&track={}&chrom={}",
-            reference.to_string(),
-            Self::CYTOBAND_TRACK,
-            contig.name
-        );
+        let query_url = match reference {
+            Reference::Hg19 | Reference::Hg38 | Reference::UcscGenome(_) => format!(
+                "https://api.genome.ucsc.edu/getData/track?genome={}&track={}&chrom={}",
+                reference.to_string(),
+                Self::CYTOBAND_TRACK,
+                contig.name
+            ),
+            Reference::UcscAccession(genome) => {
+                if cache.hub_url.is_none() {
+                    let hub_url = self.get_hub_url_for_genark_accession(genome).await?;
+                    cache.hub_url = Some(hub_url);
+                }
+                let hub_url = cache.hub_url.as_ref().unwrap();
+                format!(
+                    "https://api.genome.ucsc.edu/getData/track?hubUrl={}&genome={}&track={}&chrom={}",
+                    hub_url, genome, Self::CYTOBAND_TRACK, contig.name
+                )
+            }
+        };
 
         let response = self.client.get(query_url).send().await?;
 
@@ -1244,6 +1357,7 @@ impl TrackService for UcscApiTrackService {
     async fn get_preferred_track_name(
         &self,
         reference: &Reference,
+        cache: &mut TrackCache,
     ) -> Result<Option<String>, TGVError> {
         match reference.clone() {
             Reference::Hg19 | Reference::Hg38 => Ok(Some("ncbiRefSeqSelect".to_string())),
@@ -1255,20 +1369,37 @@ impl TrackService for UcscApiTrackService {
                     .json::<serde_json::Value>()
                     .await?;
 
-                let prefered_track = get_preferred_track_name(
-                    genome.as_str(),
-                    response.get(genome.clone()).ok_or(TGVError::IOError(
-                        "Failed to get genome from UCSC API".to_string(),
-                    ))?,
-                    None,
-                    true,
-                )?;
+                let track_names = get_all_track_names(response.get(genome.clone()).ok_or(
+                    TGVError::IOError("Failed to get genome from UCSC API".to_string()),
+                )?)?;
+
+                let prefered_track = get_preferred_track_name_from_vec(&track_names)?;
 
                 Ok(prefered_track)
             }
-            _ => Err(TGVError::IOError(
-                "Failed to get prefered track from UCSC API".to_string(),
-            )),
+            Reference::UcscAccession(genome) => {
+                if cache.hub_url.is_none() {
+                    let hub_url = self
+                        .get_hub_url_for_genark_accession(genome.as_str())
+                        .await?;
+                    cache.hub_url = Some(hub_url);
+                }
+                let hub_url = cache.hub_url.as_ref().unwrap();
+                let query_url = format!(
+                    "https://api.genome.ucsc.edu/list/tracks?hubUrl={}&genome={}",
+                    hub_url, genome
+                );
+                let response = reqwest::get(query_url)
+                    .await?
+                    .json::<serde_json::Value>()
+                    .await?;
+                let track_names = get_all_track_names(response.get(genome.clone()).ok_or(
+                    TGVError::IOError("Failed to get genome from UCSC API".to_string()),
+                )?)?;
+
+                let prefered_track = get_preferred_track_name_from_vec(&track_names)?;
+                Ok(prefered_track)
+            }
         }
     }
 
@@ -1329,7 +1460,7 @@ impl TrackService for UcscApiTrackService {
     ) -> Result<Gene, TGVError> {
         if !cache.includes_gene(name) {
             // query all possible tracks until the gene is found
-            for (contig, _) in self.get_all_contigs(reference).await? {
+            for (contig, _) in self.get_all_contigs(reference, cache).await? {
                 let track = self
                     .query_track_by_contig(reference, &contig, cache)
                     .await?;
@@ -1470,10 +1601,11 @@ impl TrackService for TrackServiceEnum {
     async fn get_all_contigs(
         &self,
         reference: &Reference,
+        cache: &mut TrackCache,
     ) -> Result<Vec<(Contig, usize)>, TGVError> {
         match self {
-            TrackServiceEnum::Api(service) => service.get_all_contigs(reference).await,
-            TrackServiceEnum::Db(service) => service.get_all_contigs(reference).await,
+            TrackServiceEnum::Api(service) => service.get_all_contigs(reference, cache).await,
+            TrackServiceEnum::Db(service) => service.get_all_contigs(reference, cache).await,
         }
     }
 
@@ -1481,20 +1613,26 @@ impl TrackService for TrackServiceEnum {
         &self,
         reference: &Reference,
         contig: &Contig,
+        cache: &mut TrackCache,
     ) -> Result<Option<Cytoband>, TGVError> {
         match self {
-            TrackServiceEnum::Api(service) => service.get_cytoband(reference, contig).await,
-            TrackServiceEnum::Db(service) => service.get_cytoband(reference, contig).await,
+            TrackServiceEnum::Api(service) => service.get_cytoband(reference, contig, cache).await,
+            TrackServiceEnum::Db(service) => service.get_cytoband(reference, contig, cache).await,
         }
     }
 
     async fn get_preferred_track_name(
         &self,
         reference: &Reference,
+        cache: &mut TrackCache,
     ) -> Result<Option<String>, TGVError> {
         match self {
-            TrackServiceEnum::Api(service) => service.get_preferred_track_name(reference).await,
-            TrackServiceEnum::Db(service) => service.get_preferred_track_name(reference).await,
+            TrackServiceEnum::Api(service) => {
+                service.get_preferred_track_name(reference, cache).await
+            }
+            TrackServiceEnum::Db(service) => {
+                service.get_preferred_track_name(reference, cache).await
+            }
         }
     }
 
