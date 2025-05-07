@@ -7,7 +7,7 @@ use crate::{
     region::Region,
     sequence::Sequence,
     settings::{BackendType, Settings},
-    track_service::{TrackService, TrackServiceEnum, UcscDbTrackService},
+    track_service::{TrackService, TrackServiceEnum, UcscApiTrackService, UcscDbTrackService},
 };
 
 use reqwest::Client;
@@ -32,10 +32,18 @@ impl Repository {
         let (track_service, sequence_service): (Option<TrackServiceEnum>, Option<SequenceService>) =
             match settings.reference.as_ref() {
                 Some(reference) => {
-                    let ts = match settings.backend {
-                        //BackendType::Api => TrackServiceEnum::Api(UcscApiTrackService::new()?),
-                        BackendType::Db => {
+                    let ts = match (&settings.backend, reference) {
+                        (BackendType::Db, Reference::UcscAccession(_)) => {
+                            TrackServiceEnum::Api(UcscApiTrackService::new()?)
+                        }
+                        (BackendType::Db, _) => {
                             TrackServiceEnum::Db(UcscDbTrackService::new(reference).await?)
+                        }
+                        _ => {
+                            return Err(TGVError::ValueError(format!(
+                                "Unsupported reference: {}",
+                                reference
+                            )));
                         }
                     };
                     let ss = SequenceService::new(reference.clone())?;
@@ -384,6 +392,25 @@ struct UcscResponse {
     dna: String,
 }
 
+pub struct SequenceCache {
+    /// hub_url for UCSC Accessions
+    /// None: Not queried yet
+    /// Some(hub_url): Queried
+    hub_url: Option<String>,
+}
+
+impl Default for SequenceCache {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl SequenceCache {
+    pub fn new() -> Self {
+        Self { hub_url: None }
+    }
+}
+
 pub struct SequenceService {
     client: Client,
     reference: Reference,
@@ -402,10 +429,14 @@ impl SequenceService {
         Ok(())
     }
 
-    pub async fn query_sequence(&self, region: &Region) -> Result<Sequence, TGVError> {
+    pub async fn query_sequence(
+        &self,
+        region: &Region,
+        cache: &mut SequenceCache,
+    ) -> Result<Sequence, TGVError> {
         let url = self
-            .get_api_url(&region.contig, region.start, region.end)
-            .unwrap();
+            .get_api_url(&region.contig, region.start, region.end, cache)
+            .await?;
 
         let response: UcscResponse = self.client.get(&url).send().await?.json().await?;
 
@@ -417,8 +448,14 @@ impl SequenceService {
     }
 
     /// start / end: 1-based, inclusive.
-    fn get_api_url(&self, contig: &Contig, start: usize, end: usize) -> Result<String, TGVError> {
-        match self.reference {
+    async fn get_api_url(
+        &self,
+        contig: &Contig,
+        start: usize,
+        end: usize,
+        cache: &mut SequenceCache,
+    ) -> Result<String, TGVError> {
+        match &self.reference {
             Reference::Hg19 | Reference::Hg38 | Reference::UcscGenome(_) => Ok(format!(
                 "https://api.genome.ucsc.edu/getData/sequence?genome={};chrom={};start={};end={}",
                 self.reference.to_string(),
@@ -426,7 +463,60 @@ impl SequenceService {
                 start - 1, // start is 0-based, inclusive.
                 end
             )),
-            _ => Err(TGVError::IOError("Unsupported reference".to_string())),
+            Reference::UcscAccession(genome) => {
+                if cache.hub_url.is_none() {
+                    let hub_url = self.get_hub_url_for_genark_accession(genome).await?;
+                    cache.hub_url = Some(hub_url);
+                }
+                let hub_url = cache.hub_url.as_ref().unwrap();
+                Ok(format!(
+                    "https://api.genome.ucsc.edu/getData/sequence?hubUrl={}&genome={};chrom={};start={};end={}",
+                    hub_url, genome, contig.name, start - 1, end
+                ))
+            }
         }
+    }
+
+    async fn get_hub_url_for_genark_accession(&self, accession: &str) -> Result<String, TGVError> {
+        let query_url = format!(
+            "https://api.genome.ucsc.edu/list/genarkGenomes?genome={}",
+            accession
+        );
+        let response = self.client.get(query_url).send().await?;
+
+        // Example response:
+        // {
+        //     "downloadTime": "2025:05:06T03:46:07Z",
+        //     "downloadTimeStamp": 1746503167,
+        //     "dataTime": "2025-04-29T10:42:00",
+        //     "dataTimeStamp": 1745948520,
+        //     "hubUrlPrefix": "/gbdb/genark",
+        //     "genarkGenomes": {
+        //       "GCF_028858775.2": {
+        //         "hubUrl": "GCF/028/858/775/GCF_028858775.2/hub.txt",
+        //         "asmName": "NHGRI_mPanTro3-v2.0_pri",
+        //         "scientificName": "Pan troglodytes",
+        //         "commonName": "chimpanzee (v2 AG18354 primary hap 2024 refseq)",
+        //         "taxId": 9598,
+        //         "priority": 138,
+        //         "clade": "primates"
+        //       }
+        //     },
+        //     "totalAssemblies": 5691,
+        //     "itemsReturned": 1
+        //   }
+
+        let response_text = response.text().await?;
+        let value: serde_json::Value = serde_json::from_str(&response_text)?;
+
+        Ok(format!(
+            "https://hgdownload.soe.ucsc.edu/hubs/{}",
+            value["genarkGenomes"][accession]["hubUrl"]
+                .as_str()
+                .ok_or(TGVError::IOError(format!(
+                    "Failed to get hub url for {}",
+                    accession
+                )))?
+        ))
     }
 }

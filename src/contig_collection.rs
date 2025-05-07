@@ -114,17 +114,7 @@ impl ContigCollection {
         // Use the indexed_reader::Builder pattern as shown in alignment.rs
 
         for (contig_name, contig_length) in bam.read_header()? {
-            let contig = match reference {
-                // If the reference is human, interpret contig names as chromosomes. This allows abbreviated matching (chr1 <-> 1).
-                Some(Reference::Hg19) | Some(Reference::Hg38) | Some(Reference::UcscGenome(_)) => {
-                    Contig::new(&contig_name)
-                }
-
-                // Otherwise, interpret contig names as contigs. This does not allow abbreviated matching.
-                _ => Contig::new(&contig_name),
-            };
-
-            self.update_or_add_contig(contig, contig_length)?;
+            self.update_or_add_contig(Contig::new(&contig_name), contig_length)?;
         }
 
         Ok(())

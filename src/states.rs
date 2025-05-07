@@ -1,6 +1,6 @@
 use crate::error::TGVError;
 use crate::repository::Repository;
-use crate::repository::{AlignmentRepository, AlignmentRepositoryEnum};
+use crate::repository::{AlignmentRepository, AlignmentRepositoryEnum, SequenceCache};
 use crate::settings::Settings;
 use crate::track_service::{TrackCache, TrackService};
 use crate::traits::GenomeInterval;
@@ -46,6 +46,7 @@ pub struct State {
 
     /// Sequences.
     pub sequence: Option<Sequence>,
+    pub sequence_cache: SequenceCache,
 
     // TODO: in the first implementation, refresh all data when the viewing window is near the boundary.
     /// Contigs in the BAM header
@@ -72,6 +73,7 @@ impl State {
             track: None,
             track_cache: TrackCache::new(),
             sequence: None,
+            sequence_cache: SequenceCache::new(),
             contigs: ContigCollection::new(settings.reference.clone()), // TODO: load this
 
             display_mode: DisplayMode::Main,
@@ -238,7 +240,10 @@ impl StateHandler {
         let mut contig_data = ContigCollection::new(reference.cloned());
 
         if let (Some(reference), Some(track_service)) = (reference, track_service) {
-            for (contig, length) in track_service.get_all_contigs(reference).await? {
+            for (contig, length) in track_service
+                .get_all_contigs(reference, &mut state.track_cache)
+                .await?
+            {
                 contig_data
                     .update_or_add_contig(contig, Some(length))
                     .unwrap();
@@ -917,7 +922,7 @@ impl StateHandler {
                 return Self::go_to_gene(state, repository, "TP53".to_string()).await;
             }
 
-            Some(Reference::UcscGenome { .. }) => {
+            Some(Reference::UcscGenome { .. }) | Some(Reference::UcscAccession { .. }) => {
                 // Find the first gene on the first contig. If anything is not found, handle it later.
                 let track_service = repository.track_service_checked()?;
 
@@ -946,8 +951,7 @@ impl StateHandler {
                     Err(_) => {} // Gene not found. Handle later.
                 }
             }
-            // UcscAccession or None: handle it later.
-            _ => {}
+            None => {} // handle later
         };
 
         // If reaches here, go to the first contig:1
@@ -1007,7 +1011,10 @@ impl StateHandler {
                 let sequence_service = repository.sequence_service_checked()?;
 
                 if !Self::has_complete_sequence(state, &region) {
-                    match sequence_service.query_sequence(&region).await {
+                    match sequence_service
+                        .query_sequence(&region, &mut state.sequence_cache)
+                        .await
+                    {
                         Ok(sequence) => {
                             state.sequence = Some(sequence);
                             loaded_data = true;
@@ -1035,7 +1042,9 @@ impl StateHandler {
                 if let (Some(ref reference), Some(track_service)) =
                     (state.reference.clone(), repository.track_service.as_ref())
                 {
-                    let cytoband = track_service.get_cytoband(reference, &contig).await?;
+                    let cytoband = track_service
+                        .get_cytoband(reference, &contig, &mut state.track_cache)
+                        .await?;
                     state.contigs.update_cytoband(&contig, cytoband);
                     loaded_data = true;
                 } else if state.reference.is_none() {

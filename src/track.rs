@@ -461,6 +461,7 @@ mod tests {
                 cds_end: 10,
                 exon_starts: vec![2, 8],
                 exon_ends: vec![5, 10],
+                has_exons: true,
             },
             Gene {
                 id: "gene_no_exon".to_string(),
@@ -473,6 +474,7 @@ mod tests {
                 cds_end: 25,
                 exon_starts: vec![],
                 exon_ends: vec![],
+                has_exons: false,
             },
             Gene {
                 id: "gene2".to_string(),
@@ -485,6 +487,7 @@ mod tests {
                 cds_end: 50,
                 exon_starts: vec![41],
                 exon_ends: vec![50],
+                has_exons: true,
             },
         ];
 
