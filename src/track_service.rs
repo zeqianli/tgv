@@ -510,6 +510,7 @@ impl TrackService for UcscDbTrackService {
                     .map(|v| v + 1)
                     .collect(),
                 exon_ends: parse_blob_to_coords(&exon_ends_blob),
+                has_exons: true,
             });
         }
 
@@ -583,6 +584,7 @@ impl TrackService for UcscDbTrackService {
                     .map(|v| v + 1)
                     .collect(),
                 exon_ends: parse_blob_to_coords(&exon_ends_blob),
+                has_exons: true,
             }))
         } else {
             Ok(None)
@@ -654,6 +656,7 @@ impl TrackService for UcscDbTrackService {
                     .map(|v| v + 1)
                     .collect(),
                 exon_ends: parse_blob_to_coords(&exon_ends_blob),
+                has_exons: true,
             })
         } else {
             Err(TGVError::IOError(format!(
@@ -742,6 +745,7 @@ impl TrackService for UcscDbTrackService {
                     .map(|v| v + 1)
                     .collect(),
                 exon_ends: parse_blob_to_coords(&exon_ends_blob),
+                has_exons: true,
             };
 
             genes.push(gene);
@@ -834,6 +838,7 @@ impl TrackService for UcscDbTrackService {
                     .map(|v| v + 1)
                     .collect(),
                 exon_ends: parse_blob_to_coords(&exon_ends_blob),
+                has_exons: true,
             };
 
             genes.push(gene);
@@ -921,6 +926,7 @@ impl TrackService for UcscDbTrackService {
                     .map(|v| v + 1)
                     .collect(),
                 exon_ends: parse_blob_to_coords(&exon_ends_blob),
+                has_exons: true,
             };
 
             genes.push(gene);
@@ -1007,6 +1013,7 @@ impl TrackService for UcscDbTrackService {
                     .map(|v| v + 1)
                     .collect(),
                 exon_ends: parse_blob_to_coords(&exon_ends_blob),
+                has_exons: true,
             };
 
             genes.push(gene);
@@ -1069,6 +1076,7 @@ impl GeneResponse1 {
             cds_end: self.cdsEnd,
             exon_starts: parse_comma_separated_list(&self.exonStarts)?,
             exon_ends: parse_comma_separated_list(&self.exonEnds)?,
+            has_exons: true,
         })
     }
 }
@@ -1101,6 +1109,7 @@ impl GeneResponse2 {
             cds_end: self.cdsEnd,
             exon_starts: parse_comma_separated_list(&self.exonStarts)?,
             exon_ends: parse_comma_separated_list(&self.exonEnds)?,
+            has_exons: true,
         })
     }
 }
@@ -1158,8 +1167,9 @@ impl GeneResponse3 {
             transcription_end: self.chromEnd,
             cds_start: self.thickStart,
             cds_end: self.thickEnd,
-            exon_starts: vec![self.thickStart],
-            exon_ends: vec![self.thickEnd],
+            exon_starts: vec![],
+            exon_ends: vec![],
+            has_exons: false,
         })
     }
 }

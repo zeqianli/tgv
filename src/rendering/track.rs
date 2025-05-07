@@ -65,8 +65,9 @@ fn get_rendering_info(window: &ViewingWindow, area: &Rect, gene: &Gene) -> Vec<T
     let gene_start_x = window.onscreen_x_coordinate(gene.start(), area);
     let gene_end_x = window.onscreen_x_coordinate(gene.end(), area);
 
-    let render_whole_gene = OnScreenCoordinate::width(&gene_start_x, &gene_end_x, area)
-        <= MIN_GENE_ON_SCREEN_LENGTH_TO_SHOW_EXONS;
+    let render_whole_gene = (OnScreenCoordinate::width(&gene_start_x, &gene_end_x, area)
+        <= MIN_GENE_ON_SCREEN_LENGTH_TO_SHOW_EXONS)
+        | !gene.has_exons;
 
     if render_whole_gene {
         if let Some((x, length)) =
@@ -161,7 +162,7 @@ const GENE_ARROW_GAP: usize = 5;
 
 const EXON_BACKGROUND_COLOR: Color = tailwind::BLUE.c800;
 const EXON_FOREGROUND_COLOR: Color = tailwind::WHITE;
-const GENE_BACKGROUND_COLOR: Color = tailwind::BLUE.c700;
+const GENE_BACKGROUND_COLOR: Color = tailwind::BLUE.c600;
 const NON_CDS_EXON_BACKGROUND_COLOR: Color = tailwind::BLUE.c500;
 const INTRON_FOREGROUND_COLOR: Color = tailwind::BLUE.c300;
 
