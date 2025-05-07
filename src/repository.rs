@@ -399,6 +399,12 @@ pub struct SequenceCache {
     hub_url: Option<String>,
 }
 
+impl Default for SequenceCache {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl SequenceCache {
     pub fn new() -> Self {
         Self { hub_url: None }
@@ -459,7 +465,7 @@ impl SequenceService {
             )),
             Reference::UcscAccession(genome) => {
                 if cache.hub_url.is_none() {
-                    let hub_url = self.get_hub_url_for_genark_accession(&genome).await?;
+                    let hub_url = self.get_hub_url_for_genark_accession(genome).await?;
                     cache.hub_url = Some(hub_url);
                 }
                 let hub_url = cache.hub_url.as_ref().unwrap();
