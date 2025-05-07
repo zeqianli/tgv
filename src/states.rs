@@ -379,6 +379,10 @@ impl StateHandler {
             StateMessage::GotoPreviousGenesEnd(n) => {
                 StateHandler::go_to_previous_genes_end(state, repository, n).await?
             }
+            StateMessage::GotoNextContig(n) => StateHandler::go_to_next_contig(state, n).await?,
+            StateMessage::GotoPreviousContig(n) => {
+                StateHandler::go_to_previous_contig(state, n).await?
+            }
 
             // Absolute feature handling
             StateMessage::GoToGene(gene_id) => {
@@ -915,6 +919,18 @@ impl StateHandler {
         Self::go_to_contig_coordinate(state, gene.contig().name.as_str(), gene.start() + 1)
     }
 
+    async fn go_to_next_contig(state: &mut State, n: usize) -> Result<(), TGVError> {
+        let current_contig = state.contig()?;
+        let contig = state.contigs.next(&current_contig, n)?;
+        Self::go_to_contig_coordinate(state, contig.name.as_str(), 1)
+    }
+
+    async fn go_to_previous_contig(state: &mut State, n: usize) -> Result<(), TGVError> {
+        let current_contig = state.contig()?;
+        let contig = state.contigs.previous(&current_contig, n)?;
+        Self::go_to_contig_coordinate(state, contig.name.as_str(), 1)
+    }
+
     async fn go_to_default(state: &mut State, repository: &Repository) -> Result<(), TGVError> {
         let reference = state.reference.as_ref();
         match reference {
@@ -1045,7 +1061,7 @@ impl StateHandler {
                     let cytoband = track_service
                         .get_cytoband(reference, &contig, &mut state.track_cache)
                         .await?;
-                    state.contigs.update_cytoband(&contig, cytoband);
+                    state.contigs.update_cytoband(&contig, cytoband)?;
                     loaded_data = true;
                 } else if state.reference.is_none() {
                     // Cannot load cytobands without reference
