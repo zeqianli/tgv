@@ -352,7 +352,13 @@ impl TrackService for UcscDbTrackService {
                     }
                 }
             }
-            return Ok(contigs_hashmap.values().cloned().collect());
+            let mut contigs = contigs_hashmap
+                .values()
+                .cloned()
+                .collect::<Vec<(Contig, usize)>>();
+            contigs.sort_by(|(a, _), (b, _)| Contig::contigs_compare(a, b));
+
+            return Ok(contigs);
         } else {
             let rows = sqlx::query(
                 "SELECT chromInfo.chrom as chrom, chromInfo.size as size
@@ -363,7 +369,7 @@ impl TrackService for UcscDbTrackService {
             .fetch_all(&*self.pool)
             .await?;
 
-            let contigs = rows
+            let mut contigs = rows
                 .into_iter()
                 .map(|row| {
                     let chrom: String = row.try_get("chrom")?;
@@ -371,6 +377,8 @@ impl TrackService for UcscDbTrackService {
                     Ok((Contig::new(&chrom), size as usize))
                 })
                 .collect::<Result<Vec<(Contig, usize)>, TGVError>>()?;
+
+            contigs.sort_by(|(a, _), (b, _)| Contig::contigs_compare(a, b));
 
             return Ok(contigs);
         }
@@ -1428,6 +1436,8 @@ impl TrackService for UcscApiTrackService {
                     output.push((Contig::new(k), v.as_u64().unwrap() as usize));
                 }
 
+                output.sort_by(|(a, _), (b, _)| Contig::contigs_compare(a, b));
+
                 Ok(output)
             }
             Reference::UcscAccession(genome) => {
@@ -1475,6 +1485,11 @@ impl TrackService for UcscApiTrackService {
                             as usize,
                     ));
                 }
+
+                // Longest contig first
+                // These contigs are likely not well-named, so longest contig first.
+                // Note that this is different from the UCSC assemblies.
+                output.sort_by(|(a, a_len), (b, b_len)| b_len.cmp(a_len));
 
                 Ok(output)
             }

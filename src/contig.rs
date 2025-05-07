@@ -48,31 +48,73 @@ impl Contig {
         all_aliases
     }
 
-    // #[allow(clippy::self_named_constructors)]
-    // pub fn contig(s: &str) -> Self {
-    //     Contig::Contig { name: s.to_owned() }
-    // }
+    /// Helper function to sort contigs by name.
+    /// 1. chromosomes start with "chr" comes first.
+    /// 2. Then, if it follows numbers, sort by numbers.
+    /// 3. chrX, chrY, chrM / chrMT comes next.
+    /// 4. Otherwise, sort by the alphabetical order.
+    pub fn contigs_sort(contigs: Vec<Contig>) -> Vec<Contig> {
+        let mut sorted_contigs = contigs;
+        sorted_contigs.sort_by(Contig::contigs_compare);
+        sorted_contigs
+    }
 
-    // /// Full name with the "chr" prefix, if applicable.
-    // pub fn full_name(&self) -> String {
-    //     match self {
-    //         Contig::newosome { name } => name.clone(),
-    //         Contig::Contig { name } => name.clone(),
-    //     }
-    // }
+    pub fn contigs_compare(a: &Contig, b: &Contig) -> std::cmp::Ordering {
+        let a_name = &a.name;
+        let b_name = &b.name;
 
-    // pub fn abbreviated_name(&self) -> String {
-    //     match self {
-    //         Contig::newosome { name } => {
-    //             if let Some(stripped) = name.strip_prefix("chr") {
-    //                 stripped.to_string()
-    //             } else {
-    //                 name.clone()
-    //             }
-    //         }
-    //         Contig::Contig { name } => name.clone(),
-    //     }
-    // }
+        let a_is_chr = a_name.starts_with("chr");
+        let b_is_chr = b_name.starts_with("chr");
+
+        if a_is_chr && !b_is_chr {
+            return std::cmp::Ordering::Less;
+        } else if !a_is_chr && b_is_chr {
+            return std::cmp::Ordering::Greater;
+        }
+
+        let numeric_part = |s: &String| -> Option<i32> {
+            if s.starts_with("chr") {
+                s[3..].parse().ok()
+            } else {
+                s.parse().ok()
+            }
+        };
+
+        let a_num = numeric_part(a_name);
+        let b_num = numeric_part(b_name);
+
+        if let (Some(na), Some(nb)) = (a_num, b_num) {
+            return na.cmp(&nb);
+        }
+        if a_num.is_some() {
+            return std::cmp::Ordering::Less;
+        }
+        if b_num.is_some() {
+            return std::cmp::Ordering::Greater;
+        }
+
+        let rank = |s: &String| {
+            let s_lower = s.to_lowercase();
+            if s_lower == "chrx" {
+                1
+            } else if s_lower == "chry" {
+                2
+            } else if s_lower == "chrm" || s_lower == "chrm" {
+                3
+            } else {
+                4
+            }
+        };
+
+        let a_rank = rank(a_name);
+        let b_rank = rank(b_name);
+
+        if a_rank != b_rank {
+            return a_rank.cmp(&b_rank);
+        }
+
+        a_name.cmp(b_name)
+    }
 }
 
 impl Eq for Contig {}
