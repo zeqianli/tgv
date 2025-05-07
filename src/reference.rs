@@ -51,7 +51,11 @@ impl Reference {
 
             if genome_standardized == s_standardized {
                 // Found a match in the "genome" column
-                return Ok(Self::UcscGenome(name_trimmed.to_string()));
+                if name_trimmed.starts_with("GCF_") || name_trimmed.starts_with("GCA_") {
+                    return Ok(Self::UcscAccession(name_trimmed.to_string()));
+                } else {
+                    return Ok(Self::UcscGenome(name_trimmed.to_string()));
+                }
             }
         }
         // Silently ignore lines that don't split correctly
