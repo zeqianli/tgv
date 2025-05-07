@@ -12,6 +12,7 @@ use crate::{
 use async_trait::async_trait;
 use reqwest::{Client, StatusCode};
 use serde::de::Error as _;
+use serde::Deserialize;
 use sqlx::{mysql::MySqlPoolOptions, MySqlPool, Row};
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -1038,6 +1039,143 @@ pub struct UcscApiTrackService {
     client: Client,
 }
 
+#[derive(Debug, Clone, Deserialize)]
+#[allow(non_snake_case)]
+struct GeneResponse1 {
+    name: String,
+    name2: String,
+
+    strand: String,
+
+    txStart: usize,
+    txEnd: usize,
+    cdsStart: usize,
+    cdsEnd: usize,
+    exonStarts: String,
+    exonEnds: String,
+}
+
+impl GeneResponse1 {
+    /// Custom deserializer for strand field
+    fn gene(self, contig: &Contig) -> Result<Gene, TGVError> {
+        Ok(Gene {
+            id: self.name,
+            name: self.name2,
+            strand: Strand::from_str(self.strand)?,
+            contig: contig.clone(),
+            transcription_start: self.txStart,
+            transcription_end: self.txEnd,
+            cds_start: self.cdsStart,
+            cds_end: self.cdsEnd,
+            exon_starts: parse_comma_separated_list(&self.exonStarts)?,
+            exon_ends: parse_comma_separated_list(&self.exonEnds)?,
+        })
+    }
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[allow(non_snake_case)]
+struct GeneResponse2 {
+    name: String,
+
+    strand: String,
+    txStart: usize,
+    txEnd: usize,
+    cdsStart: usize,
+    cdsEnd: usize,
+    exonStarts: String,
+    exonEnds: String,
+}
+
+impl GeneResponse2 {
+    /// Custom deserializer for strand field
+    fn gene(self, contig: &Contig) -> Result<Gene, TGVError> {
+        Ok(Gene {
+            id: self.name.clone(),
+            name: self.name.clone(),
+            strand: Strand::from_str(self.strand)?,
+            contig: contig.clone(),
+            transcription_start: self.txStart,
+            transcription_end: self.txEnd,
+            cds_start: self.cdsStart,
+            cds_end: self.cdsEnd,
+            exon_starts: parse_comma_separated_list(&self.exonStarts)?,
+            exon_ends: parse_comma_separated_list(&self.exonEnds)?,
+        })
+    }
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[allow(non_snake_case)]
+struct GeneResponse3 {
+    /*
+
+    Example responsse:
+
+    {
+    "chrom": "NC_072398.2",
+    "chromStart": 130929426,
+    "chromEnd": 130985030,
+    "name": "NM_001142759.1",
+    "score": 0,
+    "strand": "+",
+    "thickStart": 130929440,
+    "thickEnd": 130982945,
+    "reserved": "0",
+    "blockCount": 13,
+    "blockSizes": "65,124,76,182,122,217,167,126,78,192,72,556,374,",
+    "chromStarts": "0,8926,14265,18877,31037,33561,34781,36127,39014,43150,43484,53351,55230,",
+    "name2": "DBT",
+    "cdsStartStat": "cmpl",
+    "cdsEndStat": "cmpl",
+    "exonFrames": "0,0,1,2,1,0,1,0,0,0,0,0,-1,",
+    "type": "",
+    "geneName": "NM_001142759.1",
+    "geneName2": "DBT",
+    "geneType": ""
+    }
+
+    I'm not sure if the implementation is correct.
+
+    */
+    chromStart: usize,
+    chromEnd: usize,
+    name: String,
+    strand: String,
+    thickStart: usize,
+    thickEnd: usize,
+}
+
+impl GeneResponse3 {
+    /// TODO: I'm not sure if this is correct.
+    fn gene(self, contig: &Contig) -> Result<Gene, TGVError> {
+        Ok(Gene {
+            id: self.name.clone(),
+            name: self.name.clone(),
+            strand: Strand::from_str(self.strand)?,
+            contig: contig.clone(),
+            transcription_start: self.chromStart,
+            transcription_end: self.chromEnd,
+            cds_start: self.thickStart,
+            cds_end: self.thickEnd,
+            exon_starts: vec![self.thickStart],
+            exon_ends: vec![self.thickEnd],
+        })
+    }
+}
+
+/// Custom deserializer for comma-separated lists in UCSC response
+fn parse_comma_separated_list(s: &str) -> Result<Vec<usize>, TGVError> {
+    s.trim_end_matches(',')
+        .split(',')
+        .filter(|s| !s.is_empty())
+        .map(|num| {
+            num.parse::<usize>()
+                .map_err(|_| TGVError::ValueError(format!("Failed to parse {}", num)))
+        })
+        .collect()
+}
+
 impl UcscApiTrackService {
     pub fn new() -> Result<Self, TGVError> {
         Ok(Self {
@@ -1075,19 +1213,61 @@ impl UcscApiTrackService {
             .get_track_data_url(reference, contig, preferred_track.clone(), cache)
             .await?;
 
-        //panic!("{:?}", query_url);
+        let response_value: serde_json::Value =
+            self.client.get(query_url).send().await?.json().await?;
 
-        let response = self.client.get(query_url).send().await?.text().await?;
+        let genes_array_value = response_value.get(&preferred_track).ok_or_else(|| {
+            TGVError::JsonSerializationError(serde_json::Error::custom(format!(
+                "Track key \'{}\' not found in UCSC API response. Full response: {:?}",
+                preferred_track, response_value
+            )))
+        })?;
 
-        // panic!("{:?}", response);
-        let mut value: serde_json::Value = serde_json::from_str(&response)?;
-        let mut genes: Vec<Gene> = serde_json::from_value(value[preferred_track].take())?;
+        let mut genes: Vec<Gene> = Vec::new();
+        let mut deserialized_successfully = false;
 
-        for gene in genes.iter_mut() {
-            gene.contig = contig.clone();
+        // Attempt 1: GeneResponse1
+        if let Ok(gene_responses) =
+            serde_json::from_value::<Vec<GeneResponse1>>(genes_array_value.clone())
+        {
+            for gr in gene_responses {
+                genes.push(gr.gene(contig)?);
+            }
+            deserialized_successfully = true;
         }
 
-        panic!("{:?}", genes);
+        // Attempt 2: GeneResponse2
+        if !deserialized_successfully {
+            if let Ok(gene_responses) =
+                serde_json::from_value::<Vec<GeneResponse2>>(genes_array_value.clone())
+            {
+                for gr in gene_responses {
+                    genes.push(gr.gene(contig)?);
+                }
+                deserialized_successfully = true;
+            }
+        }
+
+        // Attempt 3: Direct Gene deserialization (handles complex format via GeneHelper in feature.rs)
+        if !deserialized_successfully {
+            if let Ok(gene_responses) =
+                serde_json::from_value::<Vec<GeneResponse3>>(genes_array_value.clone())
+            {
+                for gr in gene_responses {
+                    genes.push(gr.gene(contig)?);
+                }
+                deserialized_successfully = true;
+            }
+        }
+
+        if !deserialized_successfully {
+            return Err(TGVError::JsonSerializationError(serde_json::Error::custom(
+                format!(
+                    "Failed to deserialize gene data from UCSC API for track \'{}\' using any known format. Gene array value: {:?}",
+                    preferred_track, genes_array_value
+                )
+            )));
+        }
 
         Track::from_genes(genes, contig.clone())
     }

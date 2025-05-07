@@ -1,5 +1,4 @@
 use crate::{contig::Contig, strand::Strand, traits::GenomeInterval};
-use serde::Deserialize;
 
 // A feature is a interval on a contig.
 
@@ -33,35 +32,23 @@ impl GenomeInterval for SubGeneFeature {
     }
 }
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone)]
 pub struct Gene {
-    #[serde(rename = "name")]
     pub id: String,
 
-    #[serde(rename = "name2")]
     pub name: String,
 
-    #[serde(rename = "strand", deserialize_with = "deserialize_strand")]
     pub strand: Strand,
-    #[serde(skip)]
-    pub contig: Contig, // We'll set this after deserialization
-    #[serde(rename = "txStart")]
+    pub contig: Contig,
     pub transcription_start: usize,
-    #[serde(rename = "txEnd")]
     pub transcription_end: usize,
-    #[serde(rename = "cdsStart")]
+
     pub cds_start: usize,
-    #[serde(rename = "cdsEnd")]
+
     pub cds_end: usize,
-    #[serde(
-        rename = "exonStarts",
-        deserialize_with = "deserialize_comma_separated_list"
-    )]
+
     pub exon_starts: Vec<usize>,
-    #[serde(
-        rename = "exonEnds",
-        deserialize_with = "deserialize_comma_separated_list"
-    )]
+
     pub exon_ends: Vec<usize>,
 }
 
@@ -77,28 +64,6 @@ impl GenomeInterval for Gene {
     fn contig(&self) -> &Contig {
         &self.contig
     }
-}
-
-/// Custom deserializer for strand field
-fn deserialize_strand<'de, D>(deserializer: D) -> Result<Strand, D::Error>
-where
-    D: serde::Deserializer<'de>,
-{
-    let s = String::deserialize(deserializer)?;
-    Strand::from_str(s).map_err(serde::de::Error::custom)
-}
-
-/// Custom deserializer for comma-separated lists in UCSC response
-fn deserialize_comma_separated_list<'de, D>(deserializer: D) -> Result<Vec<usize>, D::Error>
-where
-    D: serde::Deserializer<'de>,
-{
-    let s = String::deserialize(deserializer)?;
-    s.trim_end_matches(',')
-        .split(',')
-        .filter(|s| !s.is_empty())
-        .map(|num| num.parse::<usize>().map_err(serde::de::Error::custom))
-        .collect()
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
