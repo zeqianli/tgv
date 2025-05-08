@@ -6,7 +6,7 @@ Explore omics data without leaving the terminal.
 
 Light, blazing fast 🚀, vim motion, memory safe.
 
-https://github.com/user-attachments/assets/1c74ed21-c026-4535-8627-e4acd9a4313d
+<https://github.com/user-attachments/assets/1c74ed21-c026-4535-8627-e4acd9a4313d>
 
 *TGV is at a very early stage. Please don't rely on it for your papers (yet) :)*
 
@@ -31,6 +31,7 @@ tgv
 - `:_gene_`: Go to gene: (e.g. `:TP53`)
 - `:_chr_:_position_`: Go to a chromosome position (e.g. `:1:2345`)
 - `_number_` + `_movement_`: Repeat movements (e.g. `20B`: left by 20 genes)
+- [pending]`:ls`: List chromosomes.
 
 [Full key bindings](https://github.com/zeqianli/tgv/wiki/Usage)
 

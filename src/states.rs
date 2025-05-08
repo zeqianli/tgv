@@ -383,6 +383,9 @@ impl StateHandler {
             StateMessage::GotoPreviousContig(n) => {
                 StateHandler::go_to_previous_contig(state, n).await?
             }
+            StateMessage::GotoContigIndex(index) => {
+                StateHandler::go_to_contig_index(state, index).await?
+            }
 
             // Absolute feature handling
             StateMessage::GoToGene(gene_id) => {
@@ -928,6 +931,18 @@ impl StateHandler {
     async fn go_to_previous_contig(state: &mut State, n: usize) -> Result<(), TGVError> {
         let current_contig = state.contig()?;
         let contig = state.contigs.previous(&current_contig, n)?;
+        Self::go_to_contig_coordinate(state, contig.name.as_str(), 1)
+    }
+
+    async fn go_to_contig_index(state: &mut State, index: usize) -> Result<(), TGVError> {
+        if index >= state.contigs.all_data().len() {
+            return Err(TGVError::StateError(format!(
+                "Contig index {} out of range. There are {} contigs.",
+                index,
+                state.contigs.all_data().len()
+            )));
+        }
+        let contig = state.contigs.all_data()[index].contig.clone();
         Self::go_to_contig_coordinate(state, contig.name.as_str(), 1)
     }
 

@@ -1,5 +1,6 @@
 use crate::cytoband::{Cytoband, CytobandSegment, Stain};
 use crate::error::TGVError;
+use crate::helpers::get_abbreviated_length_string;
 use crate::rendering::colors;
 use crate::states::State;
 
@@ -48,7 +49,7 @@ pub fn render_cytobands(area: &Rect, buf: &mut Buffer, state: &State) -> Result<
         buf.set_string(
             area.width - CYTOBAND_TEXT_RIGHT_SPACING + 1,
             area.y,
-            get_cytoband_total_length_text(contig_length),
+            get_abbreviated_length_string(contig_length),
             Style::default(),
         );
     }
@@ -102,27 +103,13 @@ pub fn render_cytobands(area: &Rect, buf: &mut Buffer, state: &State) -> Result<
     Ok(())
 }
 
-fn get_cytoband_total_length_text(length: usize) -> String {
-    let mut length = length;
-    let mut power = 0;
-
-    while length >= 1000 {
-        length /= 1000;
-        power += 1;
-    }
-
-    format!(
-        "{}{}",
-        length,
-        match power {
-            0 => "bp",
-            1 => "kb",
-            2 => "Mb",
-            3 => "Gb",
-            4 => "Tb",
-            _ => "",
-        }
-    )
+pub fn linear_scale(
+    original_x: usize,
+    original_length: usize,
+    new_start: u16,
+    new_end: u16,
+) -> u16 {
+    new_start + (original_x as f64 / (original_length) as f64 * (new_end - new_start) as f64) as u16
 }
 
 fn get_cytoband_xs_strings_and_styles(
@@ -182,10 +169,6 @@ fn get_cytoband_segment_x_string_and_style(
             Some((onscreen_x_start, string, style))
         }
     }
-}
-
-fn linear_scale(original_x: usize, original_length: usize, new_start: u16, new_end: u16) -> u16 {
-    new_start + (original_x as f64 / (original_length) as f64 * (new_end - new_start) as f64) as u16
 }
 
 fn get_cytoband_segment_style(cytoband_segment: &CytobandSegment) -> Style {

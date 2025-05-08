@@ -1,6 +1,7 @@
 mod alignment;
 mod colors;
 mod console;
+mod contig_list;
 mod coordinate;
 mod coverage;
 mod cytoband;
@@ -10,6 +11,7 @@ mod sequence;
 mod track;
 pub use alignment::render_alignment;
 pub use console::render_console;
+pub use contig_list::render_contig_list;
 pub use coordinate::render_coordinates;
 pub use coverage::render_coverage;
 pub use cytoband::render_cytobands;
@@ -131,6 +133,9 @@ impl RenderingState {
             }
             DisplayMode::Help => {
                 render_help(area, buf)?;
+            }
+            DisplayMode::ContigList => {
+                render_contig_list(area, buf, state, registers)?;
             }
         }
         Ok(())
