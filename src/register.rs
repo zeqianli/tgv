@@ -1,4 +1,4 @@
-use crate::{display_mode::DisplayMode, error::TGVError, message::StateMessage};
+use crate::{display_mode::DisplayMode, error::TGVError, message::StateMessage, states::State};
 use crossterm::event::{KeyCode, KeyEvent};
 
 use strum::Display;
@@ -16,7 +16,11 @@ pub trait Register {
     /// Update with a new event.
     /// If applicable, return
     /// If this event triggers an error, returns Error.
-    fn update_key_event(&mut self, event: KeyEvent) -> Result<Vec<StateMessage>, TGVError>;
+    fn update_key_event(
+        &mut self,
+        event: KeyEvent,
+        state: &State,
+    ) -> Result<Vec<StateMessage>, TGVError>;
 }
 
 pub struct Registers {
@@ -38,6 +42,16 @@ impl Registers {
         })
     }
 
+    pub fn update_state(&mut self, state: &State) -> Result<(), TGVError> {
+        if self.current != RegisterType::ContigList {
+            self.contig_list.cursor_position = state
+                .contigs
+                .get_index(&state.contig()?)
+                .ok_or(TGVError::RegisterError(format!("No contigs")))?;
+        }
+        Ok(())
+    }
+
     fn clear(&mut self) {
         self.normal.clear();
         self.command.clear();
@@ -50,7 +64,11 @@ impl Registers {
 // }
 
 impl Register for Registers {
-    fn update_key_event(&mut self, key_event: KeyEvent) -> Result<Vec<StateMessage>, TGVError> {
+    fn update_key_event(
+        &mut self,
+        key_event: KeyEvent,
+        state: &State,
+    ) -> Result<Vec<StateMessage>, TGVError> {
         match (key_event.code, self.current.clone()) {
             (KeyCode::Char(':'), RegisterType::Normal) => {
                 self.clear();
@@ -95,7 +113,7 @@ impl Register for Registers {
 
                 return Ok(vec![
                     StateMessage::SetDisplayMode(DisplayMode::Main),
-                    StateMessage::GoToContigIndex(self.contig_list.cursor_position),
+                    StateMessage::GotoContigIndex(self.contig_list.cursor_position),
                 ]);
             }
 
@@ -109,10 +127,10 @@ impl Register for Registers {
         }
 
         Ok(match self.current {
-            RegisterType::Normal => self.normal.update_key_event(key_event),
-            RegisterType::Command => self.command.update_key_event(key_event),
-            RegisterType::Help => self.help.update_key_event(key_event),
-            RegisterType::ContigList => self.contig_list.update_key_event(key_event),
+            RegisterType::Normal => self.normal.update_key_event(key_event, state),
+            RegisterType::Command => self.command.update_key_event(key_event, state),
+            RegisterType::Help => self.help.update_key_event(key_event, state),
+            RegisterType::ContigList => self.contig_list.update_key_event(key_event, state),
         }
         .unwrap_or_else(|e| {
             self.clear();
@@ -307,7 +325,11 @@ impl NormalModeRegister {
 }
 
 impl Register for NormalModeRegister {
-    fn update_key_event(&mut self, key_event: KeyEvent) -> Result<Vec<StateMessage>, TGVError> {
+    fn update_key_event(
+        &mut self,
+        key_event: KeyEvent,
+        state: &State,
+    ) -> Result<Vec<StateMessage>, TGVError> {
         match key_event.code {
             KeyCode::Char(char) => self.update_by_char(char),
             _ => {
@@ -378,7 +400,11 @@ impl CommandModeRegister {
 }
 
 impl Register for CommandModeRegister {
-    fn update_key_event(&mut self, key_event: KeyEvent) -> Result<Vec<StateMessage>, TGVError> {
+    fn update_key_event(
+        &mut self,
+        key_event: KeyEvent,
+        state: &State,
+    ) -> Result<Vec<StateMessage>, TGVError> {
         // TODO
         match key_event.code {
             KeyCode::Char(c) => {
@@ -462,7 +488,11 @@ impl HelpModeRegister {
 }
 
 impl Register for HelpModeRegister {
-    fn update_key_event(&mut self, key_event: KeyEvent) -> Result<Vec<StateMessage>, TGVError> {
+    fn update_key_event(
+        &mut self,
+        key_event: KeyEvent,
+        state: &State,
+    ) -> Result<Vec<StateMessage>, TGVError> {
         match key_event.code {
             KeyCode::Esc => Ok(vec![StateMessage::SetDisplayMode(DisplayMode::Main)]),
             _ => Ok(vec![]),
@@ -483,10 +513,18 @@ impl ContigListModeRegister {
 
 impl Register for ContigListModeRegister {
     /// Move the selected contig up or down.
-    fn update_key_event(&mut self, key_event: KeyEvent) -> Result<Vec<StateMessage>, TGVError> {
+    fn update_key_event(
+        &mut self,
+        key_event: KeyEvent,
+        state: &State,
+    ) -> Result<Vec<StateMessage>, TGVError> {
         match key_event.code {
             KeyCode::Char('j') | KeyCode::Down => {
                 self.cursor_position = self.cursor_position.saturating_add(1);
+                let total_n_contigs = state.contigs.all_data().len();
+                if self.cursor_position >= total_n_contigs && total_n_contigs > 0 {
+                    self.cursor_position = total_n_contigs - 1;
+                }
                 Ok(vec![])
             }
             KeyCode::Char('k') | KeyCode::Up => {

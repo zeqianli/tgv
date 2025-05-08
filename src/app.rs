@@ -48,6 +48,8 @@ impl App {
                 StateHandler::initialize(&mut self.state, &self.repository, &self.settings).await?;
             }
 
+            self.registers.update_state(&self.state)?;
+
             // Prepare rendering
             self.rendering_state.update(&self.state)?;
 
@@ -70,7 +72,7 @@ impl App {
             // handle events
             match event::read() {
                 Ok(Event::Key(key_event)) if key_event.kind == KeyEventKind::Press => {
-                    let state_messages = self.registers.update_key_event(key_event)?;
+                    let state_messages = self.registers.update_key_event(key_event, &self.state)?;
                     StateHandler::handle(
                         &mut self.state,
                         &self.repository,

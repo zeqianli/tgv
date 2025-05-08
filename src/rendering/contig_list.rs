@@ -19,6 +19,16 @@ pub fn render_contig_list(
     state: &State,
     registers: &Registers,
 ) -> Result<(), TGVError> {
+    // highlight the selection row
+
+    let selection_row = area.height / 2;
+    for x in area.x..area.x + area.width {
+        let cell = buf.cell_mut(Position::new(x, area.y + selection_row));
+        if let Some(cell) = cell {
+            cell.set_char(' ');
+            cell.set_bg(colors::HIGHLIGHT_COLOR);
+        }
+    }
     let max_contig_name_length = state
         .contigs
         .all_data()
@@ -34,7 +44,16 @@ pub fn render_contig_list(
 
     let contig_name_spacing = u16::max(MIN_CONTIG_NAME_SPACING, max_contig_name_length);
 
-    let mut max_contig_length = None;
+    let mut max_contig_length: Option<usize> = None;
+    for contig in state.contigs.all_data() {
+        if let Some(length) = contig.length {
+            if let Some(max_length) = max_contig_length {
+                max_contig_length = Some(max_length.max(length));
+            } else {
+                max_contig_length = Some(length);
+            }
+        }
+    }
 
     let selected_index = registers.contig_list.cursor_position;
 
@@ -49,17 +68,6 @@ pub fn render_contig_list(
             max_contig_length,
             y,
         )?;
-    }
-
-    // highlight the selection row
-
-    let selection_row = area.height / 2;
-    for x in area.x..area.x + area.width {
-        let cell = buf.cell_mut(Position::new(x, area.y + selection_row));
-        if let Some(cell) = cell {
-            cell.set_char(' ');
-            cell.set_bg(colors::HIGHLIGHT_COLOR);
-        }
     }
 
     Ok(())
