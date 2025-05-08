@@ -47,7 +47,7 @@ impl Registers {
             self.contig_list.cursor_position = state
                 .contigs
                 .get_index(&state.contig()?)
-                .ok_or(TGVError::RegisterError(format!("No contigs")))?;
+                .ok_or(TGVError::RegisterError("No contigs".to_string()))?;
         }
         Ok(())
     }
