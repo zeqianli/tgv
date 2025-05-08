@@ -31,7 +31,7 @@ tgv
 - `:_gene_`: Go to gene: (e.g. `:TP53`)
 - `:_chr_:_position_`: Go to a chromosome position (e.g. `:1:2345`)
 - `_number_` + `_movement_`: Repeat movements (e.g. `20B`: left by 20 genes)
-- `:ls`: List chromosomes.
+- [pending]`:ls`: List chromosomes.
 
 [Full key bindings](https://github.com/zeqianli/tgv/wiki/Usage)
 
