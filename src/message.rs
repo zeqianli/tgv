@@ -23,6 +23,7 @@ pub enum StateMessage {
 
     GotoNextContig(usize),
     GotoPreviousContig(usize),
+    GoToContigIndex(usize),
 
     GoToGene(String),
 

@@ -7,11 +7,21 @@ use std::fmt::Display;
 
 #[derive(Debug)]
 pub struct ContigDatum {
-    contig: Contig,             // Name
-    length: Option<usize>,      // Length
-    cytoband: Option<Cytoband>, // Cytoband
+    pub contig: Contig,             // Name
+    pub length: Option<usize>,      // Length
+    pub cytoband: Option<Cytoband>, // Cytoband
 
     cytoband_loaded: bool, // Whether this contig's cytoband has been quried.
+}
+
+impl ContigDatum {
+    pub fn name(&self) -> &str {
+        &self.contig.name
+    }
+
+    pub fn length(&self) -> Option<usize> {
+        self.length
+    }
 }
 
 /// A collection of contigs. This helps relative contig movements.
@@ -167,6 +177,10 @@ impl ContigCollection {
             contig.name.clone()
         )))?;
         Ok(self.contigs[index].cytoband_loaded)
+    }
+
+    pub fn all_data(&self) -> &Vec<ContigDatum> {
+        &self.contigs
     }
 }
 

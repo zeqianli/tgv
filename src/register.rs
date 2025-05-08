@@ -8,6 +8,7 @@ pub enum RegisterType {
     Normal,
     Command,
     Help,
+    ContigList,
 }
 
 /// Register stores inputs and translates key event to StateMessages.
@@ -23,6 +24,7 @@ pub struct Registers {
     pub normal: NormalModeRegister,
     pub command: CommandModeRegister,
     pub help: HelpModeRegister,
+    pub contig_list: ContigListModeRegister,
 }
 
 impl Registers {
@@ -32,6 +34,7 @@ impl Registers {
             normal: NormalModeRegister::new(),
             command: CommandModeRegister::new(),
             help: HelpModeRegister::new(),
+            contig_list: ContigListModeRegister::new(0),
         })
     }
 
@@ -72,6 +75,12 @@ impl Register for Registers {
                     self.clear();
                     return Ok(vec![StateMessage::SetDisplayMode(DisplayMode::Help)]);
                 }
+
+                if self.command.input() == "ls" || self.command.input() == "contigs" {
+                    self.current = RegisterType::ContigList;
+                    self.clear();
+                    return Ok(vec![StateMessage::SetDisplayMode(DisplayMode::ContigList)]);
+                }
                 let output = self
                     .command
                     .parse()
@@ -80,6 +89,22 @@ impl Register for Registers {
                 self.command.clear();
                 return Ok(output);
             }
+            (KeyCode::Enter, RegisterType::ContigList) => {
+                self.current = RegisterType::Normal;
+                self.clear();
+
+                return Ok(vec![
+                    StateMessage::SetDisplayMode(DisplayMode::Main),
+                    StateMessage::GoToContigIndex(self.contig_list.cursor_position),
+                ]);
+            }
+
+            (KeyCode::Esc, RegisterType::ContigList) => {
+                self.current = RegisterType::Normal;
+                self.clear();
+                return Ok(vec![StateMessage::SetDisplayMode(DisplayMode::Main)]);
+            }
+
             _ => {}
         }
 
@@ -87,6 +112,7 @@ impl Register for Registers {
             RegisterType::Normal => self.normal.update_key_event(key_event),
             RegisterType::Command => self.command.update_key_event(key_event),
             RegisterType::Help => self.help.update_key_event(key_event),
+            RegisterType::ContigList => self.contig_list.update_key_event(key_event),
         }
         .unwrap_or_else(|e| {
             self.clear();
@@ -439,6 +465,34 @@ impl Register for HelpModeRegister {
     fn update_key_event(&mut self, key_event: KeyEvent) -> Result<Vec<StateMessage>, TGVError> {
         match key_event.code {
             KeyCode::Esc => Ok(vec![StateMessage::SetDisplayMode(DisplayMode::Main)]),
+            _ => Ok(vec![]),
+        }
+    }
+}
+
+pub struct ContigListModeRegister {
+    /// index of contigs in the contig header
+    pub cursor_position: usize,
+}
+
+impl ContigListModeRegister {
+    pub fn new(cursor_position: usize) -> Self {
+        Self { cursor_position }
+    }
+}
+
+impl Register for ContigListModeRegister {
+    /// Move the selected contig up or down.
+    fn update_key_event(&mut self, key_event: KeyEvent) -> Result<Vec<StateMessage>, TGVError> {
+        match key_event.code {
+            KeyCode::Char('j') | KeyCode::Down => {
+                self.cursor_position = self.cursor_position.saturating_add(1);
+                Ok(vec![])
+            }
+            KeyCode::Char('k') | KeyCode::Up => {
+                self.cursor_position = self.cursor_position.saturating_sub(1);
+                Ok(vec![])
+            }
             _ => Ok(vec![]),
         }
     }

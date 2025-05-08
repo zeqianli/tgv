@@ -2,4 +2,5 @@
 pub enum DisplayMode {
     Main,
     Help,
+    ContigList,
 }
