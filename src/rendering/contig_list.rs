@@ -19,8 +19,19 @@ pub fn render_contig_list(
     state: &State,
     registers: &Registers,
 ) -> Result<(), TGVError> {
-    // highlight the selection row
+    if area.height <= 1 {
+        return Ok(());
+    }
+    if area.width <= MIN_CONTIG_NAME_SPACING + MIN_CONTIG_LENGTH_SPACING {
+        return Ok(());
+    }
 
+    // First line: reference name
+    if let Some(reference) = &state.reference {
+        buf.set_string(area.x, area.y, reference.to_string(), Style::default());
+    }
+
+    // Highlight the selection row
     let selection_row = area.height / 2;
     for x in area.x..area.x + area.width {
         let cell = buf.cell_mut(Position::new(x, area.y + selection_row));
@@ -29,6 +40,8 @@ pub fn render_contig_list(
             cell.set_bg(colors::HIGHLIGHT_COLOR);
         }
     }
+
+    // Left label: contig name
     let max_contig_name_length = state
         .contigs
         .all_data()
@@ -37,13 +50,13 @@ pub fn render_contig_list(
         .max()
         .unwrap_or(0) as u16;
 
-    // first line: reference name
-    if let Some(reference) = &state.reference {
-        buf.set_string(area.x, area.y, reference.to_string(), Style::default());
-    }
-
     let contig_name_spacing = u16::max(MIN_CONTIG_NAME_SPACING, max_contig_name_length);
 
+    if area.width <= contig_name_spacing {
+        return Ok(());
+    }
+
+    // Right label: contig length
     let mut max_contig_length: Option<usize> = None;
     for contig in state.contigs.all_data() {
         if let Some(length) = contig.length {
@@ -55,6 +68,11 @@ pub fn render_contig_list(
         }
     }
 
+    if area.width <= contig_name_spacing + MIN_CONTIG_LENGTH_SPACING + 1 {
+        return Ok(());
+    }
+
+    // Middle: contig bars
     let selected_index = registers.contig_list.cursor_position;
 
     for (y, contig_index) in
@@ -142,5 +160,3 @@ pub fn linear_scale(
 ) -> u16 {
     (original_x as f64 / (original_length) as f64 * (new_end - new_start) as f64) as u16
 }
-
-// TODO: prevent overflow when the window is small
