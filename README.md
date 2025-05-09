@@ -2,9 +2,7 @@
 
 [![Discord Badge]][Discord Server]
 
-Explore omics data without leaving the terminal.
-
-Light, blazing fast 🚀, vim motion, memory safe.
+Explore omics data without leaving the terminal. Light, blazing fast 🚀, vim motion, memory safe.
 
 <https://github.com/user-attachments/assets/1c74ed21-c026-4535-8627-e4acd9a4313d>
 
@@ -27,8 +25,7 @@ tgv -g cat
 ```
 
 - `:q`: Quit
-- `h/j/k/l`: Left / down / up / right
-- `y/p`: Faster left / right
+- `h/j/k/l/y/p`: Left / down / up / right / faster left / faster right
 - `W/B/w/b`: Next gene / previous gene / next exon / previous exon
 - `z/o`: Zoom in / out
 - `:_gene_`: Go to gene: (e.g. `:TP53`)
@@ -38,44 +35,38 @@ tgv -g cat
 
 [Full key bindings](https://github.com/zeqianli/tgv/wiki/Usage)
 
-## View alignments
-
 ```bash
-# View BAM file aligned to the hg19 human reference genome
-tgv sorted.bam -g hg19
+# View BAM file aligned to the hg38 human reference genome
+tgv sorted.bam
 
-# Start at a coordinate
-tgv sorted.bam -r 12:25398142 -g hg19
+# View a indexed remote BAM, starting at TP53, using the hg19 reference genome
+tgv s3://my-bucket/sorted.bam -r TP53 -g hg19
 
-# View a indexed remote BAM, starting at TP53, using the hg38 reference genome
-tgv s3://my-bucket/sorted.bam -r TP53
-
-# No reference genome
+# BAM file with no reference genome
 tgv non_human.bam -r 1:123 --no-reference
 ```
 
-Supported formats (see [wiki](https://github.com/zeqianli/tgv/wiki/Usage)):
-
-- BAM (index and sorted; `.bai` file is needed): local, AWS S3, HTTP, FTP, Google Cloud
+[Supported formats](https://github.com/zeqianli/tgv/wiki/Usage)
 
 ## FAQ
+
+- **Why?**
+  
+  Browsing alignment files to compare sequences is essential for genomics research. Omics research is often in the terminal (SSH session to HPCs or the cloud). [IGV](https://github.com/igvteam/igv) is popular but cumbersome for remote sessions. Terminal-based applications ([1](https://github.com/dariober/ASCIIGenomecu), [2](https://www.htslib.org/doc/samtools-tview.html)) are not as feature-rich.
+
+  Rust bioinformatics community is super vibrant ([3](https://lh3.github.io/2024/03/05/what-high-performance-language-to-learn), [4](https://github.com/sharkLoc/rust-in-bioinformatics)) and Ratatui makes powerful terminal UIs. So TGV is born!
+
 
 - **How to quit TGV?**  
   [Just like vim :)](https://stackoverflow.com/questions/11828270/how-do-i-exit-vim) Press `Esc` to ensure you're in normal mode, then type `:q` and press Enter.
 
-- **Why?**
-  
-  Browsing alignment files to compare sequences is essential for genomics research. Much omics research happens in the terminal (SSH session to HPCs or the cloud). [IGV](https://github.com/igvteam/igv) is popular but cumbersome for remote sessions. Terminal-based applications ([1](https://github.com/dariober/ASCIIGenomecu), [2](https://www.htslib.org/doc/samtools-tview.html)) are not as feature rich.
 
-  Rust bioinformatics community is super vibrant ([3](https://lh3.github.io/2024/03/05/what-high-performance-language-to-learn), [4](https://github.com/sharkLoc/rust-in-bioinformatics)) and Ratatui makes powerful terminal UIs. So TGV is born!
+## What are some interesting genome regions?
 
-## What are interesting genome regions I should look at?
-
-- `tgv -r 12:25245351`: KRAS G12C is one of the most prevalent and most studied cancer mutations [[1]](https://www.oncokb.org/gene/KRAS/G12C?refGenome=GRCh38)
+- `tgv -r 12:25245351`: One of the most prevalent and most studied mutation sites in cancer [[1]](https://www.oncokb.org/gene/KRAS/G12C?refGenome=GRCh38)
 - `tgv -r 11:6868417`: Mutations here make you less likely to hate cilantro [[2]](https://flavourjournal.biomedcentral.com/articles/10.1186/2044-7248-1-22). And you can test your baby for it! [[3]](https://www.babypeek.com/unity-patients)
-- `tgv -g dog -r FGF5`: Controls dog hair length [[4]](https://pubmed.ncbi.nlm.nih.gov/16879338/)
-- `tgv -g GCF_000005845.2`: Arguably the most studied organism (E. coli K-12 substr. MG1655). Note how compact it is compared to human? [[5]](https://en.wikipedia.org/wiki/Bacterial_genome#Bacterial_genomes)
-- `tgv -g covid -r NC_045512v2:21563`: The spike protein in SARS-CoV-2 [[6]](https://en.wikipedia.org/wiki/Coronavirus_spike_protein)
+- `tgv -g GCF_000005845.2`: Arguably the most researched organism (E. coli K-12 substr. MG1655). Note how compact it is compared to the human genome? [[4]](https://en.wikipedia.org/wiki/Bacterial_genome#Bacterial_genomes)
+- `tgv -g covid -r NC_045512v2:21563`: The spike protein in SARS-CoV-2 [[5]](https://en.wikipedia.org/wiki/Coronavirus_spike_protein)
 
 ## Acknowledgements
 
