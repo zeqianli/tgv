@@ -22,7 +22,6 @@ See [Installation](https://github.com/zeqianli/tgv/wiki/Installation)
 # Browse the hg38 human genome. Internet connection required.
 tgv
 
-# Or you favorite genome (see `tgv --list` or `tgv --list-more`)
 # Or your favorite genome (see `tgv --list` or `tgv --list-more`)
 tgv -g cat 
 ```
