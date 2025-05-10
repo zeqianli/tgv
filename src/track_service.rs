@@ -8,6 +8,7 @@ use crate::{
     region::Region,
     strand::Strand,
     track::Track,
+    ucsc::UcscHost,
 };
 use async_trait::async_trait;
 use reqwest::{Client, StatusCode};
@@ -233,10 +234,10 @@ pub struct UcscDbTrackService {
 
 impl UcscDbTrackService {
     /// Initialize the database connections. Reference is needed to find the corresponding schema.
-    pub async fn new(reference: &Reference) -> Result<Self, TGVError> {
-        let mysql_url = UcscDbTrackService::get_mysql_url(reference)?;
+    pub async fn new(reference: &Reference, ucsc_host: &UcscHost) -> Result<Self, TGVError> {
+        let mysql_url = UcscDbTrackService::get_mysql_url(reference, ucsc_host)?;
         let pool = MySqlPoolOptions::new()
-            .max_connections(5)
+            .max_connections(1)
             .connect(&mysql_url)
             .await?;
 
@@ -245,14 +246,11 @@ impl UcscDbTrackService {
         })
     }
 
-    fn get_mysql_url(reference: &Reference) -> Result<String, TGVError> {
+    fn get_mysql_url(reference: &Reference, ucsc_host: &UcscHost) -> Result<String, TGVError> {
         match reference {
-            Reference::Hg19 => Ok("mysql://genome@genome-mysql.soe.ucsc.edu/hg19".to_string()),
-            Reference::Hg38 => Ok("mysql://genome@genome-mysql.soe.ucsc.edu/hg38".to_string()),
-            Reference::UcscGenome(genome) => Ok(format!(
-                "mysql://genome@genome-mysql.soe.ucsc.edu/{}",
-                genome
-            )),
+            Reference::Hg19 | Reference::Hg38 | Reference::UcscGenome(_) => {
+                Ok(format!("mysql://genome@{}/{}", ucsc_host.url(), reference))
+            }
             _ => Err(TGVError::ValueError(format!(
                 "Unsupported reference: {}",
                 reference
