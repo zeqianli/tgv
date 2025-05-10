@@ -5,18 +5,21 @@
 
 <https://github.com/user-attachments/assets/1c74ed21-c026-4535-8627-e4acd9a4313d>
 
-*TGV is at a very early stage. Please don't rely on it for your papers (yet) :)*
+*TGV is at a very early stage so expect bugs. Please don't rely on it for your papers (yet) :)*
 
 *Contribution and bug reports are welcome! Join our Discord to discuss ideas.*
 
 ## Installation
+- brew: `brew install zeqianli/tgv/tgv`
+- cargo: `cargo install tgv`
+- Pre-built binaries: [Github releases](https://github.com/zeqianli/tgv/releases/)
 
-See [Installation](https://github.com/zeqianli/tgv/wiki/Installation)
+[Troubleshooting](https://github.com/zeqianli/tgv/wiki/Installation)
 
 ## Quick start
 
 ```bash
-# Browse the hg38 human genome. Internet connection required.
+# Browse the hg38 human genome (internet required). See FAQ for some interesting genome regions. 
 tgv
 
 # Or your favorite genome (see `tgv --list` or `tgv --list-more`)
@@ -30,7 +33,7 @@ tgv -g cat
 - `:_gene_`: Go to gene: (e.g. `:TP53`)
 - `:_chr_:_position_`: Go to a chromosome position (e.g. `:1:2345`)
 - `_number_` + `_movement_`: Repeat movements (e.g. `20B`: left by 20 genes)
-- [pending]`:ls`: List chromosomes.
+- `:ls`: Switch chromosomes.
 
 [Full key bindings](https://github.com/zeqianli/tgv/wiki/Usage)
 
@@ -60,7 +63,7 @@ tgv non_human.bam -r 1:123 --no-reference
   [Just like vim :)](https://stackoverflow.com/questions/11828270/how-do-i-exit-vim) Press `Esc` to ensure you're in normal mode, then type `:q` and press Enter.
 
 
-## What are some interesting genome regions?
+## Some interesting genome regions
 
 - `tgv -r 12:25245351`: One of the most prevalent and most studied mutation sites in cancer [[1]](https://www.oncokb.org/gene/KRAS/G12C?refGenome=GRCh38)
 - `tgv -r 11:6868417`: Mutations here make you less likely to hate cilantro [[2]](https://flavourjournal.biomedcentral.com/articles/10.1186/2044-7248-1-22). And you can test your baby for it! [[3]](https://www.babypeek.com/unity-patients)
