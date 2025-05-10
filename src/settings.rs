@@ -10,6 +10,26 @@ pub enum BackendType {
     Db,
 }
 
+#[derive(Debug, Clone, Eq, PartialEq, ValueEnum)]
+pub enum UcscHostCli {
+    #[value(name = "us")]
+    Us,
+    #[value(name = "eu")]
+    Eu,
+    #[value(name = "auto")]
+    Auto,
+}
+
+impl UcscHostCli {
+    pub fn to_host(&self) -> UcscHost {
+        match self {
+            UcscHostCli::Us => UcscHost::Us,
+            UcscHostCli::Eu => UcscHost::Eu,
+            UcscHostCli::Auto => UcscHost::auto(),
+        }
+    }
+}
+
 #[derive(Parser, Clone)]
 #[command(author, version, about, long_about = None)]
 pub struct Cli {
@@ -47,8 +67,8 @@ pub struct Cli {
     debug: bool,
 
     /// Choose the UCSC host.
-    #[arg(long, value_enum, default_value_t = UcscHost::Us)]
-    host: UcscHost,
+    #[arg(long, value_enum, default_value_t = UcscHostCli::Auto)]
+    host: UcscHostCli,
 
     /// List common genome names.
     #[arg(long = "list")]
@@ -165,7 +185,7 @@ impl Settings {
             reference,
             backend,
             initial_state_messages,
-            ucsc_host: cli.host,
+            ucsc_host: cli.host.to_host(),
             test_mode: false,
             debug: cli.debug,
         })
