@@ -354,7 +354,13 @@ impl TrackService for UcscDbTrackService {
                 .values()
                 .cloned()
                 .collect::<Vec<(Contig, usize)>>();
-            contigs.sort_by(|(a, _), (b, _)| Contig::contigs_compare(a, b));
+            contigs.sort_by(|(a, length_a), (b, length_b)| {
+                if a.name.starts_with("chr") || b.name.starts_with("chr") {
+                    Contig::contigs_compare(a, b)
+                } else {
+                    length_b.cmp(length_a) // Sort by length in descending order
+                }
+            });
 
             return Ok(contigs);
         } else {
@@ -376,7 +382,13 @@ impl TrackService for UcscDbTrackService {
                 })
                 .collect::<Result<Vec<(Contig, usize)>, TGVError>>()?;
 
-            contigs.sort_by(|(a, _), (b, _)| Contig::contigs_compare(a, b));
+            contigs.sort_by(|(a, length_a), (b, length_b)| {
+                if a.name.starts_with("chr") || b.name.starts_with("chr") {
+                    Contig::contigs_compare(a, b)
+                } else {
+                    length_b.cmp(length_a) // Sort by length in descending order
+                }
+            });
 
             return Ok(contigs);
         }
@@ -1434,7 +1446,13 @@ impl TrackService for UcscApiTrackService {
                     output.push((Contig::new(k), v.as_u64().unwrap() as usize));
                 }
 
-                output.sort_by(|(a, _), (b, _)| Contig::contigs_compare(a, b));
+                output.sort_by(|(a, length_a), (b, length_b)| {
+                    if a.name.starts_with("chr") || b.name.starts_with("chr") {
+                        Contig::contigs_compare(a, b)
+                    } else {
+                        length_b.cmp(length_a) // Sort by length in descending order
+                    }
+                });
 
                 Ok(output)
             }

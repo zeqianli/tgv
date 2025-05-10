@@ -19,8 +19,8 @@
 ## Quick start
 
 ```bash
-# Browse the hg38 human genome (internet required). See FAQ for some interesting genome regions.
-# If you are in Europe, use `tgv --host eu`
+# Browse the hg38 human genome (internet needed). See FAQ for some interesting genome regions.
+# (If you are in Europe, use `tgv --host eu`)
 tgv
 
 # Or your favorite genome (see `tgv --list` or `tgv --list-more`)
