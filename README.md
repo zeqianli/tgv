@@ -1,6 +1,6 @@
 # Terminal Genome Viewer
 
-[![Discord Badge]][Discord Server]
+[![Discord Badge]][Discord Server] [![Crates version]](https://crates.io/crates/tgv)
 
 <https://github.com/user-attachments/assets/1c74ed21-c026-4535-8627-e4acd9a4313d>
 
@@ -77,3 +77,4 @@ tgv non_human.bam -r 1:123 --no-reference
 
 [Discord Badge]: https://img.shields.io/discord/1358313687399792662?label=discord&logo=discord&style=flat-square&color=1370D3&logoColor=1370D3
 [Discord Server]: https://discord.com/invite/z2c9TY7e
+[Crates version]: https://img.shields.io/crates/v/tgv
