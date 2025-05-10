@@ -2,7 +2,9 @@
 
 [![Discord Badge]][Discord Server] [![Crates version]](https://crates.io/crates/tgv)
 
-<https://github.com/user-attachments/assets/1c74ed21-c026-4535-8627-e4acd9a4313d>
+
+https://github.com/user-attachments/assets/405fa5fb-bd65-4d0c-b922-5b6cb7784c69
+
 
 *TGV is at a very early stage so expect bugs. Please don't rely on it for your papers (yet) :)*
 
@@ -10,8 +12,8 @@
 
 ## Installation
 
+- cargo (recommended): `cargo install tgv`
 - brew: `brew install zeqianli/tgv/tgv`
-- cargo: `cargo install tgv`
 - Pre-built binaries: [Github releases](https://github.com/zeqianli/tgv/releases/)
 
 [Troubleshooting](https://github.com/zeqianli/tgv/wiki/Installation)
