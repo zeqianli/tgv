@@ -1,3 +1,13 @@
+## 0.0.5
+- Supports UCSC accession IDs
+- Contig switching `{` / `}`
+- List contigs `:ls`
+
+## 0.0.4
+- More reference genomes
+- Fix cigar display bug
+- Architecture improvement
+
 ## 0.0.3
 
 Stability improvements.
