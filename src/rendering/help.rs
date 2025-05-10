@@ -21,6 +21,7 @@ pub fn render_help(area: Rect, buf: &mut Buffer) -> Result<(), TGVError> {
  
  |:q|    Quit           |<ESC>|     Switch to normal mode / Close this window
  |:h|    Help           |:|         Switch to command mode
+ |:ls| or |:contigs|                Switch chromosomes
  
  |h / j / k / l|   Move left / down / up / right
  |y / p|           Move left / right faster
@@ -29,6 +30,7 @@ pub fn render_help(area: Rect, buf: &mut Buffer) -> Result<(), TGVError> {
  |e / ge|          End of the next / last exon
  |E / gE|          End of the next / last gene
  |z / o|           Zoom in / out
+ |{{ / }}|        Move to the next / previous contig
  
  |<num><key>|      Repeat movements. Examples:
      - 5h: Move right by 5 bases

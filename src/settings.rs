@@ -27,7 +27,8 @@ pub struct Cli {
     #[arg(short = 'r', long = "region", default_value = "")]
     region: String,
 
-    /// Reference genome. Supported values: hg38; hg19.
+    /// Reference genome.
+    /// TGV supports all UCSC assemblies and accessions. See `tgv --list` or `tgv --list-more`.
     #[arg(short = 'g', long = "reference", default_value = Reference::HG38)]
     reference: String,
 
@@ -40,8 +41,7 @@ pub struct Cli {
     #[arg(long, value_enum, default_value_t = BackendType::Db)]
     backend: BackendType,
 
-    /// For development purposes only
-    /// Display messages in the terminal.
+    /// [For development only] Display messages in the terminal.
     #[arg(long)]
     debug: bool,
 

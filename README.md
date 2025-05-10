@@ -2,7 +2,6 @@
 
 [![Discord Badge]][Discord Server]
 
-Explore omics data without leaving the terminal. Light, blazing fast 🚀, vim motion, memory safe.
 
 <https://github.com/user-attachments/assets/1c74ed21-c026-4535-8627-e4acd9a4313d>
 
