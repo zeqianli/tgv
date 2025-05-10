@@ -21,8 +21,7 @@ https://github.com/user-attachments/assets/405fa5fb-bd65-4d0c-b922-5b6cb7784c69
 ## Quick start
 
 ```bash
-# Browse the hg38 human genome (internet needed). See FAQ for some interesting genome regions.
-# (If you are in Europe, use `tgv --host eu`)
+# Browse the hg38 human genome (internet needed)
 tgv
 
 # Or your favorite genome (see `tgv --list` or `tgv --list-more`)
