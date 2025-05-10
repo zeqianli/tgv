@@ -8,6 +8,7 @@ use crate::{
     region::Region,
     strand::Strand,
     track::Track,
+    ucsc::UcscHost,
 };
 use async_trait::async_trait;
 use reqwest::{Client, StatusCode};
@@ -233,10 +234,10 @@ pub struct UcscDbTrackService {
 
 impl UcscDbTrackService {
     /// Initialize the database connections. Reference is needed to find the corresponding schema.
-    pub async fn new(reference: &Reference) -> Result<Self, TGVError> {
-        let mysql_url = UcscDbTrackService::get_mysql_url(reference)?;
+    pub async fn new(reference: &Reference, ucsc_host: &UcscHost) -> Result<Self, TGVError> {
+        let mysql_url = UcscDbTrackService::get_mysql_url(reference, ucsc_host)?;
         let pool = MySqlPoolOptions::new()
-            .max_connections(5)
+            .max_connections(1)
             .connect(&mysql_url)
             .await?;
 
@@ -245,14 +246,11 @@ impl UcscDbTrackService {
         })
     }
 
-    fn get_mysql_url(reference: &Reference) -> Result<String, TGVError> {
+    fn get_mysql_url(reference: &Reference, ucsc_host: &UcscHost) -> Result<String, TGVError> {
         match reference {
-            Reference::Hg19 => Ok("mysql://genome@genome-mysql.soe.ucsc.edu/hg19".to_string()),
-            Reference::Hg38 => Ok("mysql://genome@genome-mysql.soe.ucsc.edu/hg38".to_string()),
-            Reference::UcscGenome(genome) => Ok(format!(
-                "mysql://genome@genome-mysql.soe.ucsc.edu/{}",
-                genome
-            )),
+            Reference::Hg19 | Reference::Hg38 | Reference::UcscGenome(_) => {
+                Ok(format!("mysql://genome@{}/{}", ucsc_host.url(), reference))
+            }
             _ => Err(TGVError::ValueError(format!(
                 "Unsupported reference: {}",
                 reference
@@ -356,7 +354,13 @@ impl TrackService for UcscDbTrackService {
                 .values()
                 .cloned()
                 .collect::<Vec<(Contig, usize)>>();
-            contigs.sort_by(|(a, _), (b, _)| Contig::contigs_compare(a, b));
+            contigs.sort_by(|(a, length_a), (b, length_b)| {
+                if a.name.starts_with("chr") || b.name.starts_with("chr") {
+                    Contig::contigs_compare(a, b)
+                } else {
+                    length_b.cmp(length_a) // Sort by length in descending order
+                }
+            });
 
             return Ok(contigs);
         } else {
@@ -378,7 +382,13 @@ impl TrackService for UcscDbTrackService {
                 })
                 .collect::<Result<Vec<(Contig, usize)>, TGVError>>()?;
 
-            contigs.sort_by(|(a, _), (b, _)| Contig::contigs_compare(a, b));
+            contigs.sort_by(|(a, length_a), (b, length_b)| {
+                if a.name.starts_with("chr") || b.name.starts_with("chr") {
+                    Contig::contigs_compare(a, b)
+                } else {
+                    length_b.cmp(length_a) // Sort by length in descending order
+                }
+            });
 
             return Ok(contigs);
         }
@@ -1436,7 +1446,13 @@ impl TrackService for UcscApiTrackService {
                     output.push((Contig::new(k), v.as_u64().unwrap() as usize));
                 }
 
-                output.sort_by(|(a, _), (b, _)| Contig::contigs_compare(a, b));
+                output.sort_by(|(a, length_a), (b, length_b)| {
+                    if a.name.starts_with("chr") || b.name.starts_with("chr") {
+                        Contig::contigs_compare(a, b)
+                    } else {
+                        length_b.cmp(length_a) // Sort by length in descending order
+                    }
+                });
 
                 Ok(output)
             }

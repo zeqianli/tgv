@@ -1,7 +1,6 @@
 # Terminal Genome Viewer
 
-[![Discord Badge]][Discord Server]
-
+[![Discord Badge]][Discord Server] [![Crates version]](https://crates.io/crates/tgv)
 
 <https://github.com/user-attachments/assets/1c74ed21-c026-4535-8627-e4acd9a4313d>
 
@@ -10,6 +9,7 @@
 *Contribution and bug reports are welcome! Join our Discord to discuss ideas.*
 
 ## Installation
+
 - brew: `brew install zeqianli/tgv/tgv`
 - cargo: `cargo install tgv`
 - Pre-built binaries: [Github releases](https://github.com/zeqianli/tgv/releases/)
@@ -19,7 +19,8 @@
 ## Quick start
 
 ```bash
-# Browse the hg38 human genome (internet required). See FAQ for some interesting genome regions. 
+# Browse the hg38 human genome (internet needed). See FAQ for some interesting genome regions.
+# (If you are in Europe, use `tgv --host eu`)
 tgv
 
 # Or your favorite genome (see `tgv --list` or `tgv --list-more`)
@@ -58,10 +59,8 @@ tgv non_human.bam -r 1:123 --no-reference
 
   Rust bioinformatics community is super vibrant ([3](https://lh3.github.io/2024/03/05/what-high-performance-language-to-learn), [4](https://github.com/sharkLoc/rust-in-bioinformatics)) and Ratatui makes powerful terminal UIs. So TGV is born!
 
-
 - **How to quit TGV?**  
   [Just like vim :)](https://stackoverflow.com/questions/11828270/how-do-i-exit-vim) Press `Esc` to ensure you're in normal mode, then type `:q` and press Enter.
-
 
 ## Some interesting genome regions
 
@@ -78,3 +77,4 @@ tgv non_human.bam -r 1:123 --no-reference
 
 [Discord Badge]: https://img.shields.io/discord/1358313687399792662?label=discord&logo=discord&style=flat-square&color=1370D3&logoColor=1370D3
 [Discord Server]: https://discord.com/invite/z2c9TY7e
+[Crates version]: https://img.shields.io/crates/v/tgv

@@ -1,5 +1,6 @@
 use crate::error::TGVError;
 use crate::helpers::is_url;
+use crate::ucsc::UcscHost;
 use crate::{message::StateMessage, reference::Reference};
 use clap::{Parser, ValueEnum};
 
@@ -45,6 +46,10 @@ pub struct Cli {
     #[arg(long)]
     debug: bool,
 
+    /// Choose the UCSC host.
+    #[arg(long, value_enum, default_value_t = UcscHost::Us)]
+    host: UcscHost,
+
     /// List common genome names.
     #[arg(long = "list")]
     pub list_common_genomes: bool,
@@ -71,6 +76,8 @@ pub struct Settings {
     pub test_mode: bool,
 
     pub debug: bool,
+
+    pub ucsc_host: UcscHost,
 }
 
 impl Settings {
@@ -158,6 +165,7 @@ impl Settings {
             reference,
             backend,
             initial_state_messages,
+            ucsc_host: cli.host,
             test_mode: false,
             debug: cli.debug,
         })
@@ -229,6 +237,7 @@ mod tests {
             initial_state_messages: vec![StateMessage::GoToDefault],
             test_mode: false,
             debug: false,
+            ucsc_host: UcscHost::Us,
         }
     }
 

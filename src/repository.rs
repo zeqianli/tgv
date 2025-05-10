@@ -36,9 +36,9 @@ impl Repository {
                         (BackendType::Db, Reference::UcscAccession(_)) => {
                             TrackServiceEnum::Api(UcscApiTrackService::new()?)
                         }
-                        (BackendType::Db, _) => {
-                            TrackServiceEnum::Db(UcscDbTrackService::new(reference).await?)
-                        }
+                        (BackendType::Db, _) => TrackServiceEnum::Db(
+                            UcscDbTrackService::new(reference, &settings.ucsc_host).await?,
+                        ),
                         _ => {
                             return Err(TGVError::ValueError(format!(
                                 "Unsupported reference: {}",
