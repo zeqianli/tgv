@@ -1,9 +1,12 @@
 ## 0.0.5
+
 - Supports UCSC accession IDs
 - Contig switching `{` / `}`
 - List contigs `:ls`
+- UCSC EU server `tgv --host eu`
 
 ## 0.0.4
+
 - More reference genomes
 - Fix cigar display bug
 - Architecture improvement
@@ -15,6 +18,7 @@ Stability improvements.
 ## 0.0.2
 
 Major update on UI, testing, CI, state handling.
+
 - New UI elements: half-character base render, cytobands, high-level zoom, non-cds exons, genome lenght upper bound
 - Stability improvements
 - Integration test!
