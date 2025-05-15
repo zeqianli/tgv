@@ -77,5 +77,5 @@ tgv non_human.bam -r 1:123 --no-reference
 - [rust-htslib](https://github.com/rust-bio/rust-htslib), [htslib](https://github.com/samtools/htslib)
 
 [Discord Badge]: https://img.shields.io/discord/1358313687399792662?label=discord&logo=discord&style=flat-square&color=1370D3&logoColor=1370D3
-[Discord Server]: https://discord.com/invite/z2c9TY7e
+[Discord Server]: https://discord.gg/rZkgjHqPR8
 [Crates version]: https://img.shields.io/crates/v/tgv
