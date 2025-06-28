@@ -1,0 +1,74 @@
+name: 🚀 Feature Request
+description: Suggest a new feature or enhancement
+title: "[FEATURE] "
+labels: ["enhancement", "triage"]
+body:
+
+  - type: checkboxes
+    id: contribution
+    attributes:
+      label: 🤝 Contribution
+      description: Can you help implement this feature?
+      options:
+        - label: I can contribute to implementing this feature
+        - label: I'm willing to help with testing/feedback
+        - label: I need someone else to implement this (that's okay too!)
+
+  - type: textarea
+    id: summary
+    attributes:
+      label: 📋 Feature Summary
+      description: A clear and concise description of the feature you'd like to see
+      placeholder: "I would like to..."
+    validations:
+      required: true
+
+  - type: textarea
+    id: user-interaction
+    attributes:
+      label: 🎮 User Interaction Design
+      description: How should users interact with this feature?
+      placeholder: |
+        Describe the user experience:
+        - Key bindings (e.g., Ctrl+N for new item)
+        - Mouse interactions (click, drag, hover)
+        - UI elements (buttons, menus, panels)
+        - Workflow steps
+        - Visual feedback
+    validations:
+      required: false
+
+  - type: textarea
+    id: visual-design
+    attributes:
+      label: 🎨 Visual Design & Layout
+      description: How should this feature look? Include mockups, drawings, or references
+      placeholder: |
+        Describe the visual aspects:
+        - Layout and positioning
+        - UI components needed
+        - Color schemes or themes
+        - Icons or graphics
+        - Animations or transitions
+        
+        Feel free to attach images, sketches, or reference examples!
+
+  - type: textarea
+    id: additional-context
+    attributes:
+      label: 📝 Additional Context
+      description: Add any other context, screenshots, or examples about the feature request
+      placeholder: "Any other information that might be helpful..."
+
+  - type: markdown
+    attributes:
+      value: |
+        ---
+        
+        **Thank you for contributing to the project! 🎉**
+        
+        After submitting, maintainers will:
+        - Review and discuss the feature
+        - Add appropriate labels and milestones
+        - Provide feedback or ask clarifying questions
+        - Help connect you with other contributors if you want to implement it
