@@ -26,46 +26,44 @@ use clap::Parser;
 use error::TGVError;
 mod track_service;
 use crate::reference::Reference;
-use crate::track_service::{TrackService, UCSCDownloader, UcscDbTrackService};
+use crate::track_service::{UCSCDownloader, UcscDbTrackService};
 use settings::{Cli, Commands, Settings};
 #[tokio::main]
 async fn main() -> Result<(), TGVError> {
     let cli = Cli::parse();
 
-    if cli.list_common_genomes {
-        let n = print_common_genomes()?;
-        println!("{} common genomes", n);
-        println!("Browse a genome: tgv -g <genome> (e.g. tgv -g rat)");
-        return Ok(());
+    match cli.command {
+        Some(Commands::Download {
+            reference,
+            cache_dir,
+        }) => {
+            let downloader = UCSCDownloader::new(Reference::from_str(&reference)?, cache_dir)?;
+            downloader.download().await?;
+            return Ok(());
+        }
+        Some(Commands::List { more, all }) => {
+            // if cli.list_ucsc_accessions {
+            //     print_common_genomes()?;
+            //     print_ucsc_accessions()?;
+            //     return Ok(());
+            // }
+            if more {
+                let n = print_ucsc_assemblies().await?;
+                let n = println!("{} UCSC assemblies", n);
+                println!("Browse a genome: tgv -g <genome> (e.g. tgv -g rn7)");
+            } else {
+                let n = print_common_genomes()?;
+                println!("{} common genomes", n);
+                println!("Browse a genome: tgv -g <genome> (e.g. tgv -g rat)");
+            }
+            return Ok(());
+        }
+        None => {}
     }
 
-    if cli.list_ucsc_assemblies {
-        let n = print_ucsc_assemblies().await?;
-        println!("{} UCSC assemblies", n);
-        println!("Browse a genome: tgv -g <genome> (e.g. tgv -g rn7)");
-        return Ok(());
-    }
-
-    if let Some(Commands::Download {
-        reference,
-        cache_dir,
-    }) = cli.command
-    {
-        let downloader = UCSCDownloader::new(Reference::from_str(&reference)?, cache_dir)?;
-        downloader.download().await?;
-        return Ok(());
-    }
-
-    // if cli.list_ucsc_accessions {
-    //     print_common_genomes()?;
-    //     print_ucsc_accessions()?;
-    //     return Ok(());
-    // }
     let settings: Settings = Settings::new(cli)?;
 
     let mut terminal = ratatui::init();
-
-    // TODO: initialize UCSC connections here to ensure that they are properly closed in case of errors.
 
     let mut app = match App::new(settings).await {
         Ok(app) => app,

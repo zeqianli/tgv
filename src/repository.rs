@@ -40,12 +40,32 @@ impl Repository {
         ) = match settings.reference.as_ref() {
             Some(reference) => {
                 let ts = match (&settings.backend, reference) {
-                    (BackendType::Db, Reference::UcscAccession(_)) => {
+                    (BackendType::Ucsc, Reference::UcscAccession(_)) => {
                         TrackServiceEnum::Api(UcscApiTrackService::new()?)
                     }
-                    (BackendType::Db, _) => TrackServiceEnum::Db(
+                    (BackendType::Ucsc, _) => TrackServiceEnum::Db(
                         UcscDbTrackService::new(reference, &settings.ucsc_host).await?,
                     ),
+                    (BackendType::Local, _) => TrackServiceEnum::LocalDb(
+                        LocalDbTrackService::new(reference, &settings.cache_dir).await?,
+                    ),
+                    (BackendType::Default, reference) => {
+                        // If the local cache is available, use the local cache.
+                        // Otherwise, use the UCSC DB / API.
+                        match LocalDbTrackService::new(reference, &settings.cache_dir).await {
+                            Ok(ts) => TrackServiceEnum::LocalDb(ts),
+                            Err(TGVError::IOError(e)) => match reference {
+                                Reference::UcscAccession(_) => {
+                                    TrackServiceEnum::Api(UcscApiTrackService::new()?)
+                                }
+                                _ => TrackServiceEnum::Db(
+                                    UcscDbTrackService::new(reference, &settings.ucsc_host).await?,
+                                ),
+                            },
+
+                            Err(e) => return Err(e),
+                        }
+                    }
                     _ => {
                         return Err(TGVError::ValueError(format!(
                             "Unsupported reference: {}",
