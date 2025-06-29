@@ -2179,12 +2179,16 @@ impl UCSCDownloader {
             return Ok(());
         }
 
-        // Create SQLite table
-        let create_sql = format!(
-            "CREATE TABLE IF NOT EXISTS {} ({})",
-            table_name,
-            column_defs.join(", ")
-        );
+        // Drop existing table if it exists, then create fresh
+        let drop_sql = format!("DROP TABLE IF EXISTS {}", table_name);
+        sqlx::query(&drop_sql)
+            .execute(sqlite_pool)
+            .await
+            .map_err(|e| {
+                TGVError::IOError(format!("Failed to drop {} table: {}", table_name, e))
+            })?;
+
+        let create_sql = format!("CREATE TABLE {} ({})", table_name, column_defs.join(", "));
 
         sqlx::query(&create_sql)
             .execute(sqlite_pool)
