@@ -2093,8 +2093,13 @@ impl UCSCDownloader {
         // Transfer gene tracks
         self.transfer_gene_tracks(&mysql_pool, &sqlite_pool).await?;
 
-        // Close connections properly
+        // Close MySQL connection before downloading genomes
         mysql_pool.close().await;
+
+        // Download genome files
+        self.download_genomes(&sqlite_pool).await?;
+
+        // Close SQLite connection
         sqlite_pool.close().await;
 
         println!(
@@ -2291,6 +2296,83 @@ impl UCSCDownloader {
             println!("No preferred gene track found");
         }
 
+        Ok(())
+    }
+
+    async fn download_genomes(&self, sqlite_pool: &SqlitePool) -> Result<(), TGVError> {
+        println!("Downloading genome files...");
+
+        // Query SQLite for unique fileName values from chromInfo table
+        let rows = sqlx::query(
+            "SELECT DISTINCT fileName FROM chromInfo WHERE fileName IS NOT NULL AND fileName != ''",
+        )
+        .fetch_all(sqlite_pool)
+        .await?;
+
+        if rows.is_empty() {
+            println!("No genome files found in chromInfo table");
+            return Ok(());
+        }
+
+        // Create HTTP client
+        let client = reqwest::Client::new();
+        let genome_dir = std::path::Path::new(&self.cache_dir).join(self.reference.to_string());
+
+        // Ensure genome directory exists
+        std::fs::create_dir_all(&genome_dir)
+            .map_err(|e| TGVError::IOError(format!("Failed to create genome directory: {}", e)))?;
+
+        for row in rows {
+            let file_name: String = row.try_get("fileName")?;
+            let download_url = format!("http://hgdownload.soe.ucsc.edu/{}", file_name);
+
+            // Extract just the filename part from the full path
+            let actual_filename = std::path::Path::new(&file_name)
+                .file_name()
+                .and_then(|f| f.to_str())
+                .unwrap_or(&file_name);
+            let file_path = genome_dir.join(actual_filename);
+
+            // Skip if file already exists
+            if file_path.exists() {
+                println!("Genome file {} already exists, skipping", actual_filename);
+                continue;
+            }
+
+            println!("Downloading genome file: {}", actual_filename);
+
+            // Download the file
+            match client.get(&download_url).send().await {
+                Ok(response) => {
+                    if response.status().is_success() {
+                        let content = response.bytes().await.map_err(|e| {
+                            TGVError::IOError(format!("Failed to read response bytes: {}", e))
+                        })?;
+
+                        // Write file to disk
+                        std::fs::write(&file_path, content).map_err(|e| {
+                            TGVError::IOError(format!(
+                                "Failed to write file {}: {}",
+                                actual_filename, e
+                            ))
+                        })?;
+
+                        println!("Downloaded: {}", actual_filename);
+                    } else {
+                        println!(
+                            "Failed to download {}: HTTP {}",
+                            actual_filename,
+                            response.status()
+                        );
+                    }
+                }
+                Err(e) => {
+                    println!("Failed to download {}: {}", actual_filename, e);
+                }
+            }
+        }
+
+        println!("Genome file download completed");
         Ok(())
     }
 }
