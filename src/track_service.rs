@@ -14,8 +14,10 @@ use async_trait::async_trait;
 use reqwest::{Client, StatusCode};
 use serde::de::Error as _;
 use serde::Deserialize;
+use sqlx::mysql::MySqlRow;
 use sqlx::{
     mysql::MySqlPoolOptions,
+    query::Query,
     sqlite::{SqliteConnectOptions, SqlitePool, SqlitePoolOptions},
     Column, MySqlPool, Row,
 };
@@ -238,7 +240,7 @@ pub struct UcscDbTrackService {
 }
 
 impl UcscDbTrackService {
-    /// Initialize the database connections. Reference is needed to find the corresponding schema.
+    // Initialize the database connections. Reference is needed to find the corresponding schema.
     pub async fn new(reference: &Reference, ucsc_host: &UcscHost) -> Result<Self, TGVError> {
         let mysql_url = UcscDbTrackService::get_mysql_url(reference, ucsc_host)?;
         let pool = MySqlPoolOptions::new()
@@ -313,6 +315,66 @@ impl UcscDbTrackService {
             assemblies.push((name, common_name));
         }
         Ok(assemblies)
+    }
+
+    fn parse_gene_rows(&self, rows: Vec<MySqlRow>) -> Result<Vec<Gene>, TGVError> {
+        let mut genes = Vec::new();
+        for row in rows {
+            let name: String = row.try_get("name")?;
+            let chrom: String = row.try_get("chrom")?;
+            let strand_str: String = row.try_get("strand")?;
+            let tx_start: u64 = row.try_get("txStart")?;
+            let tx_end: u64 = row.try_get("txEnd")?;
+            let cds_start: u64 = row.try_get("cdsStart")?;
+            let cds_end: u64 = row.try_get("cdsEnd")?;
+
+            let name2: String = match row.try_get("name2") {
+                Ok(name2) => name2,
+                Err(e) => name.clone(),
+            };
+            let exon_starts_blob: Vec<u8> = row.try_get("exonStarts")?;
+            let exon_ends_blob: Vec<u8> = row.try_get("exonEnds")?;
+
+            // USCS coordinates are 0-based, half-open
+            // https://genome-blog.gi.ucsc.edu/blog/2016/12/12/the-ucsc-genome-browser-coordinate-counting-systems/
+
+            genes.push(Gene {
+                id: name,
+                name: name2,
+                strand: Strand::from_str(strand_str).unwrap(),
+                contig: Contig::new(&chrom),
+                transcription_start: tx_start as usize + 1,
+                transcription_end: tx_end as usize,
+                cds_start: cds_start as usize + 1,
+                cds_end: cds_end as usize,
+                exon_starts: parse_blob_to_coords(&exon_starts_blob)
+                    .iter()
+                    .map(|v| v + 1)
+                    .collect(),
+                exon_ends: parse_blob_to_coords(&exon_ends_blob),
+                has_exons: true,
+            });
+        }
+
+        Ok(genes)
+    }
+
+    async fn get_preferred_track_name_with_cache(
+        &self,
+        reference: &Reference,
+        cache: &mut TrackCache,
+    ) -> Result<String, TGVError> {
+        if cache.get_preferred_track_name().is_none() {
+            let preferred_track = self.get_preferred_track_name(reference, cache).await?;
+            cache.set_preferred_track_name(preferred_track);
+        }
+
+        let preferred_track = match cache.get_preferred_track_name().unwrap() {
+            Some(track) => track,
+            None => return Err(TGVError::IOError("No preferred track found".to_string())),
+        };
+
+        Ok(preferred_track)
     }
 }
 
@@ -472,24 +534,12 @@ impl TrackService for UcscDbTrackService {
         region: &Region,
         cache: &mut TrackCache,
     ) -> Result<Vec<Gene>, TGVError> {
-        if cache.get_preferred_track_name().is_none() {
-            let preferred_track = self.get_preferred_track_name(reference, cache).await?;
-            cache.set_preferred_track_name(preferred_track);
-        }
-
-        let preferred_track = cache.get_preferred_track_name().unwrap();
-
-        if preferred_track.is_none() {
-            return Err(TGVError::IOError("No preferred track found".to_string()));
-        }
-
-        let preferred_track = preferred_track.unwrap();
         let rows = sqlx::query(
             format!(
-                "SELECT *
-             FROM {} 
+                "SELECT * FROM {} 
              WHERE chrom = ? AND (txStart <= ?) AND (txEnd >= ?)",
-                preferred_track,
+                self.get_preferred_track_name_with_cache(reference, cache)
+                    .await?
             )
             .as_str(),
         )
@@ -499,45 +549,7 @@ impl TrackService for UcscDbTrackService {
         .fetch_all(&*self.pool)
         .await?;
 
-        let mut genes = Vec::new();
-        for row in rows {
-            let name: String = row.try_get("name")?;
-            let chrom: String = row.try_get("chrom")?;
-            let strand_str: String = row.try_get("strand")?;
-            let tx_start: u64 = row.try_get("txStart")?;
-            let tx_end: u64 = row.try_get("txEnd")?;
-            let cds_start: u64 = row.try_get("cdsStart")?;
-            let cds_end: u64 = row.try_get("cdsEnd")?;
-
-            let name2: String = match row.try_get("name2") {
-                Ok(name2) => name2,
-                Err(e) => name.clone(),
-            };
-            let exon_starts_blob: Vec<u8> = row.try_get("exonStarts")?;
-            let exon_ends_blob: Vec<u8> = row.try_get("exonEnds")?;
-
-            // USCS coordinates are 0-based, half-open
-            // https://genome-blog.gi.ucsc.edu/blog/2016/12/12/the-ucsc-genome-browser-coordinate-counting-systems/
-
-            genes.push(Gene {
-                id: name,
-                name: name2,
-                strand: Strand::from_str(strand_str).unwrap(),
-                contig: Contig::new(&chrom),
-                transcription_start: tx_start as usize + 1,
-                transcription_end: tx_end as usize,
-                cds_start: cds_start as usize + 1,
-                cds_end: cds_end as usize,
-                exon_starts: parse_blob_to_coords(&exon_starts_blob)
-                    .iter()
-                    .map(|v| v + 1)
-                    .collect(),
-                exon_ends: parse_blob_to_coords(&exon_ends_blob),
-                has_exons: true,
-            });
-        }
-
-        Ok(genes)
+        self.parse_gene_rows(rows)
     }
 
     async fn query_gene_covering(
@@ -547,25 +559,13 @@ impl TrackService for UcscDbTrackService {
         coord: usize,
         cache: &mut TrackCache,
     ) -> Result<Option<Gene>, TGVError> {
-        if cache.get_preferred_track_name().is_none() {
-            let preferred_track = self.get_preferred_track_name(reference, cache).await?;
-            cache.set_preferred_track_name(preferred_track);
-        }
-
-        let preferred_track = cache.get_preferred_track_name().unwrap();
-
-        if preferred_track.is_none() {
-            return Err(TGVError::IOError("No preferred track found".to_string()));
-        }
-
-        let preferred_track = preferred_track.unwrap();
-
         let row = sqlx::query(
             format!(
                 "SELECT *
              FROM {} 
              WHERE chrom = ? AND txStart <= ? AND txEnd >= ?",
-                preferred_track,
+                self.get_preferred_track_name_with_cache(reference, cache)
+                    .await?,
             )
             .as_str(),
         )
@@ -576,39 +576,7 @@ impl TrackService for UcscDbTrackService {
         .await?;
 
         if let Some(row) = row {
-            let name: String = row.try_get("name")?;
-            let chrom: String = row.try_get("chrom")?;
-            let strand_str: String = row.try_get("strand")?;
-            let tx_start: u32 = row.try_get("txStart")?;
-            let tx_end: u32 = row.try_get("txEnd")?;
-            let cds_start: u32 = row.try_get("cdsStart")?;
-            let cds_end: u32 = row.try_get("cdsEnd")?;
-            let name2: String = match row.try_get("name2") {
-                Ok(name2) => name2,
-                Err(e) => name.clone(),
-            };
-            let exon_starts_blob: Vec<u8> = row.try_get("exonStarts")?;
-            let exon_ends_blob: Vec<u8> = row.try_get("exonEnds")?;
-
-            // USCS coordinates are 0-based, half-open
-            // https://genome-blog.gi.ucsc.edu/blog/2016/12/12/the-ucsc-genome-browser-coordinate-counting-systems/
-
-            Ok(Some(Gene {
-                id: name,
-                name: name2,
-                strand: Strand::from_str(strand_str).unwrap(),
-                contig: Contig::new(&chrom),
-                transcription_start: tx_start as usize + 1,
-                transcription_end: tx_end as usize,
-                cds_start: cds_start as usize + 1,
-                cds_end: cds_end as usize,
-                exon_starts: parse_blob_to_coords(&exon_starts_blob)
-                    .iter()
-                    .map(|v| v + 1)
-                    .collect(),
-                exon_ends: parse_blob_to_coords(&exon_ends_blob),
-                has_exons: true,
-            }))
+            Ok(self.parse_gene_rows(vec![row])?.get(0).cloned())
         } else {
             Ok(None)
         }
@@ -620,23 +588,13 @@ impl TrackService for UcscDbTrackService {
         gene_id: &String,
         cache: &mut TrackCache,
     ) -> Result<Gene, TGVError> {
-        if cache.get_preferred_track_name().is_none() {
-            let preferred_track = self.get_preferred_track_name(reference, cache).await?;
-            cache.set_preferred_track_name(preferred_track);
-        }
-
-        let preferred_track = cache.get_preferred_track_name().unwrap();
-
-        if preferred_track.is_none() {
-            return Err(TGVError::IOError("No preferred track found".to_string()));
-        }
-
         let row = sqlx::query(
             format!(
                 "SELECT *
             FROM {} 
             WHERE name2 = ?",
-                preferred_track.unwrap()
+                self.get_preferred_track_name_with_cache(reference, cache)
+                    .await?
             )
             .as_str(),
         )
@@ -645,42 +603,13 @@ impl TrackService for UcscDbTrackService {
         .await?;
 
         if let Some(row) = row {
-            // USCS coordinates are -1-based, half-open
-            // https://genome-blog.gi.ucsc.edu/blog/2015/12/12/the-ucsc-genome-browser-coordinate-counting-systems/
-
-            let name: String = row.try_get("name")?;
-            let name2: String = match row.try_get("name2") {
-                Ok(name2) => name2,
-                Err(e) => name.clone(),
-            };
-            let strand_str: String = row.try_get("strand")?;
-            let chrom: String = row.try_get("chrom")?;
-            let tx_start: u32 = row.try_get("txStart")?;
-            let tx_end: u32 = row.try_get("txEnd")?;
-            let exon_starts_blob: Vec<u8> = row.try_get("exonStarts")?;
-            let exon_ends_blob: Vec<u8> = row.try_get("exonEnds")?;
-            let cds_start: u32 = row.try_get("cdsStart")?;
-            let cds_end: u32 = row.try_get("cdsEnd")?;
-
-            // USCS coordinates are -1-based, half-open
-            // https://genome-blog.gi.ucsc.edu/blog/2015/12/12/the-ucsc-genome-browser-coordinate-counting-systems/
-
-            Ok(Gene {
-                id: name,
-                name: name2,
-                strand: Strand::from_str(strand_str).unwrap(),
-                contig: Contig::new(&chrom),
-                transcription_start: tx_start as usize + 1,
-                transcription_end: tx_end as usize,
-                cds_start: cds_start as usize + 1,
-                cds_end: cds_end as usize,
-                exon_starts: parse_blob_to_coords(&exon_starts_blob)
-                    .iter()
-                    .map(|v| v + 1)
-                    .collect(),
-                exon_ends: parse_blob_to_coords(&exon_ends_blob),
-                has_exons: true,
-            })
+            self.parse_gene_rows(vec![row])?
+                .get(0)
+                .cloned()
+                .ok_or(TGVError::IOError(format!(
+                    "Failed to query gene: {}",
+                    gene_id
+                )))
         } else {
             Err(TGVError::IOError(format!(
                 "Failed to query gene: {}",
@@ -701,26 +630,14 @@ impl TrackService for UcscDbTrackService {
             return Err(TGVError::ValueError("k cannot be 0".to_string()));
         }
 
-        if cache.get_preferred_track_name().is_none() {
-            let preferred_track = self.get_preferred_track_name(reference, cache).await?;
-            cache.set_preferred_track_name(preferred_track);
-        }
-
-        let preferred_track = cache.get_preferred_track_name().unwrap();
-
-        if preferred_track.is_none() {
-            return Err(TGVError::IOError("No preferred track found".to_string()));
-        }
-
-        let preferred_track = preferred_track.unwrap();
-
         let rows = sqlx::query(
             format!(
                 "SELECT *
              FROM {} 
              WHERE chrom = ? AND txEnd >= ? 
              ORDER BY txEnd ASC LIMIT ?",
-                preferred_track,
+                self.get_preferred_track_name_with_cache(reference, cache)
+                    .await?,
             )
             .as_str(),
         )
@@ -734,49 +651,7 @@ impl TrackService for UcscDbTrackService {
             return Err(TGVError::IOError("No genes found".to_string()));
         }
 
-        let mut genes = Vec::new();
-
-        for row in rows {
-            let name: String = row.try_get("name")?;
-            let chrom: String = row.try_get("chrom")?;
-            let strand_str: String = row.try_get("strand")?;
-            let tx_start: u32 = row.try_get("txStart")?;
-            let tx_end: u32 = row.try_get("txEnd")?;
-            let name2: String = match row.try_get("name2") {
-                Ok(name2) => name2,
-                Err(e) => name.clone(),
-            };
-            let exon_starts_blob: Vec<u8> = row.try_get("exonStarts")?;
-            let exon_ends_blob: Vec<u8> = row.try_get("exonEnds")?;
-            let cds_start: u32 = row.try_get("cdsStart")?;
-            let cds_end: u32 = row.try_get("cdsEnd")?;
-
-            // USCS coordinates are 0-based, half-open
-            // https://genome-blog.gi.ucsc.edu/blog/2016/12/12/the-ucsc-genome-browser-coordinate-counting-systems/
-
-            let gene = Gene {
-                id: name,
-                name: name2,
-                strand: Strand::from_str(strand_str).unwrap(),
-                contig: Contig::new(&chrom),
-                transcription_start: tx_start as usize + 1,
-                transcription_end: tx_end as usize,
-                cds_start: cds_start as usize + 1,
-                cds_end: cds_end as usize,
-                exon_starts: parse_blob_to_coords(&exon_starts_blob)
-                    .iter()
-                    .map(|v| v + 1)
-                    .collect(),
-                exon_ends: parse_blob_to_coords(&exon_ends_blob),
-                has_exons: true,
-            };
-
-            genes.push(gene);
-        }
-
-        let track = Track::from_genes(genes, contig.clone())?;
-
-        track
+        Track::from_genes(self.parse_gene_rows(rows)?, contig.clone())?
             .get_saturating_k_genes_after(coord, k)
             .cloned()
             .ok_or(TGVError::IOError("No genes found".to_string()))
@@ -794,26 +669,14 @@ impl TrackService for UcscDbTrackService {
             return Err(TGVError::ValueError("k cannot be 0".to_string()));
         }
 
-        if cache.get_preferred_track_name().is_none() {
-            let preferred_track = self.get_preferred_track_name(reference, cache).await?;
-            cache.set_preferred_track_name(preferred_track);
-        }
-
-        let preferred_track = cache.get_preferred_track_name().unwrap();
-
-        if preferred_track.is_none() {
-            return Err(TGVError::IOError("No preferred track found".to_string()));
-        }
-
-        let preferred_track = preferred_track.unwrap();
-
         let rows = sqlx::query(
             format!(
                 "SELECT *
              FROM {} 
              WHERE chrom = ? AND txStart <= ? 
              ORDER BY txStart DESC LIMIT ?",
-                preferred_track,
+                self.get_preferred_track_name_with_cache(reference, cache)
+                    .await?,
             )
             .as_str(),
         )
@@ -827,49 +690,7 @@ impl TrackService for UcscDbTrackService {
             return Err(TGVError::IOError("No genes found".to_string()));
         }
 
-        let mut genes = Vec::new();
-
-        for row in rows {
-            let name: String = row.try_get("name")?;
-            let chrom: String = row.try_get("chrom")?;
-            let strand_str: String = row.try_get("strand")?;
-            let tx_start: u32 = row.try_get("txStart")?;
-            let tx_end: u32 = row.try_get("txEnd")?;
-            let name2: String = match row.try_get("name2") {
-                Ok(name2) => name2,
-                Err(e) => name.clone(),
-            };
-            let exon_starts_blob: Vec<u8> = row.try_get("exonStarts")?;
-            let exon_ends_blob: Vec<u8> = row.try_get("exonEnds")?;
-            let cds_start: u32 = row.try_get("cdsStart")?;
-            let cds_end: u32 = row.try_get("cdsEnd")?;
-
-            // USCS coordinates are 0-based, half-open
-            // https://genome-blog.gi.ucsc.edu/blog/2016/12/12/the-ucsc-genome-browser-coordinate-counting-systems/
-
-            let gene = Gene {
-                id: name,
-                name: name2,
-                strand: Strand::from_str(strand_str).unwrap(),
-                contig: Contig::new(&chrom),
-                transcription_start: tx_start as usize + 1,
-                transcription_end: tx_end as usize,
-                cds_start: cds_start as usize + 1,
-                cds_end: cds_end as usize,
-                exon_starts: parse_blob_to_coords(&exon_starts_blob)
-                    .iter()
-                    .map(|v| v + 1)
-                    .collect(),
-                exon_ends: parse_blob_to_coords(&exon_ends_blob),
-                has_exons: true,
-            };
-
-            genes.push(gene);
-        }
-
-        let track = Track::from_genes(genes, contig.clone())?;
-
-        track
+        Track::from_genes(self.parse_gene_rows(rows)?, contig.clone())?
             .get_saturating_k_genes_before(coord, k)
             .cloned()
             .ok_or(TGVError::IOError("No genes found".to_string()))
@@ -887,26 +708,14 @@ impl TrackService for UcscDbTrackService {
             return Err(TGVError::ValueError("k cannot be 0".to_string()));
         }
 
-        if cache.get_preferred_track_name().is_none() {
-            let preferred_track = self.get_preferred_track_name(reference, cache).await?;
-            cache.set_preferred_track_name(preferred_track);
-        }
-
-        let preferred_track = cache.get_preferred_track_name().unwrap();
-
-        if preferred_track.is_none() {
-            return Err(TGVError::IOError("No preferred track found".to_string()));
-        }
-
-        let preferred_track = preferred_track.unwrap();
-
         let rows = sqlx::query(
             format!(
                 "SELECT *
              FROM {} 
              WHERE chrom = ? AND txEnd >= ? 
              ORDER BY txEnd ASC LIMIT ?",
-                preferred_track,
+                self.get_preferred_track_name_with_cache(reference, cache)
+                    .await?,
             )
             .as_str(),
         )
@@ -916,44 +725,7 @@ impl TrackService for UcscDbTrackService {
         .fetch_all(&*self.pool)
         .await?;
 
-        let mut genes = Vec::new();
-        for row in rows {
-            let name: String = row.try_get("name")?;
-            let chrom: String = row.try_get("chrom")?;
-            let strand_str: String = row.try_get("strand")?;
-            let tx_start: u32 = row.try_get("txStart")?;
-            let tx_end: u32 = row.try_get("txEnd")?;
-            let name2: String = match row.try_get("name2") {
-                Ok(name2) => name2,
-                Err(e) => name.clone(),
-            };
-            let exon_starts_blob: Vec<u8> = row.try_get("exonStarts")?;
-            let exon_ends_blob: Vec<u8> = row.try_get("exonEnds")?;
-            let cds_start: u32 = row.try_get("cdsStart")?;
-            let cds_end: u32 = row.try_get("cdsEnd")?;
-
-            // USCS coordinates are 0-based, half-open
-            // https://genome-blog.gi.ucsc.edu/blog/2016/12/12/the-ucsc-genome-browser-coordinate-counting-systems/
-
-            let gene = Gene {
-                id: name,
-                name: name2,
-                strand: Strand::from_str(strand_str).unwrap(),
-                contig: Contig::new(&chrom),
-                transcription_start: tx_start as usize + 1,
-                transcription_end: tx_end as usize,
-                cds_start: cds_start as usize + 1,
-                cds_end: cds_end as usize,
-                exon_starts: parse_blob_to_coords(&exon_starts_blob)
-                    .iter()
-                    .map(|v| v + 1)
-                    .collect(),
-                exon_ends: parse_blob_to_coords(&exon_ends_blob),
-                has_exons: true,
-            };
-
-            genes.push(gene);
-        }
+        let genes = self.parse_gene_rows(rows)?;
 
         let track = Track::from_genes(genes, contig.clone())?;
 
@@ -974,26 +746,14 @@ impl TrackService for UcscDbTrackService {
             return Err(TGVError::ValueError("k cannot be 0".to_string()));
         }
 
-        if cache.get_preferred_track_name().is_none() {
-            let preferred_track = self.get_preferred_track_name(reference, cache).await?;
-            cache.set_preferred_track_name(preferred_track);
-        }
-
-        let preferred_track = cache.get_preferred_track_name().unwrap();
-
-        if preferred_track.is_none() {
-            return Err(TGVError::IOError("No preferred track found".to_string()));
-        }
-
-        let preferred_track = preferred_track.unwrap();
-
         let rows = sqlx::query(
             format!(
                 "SELECT *
              FROM {} 
              WHERE chrom = ? AND txStart <= ? 
              ORDER BY txStart DESC LIMIT ?",
-                preferred_track,
+                self.get_preferred_track_name_with_cache(reference, cache)
+                    .await?,
             )
             .as_str(),
         )
@@ -1003,48 +763,9 @@ impl TrackService for UcscDbTrackService {
         .fetch_all(&*self.pool)
         .await?;
 
-        let mut genes = Vec::new();
-        for row in rows {
-            let name: String = row.try_get("name")?;
-            let chrom: String = row.try_get("chrom")?;
-            let strand_str: String = row.try_get("strand")?;
-            let tx_start: u32 = row.try_get("txStart")?;
-            let tx_end: u32 = row.try_get("txEnd")?;
-            let name2: String = match row.try_get("name2") {
-                Ok(name2) => name2,
-                Err(e) => name.clone(),
-            };
-            let exon_starts_blob: Vec<u8> = row.try_get("exonStarts")?;
-            let exon_ends_blob: Vec<u8> = row.try_get("exonEnds")?;
-            let cds_start: u32 = row.try_get("cdsStart")?;
-            let cds_end: u32 = row.try_get("cdsEnd")?;
+        let genes = self.parse_gene_rows(rows)?;
 
-            // USCS coordinates are 0-based, half-open
-            // https://genome-blog.gi.ucsc.edu/blog/2016/12/12/the-ucsc-genome-browser-coordinate-counting-systems/
-
-            let gene = Gene {
-                id: name,
-                name: name2,
-                strand: Strand::from_str(strand_str).unwrap(),
-                contig: Contig::new(&chrom),
-                transcription_start: tx_start as usize + 1,
-                transcription_end: tx_end as usize,
-                cds_start: cds_start as usize + 1,
-                cds_end: cds_end as usize,
-                exon_starts: parse_blob_to_coords(&exon_starts_blob)
-                    .iter()
-                    .map(|v| v + 1)
-                    .collect(),
-                exon_ends: parse_blob_to_coords(&exon_ends_blob),
-                has_exons: true,
-            };
-
-            genes.push(gene);
-        }
-
-        let track = Track::from_genes(genes, contig.clone())?;
-
-        track
+        Track::from_genes(genes, contig.clone())?
             .get_saturating_k_exons_before(coord, k)
             .ok_or(TGVError::IOError("No exons found".to_string()))
     }
