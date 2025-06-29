@@ -26,8 +26,8 @@ use clap::Parser;
 use error::TGVError;
 mod track_service;
 use crate::reference::Reference;
-use crate::track_service::{TrackService, UcscDbTrackService};
-use settings::{Cli, Settings};
+use crate::track_service::{TrackService, UCSCDownloader, UcscDbTrackService};
+use settings::{Cli, Commands, Settings};
 #[tokio::main]
 async fn main() -> Result<(), TGVError> {
     let cli = Cli::parse();
@@ -43,6 +43,16 @@ async fn main() -> Result<(), TGVError> {
         let n = print_ucsc_assemblies().await?;
         println!("{} UCSC assemblies", n);
         println!("Browse a genome: tgv -g <genome> (e.g. tgv -g rn7)");
+        return Ok(());
+    }
+
+    if let Some(Commands::Download {
+        reference,
+        cache_dir,
+    }) = cli.command
+    {
+        let downloader = UCSCDownloader::new(Reference::from_str(&reference)?, cache_dir)?;
+        downloader.download().await?;
         return Ok(());
     }
 

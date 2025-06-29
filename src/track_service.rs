@@ -14,8 +14,13 @@ use async_trait::async_trait;
 use reqwest::{Client, StatusCode};
 use serde::de::Error as _;
 use serde::Deserialize;
-use sqlx::{mysql::MySqlPoolOptions, MySqlPool, Row};
+use sqlx::{
+    mysql::MySqlPoolOptions,
+    sqlite::{SqliteConnectOptions, SqlitePool, SqlitePoolOptions},
+    MySqlPool, Row,
+};
 use std::collections::HashMap;
+use std::path::Path;
 use std::sync::Arc;
 
 /// Holds cache for track service queries.
@@ -246,7 +251,7 @@ impl UcscDbTrackService {
         })
     }
 
-    fn get_mysql_url(reference: &Reference, ucsc_host: &UcscHost) -> Result<String, TGVError> {
+    pub fn get_mysql_url(reference: &Reference, ucsc_host: &UcscHost) -> Result<String, TGVError> {
         match reference {
             Reference::Hg19 | Reference::Hg38 | Reference::UcscGenome(_) => {
                 Ok(format!("mysql://genome@{}/{}", ucsc_host.url(), reference))
@@ -1704,7 +1709,7 @@ impl TrackService for UcscApiTrackService {
         &self,
         reference: &Reference,
         contig: &Contig,
-        position: usize,
+        coord: usize,
         k: usize,
         cache: &mut TrackCache,
     ) -> Result<Gene, TGVError> {
@@ -1715,7 +1720,7 @@ impl TrackService for UcscApiTrackService {
 
         if let Some(Some(track)) = cache.get_track(contig) {
             Ok(track
-                .get_saturating_k_genes_after(position, k)
+                .get_saturating_k_genes_after(coord, k)
                 .ok_or(TGVError::IOError("No genes found".to_string()))?
                 .clone())
         } else {
@@ -1730,7 +1735,7 @@ impl TrackService for UcscApiTrackService {
         &self,
         reference: &Reference,
         contig: &Contig,
-        position: usize,
+        coord: usize,
         k: usize,
         cache: &mut TrackCache,
     ) -> Result<Gene, TGVError> {
@@ -1740,7 +1745,7 @@ impl TrackService for UcscApiTrackService {
         }
         if let Some(Some(track)) = cache.get_track(contig) {
             Ok(track
-                .get_saturating_k_genes_before(position, k)
+                .get_saturating_k_genes_before(coord, k)
                 .ok_or(TGVError::IOError("No genes found".to_string()))?
                 .clone())
         } else {
@@ -1755,7 +1760,7 @@ impl TrackService for UcscApiTrackService {
         &self,
         reference: &Reference,
         contig: &Contig,
-        position: usize,
+        coord: usize,
         k: usize,
         cache: &mut TrackCache,
     ) -> Result<SubGeneFeature, TGVError> {
@@ -1765,7 +1770,7 @@ impl TrackService for UcscApiTrackService {
         }
         if let Some(Some(track)) = cache.get_track(contig) {
             Ok(track
-                .get_saturating_k_exons_after(position, k)
+                .get_saturating_k_exons_after(coord, k)
                 .ok_or(TGVError::IOError("No exons found".to_string()))?)
         } else {
             Err(TGVError::IOError(format!(
@@ -1779,7 +1784,7 @@ impl TrackService for UcscApiTrackService {
         &self,
         reference: &Reference,
         contig: &Contig,
-        position: usize,
+        coord: usize,
         k: usize,
         cache: &mut TrackCache,
     ) -> Result<SubGeneFeature, TGVError> {
@@ -1789,7 +1794,7 @@ impl TrackService for UcscApiTrackService {
         }
         if let Some(Some(track)) = cache.get_track(contig) {
             Ok(track
-                .get_saturating_k_exons_before(position, k)
+                .get_saturating_k_exons_before(coord, k)
                 .ok_or(TGVError::IOError("No exons found".to_string()))?)
         } else {
             Err(TGVError::IOError(format!(
@@ -2016,5 +2021,329 @@ impl TrackService for TrackServiceEnum {
                 service.query_gene_track(reference, region, cache).await
             }
         }
+    }
+}
+
+/// Download data from UCSC mariaDB to a local sqlite file.
+pub struct UCSCDownloader {
+    reference: Reference,
+    cache_dir: String,
+}
+
+impl UCSCDownloader {
+    pub fn new(reference: Reference, cache_dir: String) -> Result<Self, TGVError> {
+        // Expand the cache directory path (handles tilde, env vars, etc.)
+        let expanded_cache_dir = shellexpand::full(&cache_dir)
+            .map(|expanded| expanded.into_owned())
+            .map_err(|e| {
+                TGVError::IOError(format!(
+                    "Failed to expand cache directory '{}': {}",
+                    cache_dir, e
+                ))
+            })?;
+
+        Ok(Self {
+            reference,
+            cache_dir: expanded_cache_dir,
+        })
+    }
+
+    /// Download these tables: chromInfo, chromAlias, cytoBandIdeo, and gene tracks
+    pub async fn download(&self) -> Result<(), TGVError> {
+        use std::fs;
+
+        // Create cache directory if it doesn't exist
+        fs::create_dir_all(&self.cache_dir)
+            .map_err(|e| TGVError::IOError(format!("Failed to create cache directory: {}", e)))?;
+
+        // Create SQLite database file path
+        let db_path = Path::new(&self.cache_dir).join(format!("{}.db", self.reference));
+
+        // Connect to MariaDB
+        let mysql_url = UcscDbTrackService::get_mysql_url(&self.reference, &UcscHost::Us)?;
+        let mysql_pool = MySqlPoolOptions::new()
+            .max_connections(5)
+            .connect(&mysql_url)
+            .await?;
+
+        // Connect to/create SQLite database using sqlx
+        // Ensure parent directory exists
+        if let Some(parent) = db_path.parent() {
+            fs::create_dir_all(parent).map_err(|e| {
+                TGVError::IOError(format!("Failed to create parent directory: {}", e))
+            })?;
+        }
+
+        let options = SqliteConnectOptions::new()
+            .filename(&db_path)
+            .create_if_missing(true);
+
+        let sqlite_pool = SqlitePoolOptions::new()
+            .max_connections(1)
+            .connect_with(options)
+            .await?;
+
+        // Create tables in SQLite with same schema as MariaDB
+        self.create_sqlite_tables(&sqlite_pool)
+            .await?
+            .transfer_chrominfo(&mysql_pool, &sqlite_pool)
+            .await?
+            .transfer_chromalias(&mysql_pool, &sqlite_pool)
+            .await?
+            .transfer_cytoband(&mysql_pool, &sqlite_pool)
+            .await?
+            .transfer_gene_tracks(&mysql_pool, &sqlite_pool)
+            .await?;
+
+        // Close connections properly
+        mysql_pool.close().await;
+        sqlite_pool.close().await;
+
+        println!(
+            "Successfully downloaded {} data to {}",
+            self.reference,
+            db_path.display()
+        );
+        Ok(())
+    }
+
+    async fn create_sqlite_tables(&self, pool: &SqlitePool) -> Result<&Self, TGVError> {
+        // Create chromInfo table
+        sqlx::query(
+            "CREATE TABLE IF NOT EXISTS chromInfo (
+                chrom TEXT PRIMARY KEY,
+                size INTEGER NOT NULL
+            )",
+        )
+        .execute(pool)
+        .await
+        .map_err(|e| TGVError::IOError(format!("Failed to create chromInfo table: {}", e)))?;
+
+        // Create chromAlias table
+        sqlx::query(
+            "CREATE TABLE IF NOT EXISTS chromAlias (
+                chrom TEXT NOT NULL,
+                alias TEXT NOT NULL,
+                PRIMARY KEY (chrom, alias)
+            )",
+        )
+        .execute(pool)
+        .await
+        .map_err(|e| TGVError::IOError(format!("Failed to create chromAlias table: {}", e)))?;
+
+        // Create cytoBandIdeo table
+        sqlx::query(
+            "CREATE TABLE IF NOT EXISTS cytoBandIdeo (
+                chrom TEXT NOT NULL,
+                chromStart INTEGER NOT NULL,
+                chromEnd INTEGER NOT NULL,
+                name TEXT NOT NULL,
+                gieStain TEXT NOT NULL
+            )",
+        )
+        .execute(pool)
+        .await
+        .map_err(|e| TGVError::IOError(format!("Failed to create cytoBandIdeo table: {}", e)))?;
+
+        Ok(self)
+    }
+
+    async fn transfer_chrominfo(
+        &self,
+        mysql_pool: &MySqlPool,
+        sqlite_pool: &SqlitePool,
+    ) -> Result<&Self, TGVError> {
+        let rows = sqlx::query("SELECT chrom, size FROM chromInfo")
+            .fetch_all(mysql_pool)
+            .await?;
+
+        for row in rows {
+            let chrom: String = row.try_get("chrom")?;
+            let size: u32 = row.try_get("size")?;
+
+            sqlx::query("INSERT OR REPLACE INTO chromInfo (chrom, size) VALUES (?, ?)")
+                .bind(chrom)
+                .bind(size as i64)
+                .execute(sqlite_pool)
+                .await
+                .map_err(|e| TGVError::IOError(format!("Failed to insert chromInfo row: {}", e)))?;
+        }
+
+        println!("Transferred chromInfo table");
+        Ok(self)
+    }
+
+    async fn transfer_chromalias(
+        &self,
+        mysql_pool: &MySqlPool,
+        sqlite_pool: &SqlitePool,
+    ) -> Result<&Self, TGVError> {
+        // Check if chromAlias table exists in MariaDB
+        let rows = match sqlx::query("SELECT chrom, alias FROM chromAlias")
+            .fetch_all(mysql_pool)
+            .await
+        {
+            Ok(rows) => rows,
+            Err(_) => {
+                println!("chromAlias table not found, skipping");
+                return Ok(self);
+            }
+        };
+
+        for row in rows {
+            let chrom: String = row.try_get("chrom")?;
+            let alias: String = row.try_get("alias")?;
+
+            sqlx::query("INSERT OR REPLACE INTO chromAlias (chrom, alias) VALUES (?, ?)")
+                .bind(chrom)
+                .bind(alias)
+                .execute(sqlite_pool)
+                .await
+                .map_err(|e| {
+                    TGVError::IOError(format!("Failed to insert chromAlias row: {}", e))
+                })?;
+        }
+
+        println!("Transferred chromAlias table");
+        Ok(self)
+    }
+
+    async fn transfer_cytoband(
+        &self,
+        mysql_pool: &MySqlPool,
+        sqlite_pool: &SqlitePool,
+    ) -> Result<&Self, TGVError> {
+        // Check if cytoBandIdeo table exists in MariaDB
+        let rows = match sqlx::query(
+            "SELECT chrom, chromStart, chromEnd, name, gieStain FROM cytoBandIdeo",
+        )
+        .fetch_all(mysql_pool)
+        .await
+        {
+            Ok(rows) => rows,
+            Err(_) => {
+                println!("cytoBandIdeo table not found, skipping");
+                return Ok(self);
+            }
+        };
+
+        for row in rows {
+            let chrom: String = row.try_get("chrom")?;
+            let chrom_start: u32 = row.try_get("chromStart")?;
+            let chrom_end: u32 = row.try_get("chromEnd")?;
+            let name: String = row.try_get("name")?;
+            let gie_stain: String = row.try_get("gieStain")?;
+
+            sqlx::query("INSERT OR REPLACE INTO cytoBandIdeo (chrom, chromStart, chromEnd, name, gieStain) VALUES (?, ?, ?, ?, ?)")
+                .bind(chrom)
+                .bind(chrom_start as i64)
+                .bind(chrom_end as i64)
+                .bind(name)
+                .bind(gie_stain)
+                .execute(sqlite_pool)
+                .await
+                .map_err(|e| TGVError::IOError(format!("Failed to insert cytoBandIdeo row: {}", e)))?;
+        }
+
+        println!("Transferred cytoBandIdeo table");
+        Ok(self)
+    }
+
+    async fn transfer_gene_tracks(
+        &self,
+        mysql_pool: &MySqlPool,
+        sqlite_pool: &SqlitePool,
+    ) -> Result<&Self, TGVError> {
+        // Get list of available gene tracks
+        let table_rows = sqlx::query("SHOW TABLES").fetch_all(mysql_pool).await?;
+
+        let available_tracks: Vec<String> = table_rows
+            .into_iter()
+            .map(|row| row.try_get::<String, usize>(0))
+            .collect::<Result<Vec<String>, sqlx::Error>>()?;
+
+        let preferred_track = get_preferred_track_name_from_vec(&available_tracks)?;
+
+        if let Some(track_name) = preferred_track {
+            self.transfer_gene_track(mysql_pool, sqlite_pool, &track_name)
+                .await?;
+        } else {
+            println!("No preferred gene track found");
+        }
+
+        Ok(self)
+    }
+
+    async fn transfer_gene_track(
+        &self,
+        mysql_pool: &MySqlPool,
+        sqlite_pool: &SqlitePool,
+        track_name: &str,
+    ) -> Result<&Self, TGVError> {
+        // Create gene track table in SQLite
+        let create_sql = format!(
+            "CREATE TABLE IF NOT EXISTS {} (
+                name TEXT PRIMARY KEY,
+                chrom TEXT NOT NULL,
+                strand TEXT NOT NULL,
+                txStart INTEGER NOT NULL,
+                txEnd INTEGER NOT NULL,
+                cdsStart INTEGER NOT NULL,
+                cdsEnd INTEGER NOT NULL,
+                name2 TEXT,
+                exonStarts BLOB NOT NULL,
+                exonEnds BLOB NOT NULL
+            )",
+            track_name
+        );
+
+        sqlx::query(&create_sql)
+            .execute(sqlite_pool)
+            .await
+            .map_err(|e| {
+                TGVError::IOError(format!("Failed to create {} table: {}", track_name, e))
+            })?;
+
+        // Transfer data
+        let query_sql = format!("SELECT name, chrom, strand, txStart, txEnd, cdsStart, cdsEnd, name2, exonStarts, exonEnds FROM {}", track_name);
+        let rows = sqlx::query(&query_sql).fetch_all(mysql_pool).await?;
+
+        let insert_sql = format!(
+            "INSERT OR REPLACE INTO {} (name, chrom, strand, txStart, txEnd, cdsStart, cdsEnd, name2, exonStarts, exonEnds) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            track_name
+        );
+
+        for row in rows {
+            let name: String = row.try_get("name")?;
+            let chrom: String = row.try_get("chrom")?;
+            let strand: String = row.try_get("strand")?;
+            let tx_start: u64 = row.try_get("txStart")?;
+            let tx_end: u64 = row.try_get("txEnd")?;
+            let cds_start: u64 = row.try_get("cdsStart")?;
+            let cds_end: u64 = row.try_get("cdsEnd")?;
+            let name2: Option<String> = row.try_get("name2").ok();
+            let exon_starts: Vec<u8> = row.try_get("exonStarts")?;
+            let exon_ends: Vec<u8> = row.try_get("exonEnds")?;
+
+            sqlx::query(&insert_sql)
+                .bind(name)
+                .bind(chrom)
+                .bind(strand)
+                .bind(tx_start as i64)
+                .bind(tx_end as i64)
+                .bind(cds_start as i64)
+                .bind(cds_end as i64)
+                .bind(name2.unwrap_or_default())
+                .bind(exon_starts)
+                .bind(exon_ends)
+                .execute(sqlite_pool)
+                .await
+                .map_err(|e| {
+                    TGVError::IOError(format!("Failed to insert {} row: {}", track_name, e))
+                })?;
+        }
+
+        println!("Transferred {} table", track_name);
+        Ok(self)
     }
 }

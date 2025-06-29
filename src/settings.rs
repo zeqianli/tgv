@@ -2,7 +2,7 @@ use crate::error::TGVError;
 use crate::helpers::is_url;
 use crate::ucsc::UcscHost;
 use crate::{message::StateMessage, reference::Reference};
-use clap::{Parser, ValueEnum};
+use clap::{Parser, Subcommand, ValueEnum};
 
 #[derive(Clone, Debug, PartialEq, Eq, ValueEnum)]
 pub enum BackendType {
@@ -28,6 +28,19 @@ impl UcscHostCli {
             UcscHostCli::Auto => UcscHost::auto(),
         }
     }
+}
+
+#[derive(Subcommand, Clone, Debug)]
+pub enum Commands {
+    /// Download command
+    Download {
+        /// Name to download
+        reference: String,
+
+        /// Cache directory
+        #[arg(long = "cache-dir", default_value = "~/.tgv")]
+        cache_dir: String,
+    },
 }
 
 #[derive(Parser, Clone)]
@@ -80,6 +93,9 @@ pub struct Cli {
     // List all UCSC accessions.
     // #[arg(long = "list-all")]
     // pub list_ucsc_accessions: bool,
+    /// Subcommand
+    #[command(subcommand)]
+    pub command: Option<Commands>,
 }
 
 #[derive(Debug, Clone, Eq, PartialEq)]
@@ -100,6 +116,7 @@ pub struct Settings {
     pub ucsc_host: UcscHost,
 }
 
+/// Settings to browse alignments
 impl Settings {
     pub fn needs_alignment(&self) -> bool {
         self.bam_path.is_some()
@@ -114,6 +131,13 @@ impl Settings {
     }
 
     pub fn new(cli: Cli) -> Result<Self, TGVError> {
+        // If this is a download command, it should be handled separately
+        if let Some(Commands::Download { .. }) = cli.command {
+            return Err(TGVError::CliError(
+                "Download command should be handled separately from Settings::new()".to_string(),
+            ));
+        }
+
         let mut bam_path = None;
         // let mut vcf_path = None;
         // let mut bed_path = None;
@@ -311,6 +335,8 @@ mod tests {
     }))]
     #[case("tgv input.bam -r TP53 -g hg19 --no-reference", Err(TGVError::CliError("".to_string())))]
     #[case("tgv --no-reference", Err(TGVError::CliError("".to_string())))]
+    //#[case("tgv download test-name", Err(TGVError::CliError("".to_string())))]
+    // #[case("tgv download test-name --cache-dir /custom/dir", Err(TGVError::CliError("".to_string())))]
     fn test_cli_parsing(
         #[case] command_line: &str,
         #[case] expected_settings: Result<Settings, TGVError>,
