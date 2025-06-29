@@ -7,14 +7,19 @@ use crate::{
     region::Region,
     sequence::Sequence,
     settings::{BackendType, Settings},
-    track_service::{TrackService, TrackServiceEnum, UcscApiTrackService, UcscDbTrackService},
+    track_service::{
+        LocalDbTrackService, TrackService, TrackServiceEnum, UcscApiTrackService,
+        UcscDbTrackService,
+    },
 };
 
 use reqwest::Client;
 use rust_htslib::bam;
 use rust_htslib::bam::{Header, IndexedReader, Read};
 use serde::Deserialize;
+use std::collections::HashMap;
 use std::path::Path;
+use twobit::TwoBitFile; // Add twobit crate to Cargo.toml
 use url::Url;
 
 pub struct Repository {
@@ -22,35 +27,37 @@ pub struct Repository {
 
     pub track_service: Option<TrackServiceEnum>,
 
-    pub sequence_service: Option<SequenceService>,
+    pub sequence_service: Option<UCSCApiSequenceRepository>,
 }
 
 impl Repository {
     pub async fn new(settings: &Settings) -> Result<Self, TGVError> {
         let alignment_repository = AlignmentRepositoryEnum::from(settings)?;
 
-        let (track_service, sequence_service): (Option<TrackServiceEnum>, Option<SequenceService>) =
-            match settings.reference.as_ref() {
-                Some(reference) => {
-                    let ts = match (&settings.backend, reference) {
-                        (BackendType::Db, Reference::UcscAccession(_)) => {
-                            TrackServiceEnum::Api(UcscApiTrackService::new()?)
-                        }
-                        (BackendType::Db, _) => TrackServiceEnum::Db(
-                            UcscDbTrackService::new(reference, &settings.ucsc_host).await?,
-                        ),
-                        _ => {
-                            return Err(TGVError::ValueError(format!(
-                                "Unsupported reference: {}",
-                                reference
-                            )));
-                        }
-                    };
-                    let ss = SequenceService::new(reference.clone())?;
-                    (Some(ts), Some(ss))
-                }
-                None => (None, None),
-            };
+        let (track_service, sequence_service): (
+            Option<TrackServiceEnum>,
+            Option<UCSCApiSequenceRepository>,
+        ) = match settings.reference.as_ref() {
+            Some(reference) => {
+                let ts = match (&settings.backend, reference) {
+                    (BackendType::Db, Reference::UcscAccession(_)) => {
+                        TrackServiceEnum::Api(UcscApiTrackService::new()?)
+                    }
+                    (BackendType::Db, _) => TrackServiceEnum::Db(
+                        UcscDbTrackService::new(reference, &settings.ucsc_host).await?,
+                    ),
+                    _ => {
+                        return Err(TGVError::ValueError(format!(
+                            "Unsupported reference: {}",
+                            reference
+                        )));
+                    }
+                };
+                let ss = UCSCApiSequenceRepository::new(reference.clone())?;
+                (Some(ts), Some(ss))
+            }
+            None => (None, None),
+        };
 
         Ok(Self {
             alignment_repository,
@@ -68,7 +75,7 @@ impl Repository {
         }
     }
 
-    pub fn sequence_service_checked(&self) -> Result<&SequenceService, TGVError> {
+    pub fn sequence_service_checked(&self) -> Result<&UCSCApiSequenceRepository, TGVError> {
         match self.sequence_service {
             Some(ref sequence_service) => Ok(sequence_service),
             None => Err(TGVError::StateError(
@@ -405,18 +412,26 @@ impl Default for SequenceCache {
     }
 }
 
+pub trait SequenceRepository {
+    async fn query_sequence(
+        &self,
+        region: &Region,
+        cache: &mut SequenceCache,
+    ) -> Result<Sequence, TGVError>;
+}
+
 impl SequenceCache {
     pub fn new() -> Self {
         Self { hub_url: None }
     }
 }
 
-pub struct SequenceService {
+pub struct UCSCApiSequenceRepository {
     client: Client,
     reference: Reference,
 }
 
-impl SequenceService {
+impl UCSCApiSequenceRepository {
     pub fn new(reference: Reference) -> Result<Self, TGVError> {
         Ok(Self {
             client: Client::new(),
@@ -427,24 +442,6 @@ impl SequenceService {
     pub async fn close(&self) -> Result<(), TGVError> {
         // Reqwest client does not need to be closed.
         Ok(())
-    }
-
-    pub async fn query_sequence(
-        &self,
-        region: &Region,
-        cache: &mut SequenceCache,
-    ) -> Result<Sequence, TGVError> {
-        let url = self
-            .get_api_url(&region.contig, region.start, region.end, cache)
-            .await?;
-
-        let response: UcscResponse = self.client.get(&url).send().await?.json().await?;
-
-        Ok(Sequence {
-            start: region.start,
-            sequence: response.dna,
-            contig: region.contig.clone(),
-        })
     }
 
     /// start / end: 1-based, inclusive.
@@ -518,5 +515,91 @@ impl SequenceService {
                     accession
                 )))?
         ))
+    }
+}
+
+impl SequenceRepository for UCSCApiSequenceRepository {
+    async fn query_sequence(
+        &self,
+        region: &Region,
+        cache: &mut SequenceCache,
+    ) -> Result<Sequence, TGVError> {
+        let url = self
+            .get_api_url(&region.contig, region.start, region.end, cache)
+            .await?;
+
+        let response: UcscResponse = self.client.get(&url).send().await?.json().await?;
+
+        Ok(Sequence {
+            start: region.start,
+            sequence: response.dna,
+            contig: region.contig.clone(),
+        })
+    }
+}
+
+/// Repository for reading sequences from 2bit files
+pub struct TwoBitSequenceRepository {
+    reference_to_path: HashMap<String, String>,
+}
+
+impl TwoBitSequenceRepository {
+    /// Create a new TwoBitSequenceRepository
+    /// reference_to_path: maps reference/contig names to 2bit file paths
+    pub fn new(reference_to_path: HashMap<String, String>) -> Self {
+        Self { reference_to_path }
+    }
+}
+
+impl SequenceRepository for TwoBitSequenceRepository {
+    async fn query_sequence(
+        &self,
+        region: &Region,
+        _cache: &mut SequenceCache,
+    ) -> Result<Sequence, TGVError> {
+        // Get the file path for this contig
+        let file_path = self
+            .reference_to_path
+            .get(&region.contig.name)
+            .or_else(|| {
+                // Try aliases if direct name lookup fails
+                region
+                    .contig
+                    .aliases
+                    .iter()
+                    .find_map(|alias| self.reference_to_path.get(alias))
+            })
+            .ok_or_else(|| {
+                TGVError::IOError(format!(
+                    "No 2bit file found for contig {} (aliases: {})",
+                    region.contig.name,
+                    region.contig.aliases.join(", ")
+                ))
+            })?;
+
+        // Open the 2bit file and read the sequence
+        // Note: Region uses 1-based coordinates, twobit uses 0-based ranges
+
+        let mut tb = twobit::TwoBitFile::open(file_path).map_err(|e| {
+            TGVError::IOError(format!("Failed to open 2bit file {}: {}", file_path, e))
+        })?;
+
+        let sequence_str = tb
+            .read_sequence(
+                &region.contig.name,
+                (region.start - 1)..region.end, // Convert to 0-based range
+            )
+            .map_err(|e| {
+                TGVError::IOError(format!(
+                    "Failed to read sequence from {} for {}:{}-{}: {}",
+                    file_path, region.contig.name, region.start, region.end, e
+                ))
+            })?;
+
+        Ok(Sequence {
+            start: region.start,
+            sequence: sequence_str,
+            contig: region.contig.clone(),
+        })
     }
 }

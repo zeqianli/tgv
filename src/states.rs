@@ -14,6 +14,7 @@ use crate::{
     message::{DataMessage, StateMessage},
     reference::Reference,
     region::Region,
+    repository::SequenceRepository,
     sequence::Sequence,
     track::Track,
     window::ViewingWindow,
