@@ -5,7 +5,9 @@ use crate::{
     helpers::is_url,
     reference::Reference,
     region::Region,
-    sequence::Sequence,
+    sequence::{
+        Sequence, SequenceRepositoryEnum, TwoBitSequenceRepository, UCSCApiSequenceRepository,
+    },
     settings::{BackendType, Settings},
     track_service::{
         LocalDbTrackService, TrackService, TrackServiceEnum, UcscApiTrackService,
@@ -27,7 +29,7 @@ pub struct Repository {
 
     pub track_service: Option<TrackServiceEnum>,
 
-    pub sequence_service: Option<UCSCApiSequenceRepository>,
+    pub sequence_service: Option<SequenceRepositoryEnum>,
 }
 
 impl Repository {
@@ -36,7 +38,7 @@ impl Repository {
 
         let (track_service, sequence_service): (
             Option<TrackServiceEnum>,
-            Option<UCSCApiSequenceRepository>,
+            Option<SequenceRepositoryEnum>,
         ) = match settings.reference.as_ref() {
             Some(reference) => {
                 let ts = match (&settings.backend, reference) {
@@ -73,7 +75,21 @@ impl Repository {
                         )));
                     }
                 };
-                let ss = UCSCApiSequenceRepository::new(reference.clone())?;
+
+                let use_ucsc_api_sequence =
+                    matches!(ts, TrackServiceEnum::Api(_) | TrackServiceEnum::Db(_));
+
+                let ss = if use_ucsc_api_sequence {
+                    SequenceRepositoryEnum::UCSCApi(UCSCApiSequenceRepository::new(
+                        reference.clone(),
+                    )?)
+                } else {
+                    // query the chromInfo table to get the 2bit file path
+
+                    SequenceRepositoryEnum::TwoBit(TwoBitSequenceRepository::new(
+                        ts.get_contig_2bit_file_lookup(&reference).await?,
+                    )?)
+                };
                 (Some(ts), Some(ss))
             }
             None => (None, None),
@@ -95,7 +111,7 @@ impl Repository {
         }
     }
 
-    pub fn sequence_service_checked(&self) -> Result<&UCSCApiSequenceRepository, TGVError> {
+    pub fn sequence_service_checked(&self) -> Result<&SequenceRepositoryEnum, TGVError> {
         match self.sequence_service {
             Some(ref sequence_service) => Ok(sequence_service),
             None => Err(TGVError::StateError(
@@ -411,215 +427,5 @@ impl AlignmentRepository for AlignmentRepositoryEnum {
             AlignmentRepositoryEnum::RemoteBam(repository) => repository.read_header(),
             AlignmentRepositoryEnum::None => Err(TGVError::IOError("No alignment".to_string())),
         }
-    }
-}
-
-#[derive(Debug, Deserialize)]
-struct UcscResponse {
-    dna: String,
-}
-
-pub struct SequenceCache {
-    /// hub_url for UCSC Accessions
-    /// None: Not queried yet
-    /// Some(hub_url): Queried
-    hub_url: Option<String>,
-}
-
-impl Default for SequenceCache {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
-pub trait SequenceRepository {
-    async fn query_sequence(
-        &self,
-        region: &Region,
-        cache: &mut SequenceCache,
-    ) -> Result<Sequence, TGVError>;
-}
-
-impl SequenceCache {
-    pub fn new() -> Self {
-        Self { hub_url: None }
-    }
-}
-
-pub struct UCSCApiSequenceRepository {
-    client: Client,
-    reference: Reference,
-}
-
-impl UCSCApiSequenceRepository {
-    pub fn new(reference: Reference) -> Result<Self, TGVError> {
-        Ok(Self {
-            client: Client::new(),
-            reference,
-        })
-    }
-
-    pub async fn close(&self) -> Result<(), TGVError> {
-        // Reqwest client does not need to be closed.
-        Ok(())
-    }
-
-    /// start / end: 1-based, inclusive.
-    async fn get_api_url(
-        &self,
-        contig: &Contig,
-        start: usize,
-        end: usize,
-        cache: &mut SequenceCache,
-    ) -> Result<String, TGVError> {
-        match &self.reference {
-            Reference::Hg19 | Reference::Hg38 | Reference::UcscGenome(_) => Ok(format!(
-                "https://api.genome.ucsc.edu/getData/sequence?genome={};chrom={};start={};end={}",
-                self.reference.to_string(),
-                contig.name,
-                start - 1, // start is 0-based, inclusive.
-                end
-            )),
-            Reference::UcscAccession(genome) => {
-                if cache.hub_url.is_none() {
-                    let hub_url = self.get_hub_url_for_genark_accession(genome).await?;
-                    cache.hub_url = Some(hub_url);
-                }
-                let hub_url = cache.hub_url.as_ref().unwrap();
-                Ok(format!(
-                    "https://api.genome.ucsc.edu/getData/sequence?hubUrl={}&genome={};chrom={};start={};end={}",
-                    hub_url, genome, contig.name, start - 1, end
-                ))
-            }
-        }
-    }
-
-    async fn get_hub_url_for_genark_accession(&self, accession: &str) -> Result<String, TGVError> {
-        let query_url = format!(
-            "https://api.genome.ucsc.edu/list/genarkGenomes?genome={}",
-            accession
-        );
-        let response = self.client.get(query_url).send().await?;
-
-        // Example response:
-        // {
-        //     "downloadTime": "2025:05:06T03:46:07Z",
-        //     "downloadTimeStamp": 1746503167,
-        //     "dataTime": "2025-04-29T10:42:00",
-        //     "dataTimeStamp": 1745948520,
-        //     "hubUrlPrefix": "/gbdb/genark",
-        //     "genarkGenomes": {
-        //       "GCF_028858775.2": {
-        //         "hubUrl": "GCF/028/858/775/GCF_028858775.2/hub.txt",
-        //         "asmName": "NHGRI_mPanTro3-v2.0_pri",
-        //         "scientificName": "Pan troglodytes",
-        //         "commonName": "chimpanzee (v2 AG18354 primary hap 2024 refseq)",
-        //         "taxId": 9598,
-        //         "priority": 138,
-        //         "clade": "primates"
-        //       }
-        //     },
-        //     "totalAssemblies": 5691,
-        //     "itemsReturned": 1
-        //   }
-
-        let response_text = response.text().await?;
-        let value: serde_json::Value = serde_json::from_str(&response_text)?;
-
-        Ok(format!(
-            "https://hgdownload.soe.ucsc.edu/hubs/{}",
-            value["genarkGenomes"][accession]["hubUrl"]
-                .as_str()
-                .ok_or(TGVError::IOError(format!(
-                    "Failed to get hub url for {}",
-                    accession
-                )))?
-        ))
-    }
-}
-
-impl SequenceRepository for UCSCApiSequenceRepository {
-    async fn query_sequence(
-        &self,
-        region: &Region,
-        cache: &mut SequenceCache,
-    ) -> Result<Sequence, TGVError> {
-        let url = self
-            .get_api_url(&region.contig, region.start, region.end, cache)
-            .await?;
-
-        let response: UcscResponse = self.client.get(&url).send().await?.json().await?;
-
-        Ok(Sequence {
-            start: region.start,
-            sequence: response.dna,
-            contig: region.contig.clone(),
-        })
-    }
-}
-
-/// Repository for reading sequences from 2bit files
-pub struct TwoBitSequenceRepository {
-    reference_to_path: HashMap<String, String>,
-}
-
-impl TwoBitSequenceRepository {
-    /// Create a new TwoBitSequenceRepository
-    /// reference_to_path: maps reference/contig names to 2bit file paths
-    pub fn new(reference_to_path: HashMap<String, String>) -> Self {
-        Self { reference_to_path }
-    }
-}
-
-impl SequenceRepository for TwoBitSequenceRepository {
-    async fn query_sequence(
-        &self,
-        region: &Region,
-        _cache: &mut SequenceCache,
-    ) -> Result<Sequence, TGVError> {
-        // Get the file path for this contig
-        let file_path = self
-            .reference_to_path
-            .get(&region.contig.name)
-            .or_else(|| {
-                // Try aliases if direct name lookup fails
-                region
-                    .contig
-                    .aliases
-                    .iter()
-                    .find_map(|alias| self.reference_to_path.get(alias))
-            })
-            .ok_or_else(|| {
-                TGVError::IOError(format!(
-                    "No 2bit file found for contig {} (aliases: {})",
-                    region.contig.name,
-                    region.contig.aliases.join(", ")
-                ))
-            })?;
-
-        // Open the 2bit file and read the sequence
-        // Note: Region uses 1-based coordinates, twobit uses 0-based ranges
-
-        let mut tb = twobit::TwoBitFile::open(file_path).map_err(|e| {
-            TGVError::IOError(format!("Failed to open 2bit file {}: {}", file_path, e))
-        })?;
-
-        let sequence_str = tb
-            .read_sequence(
-                &region.contig.name,
-                (region.start - 1)..region.end, // Convert to 0-based range
-            )
-            .map_err(|e| {
-                TGVError::IOError(format!(
-                    "Failed to read sequence from {} for {}:{}-{}: {}",
-                    file_path, region.contig.name, region.start, region.end, e
-                ))
-            })?;
-
-        Ok(Sequence {
-            start: region.start,
-            sequence: sequence_str,
-            contig: region.contig.clone(),
-        })
     }
 }

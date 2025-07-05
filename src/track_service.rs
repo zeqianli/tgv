@@ -377,6 +377,30 @@ impl UcscDbTrackService {
 
         Ok(preferred_track)
     }
+
+    /// chrom name -> 2bit file name.
+    /// Used for initailzing the local cache service.
+    async fn get_contig_2bit_file_lookup(
+        &self,
+        reference: &Reference,
+    ) -> Result<HashMap<String, String>, TGVError> {
+        let rows_with_alias = sqlx::query("SELECT chrom, fileName FROM chromInfo")
+            .fetch_all(&*self.pool)
+            .await?;
+
+        let mut filename_hashmap: HashMap<String, String> = HashMap::new();
+        for row in rows_with_alias {
+            let chrom: String = row.try_get("chrom")?;
+            let file_name: String = row.try_get("fileName")?;
+
+            let basename = file_name.split("/").last().ok_or(TGVError::IOError(
+                "Failed to get basename from file name".to_string(),
+            ))?;
+            filename_hashmap.insert(chrom, basename.to_string());
+        }
+
+        Ok(filename_hashmap)
+    }
 }
 
 #[async_trait]
@@ -878,6 +902,30 @@ impl LocalDbTrackService {
         };
 
         Ok(preferred_track)
+    }
+
+    /// chrom name -> 2bit file name.
+    /// Used for initailzing the local cache service.
+    async fn get_contig_2bit_file_lookup(
+        &self,
+        reference: &Reference,
+    ) -> Result<HashMap<String, String>, TGVError> {
+        let rows_with_alias = sqlx::query("SELECT chrom, fileName FROM chromInfo")
+            .fetch_all(&*self.pool)
+            .await?;
+
+        let mut filename_hashmap: HashMap<String, String> = HashMap::new();
+        for row in rows_with_alias {
+            let chrom: String = row.try_get("chrom")?;
+            let file_name: String = row.try_get("fileName")?;
+
+            let basename = file_name.split("/").last().ok_or(TGVError::IOError(
+                "Failed to get basename from file name".to_string(),
+            ))?;
+            filename_hashmap.insert(chrom, basename.to_string());
+        }
+
+        Ok(filename_hashmap)
     }
 }
 
@@ -2029,6 +2077,23 @@ pub enum TrackServiceEnum {
     Api(UcscApiTrackService),
     Db(UcscDbTrackService),
     LocalDb(LocalDbTrackService),
+}
+
+impl TrackServiceEnum {
+    pub async fn get_contig_2bit_file_lookup(
+        &self,
+        reference: &Reference,
+    ) -> Result<HashMap<String, String>, TGVError> {
+        match self {
+            TrackServiceEnum::Api(_) => Err(TGVError::IOError(
+                "get_contig_2bit_file_lookup is not supported for UcscApiTrackService".to_string(),
+            )),
+            TrackServiceEnum::Db(service) => service.get_contig_2bit_file_lookup(reference).await,
+            TrackServiceEnum::LocalDb(service) => {
+                service.get_contig_2bit_file_lookup(reference).await
+            }
+        }
+    }
 }
 
 // Implement TrackService for the enum, dispatching calls
