@@ -6,7 +6,8 @@ use crate::{
     reference::Reference,
     region::Region,
     sequence::{
-        Sequence, SequenceRepositoryEnum, TwoBitSequenceRepository, UCSCApiSequenceRepository,
+        Sequence, SequenceCache, SequenceRepositoryEnum, TwoBitSequenceRepository,
+        UCSCApiSequenceRepository,
     },
     settings::{BackendType, Settings},
     track_service::{
@@ -33,12 +34,13 @@ pub struct Repository {
 }
 
 impl Repository {
-    pub async fn new(settings: &Settings) -> Result<Self, TGVError> {
+    pub async fn new(settings: &Settings) -> Result<(Self, Option<SequenceCache>), TGVError> {
         let alignment_repository = AlignmentRepositoryEnum::from(settings)?;
 
-        let (track_service, sequence_service): (
+        let (track_service, sequence_service, sequence_cache): (
             Option<TrackServiceEnum>,
             Option<SequenceRepositoryEnum>,
+            Option<SequenceCache>,
         ) = match settings.reference.as_ref() {
             Some(reference) => {
                 let ts = match (&settings.backend, reference) {
@@ -79,29 +81,37 @@ impl Repository {
                 let use_ucsc_api_sequence =
                     matches!(ts, TrackServiceEnum::Api(_) | TrackServiceEnum::Db(_));
 
-                let ss = if use_ucsc_api_sequence {
-                    SequenceRepositoryEnum::UCSCApi(UCSCApiSequenceRepository::new(
-                        reference.clone(),
-                    )?)
+                let (ss, sc) = if use_ucsc_api_sequence {
+                    (
+                        SequenceRepositoryEnum::UCSCApi(UCSCApiSequenceRepository::new(
+                            reference.clone(),
+                        )?),
+                        None,
+                    )
                 } else {
                     // query the chromInfo table to get the 2bit file path
 
-                    SequenceRepositoryEnum::TwoBit(TwoBitSequenceRepository::new(
+                    let (ss, cache) = TwoBitSequenceRepository::new(
                         reference.clone(),
                         ts.get_contig_2bit_file_lookup(&reference).await?,
                         settings.cache_dir.clone(),
-                    )?)
+                    )?;
+
+                    (SequenceRepositoryEnum::TwoBit(ss), Some(cache))
                 };
-                (Some(ts), Some(ss))
+                (Some(ts), Some(ss), sc)
             }
-            None => (None, None),
+            None => (None, None, None),
         };
 
-        Ok(Self {
-            alignment_repository,
-            track_service,
-            sequence_service,
-        })
+        Ok((
+            Self {
+                alignment_repository,
+                track_service,
+                sequence_service,
+            },
+            sequence_cache,
+        ))
     }
 
     pub fn track_service_checked(&self) -> Result<&TrackServiceEnum, TGVError> {

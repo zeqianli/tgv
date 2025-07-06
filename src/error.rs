@@ -35,6 +35,9 @@ pub enum TGVError {
 
     #[error("Register error: {0}")]
     RegisterError(String),
+
+    #[error("2bit file parsing error: {0}")]
+    TwoBitFileParsingError(#[from] twobit::Error),
 }
 
 // impl TGVError {

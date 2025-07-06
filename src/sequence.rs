@@ -73,11 +73,18 @@ impl Sequence {
     }
 }
 
+/// Sequence access cache.  
 pub struct SequenceCache {
-    /// hub_url for UCSC Accessions
+    /// Used when using UCSC APIs and the reference is a UCSC Accession.
     /// None: Not queried yet
-    /// Some(hub_url): Queried
+    /// Some(hub_url): Queried and cached.
     hub_url: Option<String>,
+
+    /// contig name -> 2bit buffer index in buffers. Used in local mode (TwoBitSequenceRepository).
+    contig_to_buffer_index: HashMap<String, usize>,
+
+    /// 2bit file buffers. Used in local mode (TwoBitSequenceRepository).
+    buffers: Vec<TwoBitFile<std::io::BufReader<std::fs::File>>>,
 }
 
 impl Default for SequenceCache {
@@ -88,7 +95,11 @@ impl Default for SequenceCache {
 
 impl SequenceCache {
     pub fn new() -> Self {
-        Self { hub_url: None }
+        Self {
+            hub_url: None,
+            contig_to_buffer_index: HashMap::new(),
+            buffers: Vec::new(),
+        }
     }
 }
 
@@ -253,26 +264,62 @@ pub struct TwoBitSequenceRepository {
     /// Reference genome.   
     reference: Reference,
 
-    /// reference genome string -> 2bit file path
-    reference_to_path: HashMap<String, String>,
+    /// reference genome string -> 2bit file base name
+    contig_to_file_name: HashMap<String, String>,
 
     /// Cache root directory. 2bit files are in cache_dir/_reference_name/*.2bit
     cache_dir: String,
 }
 
 impl TwoBitSequenceRepository {
-    /// Create a new TwoBitSequenceRepository
-    /// reference_to_path: maps reference/contig names to 2bit file paths
     pub fn new(
         reference: Reference,
-        reference_to_path: HashMap<String, String>,
+        contig_to_file_name: HashMap<String, String>,
         cache_dir: String,
-    ) -> Result<Self, TGVError> {
-        Ok(Self {
-            reference,
-            reference_to_path,
-            cache_dir,
-        })
+    ) -> Result<(Self, SequenceCache), TGVError> {
+        // Get the file path for this contig
+
+        let mut buffers = Vec::new();
+        let mut file_name_to_buffer_index = HashMap::new();
+        let mut contig_to_buffer_index = HashMap::new();
+
+        for (contig, file_name) in contig_to_file_name.iter() {
+            let i_buffer = buffers.len();
+
+            match file_name_to_buffer_index.get(file_name) {
+                Some(i_buffer) => {
+                    contig_to_buffer_index.insert(contig.clone(), *i_buffer);
+                }
+                None => {
+                    file_name_to_buffer_index.insert(file_name.clone(), i_buffer);
+                    contig_to_buffer_index.insert(contig.clone(), i_buffer + 1);
+
+                    // add a new buffer
+                    let file_path = format!("{}/{}/{}", &cache_dir, reference, file_name);
+                    let mut tb: TwoBitFile<std::io::BufReader<std::fs::File>> =
+                        twobit::TwoBitFile::open(&file_path).map_err(|e| {
+                            TGVError::IOError(format!(
+                                "Failed to open 2bit file {}: {}",
+                                &file_path, e
+                            ))
+                        })?;
+                    buffers.push(tb);
+                }
+            }
+        }
+
+        Ok((
+            Self {
+                reference,
+                contig_to_file_name,
+                cache_dir,
+            },
+            SequenceCache {
+                hub_url: None,
+                contig_to_buffer_index: contig_to_buffer_index,
+                buffers,
+            },
+        ))
     }
 }
 
@@ -280,53 +327,13 @@ impl SequenceRepository for TwoBitSequenceRepository {
     async fn query_sequence(
         &self,
         region: &Region,
-        _cache: &mut SequenceCache,
+        cache: &mut SequenceCache,
     ) -> Result<Sequence, TGVError> {
-        // Get the file path for this contig
-        let file_name = self
-            .reference_to_path
-            .get(&region.contig.name)
-            .or_else(|| {
-                // Try aliases if direct name lookup fails
-                region
-                    .contig
-                    .aliases
-                    .iter()
-                    .find_map(|alias| self.reference_to_path.get(alias))
-            })
-            .ok_or_else(|| {
-                TGVError::IOError(format!(
-                    "No 2bit file found for contig {} (aliases: {})",
-                    region.contig.name,
-                    region.contig.aliases.join(", ")
-                ))
-            })?;
-
-        let file_path = format!(
-            "{}/{}/{}",
-            self.cache_dir,
-            self.reference.to_string(),
-            file_name
-        );
-
-        // Open the 2bit file and read the sequence
-        // Note: Region uses 1-based coordinates, twobit uses 0-based ranges
-
-        let mut tb = twobit::TwoBitFile::open(&file_path).map_err(|e| {
-            TGVError::IOError(format!("Failed to open 2bit file {}: {}", &file_path, e))
-        })?;
-
-        let sequence_str = tb
-            .read_sequence(
-                &region.contig.name,
-                (region.start - 1)..region.end, // Convert to 0-based range
-            )
-            .map_err(|e| {
-                TGVError::IOError(format!(
-                    "Failed to read sequence from {} for {}:{}-{}: {}",
-                    file_path, region.contig.name, region.start, region.end, e
-                ))
-            })?;
+        let buffer = &mut cache.buffers[cache.contig_to_buffer_index[&region.contig.name]];
+        let sequence_str = buffer.read_sequence(
+            &region.contig.name,
+            (region.start - 1)..region.end, // Convert to 0-based range
+        )?;
 
         Ok(Sequence {
             start: region.start,
