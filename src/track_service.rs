@@ -2356,6 +2356,27 @@ pub struct UCSCDownloader {
     cache_dir: String,
 }
 
+/// UCSC column type. Used to map MySQL types to SQLite types.
+enum UCSCColumnType {
+    UnsignedInt,
+    Int,
+    Float,
+    Blob,
+    String,
+}
+
+impl UCSCColumnType {
+    fn to_sqlite_type(&self) -> &str {
+        match self {
+            UCSCColumnType::UnsignedInt => "INTEGER",
+            UCSCColumnType::Int => "INTEGER",
+            UCSCColumnType::Float => "REAL",
+            UCSCColumnType::Blob => "BLOB",
+            UCSCColumnType::String => "TEXT",
+        }
+    }
+}
+
 impl UCSCDownloader {
     pub fn new(reference: Reference, cache_dir: String) -> Result<Self, TGVError> {
         // Expand the cache directory path (handles tilde, env vars, etc.)
@@ -2378,12 +2399,9 @@ impl UCSCDownloader {
     pub async fn download(&self) -> Result<(), TGVError> {
         use std::fs;
 
-        // Create cache directory if it doesn't exist
-        fs::create_dir_all(&self.cache_dir)
-            .map_err(|e| TGVError::IOError(format!("Failed to create cache directory: {}", e)))?;
-
         // Create SQLite database file path: cache_dir/reference_name/tracks.sqlite
         let db_dir = Path::new(&self.cache_dir).join(self.reference.to_string());
+        fs::create_dir_all(&db_dir)?;
         let db_path = db_dir.join("tracks.sqlite");
 
         // Connect to MariaDB
@@ -2393,39 +2411,27 @@ impl UCSCDownloader {
             .connect(&mysql_url)
             .await?;
 
-        // Connect to/create SQLite database using sqlx
-        // Ensure reference-specific directory exists
-        fs::create_dir_all(&db_dir).map_err(|e| {
-            TGVError::IOError(format!("Failed to create database directory: {}", e))
-        })?;
-
-        let options = SqliteConnectOptions::new()
-            .filename(&db_path)
-            .create_if_missing(true);
-
         let sqlite_pool = SqlitePoolOptions::new()
             .max_connections(1)
-            .connect_with(options)
+            .connect_with(
+                SqliteConnectOptions::new()
+                    .filename(&db_path)
+                    .create_if_missing(true),
+            )
             .await?;
 
-        // Transfer standard tables
         self.transfer_table(&mysql_pool, &sqlite_pool, "chromInfo")
-            .await?;
-        self.transfer_table(&mysql_pool, &sqlite_pool, "chromAlias")
-            .await?;
-        self.transfer_table(&mysql_pool, &sqlite_pool, "cytoBandIdeo")
+            .await?
+            .transfer_table(&mysql_pool, &sqlite_pool, "chromAlias")
+            .await?
+            .transfer_table(&mysql_pool, &sqlite_pool, "cytoBandIdeo")
+            .await?
+            .transfer_gene_tracks(&mysql_pool, &sqlite_pool)
             .await?;
 
-        // Transfer gene tracks
-        self.transfer_gene_tracks(&mysql_pool, &sqlite_pool).await?;
-
-        // Close MySQL connection before downloading genomes
         mysql_pool.close().await;
 
-        // Download genome files
         self.download_genomes(&sqlite_pool).await?;
-
-        // Close SQLite connection
         sqlite_pool.close().await;
 
         println!(
@@ -2441,92 +2447,94 @@ impl UCSCDownloader {
         mysql_pool: &MySqlPool,
         sqlite_pool: &SqlitePool,
         table_name: &str,
-    ) -> Result<(), TGVError> {
-        // Check if table exists and get its structure
-        let columns_info = match sqlx::query(&format!("SHOW COLUMNS FROM {}", table_name))
-            .fetch_all(mysql_pool)
-            .await
-        {
-            Ok(cols) => cols,
-            Err(_) => {
-                println!("{} table not found, skipping", table_name);
-                return Ok(());
-            }
-        };
+    ) -> Result<&Self, TGVError> {
+        let mut column_types: HashMap<String, UCSCColumnType> = HashMap::new();
 
+        // Check if table exists and get its structure
+        let columns_info = sqlx::query(&format!("SHOW COLUMNS FROM {}", table_name))
+            .fetch_all(mysql_pool)
+            .await?;
         if columns_info.is_empty() {
-            println!("{} table has no columns, skipping", table_name);
-            return Ok(());
+            return Err(TGVError::IOError(format!(
+                "{} table has no columns.",
+                table_name
+            )));
         }
 
         // Map MySQL types to SQLite types
-        let mut column_defs = Vec::new();
+        let mut column_defs: Vec<String> = Vec::new();
         let mut valid_columns = Vec::new();
 
         for col_info in &columns_info {
             let field_name: String = col_info.try_get("Field")?;
             let mysql_type: String = col_info.try_get("Type")?;
 
-            let sqlite_type = match mysql_type.to_lowercase() {
+            match mysql_type.to_lowercase() {
                 t if t.contains("int")
                     || t.contains("tinyint")
                     || t.contains("smallint")
                     || t.contains("mediumint")
                     || t.contains("bigint") =>
                 {
-                    "INTEGER"
+                    if t.contains("unsigned") {
+                        column_types.insert(field_name.clone(), UCSCColumnType::UnsignedInt);
+                    } else {
+                        column_types.insert(field_name.clone(), UCSCColumnType::Int);
+                    }
                 }
                 t if t.contains("float")
                     || t.contains("double")
                     || t.contains("decimal")
                     || t.contains("numeric") =>
                 {
-                    "REAL"
+                    column_types.insert(field_name.clone(), UCSCColumnType::Float);
                 }
-                t if t.contains("blob") || t.contains("binary") => "BLOB",
+                t if t.contains("blob") || t.contains("binary") => {
+                    column_types.insert(field_name.clone(), UCSCColumnType::Blob);
+                }
                 t if t.contains("char")
                     || t.contains("text")
                     || t.contains("varchar")
                     || t.contains("enum")
                     || t.contains("set") =>
                 {
-                    "TEXT"
+                    column_types.insert(field_name.clone(), UCSCColumnType::String);
                 }
                 _ => {
-                    println!(
+                    return Err(TGVError::IOError(format!(
                         "Skipping unsupported column type: {} {}",
                         field_name, mysql_type
-                    );
-                    continue;
+                    )));
                 }
             };
 
-            column_defs.push(format!("{} {}", field_name, sqlite_type));
+            column_defs.push(format!(
+                "{} {}",
+                field_name.clone(),
+                column_types[&field_name].to_sqlite_type()
+            ));
             valid_columns.push(field_name);
         }
 
         if valid_columns.is_empty() {
-            println!("{} table has no supported columns, skipping", table_name);
-            return Ok(());
+            return Err(TGVError::IOError(format!(
+                "{} table has no supported columns.",
+                table_name
+            )));
         }
 
         // Drop existing table if it exists, then create fresh
-        let drop_sql = format!("DROP TABLE IF EXISTS {}", table_name);
-        sqlx::query(&drop_sql)
+        sqlx::query(&format!("DROP TABLE IF EXISTS {}", table_name))
             .execute(sqlite_pool)
-            .await
-            .map_err(|e| {
-                TGVError::IOError(format!("Failed to drop {} table: {}", table_name, e))
-            })?;
+            .await?;
 
-        let create_sql = format!("CREATE TABLE {} ({})", table_name, column_defs.join(", "));
-
-        sqlx::query(&create_sql)
-            .execute(sqlite_pool)
-            .await
-            .map_err(|e| {
-                TGVError::IOError(format!("Failed to create {} table: {}", table_name, e))
-            })?;
+        sqlx::query(&format!(
+            "CREATE TABLE {} ({})",
+            table_name,
+            column_defs.join(", ")
+        ))
+        .execute(sqlite_pool)
+        .await?;
 
         // Transfer data
         let select_columns = valid_columns.join(", ");
@@ -2535,7 +2543,7 @@ impl UCSCDownloader {
 
         if rows.is_empty() {
             println!("{} table is empty, skipping data transfer", table_name);
-            return Ok(());
+            return Ok(self);
         }
 
         // Insert data
@@ -2549,46 +2557,31 @@ impl UCSCDownloader {
             let mut query = sqlx::query(&insert_sql);
             for col_name in &valid_columns {
                 // Bind values based on SQLite type
-                let mysql_type_info = columns_info
-                    .iter()
-                    .find(|col| {
-                        let field: String = col.try_get("Field").unwrap_or_default();
-                        field == *col_name
-                    })
-                    .unwrap();
-                let mysql_type: String = mysql_type_info.try_get("Type")?;
-
-                match mysql_type.to_lowercase() {
-                    t if t.contains("int")
-                        || t.contains("tinyint")
-                        || t.contains("smallint")
-                        || t.contains("mediumint")
-                        || t.contains("bigint") =>
-                    {
-                        let value: Option<i64> = row.try_get(col_name.as_str()).ok();
+                match column_types[col_name] {
+                    UCSCColumnType::UnsignedInt => {
+                        let value: u64 = row.try_get(col_name.as_str())?;
+                        query = query.bind(value as i64);
+                    }
+                    UCSCColumnType::Int => {
+                        let value: i64 = row.try_get(col_name.as_str())?;
                         query = query.bind(value);
                     }
-                    t if t.contains("float")
-                        || t.contains("double")
-                        || t.contains("decimal")
-                        || t.contains("numeric") =>
-                    {
-                        let value: Option<f64> = row.try_get(col_name.as_str()).ok();
+                    UCSCColumnType::Float => {
+                        let value: f64 = row.try_get(col_name.as_str())?;
                         query = query.bind(value);
                     }
-                    t if t.contains("blob") || t.contains("binary") => {
-                        let value: Option<Vec<u8>> = row.try_get(col_name.as_str()).ok();
+                    UCSCColumnType::Blob => {
+                        let value: Vec<u8> = row.try_get(col_name.as_str())?;
                         query = query.bind(value);
                     }
-                    _ => {
-                        let value: Option<String> = row.try_get(col_name.as_str()).ok();
+                    UCSCColumnType::String => {
+                        let value: String = row.try_get(col_name.as_str())?;
                         query = query.bind(value);
                     }
                 }
             }
-            query.execute(sqlite_pool).await.map_err(|e| {
-                TGVError::IOError(format!("Failed to insert {} row: {}", table_name, e))
-            })?;
+
+            query.execute(sqlite_pool).await?;
         }
 
         println!(
@@ -2597,14 +2590,14 @@ impl UCSCDownloader {
             valid_columns.len(),
             rows.len()
         );
-        Ok(())
+        Ok(self)
     }
 
     async fn transfer_gene_tracks(
         &self,
         mysql_pool: &MySqlPool,
         sqlite_pool: &SqlitePool,
-    ) -> Result<(), TGVError> {
+    ) -> Result<&Self, TGVError> {
         // Get list of available gene tracks
         let table_rows = sqlx::query("SHOW TABLES").fetch_all(mysql_pool).await?;
 
@@ -2622,7 +2615,7 @@ impl UCSCDownloader {
             println!("No preferred gene track found");
         }
 
-        Ok(())
+        Ok(self)
     }
 
     async fn download_genomes(&self, sqlite_pool: &SqlitePool) -> Result<(), TGVError> {

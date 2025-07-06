@@ -228,6 +228,9 @@ impl Settings {
             ));
         }
 
+        // cache_dir: expand ~
+        let cache_dir = shellexpand::tilde(&cli.cache_dir).to_string();
+
         Ok(Self {
             bam_path,
             bai_path,
@@ -239,7 +242,7 @@ impl Settings {
             ucsc_host: cli.host.to_host(),
             test_mode: false,
             debug: cli.debug,
-            cache_dir: cli.cache_dir,
+            cache_dir,
         })
     }
 

@@ -87,7 +87,9 @@ impl Repository {
                     // query the chromInfo table to get the 2bit file path
 
                     SequenceRepositoryEnum::TwoBit(TwoBitSequenceRepository::new(
+                        reference.clone(),
                         ts.get_contig_2bit_file_lookup(&reference).await?,
+                        settings.cache_dir.clone(),
                     )?)
                 };
                 (Some(ts), Some(ss))

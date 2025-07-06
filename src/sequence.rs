@@ -250,15 +250,29 @@ impl SequenceRepository for UCSCApiSequenceRepository {
 
 /// Repository for reading sequences from 2bit files
 pub struct TwoBitSequenceRepository {
+    /// Reference genome.   
+    reference: Reference,
+
     /// reference genome string -> 2bit file path
     reference_to_path: HashMap<String, String>,
+
+    /// Cache root directory. 2bit files are in cache_dir/_reference_name/*.2bit
+    cache_dir: String,
 }
 
 impl TwoBitSequenceRepository {
     /// Create a new TwoBitSequenceRepository
     /// reference_to_path: maps reference/contig names to 2bit file paths
-    pub fn new(reference_to_path: HashMap<String, String>) -> Result<Self, TGVError> {
-        Ok(Self { reference_to_path })
+    pub fn new(
+        reference: Reference,
+        reference_to_path: HashMap<String, String>,
+        cache_dir: String,
+    ) -> Result<Self, TGVError> {
+        Ok(Self {
+            reference,
+            reference_to_path,
+            cache_dir,
+        })
     }
 }
 
@@ -269,7 +283,7 @@ impl SequenceRepository for TwoBitSequenceRepository {
         _cache: &mut SequenceCache,
     ) -> Result<Sequence, TGVError> {
         // Get the file path for this contig
-        let file_path = self
+        let file_name = self
             .reference_to_path
             .get(&region.contig.name)
             .or_else(|| {
@@ -288,11 +302,18 @@ impl SequenceRepository for TwoBitSequenceRepository {
                 ))
             })?;
 
+        let file_path = format!(
+            "{}/{}/{}",
+            self.cache_dir,
+            self.reference.to_string(),
+            file_name
+        );
+
         // Open the 2bit file and read the sequence
         // Note: Region uses 1-based coordinates, twobit uses 0-based ranges
 
-        let mut tb = twobit::TwoBitFile::open(file_path).map_err(|e| {
-            TGVError::IOError(format!("Failed to open 2bit file {}: {}", file_path, e))
+        let mut tb = twobit::TwoBitFile::open(&file_path).map_err(|e| {
+            TGVError::IOError(format!("Failed to open 2bit file {}: {}", &file_path, e))
         })?;
 
         let sequence_str = tb
