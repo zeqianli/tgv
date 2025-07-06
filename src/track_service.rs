@@ -18,7 +18,6 @@ use sqlx::mysql::MySqlRow;
 use sqlx::sqlite::SqliteRow;
 use sqlx::{
     mysql::MySqlPoolOptions,
-    query::Query,
     sqlite::{SqliteConnectOptions, SqlitePool, SqlitePoolOptions},
     Column, MySqlPool, Row,
 };
@@ -601,7 +600,7 @@ impl TrackService for UcscDbTrackService {
         .await?;
 
         if let Some(row) = row {
-            Ok(self.parse_gene_rows(vec![row])?.get(0).cloned())
+            Ok(self.parse_gene_rows(vec![row])?.first().cloned())
         } else {
             Ok(None)
         }
@@ -628,8 +627,7 @@ impl TrackService for UcscDbTrackService {
         .await?;
 
         if let Some(row) = row {
-            self.parse_gene_rows(vec![row])?
-                .get(0)
+            self.parse_gene_rows(vec![row])?.first()
                 .cloned()
                 .ok_or(TGVError::IOError(format!(
                     "Failed to query gene: {}",
@@ -1129,7 +1127,7 @@ impl TrackService for LocalDbTrackService {
         .await?;
 
         if let Some(row) = row {
-            Ok(self.parse_gene_rows(vec![row])?.get(0).cloned())
+            Ok(self.parse_gene_rows(vec![row])?.first().cloned())
         } else {
             Ok(None)
         }
@@ -1156,8 +1154,7 @@ impl TrackService for LocalDbTrackService {
         .await?;
 
         if let Some(row) = row {
-            self.parse_gene_rows(vec![row])?
-                .get(0)
+            self.parse_gene_rows(vec![row])?.first()
                 .cloned()
                 .ok_or(TGVError::IOError(format!(
                     "Failed to query gene: {}",

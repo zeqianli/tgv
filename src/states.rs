@@ -14,7 +14,7 @@ use crate::{
     message::{DataMessage, StateMessage},
     reference::Reference,
     region::Region,
-    sequence::{Sequence, SequenceCache, SequenceRepository, SequenceRepositoryEnum},
+    sequence::{Sequence, SequenceCache, SequenceRepository},
     track::Track,
     window::ViewingWindow,
 };

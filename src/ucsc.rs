@@ -1,5 +1,4 @@
 use chrono::Local;
-use clap::ValueEnum;
 
 #[derive(Debug, Clone, Eq, PartialEq)]
 pub enum UcscHost {
@@ -18,7 +17,7 @@ impl UcscHost {
     /// Choose the host based on the local timezone.
     pub fn auto() -> Self {
         let offset = Local::now().offset().local_minus_utc() / 3600;
-        if offset >= -12 && offset <= 0 {
+        if (-12..=0).contains(&offset) {
             UcscHost::Us
         } else {
             UcscHost::Eu

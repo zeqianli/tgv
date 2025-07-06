@@ -6,7 +6,6 @@ use reqwest::Client;
 use serde::Deserialize;
 use std::collections::HashMap;
 use twobit::TwoBitFile; // Add twobit crate to Cargo.toml
-use url::Url;
 /// Sequences of a genome region.
 pub struct Sequence {
     /// 1-based genome coordinate of sequence[0].
@@ -296,7 +295,7 @@ impl TwoBitSequenceRepository {
 
                     // add a new buffer
                     let file_path = format!("{}/{}/{}", &cache_dir, reference, file_name);
-                    let mut tb: TwoBitFile<std::io::BufReader<std::fs::File>> =
+                    let tb: TwoBitFile<std::io::BufReader<std::fs::File>> =
                         twobit::TwoBitFile::open(&file_path).map_err(|e| {
                             TGVError::IOError(format!(
                                 "Failed to open 2bit file {}: {}",
@@ -316,7 +315,7 @@ impl TwoBitSequenceRepository {
             },
             SequenceCache {
                 hub_url: None,
-                contig_to_buffer_index: contig_to_buffer_index,
+                contig_to_buffer_index,
                 buffers,
             },
         ))

@@ -49,7 +49,7 @@ async fn main() -> Result<(), TGVError> {
             // }
             if more {
                 let n = print_ucsc_assemblies().await?;
-                let n = println!("{} UCSC assemblies", n);
+                println!("{} UCSC assemblies", n);
                 println!("Browse a genome: tgv -g <genome> (e.g. tgv -g rn7)");
             } else {
                 let n = print_common_genomes()?;

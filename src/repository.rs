@@ -1,12 +1,11 @@
 use crate::{
     alignment::{Alignment, AlignmentBuilder},
-    contig::Contig,
     error::TGVError,
     helpers::is_url,
     reference::Reference,
     region::Region,
     sequence::{
-        Sequence, SequenceCache, SequenceRepositoryEnum, TwoBitSequenceRepository,
+        SequenceCache, SequenceRepositoryEnum, TwoBitSequenceRepository,
         UCSCApiSequenceRepository,
     },
     settings::{BackendType, Settings},
@@ -16,13 +15,10 @@ use crate::{
     },
 };
 
-use reqwest::Client;
 use rust_htslib::bam;
 use rust_htslib::bam::{Header, IndexedReader, Read};
-use serde::Deserialize;
-use std::collections::HashMap;
 use std::path::Path;
-use twobit::TwoBitFile; // Add twobit crate to Cargo.toml
+ // Add twobit crate to Cargo.toml
 use url::Url;
 
 pub struct Repository {
@@ -93,7 +89,7 @@ impl Repository {
 
                     let (ss, cache) = TwoBitSequenceRepository::new(
                         reference.clone(),
-                        ts.get_contig_2bit_file_lookup(&reference).await?,
+                        ts.get_contig_2bit_file_lookup(reference).await?,
                         settings.cache_dir.clone(),
                     )?;
 
