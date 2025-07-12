@@ -22,7 +22,7 @@ use sqlx::{
     Column, MySqlPool, Row,
 };
 use std::collections::HashMap;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 /// Holds cache for track service queries.
@@ -627,7 +627,8 @@ impl TrackService for UcscDbTrackService {
         .await?;
 
         if let Some(row) = row {
-            self.parse_gene_rows(vec![row])?.first()
+            self.parse_gene_rows(vec![row])?
+                .first()
                 .cloned()
                 .ok_or(TGVError::IOError(format!(
                     "Failed to query gene: {}",
@@ -1154,7 +1155,8 @@ impl TrackService for LocalDbTrackService {
         .await?;
 
         if let Some(row) = row {
-            self.parse_gene_rows(vec![row])?.first()
+            self.parse_gene_rows(vec![row])?
+                .first()
                 .cloned()
                 .ok_or(TGVError::IOError(format!(
                     "Failed to query gene: {}",
@@ -2392,12 +2394,21 @@ impl UCSCDownloader {
         })
     }
 
+    fn reference_cache_dir(&self, reference: &Reference) -> Result<PathBuf, TGVError> {
+        let reference_cache_dir = Path::new(&self.cache_dir).join(reference.to_string());
+
+        // Ensure genome directory exists
+        std::fs::create_dir_all(&reference_cache_dir)
+            .map_err(|e| TGVError::IOError(format!("Failed to create genome directory: {}", e)))?;
+        Ok(reference_cache_dir)
+    }
+
     /// Download these tables: chromInfo, chromAlias, cytoBandIdeo, and gene tracks
     pub async fn download(&self) -> Result<(), TGVError> {
         use std::fs;
 
         // Create SQLite database file path: cache_dir/reference_name/tracks.sqlite
-        let db_dir = Path::new(&self.cache_dir).join(self.reference.to_string());
+        let db_dir = self.reference_cache_dir(&self.reference)?;
         fs::create_dir_all(&db_dir)?;
         let db_path = db_dir.join("tracks.sqlite");
 
@@ -2436,6 +2447,121 @@ impl UCSCDownloader {
             self.reference,
             db_path.display()
         );
+        Ok(())
+    }
+
+    /// Download data for UCSC accessions
+    /// Use UCSC API get
+    /// 1. 2bit file url
+    /// 2. hub url, prefered track name, and big data url for the prefered track
+    async fn download_for_ucsc_accession(
+        &self,
+        accession: &str,
+        local_path: &str,
+    ) -> Result<(), TGVError> {
+        let ucsc_api_service = UcscApiTrackService::new()?;
+        let track_cache = TrackCache::new();
+        let hub_url = ucsc_api_service
+            .get_hub_url_for_genark_accession(accession)
+            .await?;
+
+        // Example response:
+        // {
+        //     "downloadTime": "2025:07:12T15:57:02Z",
+        //     "downloadTimeStamp": 1752335822,
+        //     "hubUrl": "http://hgdownload.soe.ucsc.edu/hubs/GCF/028/858/775/GCF_028858775.2/hub.txt",
+        //     "genomes": {
+        //       "GCF_028858775.2": {
+        //         "organism": "NHGRI_mPanTro3-v2.0_pri Jan. 2024",
+        //         "description": "chimpanzee (v2 AG18354 primary hap 2024 refseq)",
+        //         "trackDbFile": "http://hgdownload.soe.ucsc.edu/hubs/GCF/028/858/775/GCF_028858775.2/hub.txt",
+        //         "twoBitPath": "http://hgdownload.soe.ucsc.edu/hubs/GCF/028/858/775/GCF_028858775.2/GCF_028858775.2.2bit",
+        //         "groups": "http://hgdownload.soe.ucsc.edu/hubs/GCF/028/858/775/GCF_028858775.2/groups.txt",
+        //         "defaultPos": "NC_072398.2:77099816-77109816",
+        //         "orderKey": 0
+        //       }
+        //     }
+        //   }
+        let query_url = format!(
+            "https://api.genome.ucsc.edu/list/hubGenomes?hubUrl={}",
+            hub_url
+        );
+        let response = ucsc_api_service.client.get(query_url).send().await?;
+        let value: serde_json::Value = response.json().await?;
+        // let track_db_path = value["genomes"][accession]["trackDbFile"].as_str().ok_or(TGVError::IOError(format!(
+        //     "Failed to get hub url for {}",
+        //     accession
+        // )))?.to_string();
+        let twobit_path = value["genomes"][accession]["twoBitPath"]
+            .as_str()
+            .ok_or(TGVError::IOError(format!(
+                "Failed to get hub url for {}",
+                accession
+            )))?
+            .to_string();
+
+        let local_twobit_path = self
+            .reference_cache_dir(&self.reference)?
+            .join(twobit_path.clone());
+
+        self.download_file(&twobit_path.clone(), &local_twobit_path.to_str().unwrap())
+            .await?;
+
+        // Example response:
+        // {
+        //  "downloadTime": "2025:07:12T16:27:23Z",
+        // "downloadTimeStamp": 1752337643,
+        // "hubUrl": "http://hgdownload.soe.ucsc.edu/hubs/mouseStrains/hub.txt",
+        // "CAST_EiJ": {
+        //     "ensGene": {
+        //     "shortLabel": "Ensembl genes",
+        //     "type": "bigBed 12 .",
+        //     "longLabel": "Ensembl genes v86",
+        //     "visibility": "pack",
+        //     "group": "genes",
+        //     "polished": "polished",
+        //     "html": "html/GCA_001624445.1_CAST_EiJ_v1.ensGene",
+        //     "searchIndex": "name",
+        //     "priority": "40",
+        //     "searchTrix": "http://hgdownload.soe.ucsc.edu/hubs/mouseStrains/GCA_001624445.1_CAST_EiJ_v1/ixIxx/GCA_001624445.1_CAST_EiJ_v1.ensGene.name.ix",
+        //     "bigDataUrl": "http://hgdownload.soe.ucsc.edu/hubs/mouseStrains/GCA_001624445.1_CAST_EiJ_v1/bbi/GCA_001624445.1_CAST_EiJ_v1.ensGene.bb",
+        //     "color": "150,0,0"
+        //     },
+        //     "allGaps": {
+        //       ...
+        //     }
+        // }
+
+        let response = ucsc_api_service
+            .client
+            .get(format!(
+                "https://api.genome.ucsc.edu/list/tracks?hubUrl={}&genome={}",
+                hub_url, accession
+            ))
+            .send()
+            .await?;
+        let value: serde_json::Value = response.json().await?;
+        let track_names = get_all_track_names(value.get(accession.clone()).ok_or(
+            TGVError::IOError("Failed to get genome from UCSC API".to_string()),
+        )?)?;
+
+        let prefered_track = get_preferred_track_name_from_vec(&track_names)?.ok_or(
+            TGVError::IOError(format!("Failed to find prefered track for {}", accession)),
+        )?;
+
+        let big_data_path = value[accession][prefered_track]["bigDataUrl"]
+            .as_str()
+            .ok_or(TGVError::IOError(format!(
+                "Failed to get big data url for {}",
+                accession
+            )))?;
+
+        let local_big_data_path = self
+            .reference_cache_dir(&self.reference)?
+            .join(big_data_path);
+        self.download_file(&big_data_path, &local_big_data_path.to_str().unwrap())
+            .await?;
+
         Ok(())
     }
 
@@ -2631,12 +2757,7 @@ impl UCSCDownloader {
         }
 
         // Create HTTP client
-        let client = reqwest::Client::new();
-        let genome_dir = std::path::Path::new(&self.cache_dir).join(self.reference.to_string());
-
-        // Ensure genome directory exists
-        std::fs::create_dir_all(&genome_dir)
-            .map_err(|e| TGVError::IOError(format!("Failed to create genome directory: {}", e)))?;
+        let cache_dir = self.reference_cache_dir(&self.reference)?;
 
         for row in rows {
             let file_name: String = row.try_get("fileName")?;
@@ -2647,48 +2768,54 @@ impl UCSCDownloader {
                 .file_name()
                 .and_then(|f| f.to_str())
                 .unwrap_or(&file_name);
-            let file_path = genome_dir.join(actual_filename);
+            let file_path = cache_dir.join(actual_filename);
 
-            // Skip if file already exists
-            if file_path.exists() {
-                println!("Genome file {} already exists, skipping", actual_filename);
-                continue;
-            }
-
-            println!("Downloading genome file: {}", actual_filename);
-
-            // Download the file
-            match client.get(&download_url).send().await {
-                Ok(response) => {
-                    if response.status().is_success() {
-                        let content = response.bytes().await.map_err(|e| {
-                            TGVError::IOError(format!("Failed to read response bytes: {}", e))
-                        })?;
-
-                        // Write file to disk
-                        std::fs::write(&file_path, content).map_err(|e| {
-                            TGVError::IOError(format!(
-                                "Failed to write file {}: {}",
-                                actual_filename, e
-                            ))
-                        })?;
-
-                        println!("Downloaded: {}", actual_filename);
-                    } else {
-                        println!(
-                            "Failed to download {}: HTTP {}",
-                            actual_filename,
-                            response.status()
-                        );
-                    }
-                }
-                Err(e) => {
-                    println!("Failed to download {}: {}", actual_filename, e);
-                }
-            }
+            self.download_file(&download_url, &file_path.to_str().unwrap())
+                .await?;
         }
 
         println!("Genome file download completed");
+        Ok(())
+    }
+
+    async fn download_file(&self, url: &str, local_path: &str) -> Result<(), TGVError> {
+        let client = reqwest::Client::new();
+
+        // Skip if file already exists
+        if Path::new(local_path).exists() {
+            println!("Genome file {} already exists, skipping", local_path);
+            return Ok(());
+        }
+
+        println!("Downloading file: {}", local_path);
+
+        // Download the file
+        match client.get(url).send().await {
+            Ok(response) => {
+                if response.status().is_success() {
+                    let content = response.bytes().await.map_err(|e| {
+                        TGVError::IOError(format!("Failed to read response bytes: {}", e))
+                    })?;
+
+                    // Write file to disk
+                    std::fs::write(local_path, content).map_err(|e| {
+                        TGVError::IOError(format!("Failed to write file {}: {}", local_path, e))
+                    })?;
+
+                    println!("Downloaded: {}", local_path);
+                } else {
+                    println!(
+                        "Failed to download {}: HTTP {}",
+                        local_path,
+                        response.status()
+                    );
+                }
+            }
+            Err(e) => {
+                println!("Failed to download {}: {}", local_path, e);
+            }
+        }
+
         Ok(())
     }
 }
