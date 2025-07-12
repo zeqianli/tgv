@@ -2819,3 +2819,226 @@ impl UCSCDownloader {
         Ok(())
     }
 }
+
+/// Convert BigBed files to SQLite database
+pub struct BigBedConverter {
+    bigbed_path: PathBuf,
+    output_db_path: PathBuf,
+    reference: Reference,
+}
+
+impl BigBedConverter {
+    pub fn new(
+        bigbed_path: &str,
+        output_db_path: &str,
+        reference: Reference,
+    ) -> Result<Self, TGVError> {
+        let expanded_bigbed_path = shellexpand::full(bigbed_path).map_err(|e| {
+            TGVError::ValueError(format!("Failed to expand BigBed file path: {}", e))
+        })?;
+
+        let expanded_output_path = shellexpand::full(output_db_path).map_err(|e| {
+            TGVError::ValueError(format!("Failed to expand output database path: {}", e))
+        })?;
+
+        Ok(Self {
+            bigbed_path: PathBuf::from(expanded_bigbed_path.as_ref()),
+            output_db_path: PathBuf::from(expanded_output_path.as_ref()),
+            reference,
+        })
+    }
+
+    pub async fn convert_with_track_name(&self, track_name: &str) -> Result<(), TGVError> {
+        use bigtools::BigBedReader;
+
+        // Ensure the BigBed file exists
+        if !self.bigbed_path.exists() {
+            return Err(TGVError::IOError(format!(
+                "BigBed file not found: {}",
+                self.bigbed_path.display()
+            )));
+        }
+
+        // Create output directory if it doesn't exist
+        if let Some(parent) = self.output_db_path.parent() {
+            std::fs::create_dir_all(parent).map_err(|e| {
+                TGVError::IOError(format!("Failed to create output directory: {}", e))
+            })?;
+        }
+
+        // Open BigBed file
+        let mut bigbed_reader = BigBedReader::open(&self.bigbed_path)
+            .map_err(|e| TGVError::IOError(format!("Failed to open BigBed file: {}", e)))?;
+
+        // Connect to SQLite database
+        let sqlite_pool = SqlitePoolOptions::new()
+            .max_connections(1)
+            .connect_with(
+                SqliteConnectOptions::new()
+                    .filename(&self.output_db_path)
+                    .create_if_missing(true),
+            )
+            .await?;
+
+        // Drop existing table if it exists
+        sqlx::query(&format!("DROP TABLE IF EXISTS {}", track_name))
+            .execute(&sqlite_pool)
+            .await?;
+
+        // Create table with gene track schema
+        sqlx::query(&format!(
+            "CREATE TABLE {} (
+                name TEXT,
+                chrom TEXT,
+                strand TEXT,
+                txStart INTEGER,
+                txEnd INTEGER,
+                cdsStart INTEGER,
+                cdsEnd INTEGER,
+                name2 TEXT,
+                exonStarts BLOB,
+                exonEnds BLOB
+            )",
+            track_name
+        ))
+        .execute(&sqlite_pool)
+        .await?;
+
+        // Read and convert BigBed records
+        let mut record_count = 0;
+        let mut transaction = sqlite_pool.begin().await?;
+
+        // Get all chromosomes from BigBed
+        let chroms = bigbed_reader.chroms().map_err(|e| {
+            TGVError::IOError(format!("Failed to get chromosomes from BigBed: {}", e))
+        })?;
+
+        for chrom_info in chroms {
+            let chrom_name = &chrom_info.name;
+
+            // Get intervals for this chromosome
+            let intervals = bigbed_reader
+                .get_interval(chrom_name, 0, chrom_info.length as u32)
+                .map_err(|e| {
+                    TGVError::IOError(format!(
+                        "Failed to get intervals for chromosome {}: {}",
+                        chrom_name, e
+                    ))
+                })?;
+
+            for interval in intervals {
+                // Parse BED12 fields
+                let fields: Vec<&str> = interval.rest.split('\t').collect();
+                if fields.len() < 9 {
+                    continue; // Skip records that don't have enough fields for BED12
+                }
+
+                let name = fields[0].to_string();
+                let score = fields[1]; // Not used but part of BED12
+                let strand = fields[2].to_string();
+                let thick_start: u32 = fields[3].parse().unwrap_or(interval.start);
+                let thick_end: u32 = fields[4].parse().unwrap_or(interval.end);
+                let item_rgb = fields[5]; // Not used
+                let block_count: u32 = fields[6].parse().unwrap_or(0);
+                let block_sizes_str = fields.get(7).unwrap_or(&"").to_string();
+                let block_starts_str = fields.get(8).unwrap_or(&"").to_string();
+
+                // Convert block information to exon coordinates
+                let (exon_starts, exon_ends) = self.convert_blocks_to_exons(
+                    interval.start,
+                    &block_sizes_str,
+                    &block_starts_str,
+                )?;
+
+                // Convert to comma-separated strings (matching UCSC format)
+                let exon_starts_blob = self.coords_to_blob(&exon_starts);
+                let exon_ends_blob = self.coords_to_blob(&exon_ends);
+
+                // Insert into database
+                sqlx::query(&format!(
+                    "INSERT INTO {} (name, chrom, strand, txStart, txEnd, cdsStart, cdsEnd, name2, exonStarts, exonEnds) 
+                     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                    track_name
+                ))
+                .bind(&name)
+                .bind(chrom_name)
+                .bind(&strand)
+                .bind(interval.start as i64)
+                .bind(interval.end as i64)
+                .bind(thick_start as i64)
+                .bind(thick_end as i64)
+                .bind(&name) // Use name as name2 if no alternative available
+                .bind(&exon_starts_blob)
+                .bind(&exon_ends_blob)
+                .execute(&mut *transaction)
+                .await?;
+
+                record_count += 1;
+            }
+        }
+
+        transaction.commit().await?;
+        sqlite_pool.close().await;
+
+        println!(
+            "Successfully converted {} records from BigBed to SQLite table '{}'",
+            record_count, track_name
+        );
+
+        Ok(())
+    }
+
+    fn convert_blocks_to_exons(
+        &self,
+        tx_start: u32,
+        block_sizes_str: &str,
+        block_starts_str: &str,
+    ) -> Result<(Vec<u32>, Vec<u32>), TGVError> {
+        if block_sizes_str.is_empty() || block_starts_str.is_empty() {
+            // No block information, treat as single exon
+            return Ok((vec![tx_start], vec![tx_start]));
+        }
+
+        let block_sizes: Vec<u32> = block_sizes_str
+            .trim_end_matches(',')
+            .split(',')
+            .filter(|s| !s.is_empty())
+            .map(|s| s.parse().unwrap_or(0))
+            .collect();
+
+        let block_starts: Vec<u32> = block_starts_str
+            .trim_end_matches(',')
+            .split(',')
+            .filter(|s| !s.is_empty())
+            .map(|s| s.parse().unwrap_or(0))
+            .collect();
+
+        if block_sizes.len() != block_starts.len() {
+            return Err(TGVError::ValueError(
+                "Block sizes and starts arrays have different lengths".to_string(),
+            ));
+        }
+
+        let mut exon_starts = Vec::new();
+        let mut exon_ends = Vec::new();
+
+        for (i, &block_size) in block_sizes.iter().enumerate() {
+            let exon_start = tx_start + block_starts[i];
+            let exon_end = exon_start + block_size;
+            exon_starts.push(exon_start);
+            exon_ends.push(exon_end);
+        }
+
+        Ok((exon_starts, exon_ends))
+    }
+
+    fn coords_to_blob(&self, coords: &[u32]) -> Vec<u8> {
+        let coords_str = coords
+            .iter()
+            .map(|c| c.to_string())
+            .collect::<Vec<_>>()
+            .join(",");
+        let coords_str = format!("{},", coords_str); // Add trailing comma to match UCSC format
+        coords_str.into_bytes()
+    }
+}

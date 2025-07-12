@@ -30,6 +30,7 @@ async-trait = "0.1"
 chrono = {version = "0.4", features = ["clock"]}
 shellexpand = "3.1"
 twobit = "0"
+bigtools = "0"
 
 [dev-dependencies]
 rstest = "0.25.0"
