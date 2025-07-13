@@ -1,4 +1,5 @@
 use crate::error::TGVError;
+use crate::reference;
 use crate::traits::GenomeInterval;
 use crate::{
     contig::Contig,
@@ -15,7 +16,9 @@ use reqwest::{Client, StatusCode};
 use serde::de::Error as _;
 use serde::Deserialize;
 use sqlx::mysql::MySqlRow;
+use sqlx::sqlite::Sqlite;
 use sqlx::sqlite::SqliteRow;
+use sqlx::Pool;
 use sqlx::{
     mysql::MySqlPoolOptions,
     sqlite::{SqliteConnectOptions, SqlitePool, SqlitePoolOptions},
@@ -2562,6 +2565,9 @@ impl UCSCDownloader {
         self.download_file(&big_data_path, &local_big_data_path.to_str().unwrap())
             .await?;
 
+        BigBedConverter::new(big_data_path, reference.clone())?
+            .covert_with_track_name(prefered_track, &sqlite_pool)?;
+
         Ok(())
     }
 
@@ -2822,67 +2828,39 @@ impl UCSCDownloader {
 
 /// Convert BigBed files to SQLite database
 pub struct BigBedConverter {
-    bigbed_path: PathBuf,
-    output_db_path: PathBuf,
+    bigbed_path: String,
     reference: Reference,
 }
 
 impl BigBedConverter {
-    pub fn new(
-        bigbed_path: &str,
-        output_db_path: &str,
-        reference: Reference,
-    ) -> Result<Self, TGVError> {
-        let expanded_bigbed_path = shellexpand::full(bigbed_path).map_err(|e| {
-            TGVError::ValueError(format!("Failed to expand BigBed file path: {}", e))
-        })?;
-
-        let expanded_output_path = shellexpand::full(output_db_path).map_err(|e| {
-            TGVError::ValueError(format!("Failed to expand output database path: {}", e))
-        })?;
-
+    pub fn new(bigbed_path: &str, reference: Reference) -> Result<Self, TGVError> {
         Ok(Self {
-            bigbed_path: PathBuf::from(expanded_bigbed_path.as_ref()),
-            output_db_path: PathBuf::from(expanded_output_path.as_ref()),
+            bigbed_path: bigbed_path.to_string(),
             reference,
         })
     }
 
-    pub async fn convert_with_track_name(&self, track_name: &str) -> Result<(), TGVError> {
-        use bigtools::BigBedReader;
+    pub async fn convert_with_track_name(
+        &self,
+        track_name: &str,
+        sqlite_pool: &Pool<Sqlite>,
+    ) -> Result<(), TGVError> {
+        use bigtools::BigBedRead;
 
         // Ensure the BigBed file exists
-        if !self.bigbed_path.exists() {
+        if !Path::new(&self.bigbed_path).exists() {
             return Err(TGVError::IOError(format!(
                 "BigBed file not found: {}",
-                self.bigbed_path.display()
+                self.bigbed_path
             )));
         }
 
-        // Create output directory if it doesn't exist
-        if let Some(parent) = self.output_db_path.parent() {
-            std::fs::create_dir_all(parent).map_err(|e| {
-                TGVError::IOError(format!("Failed to create output directory: {}", e))
-            })?;
-        }
-
         // Open BigBed file
-        let mut bigbed_reader = BigBedReader::open(&self.bigbed_path)
-            .map_err(|e| TGVError::IOError(format!("Failed to open BigBed file: {}", e)))?;
-
-        // Connect to SQLite database
-        let sqlite_pool = SqlitePoolOptions::new()
-            .max_connections(1)
-            .connect_with(
-                SqliteConnectOptions::new()
-                    .filename(&self.output_db_path)
-                    .create_if_missing(true),
-            )
-            .await?;
+        let mut bigbed_reader = BigBedRead::open_file(&self.bigbed_path)?;
 
         // Drop existing table if it exists
         sqlx::query(&format!("DROP TABLE IF EXISTS {}", track_name))
-            .execute(&sqlite_pool)
+            .execute(sqlite_pool)
             .await?;
 
         // Create table with gene track schema
@@ -2901,37 +2879,24 @@ impl BigBedConverter {
             )",
             track_name
         ))
-        .execute(&sqlite_pool)
+        .execute(sqlite_pool)
         .await?;
 
-        // Read and convert BigBed records
-        let mut record_count = 0;
         let mut transaction = sqlite_pool.begin().await?;
 
         // Get all chromosomes from BigBed
-        let chroms = bigbed_reader.chroms().map_err(|e| {
-            TGVError::IOError(format!("Failed to get chromosomes from BigBed: {}", e))
-        })?;
+        let mut record_count = 0;
+        let chromosomes: Vec<(String, u32)> = bigbed_reader
+            .chroms()
+            .iter()
+            .map(|chrom_info| (chrom_info.name.clone(), chrom_info.length))
+            .collect();
 
-        for chrom_info in chroms {
-            let chrom_name = &chrom_info.name;
-
-            // Get intervals for this chromosome
-            let intervals = bigbed_reader
-                .get_interval(chrom_name, 0, chrom_info.length as u32)
-                .map_err(|e| {
-                    TGVError::IOError(format!(
-                        "Failed to get intervals for chromosome {}: {}",
-                        chrom_name, e
-                    ))
-                })?;
-
-            for interval in intervals {
+        for (chromosome_name, chromosome_length) in chromosomes {
+            for interval in bigbed_reader.get_interval(&chromosome_name, 0, chromosome_length)? {
+                let interval = interval?;
                 // Parse BED12 fields
                 let fields: Vec<&str> = interval.rest.split('\t').collect();
-                if fields.len() < 9 {
-                    continue; // Skip records that don't have enough fields for BED12
-                }
 
                 let name = fields[0].to_string();
                 let score = fields[1]; // Not used but part of BED12
@@ -2940,19 +2905,8 @@ impl BigBedConverter {
                 let thick_end: u32 = fields[4].parse().unwrap_or(interval.end);
                 let item_rgb = fields[5]; // Not used
                 let block_count: u32 = fields[6].parse().unwrap_or(0);
-                let block_sizes_str = fields.get(7).unwrap_or(&"").to_string();
-                let block_starts_str = fields.get(8).unwrap_or(&"").to_string();
-
-                // Convert block information to exon coordinates
-                let (exon_starts, exon_ends) = self.convert_blocks_to_exons(
-                    interval.start,
-                    &block_sizes_str,
-                    &block_starts_str,
-                )?;
-
-                // Convert to comma-separated strings (matching UCSC format)
-                let exon_starts_blob = self.coords_to_blob(&exon_starts);
-                let exon_ends_blob = self.coords_to_blob(&exon_ends);
+                let exon_starts_blob = fields.get(7).unwrap().as_bytes(); // TODO
+                let exon_ends_blob = fields.get(8).unwrap().as_bytes(); // TODO
 
                 // Insert into database
                 sqlx::query(&format!(
@@ -2961,7 +2915,7 @@ impl BigBedConverter {
                     track_name
                 ))
                 .bind(&name)
-                .bind(chrom_name)
+                .bind(&chromosome_name)
                 .bind(&strand)
                 .bind(interval.start as i64)
                 .bind(interval.end as i64)
