@@ -28,6 +28,13 @@ use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
+const TRACK_PREFERENCES: [&str; 5] = [
+    "ncbiRefSeqSelect",
+    "ncbiRefSeqCurated",
+    "ncbiRefSeq",
+    "ncbiGene",
+    "refGenes",
+];
 /// Holds cache for track service queries.
 /// Can be returned or pass into queries.
 pub struct TrackCache {
@@ -1664,15 +1671,7 @@ fn get_all_track_names(content: &serde_json::Value) -> Result<Vec<String>, TGVEr
 }
 
 fn get_preferred_track_name_from_vec(names: &Vec<String>) -> Result<Option<String>, TGVError> {
-    let preferences = [
-        "ncbiRefSeqSelect",
-        "ncbiRefSeqCurated",
-        "ncbiRefSeq",
-        "ncbiGene",
-        "refGenes",
-    ];
-
-    for pref in preferences {
+    for pref in TRACK_PREFERENCES {
         if names.contains(&pref.to_string()) {
             return Ok(Some(pref.to_string()));
         }
@@ -2411,16 +2410,9 @@ impl UCSCDownloader {
         use std::fs;
 
         // Create SQLite database file path: cache_dir/reference_name/tracks.sqlite
-        let db_dir = self.reference_cache_dir(&self.reference)?;
-        fs::create_dir_all(&db_dir)?;
-        let db_path = db_dir.join("tracks.sqlite");
-
-        // Connect to MariaDB
-        let mysql_url = UcscDbTrackService::get_mysql_url(&self.reference, &UcscHost::Us)?;
-        let mysql_pool = MySqlPoolOptions::new()
-            .max_connections(5)
-            .connect(&mysql_url)
-            .await?;
+        let cache_dir = self.reference_cache_dir(&self.reference)?;
+        fs::create_dir_all(&cache_dir)?;
+        let db_path = cache_dir.join("tracks.sqlite");
 
         let sqlite_pool = SqlitePoolOptions::new()
             .max_connections(1)
@@ -2429,6 +2421,30 @@ impl UCSCDownloader {
                     .filename(&db_path)
                     .create_if_missing(true),
             )
+            .await?;
+
+        match &self.reference {
+            Reference::Hg19 | Reference::Hg38 | Reference::UcscGenome(_) => {
+                self.download_for_ucsc_assembly(&self.reference, &cache_dir, &sqlite_pool)
+                    .await
+            }
+            Reference::UcscAccession(_) => {
+                self.download_for_ucsc_accession(&self.reference, &cache_dir, &sqlite_pool)
+                    .await
+            }
+        }
+    }
+    pub async fn download_for_ucsc_assembly(
+        &self,
+        reference: &Reference,
+        cache_dir: &PathBuf,
+        sqlite_pool: &Pool<Sqlite>,
+    ) -> Result<(), TGVError> {
+        // Connect to MariaDB
+        let mysql_url = UcscDbTrackService::get_mysql_url(&self.reference, &UcscHost::Us)?;
+        let mysql_pool = MySqlPoolOptions::new()
+            .max_connections(5)
+            .connect(&mysql_url)
             .await?;
 
         self.transfer_table(&mysql_pool, &sqlite_pool, "chromInfo")
@@ -2446,9 +2462,8 @@ impl UCSCDownloader {
         sqlite_pool.close().await;
 
         println!(
-            "Successfully downloaded {} data to {}",
-            self.reference,
-            db_path.display()
+            "Successfully downloaded track data for {}",
+            reference.to_string(),
         );
         Ok(())
     }
@@ -2459,15 +2474,17 @@ impl UCSCDownloader {
     /// 2. hub url, prefered track name, and big data url for the prefered track
     async fn download_for_ucsc_accession(
         &self,
-        accession: &str,
-        local_path: &str,
+        reference: &Reference,
+        cache_dir: &PathBuf,
+        sqlite_pool: &Pool<Sqlite>,
     ) -> Result<(), TGVError> {
+        // 1. Get hub url
         let ucsc_api_service = UcscApiTrackService::new()?;
-        let track_cache = TrackCache::new();
         let hub_url = ucsc_api_service
-            .get_hub_url_for_genark_accession(accession)
+            .get_hub_url_for_genark_accession(&reference.to_string())
             .await?;
 
+        // 2. Get genome file url
         // Example response:
         // {
         //     "downloadTime": "2025:07:12T15:57:02Z",
@@ -2491,25 +2508,21 @@ impl UCSCDownloader {
         );
         let response = ucsc_api_service.client.get(query_url).send().await?;
         let value: serde_json::Value = response.json().await?;
-        // let track_db_path = value["genomes"][accession]["trackDbFile"].as_str().ok_or(TGVError::IOError(format!(
-        //     "Failed to get hub url for {}",
-        //     accession
-        // )))?.to_string();
-        let twobit_path = value["genomes"][accession]["twoBitPath"]
+        let twobit_path = value["genomes"][reference.to_string()]["twoBitPath"]
             .as_str()
             .ok_or(TGVError::IOError(format!(
                 "Failed to get hub url for {}",
-                accession
+                reference.to_string()
             )))?
             .to_string();
 
         let local_twobit_path = self
-            .reference_cache_dir(&self.reference)?
+            .reference_cache_dir(reference)?
             .join(twobit_path.clone());
 
-        self.download_file(&twobit_path.clone(), &local_twobit_path.to_str().unwrap())
-            .await?;
+        self.download_file(&twobit_path, &local_twobit_path).await?;
 
+        // 3. Get download and index track BigBed files
         // Example response:
         // {
         //  "downloadTime": "2025:07:12T16:27:23Z",
@@ -2538,35 +2551,40 @@ impl UCSCDownloader {
         let response = ucsc_api_service
             .client
             .get(format!(
-                "https://api.genome.ucsc.edu/list/tracks?hubUrl={}&genome={}",
-                hub_url, accession
+                "https://api.genome.ucsc.edu/list/tracks?hubUrl={}&genome={}&trackLeavesOnly=1",
+                hub_url,
+                reference.to_string()
             ))
             .send()
             .await?;
         let value: serde_json::Value = response.json().await?;
-        let track_names = get_all_track_names(value.get(accession.clone()).ok_or(
-            TGVError::IOError("Failed to get genome from UCSC API".to_string()),
-        )?)?;
 
-        let prefered_track = get_preferred_track_name_from_vec(&track_names)?.ok_or(
-            TGVError::IOError(format!("Failed to find prefered track for {}", accession)),
-        )?;
-
-        let big_data_path = value[accession][prefered_track]["bigDataUrl"]
-            .as_str()
-            .ok_or(TGVError::IOError(format!(
-                "Failed to get big data url for {}",
-                accession
-            )))?;
-
-        let local_big_data_path = self
-            .reference_cache_dir(&self.reference)?
-            .join(big_data_path);
-        self.download_file(&big_data_path, &local_big_data_path.to_str().unwrap())
-            .await?;
-
-        BigBedConverter::new(big_data_path, reference.clone())?
-            .covert_with_track_name(prefered_track, &sqlite_pool)?;
+        for (track_name, value) in value
+            .as_object()
+            .ok_or(TGVError::IOError(
+                "Failed to get genome from UCSC API".to_string(),
+            ))?
+            .iter()
+        {
+            if TRACK_PREFERENCES.contains(&track_name.as_str()) || track_name == "cytoBandIdeo" {
+                let big_data_url = match value["bigDataUrl"].as_str() {
+                    Some(url) => url,
+                    None => {
+                        println!("No big data url found for {}", track_name);
+                        continue;
+                    }
+                };
+                let local_big_data_path = cache_dir.join(big_data_url.split("/").last().unwrap());
+                self.download_file(&big_data_url, &local_big_data_path)
+                    .await?;
+                BigBedConverter::save_to_sqlite(
+                    &local_big_data_path.to_str().unwrap(),
+                    track_name,
+                    &sqlite_pool,
+                )
+                .await?;
+            }
+        }
 
         Ok(())
     }
@@ -2776,24 +2794,26 @@ impl UCSCDownloader {
                 .unwrap_or(&file_name);
             let file_path = cache_dir.join(actual_filename);
 
-            self.download_file(&download_url, &file_path.to_str().unwrap())
-                .await?;
+            self.download_file(&download_url, &file_path).await?;
         }
 
         println!("Genome file download completed");
         Ok(())
     }
 
-    async fn download_file(&self, url: &str, local_path: &str) -> Result<(), TGVError> {
+    async fn download_file(&self, url: &str, local_path: &PathBuf) -> Result<(), TGVError> {
         let client = reqwest::Client::new();
 
         // Skip if file already exists
-        if Path::new(local_path).exists() {
-            println!("Genome file {} already exists, skipping", local_path);
+        if local_path.exists() {
+            println!(
+                "Genome file {} already exists, skipping",
+                local_path.display()
+            );
             return Ok(());
         }
 
-        println!("Downloading file: {}", local_path);
+        println!("Downloading file: {}", local_path.display());
 
         // Download the file
         match client.get(url).send().await {
@@ -2805,20 +2825,24 @@ impl UCSCDownloader {
 
                     // Write file to disk
                     std::fs::write(local_path, content).map_err(|e| {
-                        TGVError::IOError(format!("Failed to write file {}: {}", local_path, e))
+                        TGVError::IOError(format!(
+                            "Failed to write file {}: {}",
+                            local_path.display(),
+                            e
+                        ))
                     })?;
 
-                    println!("Downloaded: {}", local_path);
+                    println!("Downloaded: {}", local_path.display());
                 } else {
                     println!(
                         "Failed to download {}: HTTP {}",
-                        local_path,
+                        local_path.display(),
                         response.status()
                     );
                 }
             }
             Err(e) => {
-                println!("Failed to download {}: {}", local_path, e);
+                println!("Failed to download {}: {}", local_path.display(), e);
             }
         }
 
@@ -2827,36 +2851,20 @@ impl UCSCDownloader {
 }
 
 /// Convert BigBed files to SQLite database
-pub struct BigBedConverter {
-    bigbed_path: String,
-    reference: Reference,
-}
+pub struct BigBedConverter {}
 
 impl BigBedConverter {
-    pub fn new(bigbed_path: &str, reference: Reference) -> Result<Self, TGVError> {
-        Ok(Self {
-            bigbed_path: bigbed_path.to_string(),
-            reference,
-        })
-    }
-
-    pub async fn convert_with_track_name(
-        &self,
+    pub async fn save_to_sqlite(
+        bigbed_path: &str,
         track_name: &str,
         sqlite_pool: &Pool<Sqlite>,
     ) -> Result<(), TGVError> {
+        println!("Converting {} BigBed file to SQLite table...", track_name);
+
         use bigtools::BigBedRead;
 
-        // Ensure the BigBed file exists
-        if !Path::new(&self.bigbed_path).exists() {
-            return Err(TGVError::IOError(format!(
-                "BigBed file not found: {}",
-                self.bigbed_path
-            )));
-        }
-
         // Open BigBed file
-        let mut bigbed_reader = BigBedRead::open_file(&self.bigbed_path)?;
+        let mut bigbed_reader = BigBedRead::open_file(bigbed_path)?;
 
         // Drop existing table if it exists
         sqlx::query(&format!("DROP TABLE IF EXISTS {}", track_name))
