@@ -2426,13 +2426,16 @@ impl UCSCDownloader {
         match &self.reference {
             Reference::Hg19 | Reference::Hg38 | Reference::UcscGenome(_) => {
                 self.download_for_ucsc_assembly(&self.reference, &cache_dir, &sqlite_pool)
-                    .await
+                    .await?
             }
             Reference::UcscAccession(_) => {
                 self.download_for_ucsc_accession(&self.reference, &cache_dir, &sqlite_pool)
-                    .await
+                    .await?
             }
         }
+
+        sqlite_pool.close().await;
+        Ok(())
     }
     pub async fn download_for_ucsc_assembly(
         &self,
@@ -2459,7 +2462,6 @@ impl UCSCDownloader {
         mysql_pool.close().await;
 
         self.download_genomes(&sqlite_pool).await?;
-        sqlite_pool.close().await;
 
         println!(
             "Successfully downloaded track data for {}",
@@ -2483,107 +2485,82 @@ impl UCSCDownloader {
         let hub_url = ucsc_api_service
             .get_hub_url_for_genark_accession(&reference.to_string())
             .await?;
+        self.download_to_directory(&hub_url, cache_dir).await?;
 
-        // 2. Get genome file url
-        // Example response:
-        // {
-        //     "downloadTime": "2025:07:12T15:57:02Z",
-        //     "downloadTimeStamp": 1752335822,
-        //     "hubUrl": "http://hgdownload.soe.ucsc.edu/hubs/GCF/028/858/775/GCF_028858775.2/hub.txt",
-        //     "genomes": {
-        //       "GCF_028858775.2": {
-        //         "organism": "NHGRI_mPanTro3-v2.0_pri Jan. 2024",
-        //         "description": "chimpanzee (v2 AG18354 primary hap 2024 refseq)",
-        //         "trackDbFile": "http://hgdownload.soe.ucsc.edu/hubs/GCF/028/858/775/GCF_028858775.2/hub.txt",
-        //         "twoBitPath": "http://hgdownload.soe.ucsc.edu/hubs/GCF/028/858/775/GCF_028858775.2/GCF_028858775.2.2bit",
-        //         "groups": "http://hgdownload.soe.ucsc.edu/hubs/GCF/028/858/775/GCF_028858775.2/groups.txt",
-        //         "defaultPos": "NC_072398.2:77099816-77109816",
-        //         "orderKey": 0
-        //       }
-        //     }
-        //   }
-        let query_url = format!(
-            "https://api.genome.ucsc.edu/list/hubGenomes?hubUrl={}",
-            hub_url
-        );
-        let response = ucsc_api_service.client.get(query_url).send().await?;
-        let value: serde_json::Value = response.json().await?;
-        let twobit_path = value["genomes"][reference.to_string()]["twoBitPath"]
-            .as_str()
-            .ok_or(TGVError::IOError(format!(
-                "Failed to get hub url for {}",
-                reference.to_string()
-            )))?
-            .to_string();
+        // 2. Parse hub file and download files
+        println!("Parsing hub file...");
+        let hub_content = UcscHubFileParser::parse_hub_file(&hub_url).await?;
 
-        let local_twobit_path = self
-            .reference_cache_dir(reference)?
-            .join(twobit_path.clone());
+        if let Some(twobit_path) = hub_content.twobit_path {
+            self.download_to_directory(&twobit_path, cache_dir).await?;
+        }
 
-        self.download_file(&twobit_path, &local_twobit_path).await?;
-
-        // 3. Get download and index track BigBed files
-        // Example response:
-        // {
-        //  "downloadTime": "2025:07:12T16:27:23Z",
-        // "downloadTimeStamp": 1752337643,
-        // "hubUrl": "http://hgdownload.soe.ucsc.edu/hubs/mouseStrains/hub.txt",
-        // "CAST_EiJ": {
-        //     "ensGene": {
-        //     "shortLabel": "Ensembl genes",
-        //     "type": "bigBed 12 .",
-        //     "longLabel": "Ensembl genes v86",
-        //     "visibility": "pack",
-        //     "group": "genes",
-        //     "polished": "polished",
-        //     "html": "html/GCA_001624445.1_CAST_EiJ_v1.ensGene",
-        //     "searchIndex": "name",
-        //     "priority": "40",
-        //     "searchTrix": "http://hgdownload.soe.ucsc.edu/hubs/mouseStrains/GCA_001624445.1_CAST_EiJ_v1/ixIxx/GCA_001624445.1_CAST_EiJ_v1.ensGene.name.ix",
-        //     "bigDataUrl": "http://hgdownload.soe.ucsc.edu/hubs/mouseStrains/GCA_001624445.1_CAST_EiJ_v1/bbi/GCA_001624445.1_CAST_EiJ_v1.ensGene.bb",
-        //     "color": "150,0,0"
-        //     },
-        //     "allGaps": {
-        //       ...
-        //     }
-        // }
-
-        let response = ucsc_api_service
-            .client
-            .get(format!(
-                "https://api.genome.ucsc.edu/list/tracks?hubUrl={}&genome={}&trackLeavesOnly=1",
-                hub_url,
-                reference.to_string()
-            ))
-            .send()
-            .await?;
-        let value: serde_json::Value = response.json().await?;
-
-        for (track_name, value) in value
-            .as_object()
-            .ok_or(TGVError::IOError(
-                "Failed to get genome from UCSC API".to_string(),
-            ))?
-            .iter()
-        {
-            if TRACK_PREFERENCES.contains(&track_name.as_str()) || track_name == "cytoBandIdeo" {
-                let big_data_url = match value["bigDataUrl"].as_str() {
-                    Some(url) => url,
-                    None => {
-                        println!("No big data url found for {}", track_name);
-                        continue;
-                    }
-                };
-                let local_big_data_path = cache_dir.join(big_data_url.split("/").last().unwrap());
-                self.download_file(&big_data_url, &local_big_data_path)
-                    .await?;
-                BigBedConverter::save_to_sqlite(
-                    &local_big_data_path.to_str().unwrap(),
-                    track_name,
-                    &sqlite_pool,
-                )
+        if let Some(chrom_sizes_path) = hub_content.chrom_sizes_path {
+            let local_chrom_sizes_path = self
+                .download_to_directory(&chrom_sizes_path, cache_dir)
                 .await?;
+            self.add_chrom_sizes_to_sqlite(&local_chrom_sizes_path, &sqlite_pool)
+                .await?;
+        }
+
+        if let Some(chrom_alias_path) = hub_content.chrom_alias_path {
+            let local_chrom_alias_path = self
+                .download_to_directory(&chrom_alias_path, cache_dir)
+                .await?;
+            BigBedConverter::save_to_sqlite(
+                &local_chrom_alias_path.to_str().unwrap(),
+                "chromAlias",
+                &sqlite_pool,
+            )
+            .await?;
+        }
+
+        for (track_name, big_data_url) in hub_content.track_paths.iter() {
+            if !(TRACK_PREFERENCES.contains(&track_name.as_str()) || track_name == "cytoBandIdeo") {
+                continue;
             }
+
+            let local_big_data_path = self.download_to_directory(&big_data_url, cache_dir).await?;
+            BigBedConverter::save_to_sqlite(
+                &local_big_data_path.to_str().unwrap(),
+                track_name,
+                &sqlite_pool,
+            )
+            .await?;
+        }
+
+        Ok(())
+    }
+
+    /// Add the chromSizes txt file from UCSC to a sqlite table.
+    async fn add_chrom_sizes_to_sqlite(
+        &self,
+        chrom_sizes_path: &PathBuf,
+        sqlite_pool: &SqlitePool,
+    ) -> Result<(), TGVError> {
+        let chrom_sizes_content = std::fs::read_to_string(chrom_sizes_path)?;
+        let chrom_sizes_lines = chrom_sizes_content.lines();
+
+        sqlx::query("DROP TABLE IF EXISTS chromSizes")
+            .execute(sqlite_pool)
+            .await?;
+
+        sqlx::query("CREATE TABLE chromSizes (chrom TEXT, size INTEGER)")
+            .execute(sqlite_pool)
+            .await?;
+
+        for line in chrom_sizes_lines {
+            let fields = line.split("\t").collect::<Vec<&str>>();
+            let chrom = fields[0];
+            let size = fields[1]
+                .parse::<i64>()
+                .map_err(|e| TGVError::IOError(format!("Failed to parse chrom size: {}", e)))?;
+
+            sqlx::query("INSERT INTO chromSizes (chrom, size) VALUES (?, ?)")
+                .bind(chrom)
+                .bind(size)
+                .execute(sqlite_pool)
+                .await?;
         }
 
         Ok(())
@@ -2787,21 +2764,20 @@ impl UCSCDownloader {
             let file_name: String = row.try_get("fileName")?;
             let download_url = format!("http://hgdownload.soe.ucsc.edu/{}", file_name);
 
-            // Extract just the filename part from the full path
-            let actual_filename = std::path::Path::new(&file_name)
-                .file_name()
-                .and_then(|f| f.to_str())
-                .unwrap_or(&file_name);
-            let file_path = cache_dir.join(actual_filename);
-
-            self.download_file(&download_url, &file_path).await?;
+            self.download_to_directory(&download_url, &cache_dir)
+                .await?;
         }
 
         println!("Genome file download completed");
         Ok(())
     }
 
-    async fn download_file(&self, url: &str, local_path: &PathBuf) -> Result<(), TGVError> {
+    async fn download_to_directory(
+        &self,
+        url: &str,
+        local_dir: &PathBuf,
+    ) -> Result<PathBuf, TGVError> {
+        let local_path = local_dir.join(url.split("/").last().unwrap());
         let client = reqwest::Client::new();
 
         // Skip if file already exists
@@ -2810,7 +2786,7 @@ impl UCSCDownloader {
                 "Genome file {} already exists, skipping",
                 local_path.display()
             );
-            return Ok(());
+            return Ok(local_path);
         }
 
         println!("Downloading file: {}", local_path.display());
@@ -2824,7 +2800,7 @@ impl UCSCDownloader {
                     })?;
 
                     // Write file to disk
-                    std::fs::write(local_path, content).map_err(|e| {
+                    std::fs::write(&local_path, content).map_err(|e| {
                         TGVError::IOError(format!(
                             "Failed to write file {}: {}",
                             local_path.display(),
@@ -2846,7 +2822,7 @@ impl UCSCDownloader {
             }
         }
 
-        Ok(())
+        Ok(local_path)
     }
 }
 
@@ -2940,7 +2916,6 @@ impl BigBedConverter {
         }
 
         transaction.commit().await?;
-        sqlite_pool.close().await;
 
         println!(
             "Successfully converted {} records from BigBed to SQLite table '{}'",
@@ -3002,5 +2977,75 @@ impl BigBedConverter {
             .join(",");
         let coords_str = format!("{},", coords_str); // Add trailing comma to match UCSC format
         coords_str.into_bytes()
+    }
+}
+
+struct UcscHub {
+    hub_url: String,
+
+    twobit_path: Option<String>,
+
+    chrom_sizes_path: Option<String>,
+
+    chrom_alias_path: Option<String>,
+
+    track_paths: HashMap<String, String>,
+}
+
+struct UcscHubFileParser {}
+
+impl UcscHubFileParser {
+    pub async fn parse_hub_file(hub_url: &str) -> Result<UcscHub, TGVError> {
+        let response = reqwest::get(hub_url).await?;
+        let body = response.text().await?;
+
+        let mut current_track = None; // track name of the current track block being parsed
+        let mut track_paths: HashMap<String, String> = HashMap::new();
+        let mut twobit_path = None;
+        let mut chrom_sizes_path = None;
+        let mut chrom_alias_path = None;
+
+        for line in body.lines() {
+            if line == "" {
+                current_track = None;
+                continue;
+            }
+
+            let values = line.split(" ").collect::<Vec<&str>>();
+            if values[0] == "track" {
+                current_track = Some(values[1].to_string());
+                continue;
+            }
+
+            if let Some(track_name) = &current_track {
+                if values[0] == "bigDataUrl" {
+                    track_paths.insert(track_name.clone(), Self::join_url(hub_url, values[1]));
+                }
+            } else {
+                if values[0] == "twobitPath" {
+                    twobit_path = Some(Self::join_url(hub_url, values[1]));
+                } else if values[0] == "chromSizes" {
+                    chrom_sizes_path = Some(Self::join_url(hub_url, values[1]));
+                } else if values[0] == "chromAlias" {
+                    chrom_alias_path = Some(Self::join_url(hub_url, values[1]));
+                }
+            }
+        }
+
+        Ok(UcscHub {
+            hub_url: hub_url.to_string(),
+            twobit_path,
+            chrom_sizes_path,
+            chrom_alias_path,
+            track_paths,
+        })
+    }
+
+    /// Replace the last part of the hub url with the file name
+    fn join_url(hub_url: &str, file_name: &str) -> String {
+        let base_url = hub_url.split("/").collect::<Vec<&str>>();
+        let base_url = base_url[..base_url.len() - 1].join("/");
+        let full_url = format!("{}/{}", base_url, file_name);
+        full_url
     }
 }
