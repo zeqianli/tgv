@@ -12,6 +12,7 @@ use crate::{
     ucsc::UcscHost,
 };
 use async_trait::async_trait;
+use bigtools::BigBedRead;
 use reqwest::{Client, StatusCode};
 use serde::de::Error as _;
 use serde::Deserialize;
@@ -2358,6 +2359,7 @@ pub struct UCSCDownloader {
 }
 
 /// UCSC column type. Used to map MySQL types to SQLite types.
+#[derive(Debug)]
 enum UCSCColumnType {
     UnsignedInt,
     Int,
@@ -2830,6 +2832,74 @@ impl UCSCDownloader {
 pub struct BigBedConverter {}
 
 impl BigBedConverter {
+    /// Parse BigBed autosql header to sqlite schema.
+    /// Bigbed autosql:
+    ///   - https://www.linuxjournal.com/article/5949
+    ///   - https://genome.ucsc.edu/goldenpath/help/examples/bedExample2.as
+    ///
+    /// Return: (field_names, field_types)
+    fn get_schema(
+        bigbed_reader: &mut BigBedRead<bigtools::utils::reopen::ReopenableFile>,
+    ) -> Result<(Vec<String>, Vec<UCSCColumnType>), TGVError> {
+        use bigtools::bed::autosql::parse::parse_autosql;
+        use bigtools::bed::autosql::parse::FieldType;
+        let autosql_string = bigbed_reader
+            .autosql()?
+            .ok_or(TGVError::IOError("Failed to parse autosql".to_string()))?;
+
+        let mut field_names = Vec::new();
+        let mut field_types = Vec::new();
+
+        let declarations = parse_autosql(&autosql_string).unwrap();
+        let declaration: &bigtools::bed::autosql::parse::Declaration = declarations.get(0).ok_or(
+            TGVError::IOError("Parsing autosql declaration failed".to_string()),
+        )?;
+
+        for field in declaration.fields.iter() {
+            if field.name == "chrom" || field.name == "chromStart" || field.name == "chromEnd" {
+                // These are specially handled in bigtools.
+                continue;
+            }
+
+            field_names.push(field.name.clone());
+            field_types.push(match field.field_type {
+                FieldType::Int | FieldType::Short | FieldType::Bigint => {
+                    // Example: Field { field_type: Int, field_size: Some("blockCount"), name: "exonFrames", index_type: None, auto: false, comment: "\"Exon frame {0,1,2}, or -1 if no frame for exon\"" }
+                    // NCBI's database did the same.
+                    if field.field_size.is_none() {
+                        UCSCColumnType::Int
+                    } else {
+                        UCSCColumnType::Blob
+                    }
+                }
+                FieldType::Uint | FieldType::Ushort => {
+                    if field.field_size.is_none() {
+                        UCSCColumnType::UnsignedInt
+                    } else {
+                        UCSCColumnType::Blob
+                    }
+                }
+                FieldType::Byte | FieldType::Ubyte => UCSCColumnType::Blob,
+                FieldType::Double | FieldType::Float => {
+                    if field.field_size.is_none() {
+                        UCSCColumnType::Float
+                    } else {
+                        UCSCColumnType::Blob
+                    }
+                }
+                FieldType::Char | FieldType::String | FieldType::Lstring => UCSCColumnType::String,
+                // Not sure what's the best way tp interprete them. Maybe they are uncommon.
+                FieldType::Enum(_) | FieldType::Set(_) | FieldType::Declaration(_, _) => {
+                    UCSCColumnType::String
+                }
+            });
+        }
+
+        Ok((field_names, field_types))
+    }
+
+    /// Save a BigBed file to a SQLite table.
+    ///
     pub async fn save_to_sqlite(
         bigbed_path: &str,
         track_name: &str,
@@ -2840,7 +2910,10 @@ impl BigBedConverter {
         use bigtools::BigBedRead;
 
         // Open BigBed file
-        let mut bigbed_reader = BigBedRead::open_file(bigbed_path)?;
+        let mut bigbed_reader: BigBedRead<bigtools::utils::reopen::ReopenableFile> =
+            BigBedRead::open_file(bigbed_path)?;
+
+        let (field_names, schema) = Self::get_schema(&mut bigbed_reader)?;
 
         // Drop existing table if it exists
         sqlx::query(&format!("DROP TABLE IF EXISTS {}", track_name))
@@ -2848,25 +2921,20 @@ impl BigBedConverter {
             .await?;
 
         // Create table with gene track schema
-        sqlx::query(&format!(
-            "CREATE TABLE {} (
-                name TEXT,
-                chrom TEXT,
-                strand TEXT,
-                txStart INTEGER,
-                txEnd INTEGER,
-                cdsStart INTEGER,
-                cdsEnd INTEGER,
-                name2 TEXT,
-                exonStarts BLOB,
-                exonEnds BLOB
-            )",
-            track_name
-        ))
-        .execute(sqlite_pool)
-        .await?;
 
-        let mut transaction = sqlite_pool.begin().await?;
+        let mut query = String::new();
+        query.push_str("chrom TEXT, chromStart INTEGER, chromEnd INTEGER, ");
+        for (i, (field_name, field_type)) in field_names.iter().zip(schema.iter()).enumerate() {
+            query.push_str(&format!("{} {}", field_name, field_type.to_sqlite_type()));
+            if i < field_names.len() - 1 {
+                query.push_str(", ");
+            }
+        }
+        let query_string = format!("CREATE TABLE {} ({})", track_name, query);
+
+        sqlx::query(&query_string).execute(sqlite_pool).await?;
+
+        let mut transaction: sqlx::Transaction<'_, sqlx::Sqlite> = sqlite_pool.begin().await?;
 
         // Get all chromosomes from BigBed
         let mut record_count = 0;
@@ -2882,34 +2950,71 @@ impl BigBedConverter {
                 // Parse BED12 fields
                 let fields: Vec<&str> = interval.rest.split('\t').collect();
 
-                let name = fields[0].to_string();
-                let score = fields[1]; // Not used but part of BED12
-                let strand = fields[2].to_string();
-                let thick_start: u32 = fields[3].parse().unwrap_or(interval.start);
-                let thick_end: u32 = fields[4].parse().unwrap_or(interval.end);
-                let item_rgb = fields[5]; // Not used
-                let block_count: u32 = fields[6].parse().unwrap_or(0);
-                let exon_starts_blob = fields.get(7).unwrap().as_bytes(); // TODO
-                let exon_ends_blob = fields.get(8).unwrap().as_bytes(); // TODO
+                if fields.len() != field_names.len() {
+                    return Err(TGVError::ValueError(format!(
+                        "Expected {} fields, got {}. expected fields: {}, got fields: {}",
+                        field_names.len(),
+                        fields.len(),
+                        field_names.join(", "),
+                        fields.join("; ")
+                    )));
+                }
 
-                // Insert into database
-                sqlx::query(&format!(
-                    "INSERT INTO {} (name, chrom, strand, txStart, txEnd, cdsStart, cdsEnd, name2, exonStarts, exonEnds) 
-                     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-                    track_name
-                ))
-                .bind(&name)
-                .bind(&chromosome_name)
-                .bind(&strand)
-                .bind(interval.start as i64)
-                .bind(interval.end as i64)
-                .bind(thick_start as i64)
-                .bind(thick_end as i64)
-                .bind(&name) // Use name as name2 if no alternative available
-                .bind(&exon_starts_blob)
-                .bind(&exon_ends_blob)
-                .execute(&mut *transaction)
-                .await?;
+                let query_string = format!(
+                    "INSERT INTO {} ({}) VALUES ({})",
+                    track_name,
+                    "chrom, chromStart, chromEnd, ".to_string() + &field_names.join(", "),
+                    vec!["?"; field_names.len() + 3].join(", ")
+                );
+
+                let mut query = sqlx::query(&query_string);
+                query = query
+                    .bind(chromosome_name.clone())
+                    .bind(interval.start as i64)
+                    .bind(interval.end as i64);
+
+                for (i, field) in fields.iter().enumerate() {
+                    // If field emtpy, use null.
+                    if field.trim().is_empty() {
+                        match schema[i] {
+                            UCSCColumnType::Int => {
+                                query = query.bind(None::<i64>);
+                            }
+                            UCSCColumnType::UnsignedInt => {
+                                query = query.bind(None::<i64>);
+                            }
+                            UCSCColumnType::Float => {
+                                query = query.bind(None::<f64>);
+                            }
+                            UCSCColumnType::Blob => {
+                                query = query.bind(None::<Vec<u8>>);
+                            }
+                            UCSCColumnType::String => {
+                                query = query.bind(None::<String>);
+                            }
+                        }
+                    } else {
+                        match schema[i] {
+                            UCSCColumnType::Int => {
+                                query = query.bind(field.parse::<i64>().unwrap());
+                            }
+                            UCSCColumnType::UnsignedInt => {
+                                query = query.bind(field.parse::<i64>().unwrap());
+                            }
+                            UCSCColumnType::Float => {
+                                query = query.bind(field.parse::<f64>().unwrap());
+                            }
+                            UCSCColumnType::Blob => {
+                                query = query.bind(field.as_bytes());
+                            }
+                            UCSCColumnType::String => {
+                                query = query.bind(field.to_string());
+                            }
+                        }
+                    }
+                }
+
+                query.execute(&mut *transaction).await?;
 
                 record_count += 1;
             }
@@ -2924,62 +3029,65 @@ impl BigBedConverter {
 
         Ok(())
     }
+    // Note: UCSC database store exon information with exonStarts and exonEnds. But the bigbed files stores blockStarts and blockSize.
+    // Compute them to new columns to reduce compute at run time.
 
-    fn convert_blocks_to_exons(
-        &self,
-        tx_start: u32,
-        block_sizes_str: &str,
-        block_starts_str: &str,
-    ) -> Result<(Vec<u32>, Vec<u32>), TGVError> {
-        if block_sizes_str.is_empty() || block_starts_str.is_empty() {
-            // No block information, treat as single exon
-            return Ok((vec![tx_start], vec![tx_start]));
-        }
+    // fn convert_blocks_to_exons(
+    //     &self,
+    //     tx_start: u32,
+    //     block_sizes_str: &str,
+    //     block_starts_str: &str,
+    // ) -> Result<(Vec<u32>, Vec<u32>), TGVError> {
+    //     if block_sizes_str.is_empty() || block_starts_str.is_empty() {
+    //         // No block information, treat as single exon
+    //         return Ok((vec![tx_start], vec![tx_start]));
+    //     }
 
-        let block_sizes: Vec<u32> = block_sizes_str
-            .trim_end_matches(',')
-            .split(',')
-            .filter(|s| !s.is_empty())
-            .map(|s| s.parse().unwrap_or(0))
-            .collect();
+    //     let block_sizes: Vec<u32> = block_sizes_str
+    //         .trim_end_matches(',')
+    //         .split(',')
+    //         .filter(|s| !s.is_empty())
+    //         .map(|s| s.parse().unwrap_or(0))
+    //         .collect();
 
-        let block_starts: Vec<u32> = block_starts_str
-            .trim_end_matches(',')
-            .split(',')
-            .filter(|s| !s.is_empty())
-            .map(|s| s.parse().unwrap_or(0))
-            .collect();
+    //     let block_starts: Vec<u32> = block_starts_str
+    //         .trim_end_matches(',')
+    //         .split(',')
+    //         .filter(|s| !s.is_empty())
+    //         .map(|s| s.parse().unwrap_or(0))
+    //         .collect();
 
-        if block_sizes.len() != block_starts.len() {
-            return Err(TGVError::ValueError(
-                "Block sizes and starts arrays have different lengths".to_string(),
-            ));
-        }
+    //     if block_sizes.len() != block_starts.len() {
+    //         return Err(TGVError::ValueError(
+    //             "Block sizes and starts arrays have different lengths".to_string(),
+    //         ));
+    //     }
 
-        let mut exon_starts = Vec::new();
-        let mut exon_ends = Vec::new();
+    //     let mut exon_starts = Vec::new();
+    //     let mut exon_ends = Vec::new();
 
-        for (i, &block_size) in block_sizes.iter().enumerate() {
-            let exon_start = tx_start + block_starts[i];
-            let exon_end = exon_start + block_size;
-            exon_starts.push(exon_start);
-            exon_ends.push(exon_end);
-        }
+    //     for (i, &block_size) in block_sizes.iter().enumerate() {
+    //         let exon_start = tx_start + block_starts[i];
+    //         let exon_end = exon_start + block_size;
+    //         exon_starts.push(exon_start);
+    //         exon_ends.push(exon_end);
+    //     }
 
-        Ok((exon_starts, exon_ends))
-    }
+    //     Ok((exon_starts, exon_ends))
+    // }
 
-    fn coords_to_blob(&self, coords: &[u32]) -> Vec<u8> {
-        let coords_str = coords
-            .iter()
-            .map(|c| c.to_string())
-            .collect::<Vec<_>>()
-            .join(",");
-        let coords_str = format!("{},", coords_str); // Add trailing comma to match UCSC format
-        coords_str.into_bytes()
-    }
+    // fn coords_to_blob(&self, coords: &[u32]) -> Vec<u8> {
+    //     let coords_str = coords
+    //         .iter()
+    //         .map(|c| c.to_string())
+    //         .collect::<Vec<_>>()
+    //         .join(",");
+    //     let coords_str = format!("{},", coords_str); // Add trailing comma to match UCSC format
+    //     coords_str.into_bytes()
+    // }
 }
 
+/// A parsed UCSC hub file. Example: https://hgdownload.soe.ucsc.edu/hubs/GCF/000/005/845/GCF_000005845.2/hub.txt
 struct UcscHub {
     hub_url: String,
 
@@ -2992,6 +3100,7 @@ struct UcscHub {
     track_paths: HashMap<String, String>,
 }
 
+/// Parse UCSC hub.txt files. Example: https://hgdownload.soe.ucsc.edu/hubs/GCF/000/005/845/GCF_000005845.2/hub.txt
 struct UcscHubFileParser {}
 
 impl UcscHubFileParser {

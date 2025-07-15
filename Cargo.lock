@@ -111,6 +111,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "anyhow"
+version = "1.0.98"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e16d2d3311acee920a9eb8d33b8cbc1787ce4a264e85f964c2404b969bdcd487"
+
+[[package]]
 name = "async-trait"
 version = "0.1.88"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -191,10 +197,11 @@ checksum = "8c3c1a368f70d6cf7302d78f8f7093da241fb8e8807c05cc9e51a125895a6d5b"
 
 [[package]]
 name = "bigtools"
-version = "0.4.3"
+version = "0.5.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "3991a416f05e8b4b5dc3c21bf86840217cd2fe2f995673d82698803d8e229c61"
+checksum = "83e0a7f18529896a324e1bb0a733e258c285e10564e21d1aba24216666e52867"
 dependencies = [
+ "anyhow",
  "attohttpc",
  "bincode",
  "byteorder",
@@ -204,6 +211,7 @@ dependencies = [
  "crossbeam-channel",
  "crossbeam-utils",
  "futures",
+ "index_list",
  "itertools 0.10.5",
  "libdeflater",
  "ryu",
@@ -1526,6 +1534,12 @@ dependencies = [
  "walkdir",
  "winapi-util",
 ]
+
+[[package]]
+name = "index_list"
+version = "0.2.16"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "8f05caee923b644542e92a659bfceb868a4053fb7d4230ef2141931e8b01e91a"
 
 [[package]]
 name = "indexmap"
