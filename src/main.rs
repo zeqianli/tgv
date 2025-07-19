@@ -118,7 +118,7 @@ mod tests {
     /// Test that the app runs without panicking.
     /// Snapshots are saved in src/snapshots
     #[rstest]
-    #[case(None, None)]
+    #[case(None, Some("--online"))]
     #[case(None, Some("-r TP53 --online"))]
     #[case(None, Some("-r TP53 -g hg19 --online"))]
     #[case(None, Some("-g mm39 --online"))]
