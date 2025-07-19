@@ -2,9 +2,7 @@
 
 [![Discord Badge]][Discord Server] [![Crates version]](https://crates.io/crates/tgv)
 
-
-https://github.com/user-attachments/assets/405fa5fb-bd65-4d0c-b922-5b6cb7784c69
-
+<https://github.com/user-attachments/assets/405fa5fb-bd65-4d0c-b922-5b6cb7784c69>
 
 *TGV is at a very early stage so expect bugs. Please don't rely on it for your papers (yet) :)*
 
@@ -12,11 +10,11 @@ https://github.com/user-attachments/assets/405fa5fb-bd65-4d0c-b922-5b6cb7784c69
 
 ## Installation
 
+[Full instruction](https://github.com/zeqianli/tgv/wiki/Installation)
+
 - cargo (recommended): `cargo install tgv`
 - brew: `brew install zeqianli/tgv/tgv`
 - Pre-built binaries: [Github releases](https://github.com/zeqianli/tgv/releases/)
-
-[Troubleshooting](https://github.com/zeqianli/tgv/wiki/Installation)
 
 ## Quick start
 
@@ -38,6 +36,17 @@ tgv -g cat
 - `:ls`: Switch chromosomes.
 
 [Full key bindings](https://github.com/zeqianli/tgv/wiki/Usage)
+
+## Usage
+
+**Optional**: If you use a reference genome frequently, creating a local cache is highly recommended. This makes TGV much faster and reduces UCSC server load.
+
+```bash
+# Cache are in ~/.tgv by default.
+tgv download hg38
+```
+
+Browse alignments:
 
 ```bash
 # View BAM file aligned to the hg38 human reference genome
@@ -62,13 +71,6 @@ tgv non_human.bam -r 1:123 --no-reference
 
 - **How to quit TGV?**  
   [Just like vim :)](https://stackoverflow.com/questions/11828270/how-do-i-exit-vim) Press `Esc` to ensure you're in normal mode, then type `:q` and press Enter.
-
-## Some interesting genome regions
-
-- `tgv -r 12:25245351`: One of the most prevalent and most studied mutation sites in cancer [[1]](https://www.oncokb.org/gene/KRAS/G12C?refGenome=GRCh38)
-- `tgv -r 11:6868417`: Mutations here make you less likely to hate cilantro [[2]](https://flavourjournal.biomedcentral.com/articles/10.1186/2044-7248-1-22). And you can test your baby for it! [[3]](https://www.babypeek.com/unity-patients)
-- `tgv -g GCF_000005845.2`: Arguably the most researched organism (E. coli K-12 substr. MG1655). Note how compact it is compared to the human genome? [[4]](https://en.wikipedia.org/wiki/Bacterial_genome#Bacterial_genomes)
-- `tgv -g covid -r NC_045512v2:21563`: The spike protein in SARS-CoV-2 [[5]](https://en.wikipedia.org/wiki/Coronavirus_spike_protein)
 
 ## Acknowledgements
 
