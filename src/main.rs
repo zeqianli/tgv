@@ -163,4 +163,29 @@ mod tests {
 
         assert_snapshot!(snapshot_name, terminal.backend());
     }
+
+    /// Test that downloading works.
+    #[rstest]
+    #[case("wuhCor1")]
+    #[case("ecoli")]
+    #[tokio::test]
+    async fn download_integration_test(#[case] reference_str: &str) {
+        let reference = Reference::from_str(reference_str).unwrap();
+        let temp_dir = tempfile::TempDir::new().unwrap();
+        println!("temp_dir: {:?}", temp_dir.path());
+        let downloader = UCSCDownloader::new(
+            Reference::from_str(reference_str).unwrap(),
+            temp_dir.path().to_str().unwrap().to_string(),
+        )
+        .unwrap();
+
+        downloader.download().await.unwrap();
+
+        assert!(temp_dir.path().join(reference.to_string()).exists());
+        assert!(temp_dir
+            .path()
+            .join(reference.to_string())
+            .join("tracks.sqlite")
+            .exists());
+    }
 }
