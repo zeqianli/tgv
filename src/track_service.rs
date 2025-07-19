@@ -2712,10 +2712,11 @@ impl UCSCDownloader {
         // Insert data
         let placeholders = vec!["?"; valid_columns.len()].join(", ");
         let insert_sql = format!(
-            "INSERT OR REPLACE INTO {} ({}) VALUES ({})",
+            "INSER INTO {} ({}) VALUES ({})",
             table_name, select_columns, placeholders
         );
 
+        let mut transaction: sqlx::Transaction<'_, sqlx::Sqlite> = sqlite_pool.begin().await?;
         for row in &rows {
             let mut query = sqlx::query(&insert_sql);
             for col_name in &valid_columns {
@@ -2743,9 +2744,10 @@ impl UCSCDownloader {
                     }
                 }
             }
-
-            query.execute(sqlite_pool).await?;
+            query.execute(&mut *transaction).await?;
         }
+
+        transaction.commit().await?;
 
         println!(
             "Transferred {} table ({} columns, {} rows)",
@@ -2957,6 +2959,23 @@ impl BigBedConverter {
 
         let (field_names, schema) = Self::get_schema(&mut bigbed_reader)?;
 
+        // Special case:
+        // For gene tracks, bigBed files store blockSizes and chromStarts, but UCSC db stores exonStarts and exonEnds.
+        // Convert them to be consistent.
+        let need_exon_conversion = field_names.contains(&"blockSizes".to_string())
+            && field_names.contains(&"chromStarts".to_string())
+            && !(field_names.contains(&"exonStarts".to_string())
+                && field_names.contains(&"exonEnds".to_string()));
+
+        let chrom_starts_field_index = field_names
+            .iter()
+            .position(|name| name == "chromStarts")
+            .unwrap_or(0);
+        let block_sizes_field_index = field_names
+            .iter()
+            .position(|name| name == "blockSizes")
+            .unwrap_or(0);
+
         // Drop existing table if it exists
         sqlx::query(&format!("DROP TABLE IF EXISTS {}", track_name))
             .execute(sqlite_pool)
@@ -2972,6 +2991,11 @@ impl BigBedConverter {
                 query.push_str(", ");
             }
         }
+
+        if need_exon_conversion {
+            query.push_str(", exonStarts BLOB, exonEnds BLOB");
+        }
+
         let query_string = format!("CREATE TABLE {} ({})", track_name, query);
 
         sqlx::query(&query_string).execute(sqlite_pool).await?;
@@ -2988,8 +3012,7 @@ impl BigBedConverter {
 
         for (chromosome_name, chromosome_length) in chromosomes {
             for interval in bigbed_reader.get_interval(&chromosome_name, 0, chromosome_length)? {
-                let interval = interval?;
-                // Parse BED12 fields
+                let interval: bigtools::BedEntry = interval?;
                 let fields: Vec<&str> = interval.rest.split('\t').collect();
 
                 if fields.len() != field_names.len() {
@@ -3005,11 +3028,19 @@ impl BigBedConverter {
                 let query_string = format!(
                     "INSERT INTO {} ({}) VALUES ({})",
                     track_name,
-                    "chrom, chromStart, chromEnd, ".to_string() + &field_names.join(", "),
-                    vec!["?"; field_names.len() + 3].join(", ")
+                    "chrom, chromStart, chromEnd, ".to_string()
+                        + &field_names.join(", ")
+                        + if need_exon_conversion {
+                            ", exonStarts, exonEnds"
+                        } else {
+                            ""
+                        },
+                    vec!["?"; field_names.len() + 3 + if need_exon_conversion { 2 } else { 0 }]
+                        .join(", ")
                 );
 
-                let mut query = sqlx::query(&query_string);
+                let mut query: sqlx::query::Query<'_, Sqlite, sqlx::sqlite::SqliteArguments<'_>> =
+                    sqlx::query(&query_string);
                 query = query
                     .bind(chromosome_name.clone())
                     .bind(interval.start as i64)
@@ -3056,6 +3087,16 @@ impl BigBedConverter {
                     }
                 }
 
+                // exonStarts and exonEnds calculation
+                if need_exon_conversion {
+                    let (exon_starts_blob, exon_ends_blob) = Self::convert_blocks_to_exons(
+                        interval.start as u32,
+                        fields[block_sizes_field_index].as_bytes().to_vec(),
+                        fields[chrom_starts_field_index].as_bytes().to_vec(),
+                    )?;
+                    query = query.bind(exon_starts_blob).bind(exon_ends_blob);
+                }
+
                 query.execute(&mut *transaction).await?;
 
                 record_count += 1;
@@ -3064,6 +3105,14 @@ impl BigBedConverter {
 
         transaction.commit().await?;
 
+        // Special case:
+        // For gene tracks, bigBed files store blockSizes and chromStarts, but UCSC db stores exonStarts and exonEnds.
+        // Convert them to be consistent.
+
+        // if need_exon_conversion {
+        //     Self::add_exon_columns(track_name, sqlite_pool).await?;
+        // }
+
         println!(
             "Successfully converted {} records from BigBed to SQLite table '{}'",
             record_count, track_name
@@ -3071,62 +3120,121 @@ impl BigBedConverter {
 
         Ok(())
     }
+
+    async fn add_exon_columns(
+        track_name: &str,
+        sqlite_pool: &Pool<Sqlite>,
+    ) -> Result<(), TGVError> {
+        println!("Adding exon columns to {}", track_name);
+
+        // Create new columns
+        sqlx::query(&format!(
+            "ALTER TABLE {} ADD COLUMN exonStarts BLOB",
+            track_name
+        ))
+        .execute(sqlite_pool)
+        .await?;
+
+        sqlx::query(&format!(
+            "ALTER TABLE {} ADD COLUMN exonEnds BLOB",
+            track_name
+        ))
+        .execute(sqlite_pool)
+        .await?;
+
+        // For each row, compute exonStarts and exonEnds from blockSizes and chromStarts.
+        let mut transaction: sqlx::Transaction<'_, sqlx::Sqlite> = sqlite_pool.begin().await?;
+
+        let rows = sqlx::query(&format!("SELECT * FROM {}", track_name))
+            .fetch_all(sqlite_pool)
+            .await?;
+
+        for row in rows {
+            let block_sizes: Vec<u8> = row.try_get("blockSizes")?;
+            let block_starts: Vec<u8> = row.try_get("chromStarts")?;
+            let tx_start: i64 = row.try_get("chromStart")?;
+
+            let (exon_starts_blob, exon_ends_blob) =
+                Self::convert_blocks_to_exons(tx_start as u32, block_sizes, block_starts)?;
+
+            sqlx::query(&format!(
+                "UPDATE {} SET exonStarts = ?, exonEnds = ?",
+                track_name
+            ))
+            .bind(exon_starts_blob)
+            .bind(exon_ends_blob)
+            .execute(&mut *transaction)
+            .await?;
+        }
+
+        transaction.commit().await?;
+
+        Ok(())
+    }
+
     // Note: UCSC database store exon information with exonStarts and exonEnds. But the bigbed files stores blockStarts and blockSize.
     // Compute them to new columns to reduce compute at run time.
 
-    // fn convert_blocks_to_exons(
-    //     &self,
-    //     tx_start: u32,
-    //     block_sizes_str: &str,
-    //     block_starts_str: &str,
-    // ) -> Result<(Vec<u32>, Vec<u32>), TGVError> {
-    //     if block_sizes_str.is_empty() || block_starts_str.is_empty() {
-    //         // No block information, treat as single exon
-    //         return Ok((vec![tx_start], vec![tx_start]));
-    //     }
+    fn convert_blocks_to_exons(
+        chrom_start: u32,
+        block_sizes_blob: Vec<u8>,
+        chrom_starts_blob: Vec<u8>,
+    ) -> Result<(Vec<u8>, Vec<u8>), TGVError> {
+        let block_sizes_str = String::from_utf8(block_sizes_blob).map_err(|e| {
+            TGVError::ValueError(format!("Failed to convert block sizes to string: {}", e))
+        })?;
+        let chrom_starts_str = String::from_utf8(chrom_starts_blob).map_err(|e| {
+            TGVError::ValueError(format!("Failed to convert block starts to string: {}", e))
+        })?;
 
-    //     let block_sizes: Vec<u32> = block_sizes_str
-    //         .trim_end_matches(',')
-    //         .split(',')
-    //         .filter(|s| !s.is_empty())
-    //         .map(|s| s.parse().unwrap_or(0))
-    //         .collect();
+        // Example block_sizes_str, chrom_starts_str:
+        // 66,
+        // 0,
 
-    //     let block_starts: Vec<u32> = block_starts_str
-    //         .trim_end_matches(',')
-    //         .split(',')
-    //         .filter(|s| !s.is_empty())
-    //         .map(|s| s.parse().unwrap_or(0))
-    //         .collect();
+        let block_sizes: Vec<u32> = block_sizes_str
+            .split(',')
+            .filter(|s| !s.trim().is_empty())
+            .map(|s| s.trim().parse::<u32>().unwrap())
+            .collect();
 
-    //     if block_sizes.len() != block_starts.len() {
-    //         return Err(TGVError::ValueError(
-    //             "Block sizes and starts arrays have different lengths".to_string(),
-    //         ));
-    //     }
+        let chrom_starts: Vec<u32> = chrom_starts_str
+            .split(',')
+            .filter(|s| !s.trim().is_empty())
+            .map(|s| s.trim().parse::<u32>().unwrap())
+            .collect();
 
-    //     let mut exon_starts = Vec::new();
-    //     let mut exon_ends = Vec::new();
+        if block_sizes.len() != chrom_starts.len() {
+            return Err(TGVError::ValueError(
+                "blockSizes and chromStarts arrays have different lengths".to_string(),
+            ));
+        }
 
-    //     for (i, &block_size) in block_sizes.iter().enumerate() {
-    //         let exon_start = tx_start + block_starts[i];
-    //         let exon_end = exon_start + block_size;
-    //         exon_starts.push(exon_start);
-    //         exon_ends.push(exon_end);
-    //     }
+        let mut exon_starts = Vec::new();
+        let mut exon_ends = Vec::new();
 
-    //     Ok((exon_starts, exon_ends))
-    // }
+        for (block_start, block_size) in chrom_starts.iter().zip(block_sizes.iter()) {
+            let exon_start = chrom_start + *block_start;
+            let exon_end = exon_start + *block_size;
+            exon_starts.push(exon_start);
+            exon_ends.push(exon_end);
+        }
 
-    // fn coords_to_blob(&self, coords: &[u32]) -> Vec<u8> {
-    //     let coords_str = coords
-    //         .iter()
-    //         .map(|c| c.to_string())
-    //         .collect::<Vec<_>>()
-    //         .join(",");
-    //     let coords_str = format!("{},", coords_str); // Add trailing comma to match UCSC format
-    //     coords_str.into_bytes()
-    // }
+        // Convert to blob
+        let exon_starts_str = exon_starts
+            .iter()
+            .map(|x| x.to_string())
+            .collect::<Vec<_>>()
+            .join(",");
+        let exon_starts_blob = exon_starts_str.into_bytes();
+        let exon_ends_str = exon_ends
+            .iter()
+            .map(|x| x.to_string())
+            .collect::<Vec<_>>()
+            .join(",");
+        let exon_ends_blob = exon_ends_str.into_bytes();
+
+        Ok((exon_starts_blob, exon_ends_blob))
+    }
 }
 
 /// A parsed UCSC hub file. Example: https://hgdownload.soe.ucsc.edu/hubs/GCF/000/005/845/GCF_000005845.2/hub.txt
