@@ -24,9 +24,9 @@ mod window;
 use app::App;
 use clap::Parser;
 use error::TGVError;
-mod track_service;
+mod tracks;
 use crate::reference::Reference;
-use crate::track_service::{UCSCDownloader, UcscDbTrackService};
+use crate::tracks::{UCSCDownloader, UcscDbTrackService};
 use settings::{Cli, Commands, Settings};
 #[tokio::main]
 async fn main() -> Result<(), TGVError> {
@@ -116,9 +116,6 @@ mod tests {
     #[case(None, Some("--online"))]
     #[case(Some("ncbi.sorted.bam"), Some("-r 22:33121120 -g hg19 --online"))]
     #[case(None, Some("-g GCF_028858775.2 -r NC_072398.2:76951800 --online"))]
-    // #[case(None, Some("-r TP53 --online"))]
-    // #[case(None, Some("-r TP53 -g hg19 --online"))]
-    // #[case(None, Some("-g mm39 --online"))]
     #[case(None, Some("-g wuhCor1 --offline --cache-dir tests/data/cache"))]
     #[case(None, Some("-g ecoli --offline --cache-dir tests/data/cache"))]
     #[case(

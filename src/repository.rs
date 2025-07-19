@@ -8,7 +8,7 @@ use crate::{
         SequenceCache, SequenceRepositoryEnum, TwoBitSequenceRepository, UCSCApiSequenceRepository,
     },
     settings::{BackendType, Settings},
-    track_service::{
+    tracks::{
         LocalDbTrackService, TrackService, TrackServiceEnum, UcscApiTrackService,
         UcscDbTrackService,
     },
