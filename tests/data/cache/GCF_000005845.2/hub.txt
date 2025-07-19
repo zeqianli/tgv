@@ -1,0 +1,141 @@
+hub GCF_000005845.2 genome assembly
+shortLabel E. coli (K-12 MG1655 2013 refseq)
+longLabel E. coli (K-12 MG1655 2013 refseq)/Escherichia coli str. K-12 substr. MG1655/GCF_000005845.2_ASM584v2 genome assembly
+useOneFile on
+email genome-www@soe.ucsc.edu
+descriptionUrl html/GCF_000005845.2_ASM584v2.description.html
+
+genome GCF_000005845.2
+taxId 511145
+groups groups.txt
+description E. coli (K-12 MG1655 2013 refseq)
+twoBitPath GCF_000005845.2.2bit
+twoBitBptUrl GCF_000005845.2.2bit.bpt
+chromSizes GCF_000005845.2.chrom.sizes.txt
+chromAliasBb GCF_000005845.2.chromAlias.bb
+organism ASM584v2 Nov. 2013
+defaultPos NC_000913.3:1547217-1557217
+scientificName Escherichia coli str. K-12 substr. MG1655
+htmlPath html/GCF_000005845.2_ASM584v2.description.html
+blat dynablat-01.soe.ucsc.edu 4040 dynamic GCF/000/005/845/GCF_000005845.2
+transBlat dynablat-01.soe.ucsc.edu 4040 dynamic GCF/000/005/845/GCF_000005845.2
+isPcr dynablat-01.soe.ucsc.edu 4040 dynamic GCF/000/005/845/GCF_000005845.2
+
+track assembly
+longLabel Assembly
+shortLabel Assembly
+visibility hide
+colorByStrand 150,100,30 230,170,40
+color 150,100,30
+altColor 230,170,40
+bigDataUrl bbi/GCF_000005845.2_ASM584v2.assembly.bb
+type bigBed 6
+html html/GCF_000005845.2_ASM584v2.assembly
+searchIndex name
+searchTrix ixIxx/GCF_000005845.2_ASM584v2.assembly.ix
+url https://www.ncbi.nlm.nih.gov/nuccore/$$
+urlLabel NCBI Nucleotide database:
+group map
+
+track cytoBandIdeo
+shortLabel Chromosome Band (Ideogram)
+longLabel Ideogram for Orientation
+group map
+visibility dense
+type bigBed 4 +
+bigDataUrl bbi/GCF_000005845.2_ASM584v2.cytoBand.bb
+
+track gc5Base
+shortLabel GC Percent
+longLabel GC Percent in 5-Base Windows
+group map
+visibility dense
+autoScale Off
+maxHeightPixels 128:36:16
+graphTypeDefault Bar
+gridDefault OFF
+windowingFunction Mean
+color 0,0,0
+altColor 128,128,128
+viewLimits 30:70
+type bigWig 0 100
+bigDataUrl bbi/GCF_000005845.2_ASM584v2.gc5Base.bw
+html html/GCF_000005845.2_ASM584v2.gc5Base
+
+track tanDups
+shortLabel Tandem Dups
+longLabel Paired identical sequences
+compositeTrack on
+visibility hide
+type bigBed 12
+group map
+html html/GCF_000005845.2_ASM584v2.tanDups
+
+    track tandemDups
+    parent tanDups on
+    shortLabel Tandem Dups
+    longLabel Paired exactly identical sequence survey over entire genome assembly
+    bigDataUrl bbi/GCF_000005845.2_ASM584v2.tandemDups.bb
+    type bigBed 12
+
+track simpleRepeat
+shortLabel Simple Repeats
+longLabel Simple Tandem Repeats by TRF
+group varRep
+visibility dense
+type bigBed 4 +
+bigDataUrl bbi/GCF_000005845.2_ASM584v2.simpleRepeat.bb
+html html/GCF_000005845.2_ASM584v2.simpleRepeat
+
+track ncbiGene
+longLabel NCBI gene predictions
+shortLabel NCBI Genes
+visibility pack
+color 0,80,150
+altColor 150,80,0
+colorByStrand 0,80,150 150,80,0
+bigDataUrl bbi/GCF_000005845.2_ASM584v2.ncbiGene.bb
+type bigGenePred
+html html/GCF_000005845.2_ASM584v2.ncbiGene
+searchIndex name
+searchTrix ixIxx/GCF_000005845.2_ASM584v2.ncbiGene.ix
+url https://www.ncbi.nlm.nih.gov/gene/?term=$$
+urlLabel Entrez gene:
+labelFields geneName,geneName2
+defaultLabelFields geneName2
+group genes
+
+track cpgIslands
+compositeTrack on
+shortLabel CpG Islands
+longLabel CpG Islands (Islands < 300 Bases are Light Green)
+group regulation
+visibility dense
+type bigBed 4 +
+html html/GCF_000005845.2_ASM584v2.cpgIslands
+
+    track cpgIslandExt
+    parent cpgIslands off
+    shortLabel CpG Islands
+    longLabel CpG Islands (Islands < 300 Bases are Light Green)
+    type bigBed 4 +
+    priority 1
+    bigDataUrl bbi/GCF_000005845.2_ASM584v2.cpgIslandExt.bb
+
+    track cpgIslandExtUnmasked
+    parent cpgIslands on
+    shortLabel Unmasked CpG
+    longLabel CpG Islands on All Sequence (Islands < 300 Bases are Light Green)
+    type bigBed 4 +
+    priority 2
+    bigDataUrl bbi/GCF_000005845.2_ASM584v2.cpgIslandExtUnmasked.bb
+
+track windowMasker
+shortLabel WM + SDust
+longLabel Genomic Intervals Masked by WindowMasker + SDust
+group varRep
+visibility dense
+type bigBed 3
+bigDataUrl bbi/GCF_000005845.2_ASM584v2.windowMasker.bb
+html html/GCF_000005845.2_ASM584v2.windowMasker
+

@@ -2715,7 +2715,7 @@ impl UCSCDownloader {
         // Insert data
         let placeholders = vec!["?"; valid_columns.len()].join(", ");
         let insert_sql = format!(
-            "INSER INTO {} ({}) VALUES ({})",
+            "INSERT INTO {} ({}) VALUES ({})",
             table_name, select_columns, placeholders
         );
 
@@ -2826,17 +2826,6 @@ impl UCSCDownloader {
     ) -> Result<PathBuf, TGVError> {
         let local_path = local_dir.join(url.split("/").last().unwrap());
         let client = reqwest::Client::new();
-
-        println!("Downloading file {} to {}", url, local_path.display());
-
-        // Skip if file already exists
-        if local_path.exists() {
-            println!(
-                "Genome file {} already exists, skipping",
-                local_path.display()
-            );
-            return Ok(local_path);
-        }
 
         println!("Downloading file: {}", local_path.display());
 
