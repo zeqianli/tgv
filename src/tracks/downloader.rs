@@ -839,7 +839,8 @@ struct UcscHub {
     track_paths: HashMap<String, String>,
 }
 
-/// Parse UCSC hub.txt files. Example: https://hgdownload.soe.ucsc.edu/hubs/GCF/000/005/845/GCF_000005845.2/hub.txt
+/// Parse UCSC hub.txt files.
+/// Example: https://hgdownload.soe.ucsc.edu/hubs/GCF/000/005/845/GCF_000005845.2/hub.txt
 struct UcscHubFileParser {}
 
 impl UcscHubFileParser {
