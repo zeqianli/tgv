@@ -324,6 +324,7 @@ impl UcscDbTrackService {
         Ok(assemblies)
     }
 
+    /// Parse a MySQL row in a gene table to Vec<Gene>.
     fn parse_gene_rows(&self, rows: Vec<MySqlRow>) -> Result<Vec<Gene>, TGVError> {
         let mut genes = Vec::new();
         for row in rows {
@@ -1104,7 +1105,9 @@ impl TrackService for LocalDbTrackService {
             .map(|row| row.try_get::<String, &str>("name"))
             .collect::<Result<Vec<String>, sqlx::Error>>()?;
 
-        get_preferred_track_name_from_vec(&available_gene_tracks)
+        let preferred_track = get_preferred_track_name_from_vec(&available_gene_tracks)?;
+
+        Ok(preferred_track)
     }
 
     async fn query_genes_overlapping(
@@ -2905,7 +2908,11 @@ impl BigBedConverter {
                 continue;
             }
 
-            field_names.push(field.name.clone());
+            field_names.push(match field.name.as_str() {
+                "thickStart" => "txStart".to_string(), // To be consistent with UCSC db.
+                "thickEnd" => "txEnd".to_string(),     // To be consistent with UCSC db.
+                name => name.to_string(),
+            });
             field_types.push(match field.field_type {
                 FieldType::Int | FieldType::Short | FieldType::Bigint => {
                     // Example: Field { field_type: Int, field_size: Some("blockCount"), name: "exonFrames", index_type: None, auto: false, comment: "\"Exon frame {0,1,2}, or -1 if no frame for exon\"" }
@@ -2993,7 +3000,7 @@ impl BigBedConverter {
         }
 
         if need_exon_conversion {
-            query.push_str(", exonStarts BLOB, exonEnds BLOB");
+            query.push_str(", exonStarts BLOB, exonEnds BLOB, cdsStart INTEGER, cdsEnd INTEGER");
         }
 
         let query_string = format!("CREATE TABLE {} ({})", track_name, query);
@@ -3031,11 +3038,11 @@ impl BigBedConverter {
                     "chrom, chromStart, chromEnd, ".to_string()
                         + &field_names.join(", ")
                         + if need_exon_conversion {
-                            ", exonStarts, exonEnds"
+                            ", exonStarts, exonEnds, cdsStart, cdsEnd"
                         } else {
                             ""
                         },
-                    vec!["?"; field_names.len() + 3 + if need_exon_conversion { 2 } else { 0 }]
+                    vec!["?"; field_names.len() + 3 + if need_exon_conversion { 4 } else { 0 }]
                         .join(", ")
                 );
 
@@ -3089,12 +3096,17 @@ impl BigBedConverter {
 
                 // exonStarts and exonEnds calculation
                 if need_exon_conversion {
-                    let (exon_starts_blob, exon_ends_blob) = Self::convert_blocks_to_exons(
-                        interval.start as u32,
-                        fields[block_sizes_field_index].as_bytes().to_vec(),
-                        fields[chrom_starts_field_index].as_bytes().to_vec(),
-                    )?;
-                    query = query.bind(exon_starts_blob).bind(exon_ends_blob);
+                    let (exon_starts_blob, exon_ends_blob, cds_start, cds_end) =
+                        Self::convert_blocks_to_exons(
+                            interval.start as u32,
+                            fields[block_sizes_field_index].as_bytes().to_vec(),
+                            fields[chrom_starts_field_index].as_bytes().to_vec(),
+                        )?;
+                    query = query
+                        .bind(exon_starts_blob)
+                        .bind(exon_ends_blob)
+                        .bind(cds_start)
+                        .bind(cds_end);
                 }
 
                 query.execute(&mut *transaction).await?;
@@ -3121,65 +3133,14 @@ impl BigBedConverter {
         Ok(())
     }
 
-    async fn add_exon_columns(
-        track_name: &str,
-        sqlite_pool: &Pool<Sqlite>,
-    ) -> Result<(), TGVError> {
-        println!("Adding exon columns to {}", track_name);
-
-        // Create new columns
-        sqlx::query(&format!(
-            "ALTER TABLE {} ADD COLUMN exonStarts BLOB",
-            track_name
-        ))
-        .execute(sqlite_pool)
-        .await?;
-
-        sqlx::query(&format!(
-            "ALTER TABLE {} ADD COLUMN exonEnds BLOB",
-            track_name
-        ))
-        .execute(sqlite_pool)
-        .await?;
-
-        // For each row, compute exonStarts and exonEnds from blockSizes and chromStarts.
-        let mut transaction: sqlx::Transaction<'_, sqlx::Sqlite> = sqlite_pool.begin().await?;
-
-        let rows = sqlx::query(&format!("SELECT * FROM {}", track_name))
-            .fetch_all(sqlite_pool)
-            .await?;
-
-        for row in rows {
-            let block_sizes: Vec<u8> = row.try_get("blockSizes")?;
-            let block_starts: Vec<u8> = row.try_get("chromStarts")?;
-            let tx_start: i64 = row.try_get("chromStart")?;
-
-            let (exon_starts_blob, exon_ends_blob) =
-                Self::convert_blocks_to_exons(tx_start as u32, block_sizes, block_starts)?;
-
-            sqlx::query(&format!(
-                "UPDATE {} SET exonStarts = ?, exonEnds = ?",
-                track_name
-            ))
-            .bind(exon_starts_blob)
-            .bind(exon_ends_blob)
-            .execute(&mut *transaction)
-            .await?;
-        }
-
-        transaction.commit().await?;
-
-        Ok(())
-    }
-
     // Note: UCSC database store exon information with exonStarts and exonEnds. But the bigbed files stores blockStarts and blockSize.
     // Compute them to new columns to reduce compute at run time.
-
+    /// Return: (exonStarts (blob), exonEnds (blob), cdsStart (u32), cdsEnd (u32))
     fn convert_blocks_to_exons(
         chrom_start: u32,
         block_sizes_blob: Vec<u8>,
         chrom_starts_blob: Vec<u8>,
-    ) -> Result<(Vec<u8>, Vec<u8>), TGVError> {
+    ) -> Result<(Vec<u8>, Vec<u8>, u32, u32), TGVError> {
         let block_sizes_str = String::from_utf8(block_sizes_blob).map_err(|e| {
             TGVError::ValueError(format!("Failed to convert block sizes to string: {}", e))
         })?;
@@ -3219,6 +3180,9 @@ impl BigBedConverter {
             exon_ends.push(exon_end);
         }
 
+        let cds_start = exon_starts[0];
+        let cds_end = exon_ends[exon_ends.len() - 1];
+
         // Convert to blob
         let exon_starts_str = exon_starts
             .iter()
@@ -3233,7 +3197,7 @@ impl BigBedConverter {
             .join(",");
         let exon_ends_blob = exon_ends_str.into_bytes();
 
-        Ok((exon_starts_blob, exon_ends_blob))
+        Ok((exon_starts_blob, exon_ends_blob, cds_start, cds_end))
     }
 }
 
