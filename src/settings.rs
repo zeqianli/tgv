@@ -313,7 +313,7 @@ mod tests {
             test_mode: false,
             debug: false,
             ucsc_host: UcscHost::Us,
-            cache_dir: "~/.tgv".to_string(),
+            cache_dir: shellexpand::tilde("~/.tgv").to_string(),
         }
     }
 
@@ -323,9 +323,19 @@ mod tests {
         bam_path: Some("input.bam".to_string()),
         ..default_settings()
     }))]
-    #[case("tgv input.bam --backend db", Ok(Settings {
+    #[case("tgv input.bam", Ok(Settings {
         bam_path: Some("input.bam".to_string()),
         backend: BackendType::Default,
+        ..default_settings()
+    }))]
+    #[case("tgv input.bam --offline", Ok(Settings {
+        bam_path: Some("input.bam".to_string()),
+        backend: BackendType::Local,
+        ..default_settings()
+    }))]
+    #[case("tgv input.bam --online", Ok(Settings {
+        bam_path: Some("input.bam".to_string()),
+        backend: BackendType::Ucsc,
         ..default_settings()
     }))]
     #[case("tgv wrong.extension", Err(TGVError::CliError("".to_string())))]

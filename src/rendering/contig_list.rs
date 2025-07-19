@@ -140,7 +140,7 @@ fn render_contig_at_y(
             max_contig_length,
             area.x + left_spacing,
             area.x + area.width - MIN_CONTIG_LENGTH_SPACING,
-        );
+        )?;
         buf.set_string(
             area.x + left_spacing,
             area.y + y,
@@ -157,6 +157,12 @@ pub fn linear_scale(
     original_length: usize,
     new_start: u16,
     new_end: u16,
-) -> u16 {
-    (original_x as f64 / (original_length) as f64 * (new_end - new_start) as f64) as u16
+) -> Result<u16, TGVError> {
+    if original_length == 0 {
+        return Err(TGVError::ValueError(
+            "Trying to linear scale with original_length = 0 when rendering contig list"
+                .to_string(),
+        ));
+    }
+    Ok((original_x as f64 / (original_length) as f64 * (new_end - new_start) as f64) as u16)
 }

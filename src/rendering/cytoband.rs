@@ -56,6 +56,8 @@ pub fn render_cytobands(area: &Rect, buf: &mut Buffer, state: &State) -> Result<
 
     // Cytoband
 
+    // panic!("Current cytoband: {:?}", state.current_cytoband());
+
     if let Some(cytoband) = state.current_cytoband()? {
         let viewing_window = state.viewing_window()?;
         let contig_length = state.contig_length()?;
@@ -110,7 +112,9 @@ pub fn linear_scale(
     new_end: u16,
 ) -> Result<u16, TGVError> {
     if original_length == 0 {
-        return Err(TGVError::ValueError("original_length is 0".to_string()));
+        return Err(TGVError::ValueError(
+            "Trying to linear scale with original_length = 0 when rendering cytoband".to_string(),
+        ));
     }
     Ok(new_start
         + (original_x as f64 / (original_length) as f64 * (new_end - new_start) as f64) as u16)

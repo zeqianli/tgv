@@ -119,16 +119,22 @@ mod tests {
     /// Snapshots are saved in src/snapshots
     #[rstest]
     #[case(None, None)]
-    #[case(None, Some("-r TP53"))]
-    #[case(None, Some("-r TP53 -g hg19"))]
-    #[case(None, Some("-g mm39"))]
-    #[case(None, Some("-g wuhCor1"))]
-    #[case(None, Some("-g GCF_028858775.2 -r NC_072398.2:76951800"))]
-    #[case(Some("ncbi.sorted.bam"), Some("-r 22:33121120 -g hg19"))]
-    #[case(Some("ncbi.sorted.bam"), Some("-r chr22:33121120 --no-reference"))]
-    #[case(Some("covid.sorted.bam"), Some("-g covid"))]
-    #[case(Some("covid.sorted.bam"), Some("--no-reference"))]
-    #[case(Some("covid.sorted.bam"), Some("--no-reference -r MN908947.3:100"))]
+    #[case(None, Some("-r TP53 --online"))]
+    #[case(None, Some("-r TP53 -g hg19 --online"))]
+    #[case(None, Some("-g mm39 --online"))]
+    #[case(None, Some("-g wuhCor1 --online"))]
+    #[case(None, Some("-g GCF_028858775.2 -r NC_072398.2:76951800 --online"))]
+    #[case(Some("ncbi.sorted.bam"), Some("-r 22:33121120 -g hg19 --online"))]
+    #[case(
+        Some("ncbi.sorted.bam"),
+        Some("-r chr22:33121120 --no-reference --online")
+    )]
+    #[case(Some("covid.sorted.bam"), Some("-g covid --online"))]
+    #[case(Some("covid.sorted.bam"), Some("--no-reference --online"))]
+    #[case(
+        Some("covid.sorted.bam"),
+        Some("--no-reference -r MN908947.3:100 --online")
+    )]
     #[tokio::test]
     async fn integration_test(#[case] bam_path: Option<&str>, #[case] args: Option<&str>) {
         let snapshot_name = match (bam_path, args) {
@@ -154,7 +160,7 @@ mod tests {
         let cli = Cli::parse_from(shlex::split(&args_string).unwrap());
         let settings = Settings::new(cli).unwrap().test_mode();
 
-        let mut terminal = Terminal::new(TestBackend::new(50, 20)).unwrap();
+        let mut terminal = Terminal::new(TestBackend::new(200, 100)).unwrap();
 
         let mut app = App::new(settings).await.unwrap();
         app.run(&mut terminal).await.unwrap();
