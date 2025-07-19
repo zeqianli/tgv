@@ -1,3 +1,4 @@
+use bigtools::{BBIReadError, BigBedReadOpenError};
 use thiserror::Error;
 
 #[derive(Debug, Error)]
@@ -35,6 +36,15 @@ pub enum TGVError {
 
     #[error("Register error: {0}")]
     RegisterError(String),
+
+    #[error("2bit file parsing error: {0}")]
+    TwoBitFileParsingError(#[from] twobit::Error),
+
+    #[error("BigBed file parsing error: {0}")]
+    BigBedFileParsingError(#[from] BigBedReadOpenError),
+
+    #[error("BigBed interal parsing error: {0}")]
+    BigBedIntervalError(#[from] BBIReadError),
 }
 
 // impl TGVError {

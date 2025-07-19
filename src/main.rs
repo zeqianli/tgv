@@ -24,38 +24,41 @@ mod window;
 use app::App;
 use clap::Parser;
 use error::TGVError;
-mod track_service;
+mod tracks;
 use crate::reference::Reference;
-use crate::track_service::{TrackService, UcscDbTrackService};
-use settings::{Cli, Settings};
+use crate::tracks::{UCSCDownloader, UcscDbTrackService};
+use settings::{Cli, Commands, Settings};
 #[tokio::main]
 async fn main() -> Result<(), TGVError> {
     let cli = Cli::parse();
 
-    if cli.list_common_genomes {
-        let n = print_common_genomes()?;
-        println!("{} common genomes", n);
-        println!("Browse a genome: tgv -g <genome> (e.g. tgv -g rat)");
-        return Ok(());
+    match cli.command {
+        Some(Commands::Download {
+            reference,
+            cache_dir,
+        }) => {
+            let downloader = UCSCDownloader::new(Reference::from_str(&reference)?, cache_dir)?;
+            downloader.download().await?;
+            return Ok(());
+        }
+        Some(Commands::List { more, all }) => {
+            if more {
+                let n = print_ucsc_assemblies().await?;
+                println!("{} UCSC assemblies", n);
+                println!("Browse a genome: tgv -g <genome> (e.g. tgv -g rn7)");
+            } else {
+                let n = print_common_genomes()?;
+                println!("{} common genomes", n);
+                println!("Browse a genome: tgv -g <genome> (e.g. tgv -g rat)");
+            }
+            return Ok(());
+        }
+        None => {}
     }
 
-    if cli.list_ucsc_assemblies {
-        let n = print_ucsc_assemblies().await?;
-        println!("{} UCSC assemblies", n);
-        println!("Browse a genome: tgv -g <genome> (e.g. tgv -g rn7)");
-        return Ok(());
-    }
-
-    // if cli.list_ucsc_accessions {
-    //     print_common_genomes()?;
-    //     print_ucsc_accessions()?;
-    //     return Ok(());
-    // }
     let settings: Settings = Settings::new(cli)?;
 
     let mut terminal = ratatui::init();
-
-    // TODO: initialize UCSC connections here to ensure that they are properly closed in case of errors.
 
     let mut app = match App::new(settings).await {
         Ok(app) => app,
@@ -110,17 +113,23 @@ mod tests {
     /// Test that the app runs without panicking.
     /// Snapshots are saved in src/snapshots
     #[rstest]
-    #[case(None, None)]
-    #[case(None, Some("-r TP53"))]
-    #[case(None, Some("-r TP53 -g hg19"))]
-    #[case(None, Some("-g mm39"))]
-    #[case(None, Some("-g wuhCor1"))]
-    #[case(None, Some("-g GCF_028858775.2 -r NC_072398.2:76951800"))]
-    #[case(Some("ncbi.sorted.bam"), Some("-r 22:33121120 -g hg19"))]
-    #[case(Some("ncbi.sorted.bam"), Some("-r chr22:33121120 --no-reference"))]
-    #[case(Some("covid.sorted.bam"), Some("-g covid"))]
-    #[case(Some("covid.sorted.bam"), Some("--no-reference"))]
-    #[case(Some("covid.sorted.bam"), Some("--no-reference -r MN908947.3:100"))]
+    #[case(None, Some("--online"))]
+    #[case(Some("ncbi.sorted.bam"), Some("-r 22:33121120 -g hg19 --online"))]
+    #[case(None, Some("-g GCF_028858775.2 -r NC_072398.2:76951800 --online"))]
+    #[case(None, Some("-g wuhCor1 --offline --cache-dir tests/data/cache"))]
+    #[case(None, Some("-g ecoli --offline --cache-dir tests/data/cache"))]
+    #[case(
+        Some("ncbi.sorted.bam"),
+        Some("-r chr22:33121120 --no-reference --offline")
+    )]
+    #[case(
+        Some("covid.sorted.bam"),
+        Some("-g covid --offline --cache-dir tests/data/cache")
+    )]
+    #[case(
+        Some("covid.sorted.bam"),
+        Some("--no-reference -r MN908947.3:100 --offline")
+    )]
     #[tokio::test]
     async fn integration_test(#[case] bam_path: Option<&str>, #[case] args: Option<&str>) {
         let snapshot_name = match (bam_path, args) {
@@ -153,5 +162,30 @@ mod tests {
         app.close().await.unwrap();
 
         assert_snapshot!(snapshot_name, terminal.backend());
+    }
+
+    /// Test that downloading works.
+    #[rstest]
+    #[case("wuhCor1")]
+    #[case("ecoli")]
+    #[tokio::test]
+    async fn download_integration_test(#[case] reference_str: &str) {
+        let reference = Reference::from_str(reference_str).unwrap();
+        let temp_dir = tempfile::TempDir::new().unwrap();
+        println!("temp_dir: {:?}", temp_dir.path());
+        let downloader = UCSCDownloader::new(
+            Reference::from_str(reference_str).unwrap(),
+            temp_dir.path().to_str().unwrap().to_string(),
+        )
+        .unwrap();
+
+        downloader.download().await.unwrap();
+
+        assert!(temp_dir.path().join(reference.to_string()).exists());
+        assert!(temp_dir
+            .path()
+            .join(reference.to_string())
+            .join("tracks.sqlite")
+            .exists());
     }
 }

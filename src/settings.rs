@@ -2,12 +2,18 @@ use crate::error::TGVError;
 use crate::helpers::is_url;
 use crate::ucsc::UcscHost;
 use crate::{message::StateMessage, reference::Reference};
-use clap::{Parser, ValueEnum};
+use clap::{Parser, Subcommand, ValueEnum};
 
 #[derive(Clone, Debug, PartialEq, Eq, ValueEnum)]
 pub enum BackendType {
-    //Api,
-    Db,
+    /// Always use UCSC DB / API.
+    Ucsc,
+
+    /// Always use local database.
+    Local,
+
+    /// If local cache is available, use it. Otherwise, use UCSC DB / API.
+    Default,
 }
 
 #[derive(Debug, Clone, Eq, PartialEq, ValueEnum)]
@@ -28,6 +34,30 @@ impl UcscHostCli {
             UcscHostCli::Auto => UcscHost::auto(),
         }
     }
+}
+
+#[derive(Subcommand, Clone, Debug)]
+pub enum Commands {
+    /// Download command
+    Download {
+        /// Name to download
+        reference: String,
+
+        /// Cache directory
+        #[arg(long = "cache-dir", default_value = "~/.tgv")]
+        cache_dir: String,
+    },
+
+    /// List reference genomes on UCSC.
+    List {
+        /// List more reference genomes (UCSC common genomes (stored locally) and UCSC assemblies).
+        #[arg(long = "more")]
+        more: bool,
+
+        /// List all reference genomes (UCSC common genomes (stored locally), UCSC assemblies, and all UCSC accessions).
+        #[arg(long = "all")]
+        all: bool,
+    },
 }
 
 #[derive(Parser, Clone)]
@@ -58,9 +88,13 @@ pub struct Cli {
     #[arg(long)]
     no_reference: bool,
 
-    /// Select the backend service for fetching track data.
-    #[arg(long, value_enum, default_value_t = BackendType::Db)]
-    backend: BackendType,
+    /// If true, always use the local cache. Quit the application if local cache is not available.
+    #[arg(long, default_value_t = false)]
+    offline: bool,
+
+    /// If true, always use the UCSC DB / API.
+    #[arg(long, default_value_t = false)]
+    online: bool,
 
     /// [For development only] Display messages in the terminal.
     #[arg(long)]
@@ -70,16 +104,13 @@ pub struct Cli {
     #[arg(long, value_enum, default_value_t = UcscHostCli::Auto)]
     host: UcscHostCli,
 
-    /// List common genome names.
-    #[arg(long = "list")]
-    pub list_common_genomes: bool,
+    /// Cache directory
+    #[arg(long, default_value = "~/.tgv")]
+    cache_dir: String,
 
-    /// List all UCSC assemblies.
-    #[arg(long = "list-more")]
-    pub list_ucsc_assemblies: bool,
-    // List all UCSC accessions.
-    // #[arg(long = "list-all")]
-    // pub list_ucsc_accessions: bool,
+    /// Subcommand
+    #[command(subcommand)]
+    pub command: Option<Commands>,
 }
 
 #[derive(Debug, Clone, Eq, PartialEq)]
@@ -98,8 +129,11 @@ pub struct Settings {
     pub debug: bool,
 
     pub ucsc_host: UcscHost,
+
+    pub cache_dir: String,
 }
 
+/// Settings to browse alignments
 impl Settings {
     pub fn needs_alignment(&self) -> bool {
         self.bam_path.is_some()
@@ -114,6 +148,13 @@ impl Settings {
     }
 
     pub fn new(cli: Cli) -> Result<Self, TGVError> {
+        // If this is a download command, it should be handled separately
+        if cli.command.is_some() {
+            return Err(TGVError::CliError(
+                "Download command should be handled separately from Settings::new()".to_string(),
+            ));
+        }
+
         let mut bam_path = None;
         // let mut vcf_path = None;
         // let mut bed_path = None;
@@ -155,7 +196,17 @@ impl Settings {
             Self::translate_initial_state_messages(&cli.region, reference.as_ref())?;
 
         // Backend
-        let backend = cli.backend;
+        let backend = match (cli.offline, cli.online) {
+            (true, true) => {
+                return Err(TGVError::CliError(
+                    "Both --offline and --online flags are used. Please use only one of them."
+                        .to_string(),
+                ));
+            }
+            (true, false) => BackendType::Local,
+            (false, true) => BackendType::Ucsc,
+            (false, false) => BackendType::Default, // If local cache is available, use it. Otherwise, use UCSC DB / API.
+        };
 
         // Additional validations:
         // 1. If no reference is provided, the initial state messages cannot contain GoToGene
@@ -177,6 +228,9 @@ impl Settings {
             ));
         }
 
+        // cache_dir: expand ~
+        let cache_dir = shellexpand::tilde(&cli.cache_dir).to_string();
+
         Ok(Self {
             bam_path,
             bai_path,
@@ -188,6 +242,7 @@ impl Settings {
             ucsc_host: cli.host.to_host(),
             test_mode: false,
             debug: cli.debug,
+            cache_dir,
         })
     }
 
@@ -253,11 +308,12 @@ mod tests {
             bam_path: None,
             bai_path: None,
             reference: Some(Reference::Hg38),
-            backend: BackendType::Db, // Default backend
+            backend: BackendType::Default, // Default backend
             initial_state_messages: vec![StateMessage::GoToDefault],
             test_mode: false,
             debug: false,
             ucsc_host: UcscHost::Us,
+            cache_dir: shellexpand::tilde("~/.tgv").to_string(),
         }
     }
 
@@ -267,9 +323,19 @@ mod tests {
         bam_path: Some("input.bam".to_string()),
         ..default_settings()
     }))]
-    #[case("tgv input.bam --backend db", Ok(Settings {
+    #[case("tgv input.bam", Ok(Settings {
         bam_path: Some("input.bam".to_string()),
-        backend: BackendType::Db,
+        backend: BackendType::Default,
+        ..default_settings()
+    }))]
+    #[case("tgv input.bam --offline", Ok(Settings {
+        bam_path: Some("input.bam".to_string()),
+        backend: BackendType::Local,
+        ..default_settings()
+    }))]
+    #[case("tgv input.bam --online", Ok(Settings {
+        bam_path: Some("input.bam".to_string()),
+        backend: BackendType::Ucsc,
         ..default_settings()
     }))]
     #[case("tgv wrong.extension", Err(TGVError::CliError("".to_string())))]
@@ -311,6 +377,8 @@ mod tests {
     }))]
     #[case("tgv input.bam -r TP53 -g hg19 --no-reference", Err(TGVError::CliError("".to_string())))]
     #[case("tgv --no-reference", Err(TGVError::CliError("".to_string())))]
+    //#[case("tgv download test-name", Err(TGVError::CliError("".to_string())))]
+    // #[case("tgv download test-name --cache-dir /custom/dir", Err(TGVError::CliError("".to_string())))]
     fn test_cli_parsing(
         #[case] command_line: &str,
         #[case] expected_settings: Result<Settings, TGVError>,

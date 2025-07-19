@@ -1,8 +1,8 @@
 use crate::error::TGVError;
 use crate::repository::Repository;
-use crate::repository::{AlignmentRepository, AlignmentRepositoryEnum, SequenceCache};
+use crate::repository::{AlignmentRepository, AlignmentRepositoryEnum};
 use crate::settings::Settings;
-use crate::track_service::{TrackCache, TrackService};
+use crate::tracks::{TrackCache, TrackService};
 use crate::traits::GenomeInterval;
 use crate::{
     alignment::Alignment,
@@ -14,7 +14,7 @@ use crate::{
     message::{DataMessage, StateMessage},
     reference::Reference,
     region::Region,
-    sequence::Sequence,
+    sequence::{Sequence, SequenceCache, SequenceRepository},
     track::Track,
     window::ViewingWindow,
 };
@@ -1042,18 +1042,12 @@ impl StateHandler {
                 let sequence_service = repository.sequence_service_checked()?;
 
                 if !Self::has_complete_sequence(state, &region) {
-                    match sequence_service
+                    let sequence = sequence_service
                         .query_sequence(&region, &mut state.sequence_cache)
-                        .await
-                    {
-                        Ok(sequence) => {
-                            state.sequence = Some(sequence);
-                            loaded_data = true;
-                        }
-                        Err(_) => {
-                            return Err(TGVError::IOError("Sequence service error".to_string()));
-                        }
-                    }
+                        .await?;
+
+                    state.sequence = Some(sequence);
+                    loaded_data = true;
                 }
             }
 

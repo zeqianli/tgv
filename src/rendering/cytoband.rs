@@ -56,6 +56,8 @@ pub fn render_cytobands(area: &Rect, buf: &mut Buffer, state: &State) -> Result<
 
     // Cytoband
 
+    // panic!("Current cytoband: {:?}", state.current_cytoband());
+
     if let Some(cytoband) = state.current_cytoband()? {
         let viewing_window = state.viewing_window()?;
         let contig_length = state.contig_length()?;
@@ -64,7 +66,7 @@ pub fn render_cytobands(area: &Rect, buf: &mut Buffer, state: &State) -> Result<
             cytoband,
             cytoband_left_spacing,
             area.width - CYTOBAND_TEXT_RIGHT_SPACING,
-        ) {
+        )? {
             buf.set_string(area.x + x, area.y, string, style);
         }
     } else {
@@ -83,13 +85,13 @@ pub fn render_cytobands(area: &Rect, buf: &mut Buffer, state: &State) -> Result<
             contig_length,
             cytoband_left_spacing,
             area.width - CYTOBAND_TEXT_RIGHT_SPACING,
-        );
+        )?;
         let viewing_window_end = linear_scale(
             state.viewing_window()?.right(area),
             contig_length,
             cytoband_left_spacing,
             area.width - CYTOBAND_TEXT_RIGHT_SPACING,
-        );
+        )?;
 
         for x in viewing_window_start..viewing_window_end + 1 {
             let cell = buf.cell_mut(Position::new(area.x + x, area.y));
@@ -108,15 +110,21 @@ pub fn linear_scale(
     original_length: usize,
     new_start: u16,
     new_end: u16,
-) -> u16 {
-    new_start + (original_x as f64 / (original_length) as f64 * (new_end - new_start) as f64) as u16
+) -> Result<u16, TGVError> {
+    if original_length == 0 {
+        return Err(TGVError::ValueError(
+            "Trying to linear scale with original_length = 0 when rendering cytoband".to_string(),
+        ));
+    }
+    Ok(new_start
+        + (original_x as f64 / (original_length) as f64 * (new_end - new_start) as f64) as u16)
 }
 
 fn get_cytoband_xs_strings_and_styles(
     cytoband: &Cytoband,
     area_start: u16,
     area_end: u16,
-) -> Vec<(u16, String, Style)> {
+) -> Result<Vec<(u16, String, Style)>, TGVError> {
     let mut second_centromere = false;
     let mut output = Vec::new();
     for segment in cytoband.segments.iter() {
@@ -126,7 +134,7 @@ fn get_cytoband_xs_strings_and_styles(
             area_start,
             area_end,
             second_centromere,
-        ) {
+        )? {
             output.push((x, string, style));
         }
 
@@ -134,7 +142,7 @@ fn get_cytoband_xs_strings_and_styles(
             second_centromere = true;
         }
     }
-    output
+    Ok(output)
 }
 
 fn get_cytoband_segment_x_string_and_style(
@@ -143,12 +151,12 @@ fn get_cytoband_segment_x_string_and_style(
     area_start: u16,
     area_end: u16,
     second_centromere: bool,
-) -> Option<(u16, String, Style)> {
-    let onscreen_x_start = linear_scale(segment.start - 1, total_length, area_start, area_end); // 0-based, inclusive
-    let onscreen_x_end = linear_scale(segment.end, total_length, area_start, area_end); // 0-based, exclusive
+) -> Result<Option<(u16, String, Style)>, TGVError> {
+    let onscreen_x_start = linear_scale(segment.start - 1, total_length, area_start, area_end)?; // 0-based, inclusive
+    let onscreen_x_end = linear_scale(segment.end, total_length, area_start, area_end)?; // 0-based, exclusive
 
     if onscreen_x_end <= onscreen_x_start {
-        return None;
+        return Ok(None);
     }
 
     let style = get_cytoband_segment_style(segment);
@@ -162,11 +170,11 @@ fn get_cytoband_segment_x_string_and_style(
             } else {
                 string.replace_range(string.len() - 1..string.len(), ">");
             }
-            Some((onscreen_x_start, string, style))
+            Ok(Some((onscreen_x_start, string, style)))
         }
         _ => {
             let string = "▅".repeat((onscreen_x_end - onscreen_x_start) as usize);
-            Some((onscreen_x_start, string, style))
+            Ok(Some((onscreen_x_start, string, style)))
         }
     }
 }

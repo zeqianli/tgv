@@ -4,3 +4,4 @@ test/output
 .venv
 /src/snapshots
 .vscode
+.cursor

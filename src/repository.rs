@@ -1,20 +1,23 @@
 use crate::{
     alignment::{Alignment, AlignmentBuilder},
-    contig::Contig,
     error::TGVError,
     helpers::is_url,
     reference::Reference,
     region::Region,
-    sequence::Sequence,
+    sequence::{
+        SequenceCache, SequenceRepositoryEnum, TwoBitSequenceRepository, UCSCApiSequenceRepository,
+    },
     settings::{BackendType, Settings},
-    track_service::{TrackService, TrackServiceEnum, UcscApiTrackService, UcscDbTrackService},
+    tracks::{
+        LocalDbTrackService, TrackService, TrackServiceEnum, UcscApiTrackService,
+        UcscDbTrackService,
+    },
 };
 
-use reqwest::Client;
 use rust_htslib::bam;
 use rust_htslib::bam::{Header, IndexedReader, Read};
-use serde::Deserialize;
 use std::path::Path;
+// Add twobit crate to Cargo.toml
 use url::Url;
 
 pub struct Repository {
@@ -22,41 +25,88 @@ pub struct Repository {
 
     pub track_service: Option<TrackServiceEnum>,
 
-    pub sequence_service: Option<SequenceService>,
+    pub sequence_service: Option<SequenceRepositoryEnum>,
 }
 
 impl Repository {
-    pub async fn new(settings: &Settings) -> Result<Self, TGVError> {
+    pub async fn new(settings: &Settings) -> Result<(Self, Option<SequenceCache>), TGVError> {
         let alignment_repository = AlignmentRepositoryEnum::from(settings)?;
 
-        let (track_service, sequence_service): (Option<TrackServiceEnum>, Option<SequenceService>) =
-            match settings.reference.as_ref() {
-                Some(reference) => {
-                    let ts = match (&settings.backend, reference) {
-                        (BackendType::Db, Reference::UcscAccession(_)) => {
-                            TrackServiceEnum::Api(UcscApiTrackService::new()?)
-                        }
-                        (BackendType::Db, _) => TrackServiceEnum::Db(
-                            UcscDbTrackService::new(reference, &settings.ucsc_host).await?,
-                        ),
-                        _ => {
-                            return Err(TGVError::ValueError(format!(
-                                "Unsupported reference: {}",
-                                reference
-                            )));
-                        }
-                    };
-                    let ss = SequenceService::new(reference.clone())?;
-                    (Some(ts), Some(ss))
-                }
-                None => (None, None),
-            };
+        let (track_service, sequence_service, sequence_cache): (
+            Option<TrackServiceEnum>,
+            Option<SequenceRepositoryEnum>,
+            Option<SequenceCache>,
+        ) = match settings.reference.as_ref() {
+            Some(reference) => {
+                let ts = match (&settings.backend, reference) {
+                    (BackendType::Ucsc, Reference::UcscAccession(_)) => {
+                        TrackServiceEnum::Api(UcscApiTrackService::new()?)
+                    }
+                    (BackendType::Ucsc, _) => TrackServiceEnum::Db(
+                        UcscDbTrackService::new(reference, &settings.ucsc_host).await?,
+                    ),
+                    (BackendType::Local, _) => TrackServiceEnum::LocalDb(
+                        LocalDbTrackService::new(reference, &settings.cache_dir).await?,
+                    ),
+                    (BackendType::Default, reference) => {
+                        // If the local cache is available, use the local cache.
+                        // Otherwise, use the UCSC DB / API.
+                        match LocalDbTrackService::new(reference, &settings.cache_dir).await {
+                            Ok(ts) => TrackServiceEnum::LocalDb(ts),
+                            Err(TGVError::IOError(e)) => match reference {
+                                Reference::UcscAccession(_) => {
+                                    TrackServiceEnum::Api(UcscApiTrackService::new()?)
+                                }
+                                _ => TrackServiceEnum::Db(
+                                    UcscDbTrackService::new(reference, &settings.ucsc_host).await?,
+                                ),
+                            },
 
-        Ok(Self {
-            alignment_repository,
-            track_service,
-            sequence_service,
-        })
+                            Err(e) => return Err(e),
+                        }
+                    }
+                    _ => {
+                        return Err(TGVError::ValueError(format!(
+                            "Unsupported reference: {}",
+                            reference
+                        )));
+                    }
+                };
+
+                let use_ucsc_api_sequence =
+                    matches!(ts, TrackServiceEnum::Api(_) | TrackServiceEnum::Db(_));
+
+                let (ss, sc) = if use_ucsc_api_sequence {
+                    (
+                        SequenceRepositoryEnum::UCSCApi(UCSCApiSequenceRepository::new(
+                            reference.clone(),
+                        )?),
+                        None,
+                    )
+                } else {
+                    // query the chromInfo table to get the 2bit file path
+
+                    let (ss, cache) = TwoBitSequenceRepository::new(
+                        reference.clone(),
+                        ts.get_contig_2bit_file_lookup(reference).await?,
+                        settings.cache_dir.clone(),
+                    )?;
+
+                    (SequenceRepositoryEnum::TwoBit(ss), Some(cache))
+                };
+                (Some(ts), Some(ss), sc)
+            }
+            None => (None, None, None),
+        };
+
+        Ok((
+            Self {
+                alignment_repository,
+                track_service,
+                sequence_service,
+            },
+            sequence_cache,
+        ))
     }
 
     pub fn track_service_checked(&self) -> Result<&TrackServiceEnum, TGVError> {
@@ -68,7 +118,7 @@ impl Repository {
         }
     }
 
-    pub fn sequence_service_checked(&self) -> Result<&SequenceService, TGVError> {
+    pub fn sequence_service_checked(&self) -> Result<&SequenceRepositoryEnum, TGVError> {
         match self.sequence_service {
             Some(ref sequence_service) => Ok(sequence_service),
             None => Err(TGVError::StateError(
@@ -384,139 +434,5 @@ impl AlignmentRepository for AlignmentRepositoryEnum {
             AlignmentRepositoryEnum::RemoteBam(repository) => repository.read_header(),
             AlignmentRepositoryEnum::None => Err(TGVError::IOError("No alignment".to_string())),
         }
-    }
-}
-
-#[derive(Debug, Deserialize)]
-struct UcscResponse {
-    dna: String,
-}
-
-pub struct SequenceCache {
-    /// hub_url for UCSC Accessions
-    /// None: Not queried yet
-    /// Some(hub_url): Queried
-    hub_url: Option<String>,
-}
-
-impl Default for SequenceCache {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
-impl SequenceCache {
-    pub fn new() -> Self {
-        Self { hub_url: None }
-    }
-}
-
-pub struct SequenceService {
-    client: Client,
-    reference: Reference,
-}
-
-impl SequenceService {
-    pub fn new(reference: Reference) -> Result<Self, TGVError> {
-        Ok(Self {
-            client: Client::new(),
-            reference,
-        })
-    }
-
-    pub async fn close(&self) -> Result<(), TGVError> {
-        // Reqwest client does not need to be closed.
-        Ok(())
-    }
-
-    pub async fn query_sequence(
-        &self,
-        region: &Region,
-        cache: &mut SequenceCache,
-    ) -> Result<Sequence, TGVError> {
-        let url = self
-            .get_api_url(&region.contig, region.start, region.end, cache)
-            .await?;
-
-        let response: UcscResponse = self.client.get(&url).send().await?.json().await?;
-
-        Ok(Sequence {
-            start: region.start,
-            sequence: response.dna,
-            contig: region.contig.clone(),
-        })
-    }
-
-    /// start / end: 1-based, inclusive.
-    async fn get_api_url(
-        &self,
-        contig: &Contig,
-        start: usize,
-        end: usize,
-        cache: &mut SequenceCache,
-    ) -> Result<String, TGVError> {
-        match &self.reference {
-            Reference::Hg19 | Reference::Hg38 | Reference::UcscGenome(_) => Ok(format!(
-                "https://api.genome.ucsc.edu/getData/sequence?genome={};chrom={};start={};end={}",
-                self.reference.to_string(),
-                contig.name,
-                start - 1, // start is 0-based, inclusive.
-                end
-            )),
-            Reference::UcscAccession(genome) => {
-                if cache.hub_url.is_none() {
-                    let hub_url = self.get_hub_url_for_genark_accession(genome).await?;
-                    cache.hub_url = Some(hub_url);
-                }
-                let hub_url = cache.hub_url.as_ref().unwrap();
-                Ok(format!(
-                    "https://api.genome.ucsc.edu/getData/sequence?hubUrl={}&genome={};chrom={};start={};end={}",
-                    hub_url, genome, contig.name, start - 1, end
-                ))
-            }
-        }
-    }
-
-    async fn get_hub_url_for_genark_accession(&self, accession: &str) -> Result<String, TGVError> {
-        let query_url = format!(
-            "https://api.genome.ucsc.edu/list/genarkGenomes?genome={}",
-            accession
-        );
-        let response = self.client.get(query_url).send().await?;
-
-        // Example response:
-        // {
-        //     "downloadTime": "2025:05:06T03:46:07Z",
-        //     "downloadTimeStamp": 1746503167,
-        //     "dataTime": "2025-04-29T10:42:00",
-        //     "dataTimeStamp": 1745948520,
-        //     "hubUrlPrefix": "/gbdb/genark",
-        //     "genarkGenomes": {
-        //       "GCF_028858775.2": {
-        //         "hubUrl": "GCF/028/858/775/GCF_028858775.2/hub.txt",
-        //         "asmName": "NHGRI_mPanTro3-v2.0_pri",
-        //         "scientificName": "Pan troglodytes",
-        //         "commonName": "chimpanzee (v2 AG18354 primary hap 2024 refseq)",
-        //         "taxId": 9598,
-        //         "priority": 138,
-        //         "clade": "primates"
-        //       }
-        //     },
-        //     "totalAssemblies": 5691,
-        //     "itemsReturned": 1
-        //   }
-
-        let response_text = response.text().await?;
-        let value: serde_json::Value = serde_json::from_str(&response_text)?;
-
-        Ok(format!(
-            "https://hgdownload.soe.ucsc.edu/hubs/{}",
-            value["genarkGenomes"][accession]["hubUrl"]
-                .as_str()
-                .ok_or(TGVError::IOError(format!(
-                    "Failed to get hub url for {}",
-                    accession
-                )))?
-        ))
     }
 }

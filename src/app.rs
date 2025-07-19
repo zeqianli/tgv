@@ -14,7 +14,6 @@ pub struct App {
 
     pub settings: Settings,
 
-    //pub state_handler: StateHandler, // Update states accourding from state messages
     pub repository: Repository, // Data CRUD interface
 
     pub registers: Registers, // Controls key event translation to StateMessages. Uses the State pattern.
@@ -25,11 +24,20 @@ pub struct App {
 // initialization
 impl App {
     pub async fn new(settings: Settings) -> Result<Self, TGVError> {
+        let mut state = State::new(&settings)?;
+        let (repository, sequence_cache) = Repository::new(&settings).await?;
+        if let Some(sequence_cache) = sequence_cache {
+            // This is needed in local mode.
+            // sequence_cache holds the 2bit IO buffers and is mutable.
+            // But repository is immutable at runtime. So, the cache needs to be assigned to state.
+            state.sequence_cache = sequence_cache;
+        }
+
         Ok(Self {
-            state: State::new(&settings)?,
+            state,
             settings: settings.clone(),
             //state_handler: StateHandler::new(&settings).await?,
-            repository: Repository::new(&settings).await?,
+            repository,
             registers: Registers::new()?,
             rendering_state: RenderingState::new(),
         })
