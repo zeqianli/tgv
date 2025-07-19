@@ -5,8 +5,7 @@ use crate::{
     reference::Reference,
     region::Region,
     sequence::{
-        SequenceCache, SequenceRepositoryEnum, TwoBitSequenceRepository,
-        UCSCApiSequenceRepository,
+        SequenceCache, SequenceRepositoryEnum, TwoBitSequenceRepository, UCSCApiSequenceRepository,
     },
     settings::{BackendType, Settings},
     track_service::{
@@ -18,7 +17,7 @@ use crate::{
 use rust_htslib::bam;
 use rust_htslib::bam::{Header, IndexedReader, Read};
 use std::path::Path;
- // Add twobit crate to Cargo.toml
+// Add twobit crate to Cargo.toml
 use url::Url;
 
 pub struct Repository {

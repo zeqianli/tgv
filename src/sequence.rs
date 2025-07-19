@@ -273,7 +273,7 @@ pub struct TwoBitSequenceRepository {
 impl TwoBitSequenceRepository {
     pub fn new(
         reference: Reference,
-        contig_to_file_name: HashMap<String, String>,
+        contig_to_file_name: HashMap<String, Option<String>>,
         cache_dir: String,
     ) -> Result<(Self, SequenceCache), TGVError> {
         // Get the file path for this contig
@@ -281,6 +281,13 @@ impl TwoBitSequenceRepository {
         let mut buffers = Vec::new();
         let mut file_name_to_buffer_index = HashMap::new();
         let mut contig_to_buffer_index = HashMap::new();
+
+        // Remove contigs that have no 2bit file.
+        let contig_to_file_name: HashMap<String, String> = contig_to_file_name
+            .into_iter()
+            .filter(|(_, file_name)| file_name.is_some())
+            .map(|(contig, file_name)| (contig, file_name.unwrap()))
+            .collect();
 
         for (contig, file_name) in contig_to_file_name.iter() {
             let i_buffer = buffers.len();
@@ -291,7 +298,7 @@ impl TwoBitSequenceRepository {
                 }
                 None => {
                     file_name_to_buffer_index.insert(file_name.clone(), i_buffer);
-                    contig_to_buffer_index.insert(contig.clone(), i_buffer + 1);
+                    contig_to_buffer_index.insert(contig.clone(), i_buffer);
 
                     // add a new buffer
                     let file_path = format!("{}/{}/{}", &cache_dir, reference, file_name);

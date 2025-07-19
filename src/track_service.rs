@@ -1,14 +1,13 @@
-use crate::error::TGVError;
-use crate::reference;
-use crate::traits::GenomeInterval;
 use crate::{
     contig::Contig,
     cytoband::{Cytoband, CytobandSegment, Stain},
+    error::TGVError,
     feature::{Gene, SubGeneFeature},
     reference::Reference,
     region::Region,
     strand::Strand,
     track::Track,
+    traits::GenomeInterval,
     ucsc::UcscHost,
 };
 use async_trait::async_trait;
@@ -16,19 +15,16 @@ use bigtools::BigBedRead;
 use reqwest::{Client, StatusCode};
 use serde::de::Error as _;
 use serde::Deserialize;
-use sqlx::mysql::MySqlRow;
-use sqlx::sqlite::Sqlite;
-use sqlx::sqlite::SqliteRow;
-use sqlx::Pool;
 use sqlx::{
-    mysql::MySqlPoolOptions,
-    sqlite::{SqliteConnectOptions, SqlitePool, SqlitePoolOptions},
-    Column, MySqlPool, Row,
+    mysql::{MySqlPoolOptions, MySqlRow},
+    sqlite::{Sqlite, SqliteConnectOptions, SqlitePool, SqlitePoolOptions, SqliteRow},
+    Column, MySqlPool, Pool, Row,
 };
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
+/// Default track ordering when rendering the gene track.
 const TRACK_PREFERENCES: [&str; 5] = [
     "ncbiRefSeqSelect",
     "ncbiRefSeqCurated",
@@ -393,20 +389,30 @@ impl UcscDbTrackService {
     async fn get_contig_2bit_file_lookup(
         &self,
         reference: &Reference,
-    ) -> Result<HashMap<String, String>, TGVError> {
+    ) -> Result<HashMap<String, Option<String>>, TGVError> {
         let rows_with_alias = sqlx::query("SELECT chrom, fileName FROM chromInfo")
             .fetch_all(&*self.pool)
             .await?;
 
-        let mut filename_hashmap: HashMap<String, String> = HashMap::new();
+        let mut filename_hashmap: HashMap<String, Option<String>> = HashMap::new();
         for row in rows_with_alias {
             let chrom: String = row.try_get("chrom")?;
             let file_name: String = row.try_get("fileName")?;
 
-            let basename = file_name.split("/").last().ok_or(TGVError::IOError(
-                "Failed to get basename from file name".to_string(),
-            ))?;
-            filename_hashmap.insert(chrom, basename.to_string());
+            let basename = if file_name.trim().is_empty() {
+                None
+            } else {
+                Some(
+                    file_name
+                        .split("/")
+                        .last()
+                        .ok_or(TGVError::IOError(
+                            "Failed to get basename from file name".to_string(),
+                        ))?
+                        .to_string(),
+                )
+            };
+            filename_hashmap.insert(chrom, basename);
         }
 
         Ok(filename_hashmap)
@@ -919,20 +925,30 @@ impl LocalDbTrackService {
     async fn get_contig_2bit_file_lookup(
         &self,
         reference: &Reference,
-    ) -> Result<HashMap<String, String>, TGVError> {
+    ) -> Result<HashMap<String, Option<String>>, TGVError> {
         let rows_with_alias = sqlx::query("SELECT chrom, fileName FROM chromInfo")
             .fetch_all(&*self.pool)
             .await?;
 
-        let mut filename_hashmap: HashMap<String, String> = HashMap::new();
+        let mut filename_hashmap: HashMap<String, Option<String>> = HashMap::new();
         for row in rows_with_alias {
             let chrom: String = row.try_get("chrom")?;
             let file_name: String = row.try_get("fileName")?;
 
-            let basename = file_name.split("/").last().ok_or(TGVError::IOError(
-                "Failed to get basename from file name".to_string(),
-            ))?;
-            filename_hashmap.insert(chrom, basename.to_string());
+            let basename = if file_name.trim().is_empty() {
+                None
+            } else {
+                Some(
+                    file_name
+                        .split("/")
+                        .last()
+                        .ok_or(TGVError::IOError(
+                            "Failed to get basename from file name".to_string(),
+                        ))?
+                        .to_string(),
+                )
+            };
+            filename_hashmap.insert(chrom, basename);
         }
 
         Ok(filename_hashmap)
@@ -2082,10 +2098,12 @@ pub enum TrackServiceEnum {
 }
 
 impl TrackServiceEnum {
+    /// Return a map of: contig name -> 2bit file basename, if available.
+    /// If not available, the value is None.    
     pub async fn get_contig_2bit_file_lookup(
         &self,
         reference: &Reference,
-    ) -> Result<HashMap<String, String>, TGVError> {
+    ) -> Result<HashMap<String, Option<String>>, TGVError> {
         match self {
             TrackServiceEnum::Api(_) => Err(TGVError::IOError(
                 "get_contig_2bit_file_lookup is not supported for UcscApiTrackService".to_string(),
@@ -2355,6 +2373,8 @@ impl TrackService for TrackServiceEnum {
 /// Download data from UCSC mariaDB to a local sqlite file.
 pub struct UCSCDownloader {
     reference: Reference,
+
+    /// TGV main cache directory. Reference data are stored in cache_dir/reference_name/.
     cache_dir: String,
 }
 
@@ -2407,7 +2427,7 @@ impl UCSCDownloader {
         Ok(reference_cache_dir)
     }
 
-    /// Download these tables: chromInfo, chromAlias, cytoBandIdeo, and gene tracks
+    /// Download data for references. This is the main entry point for downloading data.
     pub async fn download(&self) -> Result<(), TGVError> {
         use std::fs;
 
@@ -2439,7 +2459,11 @@ impl UCSCDownloader {
         sqlite_pool.close().await;
         Ok(())
     }
-    pub async fn download_for_ucsc_assembly(
+
+    /// Download data for UCSC assemblies.
+    /// 1. Transfer relevant tables from MariaDB to SQLite.
+    /// 2. Find 2bit files from the chromInfo table. Download 2bit files.
+    async fn download_for_ucsc_assembly(
         &self,
         reference: &Reference,
         cache_dir: &PathBuf,
@@ -2473,9 +2497,10 @@ impl UCSCDownloader {
     }
 
     /// Download data for UCSC accessions
-    /// Use UCSC API get
-    /// 1. 2bit file url
-    /// 2. hub url, prefered track name, and big data url for the prefered track
+    /// 1. Use UCSC API get hub url
+    /// 2. Parse hub file for 2bit file paths and bigbed file paths
+    /// 3. Download 2bit files
+    /// 4. Download Bigbed files. Convert to SQLite tables. (TODO: calculate exonStarts and exonEnds from blockStarts and blockSizes)
     async fn download_for_ucsc_accession(
         &self,
         reference: &Reference,
@@ -2493,19 +2518,23 @@ impl UCSCDownloader {
         println!("Parsing hub file...");
         let hub_content = UcscHubFileParser::parse_hub_file(&hub_url).await?;
 
-        if let Some(twobit_path) = hub_content.twobit_path {
+        if let Some(twobit_path) = &hub_content.twobit_path {
             self.download_to_directory(&twobit_path, cache_dir).await?;
         }
 
-        if let Some(chrom_sizes_path) = hub_content.chrom_sizes_path {
-            let local_chrom_sizes_path = self
-                .download_to_directory(&chrom_sizes_path, cache_dir)
+        if let Some(chrom_info_path) = &hub_content.chrom_info_path {
+            let local_chrom_info_path = self
+                .download_to_directory(&chrom_info_path, cache_dir)
                 .await?;
-            self.add_chrom_sizes_to_sqlite(&local_chrom_sizes_path, &sqlite_pool)
-                .await?;
+            self.add_chrom_info_to_sqlite(
+                &local_chrom_info_path,
+                hub_content.twobit_path.as_ref(),
+                &sqlite_pool,
+            )
+            .await?;
         }
 
-        if let Some(chrom_alias_path) = hub_content.chrom_alias_path {
+        if let Some(chrom_alias_path) = &hub_content.chrom_alias_path {
             let local_chrom_alias_path = self
                 .download_to_directory(&chrom_alias_path, cache_dir)
                 .await?;
@@ -2534,33 +2563,40 @@ impl UCSCDownloader {
         Ok(())
     }
 
-    /// Add the chromSizes txt file from UCSC to a sqlite table.
-    async fn add_chrom_sizes_to_sqlite(
+    /// Add the chromSizes txt file from UCSC to a sqlite table. Used for UCSC accession download.
+    async fn add_chrom_info_to_sqlite(
         &self,
-        chrom_sizes_path: &PathBuf,
+        chrom_info_path: &PathBuf,
+        twobit_file_name: Option<&String>,
         sqlite_pool: &SqlitePool,
     ) -> Result<(), TGVError> {
-        let chrom_sizes_content = std::fs::read_to_string(chrom_sizes_path)?;
-        let chrom_sizes_lines = chrom_sizes_content.lines();
+        let chrom_info_content: String = std::fs::read_to_string(chrom_info_path)?;
+        let chrom_info_lines = chrom_info_content.lines();
 
-        sqlx::query("DROP TABLE IF EXISTS chromSizes")
+        println!("twobit_file_name: {:?}", twobit_file_name);
+
+        sqlx::query("DROP TABLE IF EXISTS chromInfo")
             .execute(sqlite_pool)
             .await?;
 
-        sqlx::query("CREATE TABLE chromSizes (chrom TEXT, size INTEGER)")
+        sqlx::query("CREATE TABLE chromInfo (chrom TEXT, size INTEGER, fileName TEXT)")
             .execute(sqlite_pool)
             .await?;
 
-        for line in chrom_sizes_lines {
+        for line in chrom_info_lines {
             let fields = line.split("\t").collect::<Vec<&str>>();
             let chrom = fields[0];
             let size = fields[1]
                 .parse::<i64>()
                 .map_err(|e| TGVError::IOError(format!("Failed to parse chrom size: {}", e)))?;
 
-            sqlx::query("INSERT INTO chromSizes (chrom, size) VALUES (?, ?)")
+            sqlx::query("INSERT INTO chromInfo (chrom, size, fileName) VALUES (?, ?, ?)")
                 .bind(chrom)
                 .bind(size)
+                .bind(match twobit_file_name {
+                    Some(name) => name.split("/").last().unwrap(),
+                    None => "",
+                })
                 .execute(sqlite_pool)
                 .await?;
         }
@@ -2568,6 +2604,7 @@ impl UCSCDownloader {
         Ok(())
     }
 
+    /// Transfer a MariaDb table to a SQLite table.
     async fn transfer_table(
         &self,
         mysql_pool: &MySqlPool,
@@ -2719,6 +2756,7 @@ impl UCSCDownloader {
         Ok(self)
     }
 
+    /// Find relevant table names and tranfer them from MariaDB to SQLite. Used for UCSC assembly download.
     async fn transfer_gene_tracks(
         &self,
         mysql_pool: &MySqlPool,
@@ -2744,6 +2782,8 @@ impl UCSCDownloader {
         Ok(self)
     }
 
+    /// Used for UCSC assembly download.
+    /// Query the chromInfo table to get the genome file urls and download them.
     async fn download_genomes(&self, sqlite_pool: &SqlitePool) -> Result<(), TGVError> {
         println!("Downloading genome files...");
 
@@ -2759,9 +2799,7 @@ impl UCSCDownloader {
             return Ok(());
         }
 
-        // Create HTTP client
         let cache_dir = self.reference_cache_dir(&self.reference)?;
-
         for row in rows {
             let file_name: String = row.try_get("fileName")?;
             let download_url = format!("http://hgdownload.soe.ucsc.edu/{}", file_name);
@@ -2774,6 +2812,8 @@ impl UCSCDownloader {
         Ok(())
     }
 
+    /// Download a file to a directory with the same filename.
+    /// Skip if file already exists. Note that no cache invalidation here. TODO.
     async fn download_to_directory(
         &self,
         url: &str,
@@ -2781,6 +2821,8 @@ impl UCSCDownloader {
     ) -> Result<PathBuf, TGVError> {
         let local_path = local_dir.join(url.split("/").last().unwrap());
         let client = reqwest::Client::new();
+
+        println!("Downloading file {} to {}", url, local_path.display());
 
         // Skip if file already exists
         if local_path.exists() {
@@ -3088,12 +3130,13 @@ impl BigBedConverter {
 }
 
 /// A parsed UCSC hub file. Example: https://hgdownload.soe.ucsc.edu/hubs/GCF/000/005/845/GCF_000005845.2/hub.txt
+#[derive(Debug, Clone)]
 struct UcscHub {
     hub_url: String,
 
     twobit_path: Option<String>,
 
-    chrom_sizes_path: Option<String>,
+    chrom_info_path: Option<String>,
 
     chrom_alias_path: Option<String>,
 
@@ -3111,7 +3154,7 @@ impl UcscHubFileParser {
         let mut current_track = None; // track name of the current track block being parsed
         let mut track_paths: HashMap<String, String> = HashMap::new();
         let mut twobit_path = None;
-        let mut chrom_sizes_path = None;
+        let mut chrom_info_path = None;
         let mut chrom_alias_path = None;
 
         for line in body.lines() {
@@ -3131,11 +3174,11 @@ impl UcscHubFileParser {
                     track_paths.insert(track_name.clone(), Self::join_url(hub_url, values[1]));
                 }
             } else {
-                if values[0] == "twobitPath" {
+                if values[0] == "twoBitPath" {
                     twobit_path = Some(Self::join_url(hub_url, values[1]));
                 } else if values[0] == "chromSizes" {
-                    chrom_sizes_path = Some(Self::join_url(hub_url, values[1]));
-                } else if values[0] == "chromAlias" {
+                    chrom_info_path = Some(Self::join_url(hub_url, values[1]));
+                } else if values[0] == "chromAliasBb" {
                     chrom_alias_path = Some(Self::join_url(hub_url, values[1]));
                 }
             }
@@ -3144,7 +3187,7 @@ impl UcscHubFileParser {
         Ok(UcscHub {
             hub_url: hub_url.to_string(),
             twobit_path,
-            chrom_sizes_path,
+            chrom_info_path,
             chrom_alias_path,
             track_paths,
         })
