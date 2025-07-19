@@ -1,7 +1,7 @@
 use crate::tracks::{TrackCache, TrackService, TRACK_PREFERENCES};
 use crate::{
     contig::Contig,
-    cytoband::{Cytoband, CytobandSegment, Stain},
+    cytoband::{Cytoband, CytobandSegment},
     error::TGVError,
     feature::{Gene, SubGeneFeature},
     reference::Reference,
@@ -9,21 +9,12 @@ use crate::{
     strand::Strand,
     track::Track,
     traits::GenomeInterval,
-    ucsc::UcscHost,
 };
 use async_trait::async_trait;
-use bigtools::BigBedRead;
 use reqwest::{Client, StatusCode};
 use serde::de::Error as _;
 use serde::Deserialize;
-use sqlx::{
-    mysql::{MySqlPoolOptions, MySqlRow},
-    sqlite::{Sqlite, SqliteConnectOptions, SqlitePool, SqlitePoolOptions, SqliteRow},
-    Column, MySqlPool, Pool, Row,
-};
-use std::collections::HashMap;
-use std::path::{Path, PathBuf};
-use std::sync::Arc;
+use sqlx::{Column, Row};
 
 // TODO: improved pattern:
 // Service doesn't save anything. No reference, no cache.

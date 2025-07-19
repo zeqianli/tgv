@@ -9,20 +9,13 @@ use crate::{
     strand::Strand,
     track::Track,
     traits::GenomeInterval,
-    ucsc::UcscHost,
 };
 use async_trait::async_trait;
-use bigtools::BigBedRead;
-use reqwest::{Client, StatusCode};
-use serde::de::Error as _;
-use serde::Deserialize;
 use sqlx::{
-    mysql::{MySqlPoolOptions, MySqlRow},
-    sqlite::{Sqlite, SqliteConnectOptions, SqlitePool, SqlitePoolOptions, SqliteRow},
-    Column, MySqlPool, Pool, Row,
+    sqlite::{SqliteConnectOptions, SqlitePool, SqlitePoolOptions, SqliteRow},
+    Column, Row,
 };
 use std::collections::HashMap;
-use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 /// Local database track service that reads from SQLite files created by UcscDownloader

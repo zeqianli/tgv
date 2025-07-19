@@ -1,31 +1,13 @@
-use crate::tracks::{
-    TrackCache, TrackService, UcscApiTrackService, UcscDbTrackService, TRACK_PREFERENCES,
-};
-use crate::{
-    contig::Contig,
-    cytoband::{Cytoband, CytobandSegment, Stain},
-    error::TGVError,
-    feature::{Gene, SubGeneFeature},
-    reference::Reference,
-    region::Region,
-    strand::Strand,
-    track::Track,
-    traits::GenomeInterval,
-    ucsc::UcscHost,
-};
-use async_trait::async_trait;
+use crate::tracks::{TrackService, UcscApiTrackService, UcscDbTrackService, TRACK_PREFERENCES};
+use crate::{error::TGVError, reference::Reference, traits::GenomeInterval, ucsc::UcscHost};
 use bigtools::BigBedRead;
-use reqwest::{Client, StatusCode};
-use serde::de::Error as _;
-use serde::Deserialize;
 use sqlx::{
-    mysql::{MySqlPoolOptions, MySqlRow},
-    sqlite::{Sqlite, SqliteConnectOptions, SqlitePool, SqlitePoolOptions, SqliteRow},
+    mysql::MySqlPoolOptions,
+    sqlite::{Sqlite, SqliteConnectOptions, SqlitePool, SqlitePoolOptions},
     Column, MySqlPool, Pool, Row,
 };
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
-use std::sync::Arc;
 /// Download data from UCSC mariaDB to a local sqlite file.
 pub struct UCSCDownloader {
     reference: Reference,
@@ -132,18 +114,18 @@ impl UCSCDownloader {
             .connect(&mysql_url)
             .await?;
 
-        self.transfer_table(&mysql_pool, &sqlite_pool, "chromInfo")
+        self.transfer_table(&mysql_pool, sqlite_pool, "chromInfo")
             .await?
-            .transfer_table(&mysql_pool, &sqlite_pool, "chromAlias")
+            .transfer_table(&mysql_pool, sqlite_pool, "chromAlias")
             .await?
-            .transfer_table(&mysql_pool, &sqlite_pool, "cytoBandIdeo")
+            .transfer_table(&mysql_pool, sqlite_pool, "cytoBandIdeo")
             .await?
-            .transfer_gene_tracks(&mysql_pool, &sqlite_pool)
+            .transfer_gene_tracks(&mysql_pool, sqlite_pool)
             .await?;
 
         mysql_pool.close().await;
 
-        self.download_genomes(&sqlite_pool).await?;
+        self.download_genomes(sqlite_pool).await?;
 
         println!(
             "Successfully downloaded track data for {}",
@@ -175,29 +157,29 @@ impl UCSCDownloader {
         let hub_content = UcscHubFileParser::parse_hub_file(&hub_url).await?;
 
         if let Some(twobit_path) = &hub_content.twobit_path {
-            self.download_to_directory(&twobit_path, cache_dir).await?;
+            self.download_to_directory(twobit_path, cache_dir).await?;
         }
 
         if let Some(chrom_info_path) = &hub_content.chrom_info_path {
             let local_chrom_info_path = self
-                .download_to_directory(&chrom_info_path, cache_dir)
+                .download_to_directory(chrom_info_path, cache_dir)
                 .await?;
             self.add_chrom_info_to_sqlite(
                 &local_chrom_info_path,
                 hub_content.twobit_path.as_ref(),
-                &sqlite_pool,
+                sqlite_pool,
             )
             .await?;
         }
 
         if let Some(chrom_alias_path) = &hub_content.chrom_alias_path {
             let local_chrom_alias_path = self
-                .download_to_directory(&chrom_alias_path, cache_dir)
+                .download_to_directory(chrom_alias_path, cache_dir)
                 .await?;
             BigBedConverter::save_to_sqlite(
-                &local_chrom_alias_path.to_str().unwrap(),
+                local_chrom_alias_path.to_str().unwrap(),
                 "chromAlias",
-                &sqlite_pool,
+                sqlite_pool,
             )
             .await?;
         }
@@ -207,11 +189,11 @@ impl UCSCDownloader {
                 continue;
             }
 
-            let local_big_data_path = self.download_to_directory(&big_data_url, cache_dir).await?;
+            let local_big_data_path = self.download_to_directory(big_data_url, cache_dir).await?;
             BigBedConverter::save_to_sqlite(
-                &local_big_data_path.to_str().unwrap(),
+                local_big_data_path.to_str().unwrap(),
                 track_name,
-                &sqlite_pool,
+                sqlite_pool,
             )
             .await?;
         }
@@ -540,7 +522,7 @@ impl BigBedConverter {
         let mut field_types = Vec::new();
 
         let declarations = parse_autosql(&autosql_string).unwrap();
-        let declaration: &bigtools::bed::autosql::parse::Declaration = declarations.get(0).ok_or(
+        let declaration: &bigtools::bed::autosql::parse::Declaration = declarations.first().ok_or(
             TGVError::IOError("Parsing autosql declaration failed".to_string()),
         )?;
 
@@ -740,7 +722,7 @@ impl BigBedConverter {
                 if need_exon_conversion {
                     let (exon_starts_blob, exon_ends_blob, cds_start, cds_end) =
                         Self::convert_blocks_to_exons(
-                            interval.start as u32,
+                            interval.start,
                             fields[block_sizes_field_index].as_bytes().to_vec(),
                             fields[chrom_starts_field_index].as_bytes().to_vec(),
                         )?;
@@ -872,7 +854,7 @@ impl UcscHubFileParser {
         let mut chrom_alias_path = None;
 
         for line in body.lines() {
-            if line == "" {
+            if line.is_empty() {
                 current_track = None;
                 continue;
             }
@@ -887,14 +869,12 @@ impl UcscHubFileParser {
                 if values[0] == "bigDataUrl" {
                     track_paths.insert(track_name.clone(), Self::join_url(hub_url, values[1]));
                 }
-            } else {
-                if values[0] == "twoBitPath" {
-                    twobit_path = Some(Self::join_url(hub_url, values[1]));
-                } else if values[0] == "chromSizes" {
-                    chrom_info_path = Some(Self::join_url(hub_url, values[1]));
-                } else if values[0] == "chromAliasBb" {
-                    chrom_alias_path = Some(Self::join_url(hub_url, values[1]));
-                }
+            } else if values[0] == "twoBitPath" {
+                twobit_path = Some(Self::join_url(hub_url, values[1]));
+            } else if values[0] == "chromSizes" {
+                chrom_info_path = Some(Self::join_url(hub_url, values[1]));
+            } else if values[0] == "chromAliasBb" {
+                chrom_alias_path = Some(Self::join_url(hub_url, values[1]));
             }
         }
 

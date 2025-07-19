@@ -1,4 +1,4 @@
-use bigtools::{BBIReadError, BigBedReadOpenError, BigWigReadOpenError};
+use bigtools::{BBIReadError, BigBedReadOpenError};
 use thiserror::Error;
 
 #[derive(Debug, Error)]

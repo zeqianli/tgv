@@ -11,17 +11,11 @@ use crate::{
     ucsc::UcscHost,
 };
 use async_trait::async_trait;
-use bigtools::BigBedRead;
-use reqwest::{Client, StatusCode};
-use serde::de::Error as _;
-use serde::Deserialize;
 use sqlx::{
     mysql::{MySqlPoolOptions, MySqlRow},
-    sqlite::{Sqlite, SqliteConnectOptions, SqlitePool, SqlitePoolOptions, SqliteRow},
-    Column, MySqlPool, Pool, Row,
+    Column, MySqlPool, Row,
 };
 use std::collections::HashMap;
-use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 #[derive(Debug)]
