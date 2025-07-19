@@ -8,7 +8,7 @@ rust-version = "1.81"
 include = [
     "src/*",
     "Cargo.toml",
-    "README.md"
+    "./README.md"
 ]
 
 [dependencies]
