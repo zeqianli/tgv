@@ -1,3 +1,9 @@
+# Changelog
+
+## 0.0.6
+
+- Cache support
+
 ## 0.0.5
 
 - Supports UCSC accession IDs
