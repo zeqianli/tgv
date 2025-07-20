@@ -134,7 +134,7 @@ pub struct MainLayout {
     /// Root layout node
     root: LayoutNode,
 
-    /// root_id -> retrival_path. Used for fast lookup by node id.
+    /// Enables O(1) node_id -> node lookup
     retrival_paths: HashMap<usize, Vec<usize>>,
 }
 
