@@ -20,6 +20,7 @@ mod strand;
 mod track;
 mod traits;
 mod ucsc;
+mod variant;
 mod window;
 use app::App;
 use clap::Parser;
