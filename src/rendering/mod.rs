@@ -1,4 +1,5 @@
 mod alignment;
+mod bed;
 mod colors;
 mod console;
 mod contig_list;
@@ -13,6 +14,7 @@ mod sequence;
 mod track;
 mod variants;
 pub use alignment::render_alignment;
+pub use bed::render_bed;
 pub use console::render_console;
 pub use contig_list::render_contig_list;
 pub use coordinate::render_coordinates;
@@ -23,6 +25,7 @@ pub use help::render_help;
 pub use layout::MainLayout;
 pub use sequence::render_sequence;
 pub use track::render_track;
+pub use variants::render_variants;
 
 use crate::display_mode::DisplayMode;
 use crate::error::TGVError;

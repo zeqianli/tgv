@@ -1,5 +1,6 @@
 use crate::{
     alignment::{Alignment, AlignmentBuilder},
+    bed::{BEDInterval, BEDIntervals},
     error::TGVError,
     helpers::is_url,
     reference::Reference,
@@ -26,6 +27,8 @@ pub struct Repository {
 
     pub variant_repository: Option<VariantRepository>,
 
+    pub bed_intervals: Option<BEDIntervals>,
+
     pub track_service: Option<TrackServiceEnum>,
 
     pub sequence_service: Option<SequenceRepositoryEnum>,
@@ -37,6 +40,11 @@ impl Repository {
 
         let variant_repository = match &settings.vcf_path {
             Some(vcf_path) => Some(VariantRepository::from_vcf(&vcf_path)?),
+            None => None,
+        };
+
+        let bed_intervals = match &settings.bed_path {
+            Some(bed_path) => Some(BEDIntervals::from_bed(&bed_path)?),
             None => None,
         };
 
@@ -111,6 +119,7 @@ impl Repository {
             Self {
                 alignment_repository,
                 variant_repository,
+                bed_intervals,
                 track_service,
                 sequence_service,
             },

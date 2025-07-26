@@ -72,6 +72,10 @@ pub struct Cli {
     #[arg(short = 'v', long = "vcf", value_name = "vcf_path")]
     vcf_path: Option<String>,
 
+    /// BED file path
+    #[arg(short = 'b', long = "bed", value_name = "bed_path")]
+    bed_path: Option<String>,
+
     /// Index file path.
     /// If not provided, .bai in the same directory as the BAM file will be used.
     #[arg(short = 'i', long = "index", value_name = "bai")]
@@ -122,7 +126,7 @@ pub struct Settings {
     pub bam_path: Option<String>,
     pub bai_path: Option<String>,
     pub vcf_path: Option<String>,
-    // pub bed_path: Option<String>,
+    pub bed_path: Option<String>,
     pub reference: Option<Reference>,
     pub backend: BackendType,
 
@@ -153,6 +157,10 @@ impl Settings {
 
     pub fn needs_variants(&self) -> bool {
         self.vcf_path.is_some()
+    }
+
+    pub fn needs_bed(&self) -> bool {
+        self.bed_path.is_some()
     }
 
     pub fn new(cli: Cli) -> Result<Self, TGVError> {
@@ -224,8 +232,7 @@ impl Settings {
             bam_path: cli.bam_path,
             bai_path: cli.index,
             vcf_path: cli.vcf_path,
-            // vcf_path,
-            // bed_path,
+            bed_path: cli.bed_path,
             reference,
             backend,
             initial_state_messages,
@@ -296,6 +303,7 @@ mod tests {
             bam_path: None,
             bai_path: None,
             vcf_path: None,
+            bed_path: None,
             reference: Some(Reference::Hg38),
             backend: BackendType::Default, // Default backend
             initial_state_messages: vec![StateMessage::GoToDefault],

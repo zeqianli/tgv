@@ -6,6 +6,7 @@ use crate::{
 use noodles::bed::{self, io::reader};
 use std::{fs, io};
 
+#[derive(Debug, Clone)]
 pub struct BEDInterval {
     contig: Contig,
 
@@ -17,7 +18,7 @@ pub struct BEDInterval {
 
 impl BEDInterval {
     pub fn new(record: bed::Record<3>) -> Result<Self, TGVError> {
-        let start = record.feature_start()?.get() + 1;
+        let start = record.feature_start()?.get(); // Noodles already converted to 1-based, inclusive
         Ok(Self {
             contig: Contig::new(&record.reference_sequence_name().to_string()),
             start: start, // BED start is 0-based, inclusive
@@ -43,25 +44,20 @@ impl GenomeInterval for BEDInterval {
         self.end
     }
 }
-
-pub struct BedIntervals {
-    intervals: SortedIntervalCollection<BEDInterval>,
+#[derive(Debug, Clone)]
+pub struct BEDIntervals {
+    pub intervals: SortedIntervalCollection<BEDInterval>,
 }
 
-impl BedIntervals {
+impl BEDIntervals {
     pub fn from_bed(bed_path: &str) -> Result<Self, TGVError> {
         let mut reader = bed::io::reader::Builder::<3>::default().build_from_path(bed_path)?;
         let mut record = bed::Record::default();
 
         let mut records = Vec::new();
 
-        loop {
-            match reader.read_record(&mut record) {
-                Ok(i) => records.push(BEDInterval::new(record.clone())?),
-                Err(e) => {
-                    break;
-                }
-            }
+        while reader.read_record(&mut record)? != 0 {
+            records.push(BEDInterval::new(record.clone())?);
         }
 
         Ok(Self {

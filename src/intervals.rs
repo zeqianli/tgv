@@ -45,74 +45,59 @@ pub trait GenomeInterval {
     }
 }
 
+#[derive(Debug, Clone)]
 pub struct SortedIntervalCollection<T: GenomeInterval> {
     /// Assumption: sorted by (contig, start, end)
     pub intervals: Vec<T>,
 
-    /// {contig_name: ({start: [variant_indexes,... ], ...}, {end: [variant_indexes,... ], ...}}
-    start_end_lookup: HashMap<String, (BTreeMap<usize, Vec<usize>>, BTreeMap<usize, Vec<usize>>)>,
+    /// {contig_name: [variant_indexes,... ]}
+    contig_lookup: HashMap<String, Vec<usize>>,
 }
 
+/// TODO:
+/// This is now O(1) for overlapping lookup.
+/// Use interval tree to get O(log n) lookup. Options:
+/// - https://github.com/BurntSushi/rust-interval-tree
+/// - https://github.com/dcjones/coitrees
+/// - https://github.com/sstadick/rust-lapper
+/// - https://crates.io/crates/intervaltree
+/// - https://github.com/rust-bio/rust-bio/blob/master/src/data_structures/interval_tree/avl_interval_tree.rs
 impl<T> SortedIntervalCollection<T>
 where
     T: GenomeInterval,
 {
     pub fn new(intervals: Vec<T>) -> Result<Self, TGVError> {
-        let mut start_end_lookup: HashMap<
-            String,
-            (BTreeMap<usize, Vec<usize>>, BTreeMap<usize, Vec<usize>>),
-        > = HashMap::new();
+        let mut contig_lookup: HashMap<String, Vec<usize>> = HashMap::new();
 
         for (i, interval) in intervals.iter().enumerate() {
-            start_end_lookup
+            contig_lookup
                 .entry(interval.contig().name.clone())
-                .and_modify(|(start_map, end_map)| {
-                    start_map
-                        .entry(interval.start())
-                        .and_modify(|indexes| indexes.push(i))
-                        .or_insert(vec![i]);
-                    end_map
-                        .entry(interval.end())
-                        .and_modify(|indexes| indexes.push(i))
-                        .or_insert(vec![i]);
-                })
-                .or_insert((
-                    BTreeMap::from([(interval.start(), vec![i])]),
-                    BTreeMap::from([(interval.start(), vec![i])]),
-                ));
+                .and_modify(|indexes| indexes.push(i))
+                .or_insert(vec![i]);
         }
+
         return Ok(SortedIntervalCollection {
             intervals,
-            start_end_lookup,
+            contig_lookup,
         });
     }
 
     /// Get intervals overlapping a region.
     pub fn overlapping(&self, region: &Region) -> Result<Vec<&T>, TGVError> {
-        let (start_map, end_map) = match self.start_end_lookup.get(&region.contig.name) {
-            Some((start_map, end_map)) => (start_map, end_map),
+        let indexes = match self.contig_lookup.get(&region.contig.name) {
+            Some(indexes) => indexes,
             None => return Ok(Vec::new()),
         };
 
-        let mut interval_indices: BTreeSet<usize> = BTreeSet::new();
-
-        for (_, indexes) in start_map.range((Included(region.start), Included(region.end))) {
-            for i in indexes {
-                interval_indices.insert(*i);
-            }
-        }
-
-        for (_, indexes) in end_map.range((Included(region.start), Included(region.end))) {
-            for i in indexes {
-                interval_indices.insert(*i);
-            }
-        }
-
-        //for end_map.range(Included(region.start), Included(region.end))
-
-        Ok(interval_indices
+        Ok(indexes
             .iter()
-            .map(|i| &self.intervals[*i])
+            .filter_map(|i| {
+                if self.intervals[*i].overlaps(region) {
+                    Some(&self.intervals[*i])
+                } else {
+                    None
+                }
+            })
             .collect::<Vec<&T>>())
     }
 }

@@ -1,7 +1,6 @@
-use crate::rendering::variants::render_variants;
 pub use crate::rendering::{
-    render_alignment, render_console, render_coordinates, render_coverage, render_cytobands,
-    render_error, render_sequence, render_track,
+    render_alignment, render_bed, render_console, render_coordinates, render_coverage,
+    render_cytobands, render_error, render_sequence, render_track, render_variants,
 };
 
 use crate::error::TGVError;
@@ -26,6 +25,7 @@ pub enum AreaType {
     Console,
     Error,
     Variant,
+    Bed,
 }
 
 /// N-nary layout tree
@@ -152,7 +152,7 @@ impl MainLayout {
     const CONSOLE_TRACK_ID: usize = 7;
     const ERROR_TRACK_ID: usize = 8;
     const VARIANT_TRACK_ID: usize = 9;
-
+    const BED_TRACK_ID: usize = 10;
     pub fn new(root: LayoutNode) -> Result<Self, TGVError> {
         let mut retrival_paths = HashMap::new();
 
@@ -187,15 +187,7 @@ impl MainLayout {
                     area_type: AreaType::Coverage,
                 },
             ),
-            (
-                Constraint::Fill(1),
-                LayoutNode::Area {
-                    id: Self::ALIGNMENT_TRACK_ID,
-                    area_type: AreaType::Alignment,
-                },
-            ),
         ];
-
         if settings.needs_variants() {
             children.push((
                 Constraint::Length(1),
@@ -206,7 +198,24 @@ impl MainLayout {
             ))
         }
 
+        if settings.needs_bed() {
+            children.push((
+                Constraint::Length(1),
+                LayoutNode::Area {
+                    id: Self::BED_TRACK_ID,
+                    area_type: AreaType::Bed,
+                },
+            ));
+        }
+
         children.extend(vec![
+            (
+                Constraint::Fill(1),
+                LayoutNode::Area {
+                    id: Self::ALIGNMENT_TRACK_ID,
+                    area_type: AreaType::Alignment,
+                },
+            ),
             (
                 Constraint::Length(1),
                 LayoutNode::Area {
@@ -407,6 +416,11 @@ impl MainLayout {
             AreaType::Variant => {
                 if let Some(variants) = repository.variant_repository.as_ref() {
                     render_variants(&rect, buf, variants, state)?
+                }
+            }
+            AreaType::Bed => {
+                if let Some(bed) = repository.bed_intervals.as_ref() {
+                    render_bed(&rect, buf, bed, state)?
                 }
             }
         };

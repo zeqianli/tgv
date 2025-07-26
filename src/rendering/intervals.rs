@@ -25,7 +25,7 @@ pub fn render_simple_intervals<T: GenomeInterval>(
     // Cytoband
 
     // panic!("Current cytoband: {:?}", state.current_cytoband());
-    for interval in intervals.iter() {
+    for interval in intervals {
         let viewing_window = state.viewing_window()?;
 
         let onscreen_x = viewing_window.onscreen_x_coordinate(interval.start(), area);

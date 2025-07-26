@@ -38,4 +38,5 @@ pub const BASE_T: Color = tailwind::YELLOW.c300;
 pub const BASE_N: Color = tailwind::GRAY.c300;
 
 // Intervals
-pub const VCF: Color = tailwind::BLUE.c900;
+pub const VCF: Color = tailwind::VIOLET.c900;
+pub const BED: Color = tailwind::INDIGO.c900;
