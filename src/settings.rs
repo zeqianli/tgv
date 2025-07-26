@@ -65,18 +65,22 @@ pub enum Commands {
 pub struct Cli {
     /// BAM file path. Must be sorted and indexed (with .bai file in the same directory).
     /// If not provided, only reference genome will be displayed.
-    #[arg(value_name = "PATHS")]
-    paths: Vec<String>,
+    #[arg(value_name = "bam_path")]
+    bam_path: Option<String>,
+
+    /// VCF file path.
+    #[arg(short, long, value_name = "vcf_path")]
+    vcf_path: Option<String>,
 
     /// Index file path.
     /// If not provided, .bai in the same directory as the BAM file will be used.
-    #[arg(short = 'i', long = "index", value_name = "PATH", default_value = "")]
-    index: String,
+    #[arg(short = 'i', long = "index", value_name = "bai")]
+    index: Option<String>,
 
     /// Starting region. Supported formats: [chr]:[pos] (e.g. 12:25398142); [gene] (e.g. TP53).
     /// If not provided, TGV will find a default starting region.
-    #[arg(short = 'r', long = "region", default_value = "")]
-    region: String,
+    #[arg(short = 'r', long = "region")]
+    region: Option<String>,
 
     /// Reference genome.
     /// TGV supports all UCSC assemblies and accessions. See `tgv --list` or `tgv --list-more`.
@@ -117,7 +121,7 @@ pub struct Cli {
 pub struct Settings {
     pub bam_path: Option<String>,
     pub bai_path: Option<String>,
-    // pub vcf_path: Option<String>,
+    pub vcf_path: Option<String>,
     // pub bed_path: Option<String>,
     pub reference: Option<Reference>,
     pub backend: BackendType,
@@ -155,25 +159,6 @@ impl Settings {
             ));
         }
 
-        let mut bam_path = None;
-        // let mut vcf_path = None;
-        // let mut bed_path = None;
-        for path in cli.paths {
-            if path.ends_with(".bam") || is_url(&path) {
-                bam_path = Some(path.clone());
-            } else {
-                return Err(TGVError::CliError(format!(
-                    "Unsupported file type: {}",
-                    path
-                )));
-            }
-        }
-
-        let bai_path = match cli.index.is_empty() {
-            true => None,
-            false => Some(cli.index),
-        };
-
         // TODO: fix this for different systems. This does not work on MacOS.
         // if let Some(bam_path) = &bam_path {
         //     if is_url(bam_path) && env::var("CURL_CA_BUNDLE").is_err() {
@@ -193,7 +178,7 @@ impl Settings {
 
         // Initial messages
         let initial_state_messages =
-            Self::translate_initial_state_messages(&cli.region, reference.as_ref())?;
+            Self::translate_initial_state_messages(cli.region, reference.as_ref())?;
 
         // Backend
         let backend = match (cli.offline, cli.online) {
@@ -222,7 +207,7 @@ impl Settings {
         }
 
         // 2. bam file and reference cannot both be none
-        if bam_path.is_none() && reference.is_none() {
+        if cli.bam_path.is_none() && reference.is_none() {
             return Err(TGVError::CliError(
                 "Bam file and reference cannot both be none".to_string(),
             ));
@@ -232,8 +217,9 @@ impl Settings {
         let cache_dir = shellexpand::tilde(&cli.cache_dir).to_string();
 
         Ok(Self {
-            bam_path,
-            bai_path,
+            bam_path: cli.bam_path,
+            bai_path: cli.index,
+            vcf_path: cli.vcf_path,
             // vcf_path,
             // bed_path,
             reference,
@@ -252,15 +238,13 @@ impl Settings {
     }
 
     fn translate_initial_state_messages(
-        region_string: &str,
+        region_string: Option<String>,
         _reference: Option<&Reference>,
     ) -> Result<Vec<StateMessage>, TGVError> {
-        let region_string = region_string.trim();
-
-        // Interpretation 1: empty input (go to a default location)
-        if region_string.is_empty() {
-            return Ok(vec![StateMessage::GoToDefault]);
-        }
+        let region_string = match region_string {
+            Some(region_string) => region_string,
+            None => return Ok(vec![StateMessage::GoToDefault]), // Interpretation 1: go to default
+        };
 
         // Check format
         let split = region_string.split(":").collect::<Vec<&str>>();
@@ -307,6 +291,7 @@ mod tests {
         Settings {
             bam_path: None,
             bai_path: None,
+            vcf_path: None,
             reference: Some(Reference::Hg38),
             backend: BackendType::Default, // Default backend
             initial_state_messages: vec![StateMessage::GoToDefault],
