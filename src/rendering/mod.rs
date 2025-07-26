@@ -7,6 +7,7 @@ mod coverage;
 mod cytoband;
 mod error;
 mod help;
+mod layout;
 mod sequence;
 mod track;
 pub use alignment::render_alignment;
@@ -17,20 +18,20 @@ pub use coverage::render_coverage;
 pub use cytoband::render_cytobands;
 pub use error::render_error;
 pub use help::render_help;
+pub use layout::MainLayout;
 pub use sequence::render_sequence;
 pub use track::render_track;
 
 use crate::display_mode::DisplayMode;
 use crate::error::TGVError;
 use crate::register::{RegisterType, Registers};
+use crate::settings::Settings;
 use crate::states::State;
 use ratatui::{
     buffer::Buffer,
-    layout::{
-        Constraint::{Fill, Length},
-        Layout, Rect,
-    },
+    layout::{Constraint, Direction, Layout, Rect},
 };
+use std::collections::HashMap;
 
 pub struct RenderingState {
     last_frame_area: Rect,
@@ -84,52 +85,9 @@ impl RenderingState {
     ) -> Result<(), TGVError> {
         match &state.display_mode {
             DisplayMode::Main => {
-                let [cytoband_area, coordinate_area, coverage_area, alignment_area, sequence_area, track_area, console_area, error_area] =
-                    Layout::vertical([
-                        Length(2), // cytobands
-                        Length(2), // coordinate
-                        Length(6), // coverage
-                        Fill(1),   // alignment
-                        Length(1), // sequence
-                        Length(2), // track
-                        Length(2), // console
-                        Length(2), // error
-                    ])
-                    .areas(area);
-
-                // Cytobands
-
-                render_cytobands(&cytoband_area, buf, state)?;
-
-                // Coordinates
-                render_coordinates(&coordinate_area, buf, state)?;
-
-                // Coverage, Alignments, and Tracks
-                if state.alignment_renderable()? {
-                    if let Some(alignment) = &state.alignment {
-                        render_coverage(&coverage_area, buf, state.viewing_window()?, alignment)?;
-                        render_alignment(&alignment_area, buf, state.viewing_window()?, alignment)?;
-                    }
-                }
-
-                // Sequence
-                if state.sequence_renderable()? {
-                    render_sequence(&sequence_area, buf, state)?;
-                }
-
-                // Tracks
-                if state.track_renderable()? {
-                    render_track(&track_area, buf, state)?;
-                }
-
-                // Console
-
-                if registers.current == RegisterType::Command {
-                    render_console(&console_area, buf, &registers.command)?;
-                }
-
-                // Error
-                render_error(&error_area, buf, &state.errors)?;
+                // TODO: Get layout tree from state
+                // For now, fall back to existing layout
+                state.layout.render_all(area, buf, state, registers)?;
             }
             DisplayMode::Help => {
                 render_help(area, buf)?;
