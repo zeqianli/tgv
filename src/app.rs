@@ -119,7 +119,7 @@ const MIN_AREA_HEIGHT: u16 = 6;
 impl Widget for &App {
     fn render(self, area: Rect, buf: &mut Buffer) {
         self.rendering_state
-            .render(area, buf, &self.state, &self.registers)
+            .render(area, buf, &self.state, &self.registers, &self.repository)
             .unwrap()
     }
 }

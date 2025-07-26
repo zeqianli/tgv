@@ -7,9 +7,11 @@ mod coverage;
 mod cytoband;
 mod error;
 mod help;
+mod intervals;
 mod layout;
 mod sequence;
 mod track;
+mod variants;
 pub use alignment::render_alignment;
 pub use console::render_console;
 pub use contig_list::render_contig_list;
@@ -25,6 +27,7 @@ pub use track::render_track;
 use crate::display_mode::DisplayMode;
 use crate::error::TGVError;
 use crate::register::{RegisterType, Registers};
+use crate::repository::{self, Repository};
 use crate::settings::Settings;
 use crate::states::State;
 use ratatui::{
@@ -82,12 +85,15 @@ impl RenderingState {
         buf: &mut Buffer,
         state: &State,
         registers: &Registers,
+        repository: &Repository,
     ) -> Result<(), TGVError> {
         match &state.display_mode {
             DisplayMode::Main => {
                 // TODO: Get layout tree from state
                 // For now, fall back to existing layout
-                state.layout.render_all(area, buf, state, registers)?;
+                state
+                    .layout
+                    .render_all(area, buf, state, registers, repository)?;
             }
             DisplayMode::Help => {
                 render_help(area, buf)?;

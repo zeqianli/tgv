@@ -1,5 +1,5 @@
 use crate::contig::Contig;
-use crate::traits::GenomeInterval;
+use crate::intervals::GenomeInterval;
 use std::fmt;
 
 /// A genomic region.

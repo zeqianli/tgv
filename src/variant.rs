@@ -1,9 +1,9 @@
 use crate::error::TGVError;
-use crate::traits::GenomeInterval;
+use crate::intervals::{GenomeInterval, SortedIntervalCollection};
 use crate::{contig::Contig, region::Region};
 use rust_htslib::bcf::{Read, Reader, Record};
 use std::collections::{BTreeMap, HashMap};
-
+use std::ops::Bound::{Excluded, Included};
 pub struct Variant {
     /// Contig name. This is not stored in the record.
     pub contig: Contig,
@@ -45,10 +45,7 @@ impl GenomeInterval for Variant {
     }
 }
 pub struct VariantRepository {
-    variants: Vec<Variant>,
-
-    /// {contig_name: {start: [variant_indexes,... ], ...}}
-    variant_lookup: HashMap<String, BTreeMap<usize, Vec<usize>>>,
+    pub variants: SortedIntervalCollection<Variant>,
 }
 
 impl VariantRepository {
@@ -75,8 +72,7 @@ impl VariantRepository {
         }
 
         Ok(VariantRepository {
-            variants: variants,
-            variant_lookup: variant_lookup,
+            variants: SortedIntervalCollection::new(variants)?,
         })
     }
 }

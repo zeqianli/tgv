@@ -2,6 +2,7 @@ use crate::contig_collection::ContigDatum;
 use crate::error::TGVError;
 use crate::register::Registers;
 use crate::states::State;
+use crate::window::linear_scale;
 use ratatui::{
     buffer::Buffer,
     layout::{Position, Rect},
@@ -150,19 +151,4 @@ fn render_contig_at_y(
     }
 
     Ok(())
-}
-
-pub fn linear_scale(
-    original_x: usize,
-    original_length: usize,
-    new_start: u16,
-    new_end: u16,
-) -> Result<u16, TGVError> {
-    if original_length == 0 {
-        return Err(TGVError::ValueError(
-            "Trying to linear scale with original_length = 0 when rendering contig list"
-                .to_string(),
-        ));
-    }
-    Ok((original_x as f64 / (original_length) as f64 * (new_end - new_start) as f64) as u16)
 }

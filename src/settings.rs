@@ -69,7 +69,7 @@ pub struct Cli {
     bam_path: Option<String>,
 
     /// VCF file path.
-    #[arg(short, long, value_name = "vcf_path")]
+    #[arg(short = 'v', long = "vcf", value_name = "vcf_path")]
     vcf_path: Option<String>,
 
     /// Index file path.
@@ -149,6 +149,10 @@ impl Settings {
 
     pub fn needs_sequence(&self) -> bool {
         self.reference.is_some()
+    }
+
+    pub fn needs_variants(&self) -> bool {
+        self.vcf_path.is_some()
     }
 
     pub fn new(cli: Cli) -> Result<Self, TGVError> {

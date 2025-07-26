@@ -1,4 +1,4 @@
-use crate::traits::GenomeInterval;
+use crate::intervals::GenomeInterval;
 use crate::{
     error::TGVError,
     feature::{Gene, SubGeneFeatureType},

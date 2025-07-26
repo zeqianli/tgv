@@ -57,6 +57,10 @@ fn render_sequence_at_1x(
     Ok(())
 }
 
+/// Rendering sequences at 2x zoom using a half-block trick:
+/// for every 2 bases, render the left base using foreground color of the
+/// half-block unicode character and the right base using background color.
+/// See: https://ratatui.rs/examples/style/colors_rgb/#_top
 fn render_sequence_at_2x(
     area: &Rect,
     buf: &mut Buffer,

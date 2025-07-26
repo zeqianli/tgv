@@ -8,10 +8,10 @@ use crate::{
     cytoband::Cytoband,
     error::TGVError,
     feature::{Gene, SubGeneFeature},
+    intervals::GenomeInterval,
     reference::Reference,
     region::Region,
     track::Track,
-    traits::GenomeInterval,
 };
 use async_trait::async_trait;
 use sqlx::{Column, Row};

@@ -1,3 +1,4 @@
+use crate::rendering::variants::render_variants;
 pub use crate::rendering::{
     render_alignment, render_console, render_coordinates, render_coverage, render_cytobands,
     render_error, render_sequence, render_track,
@@ -5,6 +6,7 @@ pub use crate::rendering::{
 
 use crate::error::TGVError;
 use crate::register::{RegisterType, Registers};
+use crate::repository::{self, Repository};
 use crate::settings::Settings;
 use crate::states::State;
 use ratatui::{
@@ -23,6 +25,7 @@ pub enum AreaType {
     Track,
     Console,
     Error,
+    Variant,
 }
 
 /// N-nary layout tree
@@ -31,8 +34,7 @@ pub enum LayoutNode {
     Split {
         id: usize,
         direction: Direction,
-        constraints: Vec<Constraint>,
-        children: Vec<LayoutNode>,
+        children: Vec<(Constraint, LayoutNode)>,
     },
     Area {
         id: usize,
@@ -56,7 +58,6 @@ impl LayoutNode {
             LayoutNode::Split {
                 id,
                 direction: _,
-                constraints: _,
                 children,
             } => {
                 match retrival_paths.get_mut(id) {
@@ -67,7 +68,7 @@ impl LayoutNode {
                         retrival_paths.insert(*id, vec![]);
                     }
                 }
-                for (i, child) in children.iter().enumerate() {
+                for (i, (constract, child)) in children.iter().enumerate() {
                     // add the path to the parent node
 
                     child.populate_retrival_paths(retrival_paths)?;
@@ -102,12 +103,11 @@ impl LayoutNode {
             LayoutNode::Split {
                 id,
                 direction,
-                constraints,
                 children,
             } => {
                 let areas = Layout::default()
                     .direction(*direction)
-                    .constraints(constraints)
+                    .constraints(children.iter().map(|(constraint, _)| constraint))
                     .split(area);
 
                 if areas.len() != children.len() {
@@ -117,7 +117,7 @@ impl LayoutNode {
                     )));
                 }
 
-                for (child, &child_area) in children.iter().zip(areas.iter()) {
+                for ((_, child), &child_area) in children.iter().zip(areas.iter()) {
                     child.calculate_rects_recursive(child_area, rects)?;
                 }
             }
@@ -136,9 +136,23 @@ pub struct MainLayout {
 
     /// Enables O(1) node_id -> node lookup
     retrival_paths: HashMap<usize, Vec<usize>>,
+    // TODO: this might not be the best data strucuture.
+    // A better way (?): store areas in a flat array, and another tree object to reference the array ids.
 }
 
 impl MainLayout {
+    // TODO: this might not be the best data strucuture.
+    const ROOT_ID: usize = 0;
+    const CYHTOBAND_TRACK_ID: usize = 1;
+    const COORDINATE_TRACK_ID: usize = 2;
+    const COVERAGE_TRACK_ID: usize = 3;
+    const ALIGNMENT_TRACK_ID: usize = 4;
+    const TRACK_TRACK_ID: usize = 5;
+    const SEQUENCE_TRACK_ID: usize = 6;
+    const CONSOLE_TRACK_ID: usize = 7;
+    const ERROR_TRACK_ID: usize = 8;
+    const VARIANT_TRACK_ID: usize = 9;
+
     pub fn new(root: LayoutNode) -> Result<Self, TGVError> {
         let mut retrival_paths = HashMap::new();
 
@@ -151,53 +165,82 @@ impl MainLayout {
     }
 
     pub fn initialize(settings: &Settings) -> Result<Self, TGVError> {
-        let root = LayoutNode::Split {
-            id: 0,
-            direction: Direction::Vertical,
-            constraints: vec![
+        let mut children = vec![
+            (
                 Constraint::Length(2),
-                Constraint::Length(2),
-                Constraint::Length(6),
-                Constraint::Fill(1),
-                Constraint::Length(1),
-                Constraint::Length(2),
-                Constraint::Length(2),
-                Constraint::Length(2),
-            ],
-            children: vec![
                 LayoutNode::Area {
-                    id: 1,
+                    id: Self::CYHTOBAND_TRACK_ID,
                     area_type: AreaType::Cytoband,
                 },
+            ),
+            (
+                Constraint::Length(6),
                 LayoutNode::Area {
-                    id: 2,
+                    id: Self::COORDINATE_TRACK_ID,
                     area_type: AreaType::Coordinate,
                 },
+            ),
+            (
+                Constraint::Length(1),
                 LayoutNode::Area {
-                    id: 3,
+                    id: Self::COVERAGE_TRACK_ID,
                     area_type: AreaType::Coverage,
                 },
+            ),
+            (
+                Constraint::Fill(1),
                 LayoutNode::Area {
-                    id: 4,
+                    id: Self::ALIGNMENT_TRACK_ID,
                     area_type: AreaType::Alignment,
                 },
+            ),
+        ];
+
+        if settings.needs_variants() {
+            children.push((
+                Constraint::Length(1),
                 LayoutNode::Area {
-                    id: 5,
+                    id: Self::VARIANT_TRACK_ID,
+                    area_type: AreaType::Variant,
+                },
+            ))
+        }
+
+        children.extend(vec![
+            (
+                Constraint::Length(1),
+                LayoutNode::Area {
+                    id: Self::SEQUENCE_TRACK_ID,
                     area_type: AreaType::Sequence,
                 },
+            ),
+            (
+                Constraint::Length(2),
                 LayoutNode::Area {
-                    id: 6,
+                    id: Self::TRACK_TRACK_ID,
                     area_type: AreaType::Track,
                 },
+            ),
+            (
+                Constraint::Length(2),
                 LayoutNode::Area {
-                    id: 7,
+                    id: Self::CONSOLE_TRACK_ID,
                     area_type: AreaType::Console,
                 },
+            ),
+            (
+                Constraint::Length(2),
                 LayoutNode::Area {
-                    id: 8,
+                    id: Self::ERROR_TRACK_ID,
                     area_type: AreaType::Error,
                 },
-            ],
+            ),
+        ]);
+
+        let root = LayoutNode::Split {
+            id: Self::ROOT_ID,
+            direction: Direction::Vertical,
+            children: children,
         };
 
         Self::new(root)
@@ -229,7 +272,7 @@ impl MainLayout {
                 LayoutNode::Split {
                     id: _,
                     direction: _,
-                    constraints: _,
+
                     children,
                 } => {
                     if *id >= children.len() {
@@ -238,7 +281,7 @@ impl MainLayout {
                             path
                         )));
                     }
-                    node = &children[*id];
+                    node = &children[*id].1;
                 }
                 LayoutNode::Area {
                     id: _,
@@ -262,7 +305,7 @@ impl MainLayout {
                 LayoutNode::Split {
                     id: _,
                     direction: _,
-                    constraints: _,
+
                     children,
                 } => {
                     if *id >= children.len() {
@@ -271,7 +314,7 @@ impl MainLayout {
                             path
                         )));
                     }
-                    node = &mut children[*id];
+                    node = &mut children[*id].1;
                 }
                 LayoutNode::Area {
                     id: _,
@@ -294,6 +337,7 @@ impl MainLayout {
         buf: &mut Buffer,
         state: &State,
         registers: &Registers,
+        repository: &Repository,
     ) -> Result<(), TGVError> {
         let mut area_lookup = HashMap::new();
         self.root
@@ -304,12 +348,11 @@ impl MainLayout {
             let node = self.get_node(*area_id)?;
             match node {
                 LayoutNode::Area { id: _, area_type } => {
-                    Self::render_by_area_type(*area_type, rect, buf, state, registers)?;
+                    Self::render_by_area_type(*area_type, rect, buf, state, registers, repository)?;
                 }
                 LayoutNode::Split {
                     id: _,
                     direction: _,
-                    constraints: _,
                     children: _,
                 } => {}
             }
@@ -324,6 +367,7 @@ impl MainLayout {
         buf: &mut Buffer,
         state: &State,
         registers: &Registers,
+        repository: &Repository,
     ) -> Result<(), TGVError> {
         match area_type {
             AreaType::Cytoband => render_cytobands(&rect, buf, state)?,
@@ -359,6 +403,11 @@ impl MainLayout {
             }
             AreaType::Error => {
                 render_error(&rect, buf, &state.errors)?;
+            }
+            AreaType::Variant => {
+                if let Some(variants) = repository.variant_repository.as_ref() {
+                    render_variants(&rect, buf, variants, state)?
+                }
             }
         };
         Ok(())

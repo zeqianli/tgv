@@ -4,11 +4,11 @@ use crate::{
     cytoband::{Cytoband, CytobandSegment},
     error::TGVError,
     feature::{Gene, SubGeneFeature},
+    intervals::GenomeInterval,
     reference::Reference,
     region::Region,
     strand::Strand,
     track::Track,
-    traits::GenomeInterval,
 };
 use async_trait::async_trait;
 use reqwest::{Client, StatusCode};

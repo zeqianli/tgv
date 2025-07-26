@@ -2,8 +2,8 @@ use crate::{
     contig::Contig,
     error::TGVError,
     feature::{Gene, SubGeneFeature},
+    intervals::GenomeInterval,
     region::Region,
-    traits::GenomeInterval,
 };
 
 use std::collections::BTreeMap;
