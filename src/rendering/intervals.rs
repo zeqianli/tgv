@@ -20,11 +20,13 @@ pub fn render_simple_intervals<T: GenomeInterval>(
     buf: &mut Buffer,
     intervals: Vec<&T>,
     state: &State,
-    color: Color,
+    colors: Vec<Color>, // alternate
+    first_color_index: usize,
 ) -> Result<(), TGVError> {
     // Cytoband
 
     // panic!("Current cytoband: {:?}", state.current_cytoband());
+    let mut i_color = first_color_index;
     for interval in intervals {
         let viewing_window = state.viewing_window()?;
 
@@ -37,8 +39,12 @@ pub fn render_simple_intervals<T: GenomeInterval>(
                 area.x + x as u16,
                 area.y,
                 " ".repeat(length),
-                Style::default().bg(color),
+                Style::default().bg(colors[i_color]),
             );
+        }
+        i_color += 1;
+        if i_color == colors.len() {
+            i_color = 0;
         }
     }
 

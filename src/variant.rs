@@ -8,12 +8,14 @@ pub struct Variant {
     /// Contig name. This is not stored in the record.
     pub contig: Contig,
 
+    pub index: usize,
+
     /// VCF record
     pub record: Record,
 }
 
 impl Variant {
-    pub fn new(record: Record) -> Result<Self, TGVError> {
+    pub fn new(record: Record, index: usize) -> Result<Self, TGVError> {
         let contig_u8 = record
             .header()
             .rid2name(record.rid().ok_or(TGVError::ValueError(
@@ -23,6 +25,7 @@ impl Variant {
             TGVError::ValueError("VCF record {:?} doesn't have a valid contig. ".to_string())
         })?);
         Ok(Self {
+            index: index,
             contig: contig,
             record: record,
         })
@@ -52,8 +55,11 @@ impl VariantRepository {
     pub fn from_vcf(path: &str) -> Result<Self, TGVError> {
         let mut bcf = Reader::from_path(path)?;
 
-        let variants: Result<Vec<Variant>, _> =
-            bcf.records().map(|record| Variant::new(record?)).collect();
+        let variants: Result<Vec<Variant>, _> = bcf
+            .records()
+            .enumerate()
+            .map(|(index, record)| Variant::new(record?, index))
+            .collect();
         let variants = variants?;
 
         // lookup

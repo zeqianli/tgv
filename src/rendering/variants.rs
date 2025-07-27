@@ -21,11 +21,17 @@ pub fn render_variants(
     variants: &VariantRepository,
     state: &State,
 ) -> Result<(), TGVError> {
-    render_simple_intervals(
-        area,
-        buf,
-        variants.variants.overlapping(&state.viewing_region()?)?,
-        state,
-        rendering::colors::VCF,
-    )
+    let variants = variants.variants.overlapping(&state.viewing_region()?)?;
+    if variants.len() > 0 {
+        let first_color_index = variants[0].index % 2;
+        render_simple_intervals(
+            area,
+            buf,
+            variants,
+            state,
+            vec![rendering::colors::VCF1, rendering::colors::VCF2],
+            first_color_index,
+        )?;
+    }
+    Ok(())
 }

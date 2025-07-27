@@ -10,6 +10,8 @@ use std::{fs, io};
 pub struct BEDInterval {
     contig: Contig,
 
+    pub index: usize,
+
     start: usize,
     end: usize,
 
@@ -17,10 +19,11 @@ pub struct BEDInterval {
 }
 
 impl BEDInterval {
-    pub fn new(record: bed::Record<3>) -> Result<Self, TGVError> {
+    pub fn new(record: bed::Record<3>, index: usize) -> Result<Self, TGVError> {
         let start = record.feature_start()?.get(); // Noodles already converted to 1-based, inclusive
         Ok(Self {
             contig: Contig::new(&record.reference_sequence_name().to_string()),
+            index: index,
             start: start, // BED start is 0-based, inclusive
             end: match record.feature_end() {
                 Some(end) => end?.get(),
@@ -56,8 +59,11 @@ impl BEDIntervals {
 
         let mut records = Vec::new();
 
+        let mut index = 0;
+
         while reader.read_record(&mut record)? != 0 {
-            records.push(BEDInterval::new(record.clone())?);
+            records.push(BEDInterval::new(record.clone(), index)?);
+            index += 1;
         }
 
         Ok(Self {
