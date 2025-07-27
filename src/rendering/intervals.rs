@@ -23,9 +23,9 @@ pub fn render_simple_intervals<T: GenomeInterval>(
     colors: Vec<Color>, // alternate
     first_color_index: usize,
 ) -> Result<(), TGVError> {
-    // Cytoband
+    // TODO:
+    // A better solution for overlapping intervals.
 
-    // panic!("Current cytoband: {:?}", state.current_cytoband());
     let mut i_color = first_color_index;
     for interval in intervals {
         let viewing_window = state.viewing_window()?;
