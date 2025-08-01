@@ -1,6 +1,6 @@
 # Terminal Genome Viewer
 
-[![Discord Badge]][Discord Server] [![Crates version]](https://crates.io/crates/tgv)
+[![Discord Badge]][Discord Server] [![Crates version]](https://crates.io/crates/tgv) ![Conda Version](https://img.shields.io/conda/v/bioconda/tgv)
 
 <https://github.com/user-attachments/assets/405fa5fb-bd65-4d0c-b922-5b6cb7784c69>
 
@@ -14,6 +14,7 @@
 
 - cargo (recommended): `cargo install tgv`
 - brew: `brew install zeqianli/tgv/tgv`
+- bioconda: `conda install bioconda::tgv`
 - Pre-built binaries: [Github releases](https://github.com/zeqianli/tgv/releases/)
 
 ## Quick start
