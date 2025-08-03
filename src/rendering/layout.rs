@@ -33,6 +33,7 @@ pub enum AreaType {
 }
 
 impl AreaType {
+    /// Whether the area should have an alternate background color. Useful to distinguish between tracks (alignment, vcf, bed, etc.)
     fn alternate_background(&self) -> bool {
         match self {
             AreaType::Variant | AreaType::Bed => true,
@@ -40,6 +41,7 @@ impl AreaType {
         }
     }
 
+    /// Whether the track can be resized.
     fn resizeable(&self) -> bool {
         match self {
             AreaType::Alignment | AreaType::Variant | AreaType::Bed => true,
@@ -316,7 +318,7 @@ fn resize_node(
             }
 
             if direction == &Direction::Vertical {
-                if mouse_down_x < area.x || mouse_down_x > area.x + area.width {
+                if mouse_down_y < area.y || mouse_down_y > area.y + area.height {
                     return Ok(());
                 }
             }
@@ -336,9 +338,16 @@ fn resize_node(
                 match direction {
                     Direction::Horizontal => {
                         let mouse_down_in_first_area = mouse_down_x >= first_child_area.x
-                            && mouse_down_x < first_child_area.x + second_child_area.width;
+                            && mouse_down_x < first_child_area.x + first_child_area.width;
                         let mouse_down_in_second_area = mouse_down_x >= second_child_area.x
-                            && mouse_down_x < second_child_area.x + second_child_area.width;
+                            && mouse_down_x < second_child_area.x + second_child_area.width - 1;
+                        // Explaination for the -1:
+                        // The last pixel needs to be handled by the next loop, or skipped because it's on the edge of the screen.
+                        // Example:
+                        // **|***|****
+                        //  ^
+                        //  i
+                        //      ^ If clicked here, the ith loop shouldn't handle it. It should be handled by (i+1)th loop.
 
                         if !mouse_down_in_first_area && !mouse_down_in_second_area {
                             continue;
@@ -392,17 +401,23 @@ fn resize_node(
                     }
                     Direction::Vertical => {
                         let mouse_down_in_first_area = mouse_down_y >= first_child_area.y
-                            && mouse_down_y < first_child_area.y + second_child_area.height;
+                            && mouse_down_y < first_child_area.y + first_child_area.height;
                         let mouse_down_in_second_area = mouse_down_y >= second_child_area.y
-                            && mouse_down_y < second_child_area.y + second_child_area.height;
+                            && mouse_down_y < second_child_area.y + second_child_area.height - 1;
+                        // Explaination for the -1:
+                        // The last pixel needs to be handled by the next loop, or skipped because it's on the edge of the screen.
+                        // Example:
+                        // **|***|****
+                        //  ^
+                        //  i
+                        //      ^ If clicked here, the ith loop shouldn't handle it. It should be handled by (i+1)th loop.
 
                         if !mouse_down_in_first_area && !mouse_down_in_second_area {
                             continue;
                         }
 
-                        let mouse_on_boarder = mouse_down_y == second_child_area.y;
-                        // || mouse_down_y == first_child_area.y + first_child_area.height - 1
-                        // This doesn't work for some reason.
+                        let mouse_on_boarder = mouse_down_y == second_child_area.y
+                            || mouse_down_y == first_child_area.y + first_child_area.height - 1;
 
                         if mouse_on_boarder {
                             if mouse_released_y > mouse_down_y {
