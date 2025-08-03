@@ -280,31 +280,6 @@ impl MainLayout {
         };
         Ok(())
     }
-
-    pub fn handle_ui_message(
-        node: &mut LayoutNode,
-        area: Rect,
-        message: UIMessage,
-    ) -> Result<(), TGVError> {
-        match message {
-            UIMessage::ResizeTrack {
-                mouse_down_x,
-                mouse_down_y,
-                mouse_released_x,
-                mouse_released_y,
-            } => {
-                resize_node(
-                    node,
-                    area,
-                    mouse_down_x,
-                    mouse_down_y,
-                    mouse_released_x,
-                    mouse_released_y,
-                )?;
-            }
-        }
-        Ok(())
-    }
 }
 
 fn resize_node(
@@ -418,9 +393,10 @@ fn resize_node(
                             continue;
                         }
 
-                        let mouse_on_boarder = mouse_down_y
-                            == first_child_area.y + first_child_area.height - 1
-                            || mouse_down_y == second_child_area.y;
+                        let mouse_on_boarder = mouse_down_y == second_child_area.y;
+                        // mouse_down_y
+                        //== first_child_area.y + first_child_area.height - 1
+                        // This doesn't work for some reason.
 
                         if mouse_on_boarder {
                             if mouse_released_y > mouse_down_y {
@@ -479,24 +455,30 @@ pub struct MouseRegister {
     /// Resize event handling
     pub mouse_down_x: u16,
     pub mouse_down_y: u16,
+
+    /// root layout at mousedown.
+    pub root: LayoutNode,
 }
 
 impl MouseRegister {
-    pub fn new() -> Self {
+    pub fn new(root: &LayoutNode) -> Self {
         Self {
             mouse_down_x: 0,
             mouse_down_y: 0,
+            root: root.clone(),
         }
     }
 
     pub fn handle_mouse_event(
         &mut self,
+        root: &LayoutNode,
         event: event::MouseEvent,
     ) -> Result<Option<UIMessage>, TGVError> {
         match event.kind {
             event::MouseEventKind::Down(_) => {
                 self.mouse_down_x = event.column;
                 self.mouse_down_y = event.row;
+                self.root = root.clone();
                 return Ok(None);
             }
 
@@ -516,5 +498,35 @@ impl MouseRegister {
                 return Ok(None);
             }
         }
+    }
+
+    pub fn handle_ui_message(
+        &self,
+        main_layout: &mut MainLayout,
+        area: Rect,
+        message: UIMessage,
+    ) -> Result<(), TGVError> {
+        match message {
+            UIMessage::ResizeTrack {
+                mouse_down_x,
+                mouse_down_y,
+                mouse_released_x,
+                mouse_released_y,
+            } => {
+                let mut new_node = self.root.clone();
+
+                resize_node(
+                    &mut new_node,
+                    area,
+                    mouse_down_x,
+                    mouse_down_y,
+                    mouse_released_x,
+                    mouse_released_y,
+                )?;
+
+                main_layout.root = new_node;
+            }
+        }
+        Ok(())
     }
 }

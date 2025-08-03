@@ -36,13 +36,15 @@ impl App {
             state.sequence_cache = sequence_cache;
         }
 
+        let mouse_register = MouseRegister::new(&state.layout.root);
+
         Ok(Self {
             state,
             settings: settings.clone(),
             //state_handler: StateHandler::new(&settings).await?,
             repository,
             registers: Registers::new()?,
-            mouse_register: MouseRegister::new(),
+            mouse_register,
             rendering_state: RenderingState::new(),
         })
     }
@@ -95,11 +97,13 @@ impl App {
                 }
 
                 Ok(Event::Mouse(mouse_event)) => {
-                    let ui_message = self.mouse_register.handle_mouse_event(mouse_event)?;
+                    let ui_message = self
+                        .mouse_register
+                        .handle_mouse_event(&self.state.layout.root, mouse_event)?;
                     let frame_area = self.state.current_frame_area()?.clone();
                     if let Some(ui_message) = ui_message {
-                        MainLayout::handle_ui_message(
-                            &mut self.state.layout.root,
+                        self.mouse_register.handle_ui_message(
+                            &mut self.state.layout,
                             frame_area,
                             ui_message,
                         )?;
