@@ -25,7 +25,7 @@ pub enum AreaType {
     Coverage,
     Alignment,
     Sequence,
-    Track,
+    GeneTrack,
     Console,
     Error,
     Variant,
@@ -174,7 +174,7 @@ impl MainLayout {
             },
             LayoutNode::Area {
                 constraint: Constraint::Length(2),
-                area_type: AreaType::Track,
+                area_type: AreaType::GeneTrack,
             },
             LayoutNode::Area {
                 constraint: Constraint::Length(2),
@@ -261,7 +261,7 @@ impl MainLayout {
                     render_sequence(&rect, buf, state)?;
                 }
             }
-            AreaType::Track => {
+            AreaType::GeneTrack => {
                 if state.track_renderable()? {
                     render_track(&rect, buf, state)?;
                 }
