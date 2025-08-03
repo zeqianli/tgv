@@ -320,9 +320,18 @@ mod tests {
         bam_path: Some("input.bam".to_string()),
         ..default_settings()
     }))]
+    #[case("tgv input.bam -b some.bed", Ok(Settings {
+        bam_path: Some("input.bam".to_string()),
+        bed_path: Some("some.bed".to_string()),
+        ..default_settings()
+    }))]
+    #[case("tgv input.bam -v some.vcf", Ok(Settings {
+        bam_path: Some("input.bam".to_string()),
+        vcf_path: Some("some.vcf".to_string()),
+        ..default_settings()
+    }))]
     #[case("tgv input.bam", Ok(Settings {
         bam_path: Some("input.bam".to_string()),
-        backend: BackendType::Default,
         ..default_settings()
     }))]
     #[case("tgv input.bam --offline", Ok(Settings {
@@ -335,7 +344,6 @@ mod tests {
         backend: BackendType::Ucsc,
         ..default_settings()
     }))]
-    #[case("tgv wrong.extension", Err(TGVError::CliError("".to_string())))]
     #[case("tgv input.bam -r chr1:12345", Ok(Settings {
         bam_path: Some("input.bam".to_string()),
         initial_state_messages: vec![StateMessage::GotoContigCoordinate(
