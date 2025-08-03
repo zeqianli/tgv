@@ -39,6 +39,13 @@ impl AreaType {
             _ => false,
         }
     }
+
+    fn resizeable(&self) -> bool {
+        match self {
+            AreaType::Alignment | AreaType::Variant | AreaType::Bed => true,
+            _ => false,
+        }
+    }
 }
 
 /// N-nary layout tree
@@ -65,7 +72,7 @@ impl LayoutNode {
         }
     }
 
-    pub fn set_constraint(&mut self, new_constraint: Constraint) {
+    fn set_constraint(&mut self, new_constraint: Constraint) {
         match self {
             LayoutNode::Split { constraint, .. } => *constraint = new_constraint,
             LayoutNode::Area { constraint, .. } => *constraint = new_constraint,
@@ -394,8 +401,7 @@ fn resize_node(
                         }
 
                         let mouse_on_boarder = mouse_down_y == second_child_area.y;
-                        // mouse_down_y
-                        //== first_child_area.y + first_child_area.height - 1
+                        // || mouse_down_y == first_child_area.y + first_child_area.height - 1
                         // This doesn't work for some reason.
 
                         if mouse_on_boarder {
