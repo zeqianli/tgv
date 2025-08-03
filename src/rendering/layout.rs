@@ -44,6 +44,7 @@ impl AreaType {
 
     /// Whether the track can be resized.
     fn resizeable(&self) -> bool {
+        // TODO: improve resizing code to allow more intuitive and flexible actions.
         match self {
             AreaType::Alignment | AreaType::Variant | AreaType::Bed | AreaType::Error => true,
             _ => false,
