@@ -16,6 +16,7 @@ use ratatui::{
     layout::{Constraint, Direction, Layout, Rect},
     style::{Color, Style},
 };
+use rust_htslib::htslib::qaddr_t;
 use std::collections::HashMap;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -36,7 +37,7 @@ impl AreaType {
     /// Whether the area should have an alternate background color. Useful to distinguish between tracks (alignment, vcf, bed, etc.)
     fn alternate_background(&self) -> bool {
         match self {
-            AreaType::Variant | AreaType::Bed => true,
+            AreaType::Variant | AreaType::Bed | AreaType::Alignment => true,
             _ => false,
         }
     }
@@ -44,7 +45,7 @@ impl AreaType {
     /// Whether the track can be resized.
     fn resizeable(&self) -> bool {
         match self {
-            AreaType::Alignment | AreaType::Variant | AreaType::Bed => true,
+            AreaType::Alignment | AreaType::Variant | AreaType::Bed | AreaType::Error => true,
             _ => false,
         }
     }
@@ -82,6 +83,9 @@ impl LayoutNode {
     }
 
     pub fn reduce_constraint(&mut self, d: u16) {
+        if !self.resizable() {
+            return;
+        }
         match self.constraint() {
             Constraint::Length(x) => {
                 self.set_constraint(Constraint::Length(*x - u16::min(d, *x - 1)));
@@ -91,11 +95,28 @@ impl LayoutNode {
     }
 
     pub fn increase_constraint(&mut self, d: u16) {
+        if !self.resizable() {
+            return;
+        }
         match self.constraint() {
             Constraint::Length(x) => {
                 self.set_constraint(Constraint::Length(*x + d));
             }
             _ => {}
+        }
+    }
+
+    fn resizable(&self) -> bool {
+        match self {
+            LayoutNode::Area {
+                constraint,
+                area_type,
+            } => area_type.resizeable(),
+            LayoutNode::Split {
+                direction,
+                constraint,
+                children,
+            } => true,
         }
     }
 
@@ -137,20 +158,27 @@ impl MainLayout {
     }
 
     pub fn initialize(settings: &Settings) -> Result<Self, TGVError> {
-        let mut children = vec![
-            LayoutNode::Area {
-                constraint: Constraint::Length(2),
-                area_type: AreaType::Cytoband,
-            },
-            LayoutNode::Area {
+        let mut children = Vec::new();
+
+        if settings.needs_track() {
+            children.extend(vec![
+                LayoutNode::Area {
+                    constraint: Constraint::Length(2),
+                    area_type: AreaType::Cytoband,
+                },
+                LayoutNode::Area {
+                    constraint: Constraint::Length(2),
+                    area_type: AreaType::Coordinate,
+                },
+            ]);
+        }
+
+        if settings.needs_alignment() {
+            children.push(LayoutNode::Area {
                 constraint: Constraint::Length(6),
-                area_type: AreaType::Coordinate,
-            },
-            LayoutNode::Area {
-                constraint: Constraint::Length(1),
                 area_type: AreaType::Coverage,
-            },
-        ];
+            })
+        };
         if settings.needs_variants() {
             children.push(LayoutNode::Area {
                 constraint: Constraint::Length(1),
@@ -165,19 +193,25 @@ impl MainLayout {
             });
         }
 
+        children.extend(vec![LayoutNode::Area {
+            constraint: Constraint::Fill(1),
+            area_type: AreaType::Alignment,
+        }]);
+
+        if settings.needs_track() {
+            children.extend(vec![
+                LayoutNode::Area {
+                    constraint: Constraint::Length(1),
+                    area_type: AreaType::Sequence,
+                },
+                LayoutNode::Area {
+                    constraint: Constraint::Length(2),
+                    area_type: AreaType::GeneTrack,
+                },
+            ]);
+        }
+
         children.extend(vec![
-            LayoutNode::Area {
-                constraint: Constraint::Fill(1),
-                area_type: AreaType::Alignment,
-            },
-            LayoutNode::Area {
-                constraint: Constraint::Length(1),
-                area_type: AreaType::Sequence,
-            },
-            LayoutNode::Area {
-                constraint: Constraint::Length(2),
-                area_type: AreaType::GeneTrack,
-            },
             LayoutNode::Area {
                 constraint: Constraint::Length(2),
                 area_type: AreaType::Console,
@@ -210,10 +244,17 @@ impl MainLayout {
         self.root.get_areas(area, &mut areas)?;
 
         // Render each area based on its type
+        let mut alternate_background = 0;
         for (i, (area_type, rect)) in areas.iter().enumerate() {
-            let background_color = match i % 2 {
-                0 => Some(DARK_THEME.background_1),
-                _ => Some(DARK_THEME.background_2),
+            let background_color = if area_type.alternate_background() {
+                alternate_background += 1;
+                match alternate_background % 2 {
+                    1 => Some(DARK_THEME.background_1),
+                    _ => Some(DARK_THEME.background_2),
+                }
+            } else {
+                alternate_background = 0;
+                None
             };
             Self::render_by_area_type(
                 *area_type,
@@ -337,6 +378,10 @@ fn resize_node(
 
                 match direction {
                     Direction::Horizontal => {
+                        // if mouse_down_x < first_child_area.x {
+                        //     break;
+                        // }
+
                         let mouse_down_in_first_area = mouse_down_x >= first_child_area.x
                             && mouse_down_x < first_child_area.x + first_child_area.width;
                         let mouse_down_in_second_area = mouse_down_x >= second_child_area.x
@@ -358,21 +403,29 @@ fn resize_node(
                             || mouse_down_x == second_child_area.x;
 
                         if mouse_on_boarder {
+                            if !children[i_child].resizable() && !children[i_child + 1].resizable()
+                            {
+                                continue;
+                            }
                             if mouse_released_x > mouse_down_x {
                                 let dx = u16::min(
                                     mouse_released_x - mouse_down_x,
                                     second_child_area.width - 1,
                                 );
+
                                 children[i_child].increase_constraint(dx);
                                 children[i_child + 1].reduce_constraint(dx);
+
                                 return Ok(());
                             } else if mouse_released_x < mouse_down_x {
                                 let dx = u16::min(
                                     mouse_down_x - mouse_released_x,
                                     first_child_area.width - 1,
                                 );
+
                                 children[i_child].reduce_constraint(dx);
                                 children[i_child + 1].increase_constraint(dx);
+
                                 return Ok(());
                             }
                         }
@@ -400,6 +453,9 @@ fn resize_node(
                         }
                     }
                     Direction::Vertical => {
+                        if mouse_down_y < first_child_area.y {
+                            break;
+                        }
                         let mouse_down_in_first_area = mouse_down_y >= first_child_area.y
                             && mouse_down_y < first_child_area.y + first_child_area.height;
                         let mouse_down_in_second_area = mouse_down_y >= second_child_area.y
@@ -420,11 +476,16 @@ fn resize_node(
                             || mouse_down_y == first_child_area.y + first_child_area.height - 1;
 
                         if mouse_on_boarder {
+                            // if !children[i_child].resizable() && !children[i_child + 1].resizable()
+                            // {
+                            //     continue;
+                            // }
                             if mouse_released_y > mouse_down_y {
                                 let dy = u16::min(
                                     mouse_released_y - mouse_down_y,
                                     second_child_area.height - 1,
                                 );
+
                                 children[i_child].increase_constraint(dy);
                                 children[i_child + 1].reduce_constraint(dy);
                                 return Ok(());
