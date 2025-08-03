@@ -1,5 +1,6 @@
 use crate::{
     alignment::{Alignment, AlignmentBuilder},
+    bed::{BEDInterval, BEDIntervals},
     error::TGVError,
     helpers::is_url,
     reference::Reference,
@@ -12,6 +13,7 @@ use crate::{
         LocalDbTrackService, TrackService, TrackServiceEnum, UcscApiTrackService,
         UcscDbTrackService,
     },
+    variant::VariantRepository,
 };
 
 use rust_htslib::bam;
@@ -23,6 +25,10 @@ use url::Url;
 pub struct Repository {
     pub alignment_repository: AlignmentRepositoryEnum,
 
+    pub variant_repository: Option<VariantRepository>,
+
+    pub bed_intervals: Option<BEDIntervals>,
+
     pub track_service: Option<TrackServiceEnum>,
 
     pub sequence_service: Option<SequenceRepositoryEnum>,
@@ -31,6 +37,16 @@ pub struct Repository {
 impl Repository {
     pub async fn new(settings: &Settings) -> Result<(Self, Option<SequenceCache>), TGVError> {
         let alignment_repository = AlignmentRepositoryEnum::from(settings)?;
+
+        let variant_repository = match &settings.vcf_path {
+            Some(vcf_path) => Some(VariantRepository::from_vcf(&vcf_path)?),
+            None => None,
+        };
+
+        let bed_intervals = match &settings.bed_path {
+            Some(bed_path) => Some(BEDIntervals::from_bed(&bed_path)?),
+            None => None,
+        };
 
         let (track_service, sequence_service, sequence_cache): (
             Option<TrackServiceEnum>,
@@ -102,6 +118,8 @@ impl Repository {
         Ok((
             Self {
                 alignment_repository,
+                variant_repository,
+                bed_intervals,
                 track_service,
                 sequence_service,
             },

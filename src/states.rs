@@ -1,9 +1,9 @@
 use crate::error::TGVError;
+use crate::intervals::GenomeInterval;
 use crate::repository::Repository;
 use crate::repository::{AlignmentRepository, AlignmentRepositoryEnum};
 use crate::settings::Settings;
 use crate::tracks::{TrackCache, TrackService};
-use crate::traits::GenomeInterval;
 use crate::{
     alignment::Alignment,
     contig::Contig,
@@ -14,6 +14,7 @@ use crate::{
     message::{DataMessage, StateMessage},
     reference::Reference,
     region::Region,
+    rendering::MainLayout,
     sequence::{Sequence, SequenceCache, SequenceRepository},
     track::Track,
     window::ViewingWindow,
@@ -54,6 +55,7 @@ pub struct State {
 
     /// Display mode
     pub display_mode: DisplayMode,
+    pub layout: MainLayout,
 }
 
 /// Getters
@@ -77,6 +79,7 @@ impl State {
             contigs: ContigCollection::new(settings.reference.clone()), // TODO: load this
 
             display_mode: DisplayMode::Main,
+            layout: MainLayout::initialize(settings)?,
         })
     }
 
