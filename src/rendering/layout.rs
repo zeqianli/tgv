@@ -1,3 +1,4 @@
+use crate::message::UIMessage;
 pub use crate::rendering::colors::DARK_THEME;
 pub use crate::rendering::{
     render_alignment, render_bed, render_console, render_coordinates, render_coverage,
@@ -9,6 +10,7 @@ use crate::register::{RegisterType, Registers};
 use crate::repository::{self, Repository};
 use crate::settings::Settings;
 use crate::states::State;
+use crossterm::event;
 use ratatui::{
     buffer::Buffer,
     layout::{Constraint, Direction, Layout, Rect},
@@ -45,31 +47,69 @@ pub enum LayoutNode {
     Split {
         //id: usize,
         direction: Direction,
-        children: Vec<(Constraint, LayoutNode)>,
+        constraint: Constraint,
+        children: Vec<LayoutNode>,
     },
     Area {
         //id: usize,
+        constraint: Constraint,
         area_type: AreaType,
     },
 }
 
 impl LayoutNode {
+    pub fn constraint(&self) -> &Constraint {
+        match self {
+            LayoutNode::Split { constraint, .. } => constraint,
+            LayoutNode::Area { constraint, .. } => constraint,
+        }
+    }
+
+    pub fn set_constraint(&mut self, new_constraint: Constraint) {
+        match self {
+            LayoutNode::Split { constraint, .. } => *constraint = new_constraint,
+            LayoutNode::Area { constraint, .. } => *constraint = new_constraint,
+        }
+    }
+
+    pub fn reduce_constraint(&mut self, d: u16) {
+        match self.constraint() {
+            Constraint::Length(x) => {
+                self.set_constraint(Constraint::Length(*x - u16::min(d, *x - 1)));
+            }
+            _ => {}
+        }
+    }
+
+    pub fn increase_constraint(&mut self, d: u16) {
+        match self.constraint() {
+            Constraint::Length(x) => {
+                self.set_constraint(Constraint::Length(*x + d));
+            }
+            _ => {}
+        }
+    }
+
     fn get_areas(&self, area: Rect, areas: &mut Vec<(AreaType, Rect)>) -> Result<(), TGVError> {
         match self {
             LayoutNode::Split {
                 direction,
+                constraint,
                 children,
             } => {
                 let child_areas = Layout::default()
                     .direction(*direction)
-                    .constraints(children.iter().map(|(constraint, _)| constraint))
+                    .constraints(children.iter().map(|child| child.constraint()))
                     .split(area);
 
-                for ((_, child), &child_area) in children.iter().zip(child_areas.iter()) {
+                for (child, &child_area) in children.iter().zip(child_areas.iter()) {
                     child.get_areas(child_area, areas)?;
                 }
             }
-            LayoutNode::Area { area_type } => {
+            LayoutNode::Area {
+                constraint,
+                area_type,
+            } => {
                 areas.push((*area_type, area));
             }
         }
@@ -79,7 +119,7 @@ impl LayoutNode {
 
 /// Main page layout
 pub struct MainLayout {
-    root: LayoutNode,
+    pub root: LayoutNode,
 }
 
 impl MainLayout {
@@ -89,77 +129,58 @@ impl MainLayout {
 
     pub fn initialize(settings: &Settings) -> Result<Self, TGVError> {
         let mut children = vec![
-            (
-                Constraint::Length(2),
-                LayoutNode::Area {
-                    area_type: AreaType::Cytoband,
-                },
-            ),
-            (
-                Constraint::Length(6),
-                LayoutNode::Area {
-                    area_type: AreaType::Coordinate,
-                },
-            ),
-            (
-                Constraint::Length(1),
-                LayoutNode::Area {
-                    area_type: AreaType::Coverage,
-                },
-            ),
+            LayoutNode::Area {
+                constraint: Constraint::Length(2),
+                area_type: AreaType::Cytoband,
+            },
+            LayoutNode::Area {
+                constraint: Constraint::Length(6),
+                area_type: AreaType::Coordinate,
+            },
+            LayoutNode::Area {
+                constraint: Constraint::Length(1),
+                area_type: AreaType::Coverage,
+            },
         ];
         if settings.needs_variants() {
-            children.push((
-                Constraint::Length(1),
-                LayoutNode::Area {
-                    area_type: AreaType::Variant,
-                },
-            ))
+            children.push(LayoutNode::Area {
+                constraint: Constraint::Length(1),
+                area_type: AreaType::Variant,
+            });
         }
 
         if settings.needs_bed() {
-            children.push((
-                Constraint::Length(1),
-                LayoutNode::Area {
-                    area_type: AreaType::Bed,
-                },
-            ));
+            children.push(LayoutNode::Area {
+                constraint: Constraint::Length(1),
+                area_type: AreaType::Bed,
+            });
         }
 
         children.extend(vec![
-            (
-                Constraint::Fill(1),
-                LayoutNode::Area {
-                    area_type: AreaType::Alignment,
-                },
-            ),
-            (
-                Constraint::Length(1),
-                LayoutNode::Area {
-                    area_type: AreaType::Sequence,
-                },
-            ),
-            (
-                Constraint::Length(2),
-                LayoutNode::Area {
-                    area_type: AreaType::Track,
-                },
-            ),
-            (
-                Constraint::Length(2),
-                LayoutNode::Area {
-                    area_type: AreaType::Console,
-                },
-            ),
-            (
-                Constraint::Length(2),
-                LayoutNode::Area {
-                    area_type: AreaType::Error,
-                },
-            ),
+            LayoutNode::Area {
+                constraint: Constraint::Fill(1),
+                area_type: AreaType::Alignment,
+            },
+            LayoutNode::Area {
+                constraint: Constraint::Length(1),
+                area_type: AreaType::Sequence,
+            },
+            LayoutNode::Area {
+                constraint: Constraint::Length(2),
+                area_type: AreaType::Track,
+            },
+            LayoutNode::Area {
+                constraint: Constraint::Length(2),
+                area_type: AreaType::Console,
+            },
+            LayoutNode::Area {
+                constraint: Constraint::Length(2),
+                area_type: AreaType::Error,
+            },
         ]);
 
         let root = LayoutNode::Split {
+            constraint: Constraint::Fill(1), // Doesn't matter
             direction: Direction::Vertical,
             children: children,
         };
@@ -255,5 +276,242 @@ impl MainLayout {
             }
         };
         Ok(())
+    }
+
+    pub fn handle_ui_message(
+        node: &mut LayoutNode,
+        area: Rect,
+        message: UIMessage,
+    ) -> Result<(), TGVError> {
+        match message {
+            UIMessage::ResizeTrack {
+                mouse_down_x,
+                mouse_down_y,
+                mouse_released_x,
+                mouse_released_y,
+            } => {
+                resize_node(
+                    node,
+                    area,
+                    mouse_down_x,
+                    mouse_down_y,
+                    mouse_released_x,
+                    mouse_released_y,
+                )?;
+            }
+        }
+        Ok(())
+    }
+}
+
+fn resize_node(
+    node: &mut LayoutNode,
+    area: Rect,
+    mouse_down_x: u16,
+    mouse_down_y: u16,
+    mouse_released_x: u16,
+    mouse_released_y: u16,
+) -> Result<(), TGVError> {
+    match node {
+        LayoutNode::Split {
+            direction,
+            constraint,
+            children,
+        } => {
+            if children.len() <= 1 {
+                return Ok(());
+            }
+
+            // Mouse down is inside the area
+
+            if direction == &Direction::Horizontal {
+                if mouse_down_y < area.y || mouse_down_y > area.y + area.height {
+                    return Ok(());
+                }
+            }
+
+            if direction == &Direction::Vertical {
+                if mouse_down_x < area.x || mouse_down_x > area.x + area.width {
+                    return Ok(());
+                }
+            }
+
+            let children_areas = Layout::default()
+                .direction(*direction)
+                .constraints(children.iter().map(|child| child.constraint()))
+                .split(area);
+
+            for i_child in 0..children.len() - 1 {
+                // let mut first_child = children.get_mut(i_child).unwrap();
+                // let mut second_child = children.get_mut(i_child + 1).unwrap();
+
+                let first_child_area = children_areas[i_child];
+                let second_child_area = children_areas[i_child + 1];
+
+                match direction {
+                    Direction::Horizontal => {
+                        let mouse_down_in_first_area = mouse_down_x >= first_child_area.x
+                            && mouse_down_x < first_child_area.x + second_child_area.width;
+                        let mouse_down_in_second_area = mouse_down_x >= second_child_area.x
+                            && mouse_down_x < second_child_area.x + second_child_area.width;
+
+                        if !mouse_down_in_first_area && !mouse_down_in_second_area {
+                            continue;
+                        }
+
+                        let mouse_on_boarder = mouse_down_x
+                            == first_child_area.x + first_child_area.width - 1
+                            || mouse_down_x == second_child_area.x;
+
+                        if mouse_on_boarder {
+                            if mouse_released_x > mouse_down_x {
+                                let dx = u16::min(
+                                    mouse_released_x - mouse_down_x,
+                                    second_child_area.width - 1,
+                                );
+                                children[i_child].increase_constraint(dx);
+                                children[i_child + 1].reduce_constraint(dx);
+                                return Ok(());
+                            } else if mouse_released_x < mouse_down_x {
+                                let dx = u16::min(
+                                    mouse_down_x - mouse_released_x,
+                                    first_child_area.width - 1,
+                                );
+                                children[i_child].reduce_constraint(dx);
+                                children[i_child + 1].increase_constraint(dx);
+                                return Ok(());
+                            }
+                        }
+
+                        // Go into children nodes.
+                        if mouse_down_in_first_area {
+                            return resize_node(
+                                &mut children[i_child],
+                                first_child_area,
+                                mouse_down_x,
+                                mouse_down_y,
+                                mouse_released_x,
+                                mouse_released_y,
+                            );
+                        } else {
+                            // mouse_down_in
+                            return resize_node(
+                                &mut children[i_child + 1],
+                                second_child_area,
+                                mouse_down_x,
+                                mouse_down_y,
+                                mouse_released_x,
+                                mouse_released_y,
+                            );
+                        }
+                    }
+                    Direction::Vertical => {
+                        let mouse_down_in_first_area = mouse_down_y >= first_child_area.y
+                            && mouse_down_y < first_child_area.y + second_child_area.height;
+                        let mouse_down_in_second_area = mouse_down_y >= second_child_area.y
+                            && mouse_down_y < second_child_area.y + second_child_area.height;
+
+                        if !mouse_down_in_first_area && !mouse_down_in_second_area {
+                            continue;
+                        }
+
+                        let mouse_on_boarder = mouse_down_y
+                            == first_child_area.y + first_child_area.height - 1
+                            || mouse_down_y == second_child_area.y;
+
+                        if mouse_on_boarder {
+                            if mouse_released_y > mouse_down_y {
+                                let dy = u16::min(
+                                    mouse_released_y - mouse_down_y,
+                                    second_child_area.height - 1,
+                                );
+                                children[i_child].increase_constraint(dy);
+                                children[i_child + 1].reduce_constraint(dy);
+                                return Ok(());
+                            } else if mouse_released_y < mouse_down_y {
+                                let dy = u16::min(
+                                    mouse_down_y - mouse_released_y,
+                                    first_child_area.height - 1,
+                                );
+                                children[i_child].reduce_constraint(dy);
+                                children[i_child + 1].increase_constraint(dy);
+                                return Ok(());
+                            }
+                        }
+
+                        // Go into children nodes.
+                        if mouse_down_in_first_area {
+                            return resize_node(
+                                &mut children[i_child],
+                                first_child_area,
+                                mouse_down_x,
+                                mouse_down_y,
+                                mouse_released_x,
+                                mouse_released_y,
+                            );
+                        } else {
+                            return resize_node(
+                                &mut children[i_child + 1],
+                                second_child_area,
+                                mouse_down_x,
+                                mouse_down_y,
+                                mouse_released_x,
+                                mouse_released_y,
+                            );
+                        }
+                    }
+                }
+            }
+        }
+        LayoutNode::Area {
+            constraint,
+            area_type,
+        } => {}
+    }
+
+    return Ok(());
+}
+
+pub struct MouseRegister {
+    /// Resize event handling
+    pub mouse_down_x: u16,
+    pub mouse_down_y: u16,
+}
+
+impl MouseRegister {
+    pub fn new() -> Self {
+        Self {
+            mouse_down_x: 0,
+            mouse_down_y: 0,
+        }
+    }
+
+    pub fn handle_mouse_event(
+        &mut self,
+        event: event::MouseEvent,
+    ) -> Result<Option<UIMessage>, TGVError> {
+        match event.kind {
+            event::MouseEventKind::Down(_) => {
+                self.mouse_down_x = event.column;
+                self.mouse_down_y = event.row;
+                return Ok(None);
+            }
+
+            event::MouseEventKind::Drag(_) => {
+                if (event.row == self.mouse_down_y) && (event.column == self.mouse_down_x) {
+                    return Ok(None);
+                }
+                return Ok(Some(UIMessage::ResizeTrack {
+                    mouse_down_x: self.mouse_down_x,
+                    mouse_down_y: self.mouse_down_y,
+                    mouse_released_x: event.row,
+                    mouse_released_y: event.column,
+                }));
+            }
+
+            _ => {
+                return Ok(None);
+            }
+        }
     }
 }

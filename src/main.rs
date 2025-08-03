@@ -29,7 +29,15 @@ use error::TGVError;
 mod tracks;
 use crate::reference::Reference;
 use crate::tracks::{UCSCDownloader, UcscDbTrackService};
+use crossterm::{
+    event::{
+        self, DisableMouseCapture, EnableMouseCapture, Event, KeyCode, MouseButton, MouseEvent,
+        MouseEventKind,
+    },
+    execute,
+};
 use settings::{Cli, Commands, Settings};
+use std::io::stdout;
 #[tokio::main]
 async fn main() -> Result<(), TGVError> {
     let cli = Cli::parse();
@@ -61,6 +69,7 @@ async fn main() -> Result<(), TGVError> {
     let settings: Settings = Settings::new(cli)?;
 
     let mut terminal = ratatui::init();
+    execute!(stdout(), EnableMouseCapture)?;
 
     let mut app = match App::new(settings).await {
         Ok(app) => app,
@@ -72,6 +81,9 @@ async fn main() -> Result<(), TGVError> {
     let app_result = app.run(&mut terminal).await;
 
     ratatui::restore();
+    if let Err(err) = execute!(stdout(), DisableMouseCapture) {
+        eprintln!("Error disabling mouse capture: {err}");
+    }
     app.close().await?;
     app_result
 }

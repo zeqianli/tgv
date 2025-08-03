@@ -5,7 +5,8 @@ use ratatui::{buffer::Buffer, layout::Rect, prelude::Backend, widgets::Widget, F
 
 use crate::error::TGVError;
 use crate::register::{Register, Registers};
-use crate::rendering::RenderingState;
+use crate::rendering::layout::MouseRegister;
+use crate::rendering::{MainLayout, RenderingState};
 use crate::repository::Repository;
 use crate::settings::Settings;
 use crate::states::{State, StateHandler};
@@ -17,6 +18,8 @@ pub struct App {
     pub repository: Repository, // Data CRUD interface
 
     pub registers: Registers, // Controls key event translation to StateMessages. Uses the State pattern.
+
+    pub mouse_register: MouseRegister,
 
     pub rendering_state: RenderingState,
 }
@@ -39,6 +42,7 @@ impl App {
             //state_handler: StateHandler::new(&settings).await?,
             repository,
             registers: Registers::new()?,
+            mouse_register: MouseRegister::new(),
             rendering_state: RenderingState::new(),
         })
     }
@@ -88,6 +92,18 @@ impl App {
                         state_messages,
                     )
                     .await?;
+                }
+
+                Ok(Event::Mouse(mouse_event)) => {
+                    let ui_message = self.mouse_register.handle_mouse_event(mouse_event)?;
+                    let frame_area = self.state.current_frame_area()?.clone();
+                    if let Some(ui_message) = ui_message {
+                        MainLayout::handle_ui_message(
+                            &mut self.state.layout.root,
+                            frame_area,
+                            ui_message,
+                        )?;
+                    }
                 }
 
                 Ok(Event::Resize(_width, _height)) => {

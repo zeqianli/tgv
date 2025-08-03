@@ -9,7 +9,7 @@ mod cytoband;
 mod error;
 mod help;
 mod intervals;
-mod layout;
+pub mod layout;
 mod sequence;
 mod track;
 mod variants;

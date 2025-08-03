@@ -5,7 +5,7 @@ use crate::{
     states::State,
     window::{OnScreenCoordinate, ViewingWindow},
 };
-use crossterm::style;
+
 use ratatui::{
     buffer::Buffer,
     layout::{Position, Rect},
