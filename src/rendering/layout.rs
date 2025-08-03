@@ -202,7 +202,10 @@ impl MainLayout {
 
         // Render each area based on its type
         for (i, (area_type, rect)) in areas.iter().enumerate() {
-            let background_color = None; // TODO: alternate color
+            let background_color = match i % 2 {
+                0 => Some(DARK_THEME.background_1),
+                _ => Some(DARK_THEME.background_2),
+            };
             Self::render_by_area_type(
                 *area_type,
                 rect,
@@ -504,8 +507,8 @@ impl MouseRegister {
                 return Ok(Some(UIMessage::ResizeTrack {
                     mouse_down_x: self.mouse_down_x,
                     mouse_down_y: self.mouse_down_y,
-                    mouse_released_x: event.row,
-                    mouse_released_y: event.column,
+                    mouse_released_x: event.column,
+                    mouse_released_y: event.row,
                 }));
             }
 
