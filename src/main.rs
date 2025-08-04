@@ -31,8 +31,7 @@ use crate::reference::Reference;
 use crate::tracks::{UCSCDownloader, UcscDbTrackService};
 use crossterm::{
     event::{
-        self, DisableMouseCapture, EnableMouseCapture, Event, KeyCode, MouseButton, MouseEvent,
-        MouseEventKind,
+        DisableMouseCapture, EnableMouseCapture,
     },
     execute,
 };

@@ -1,6 +1,6 @@
 use crate::{
     alignment::{Alignment, AlignmentBuilder},
-    bed::{BEDInterval, BEDIntervals},
+    bed::BEDIntervals,
     error::TGVError,
     helpers::is_url,
     reference::Reference,
@@ -39,12 +39,12 @@ impl Repository {
         let alignment_repository = AlignmentRepositoryEnum::from(settings)?;
 
         let variant_repository = match &settings.vcf_path {
-            Some(vcf_path) => Some(VariantRepository::from_vcf(&vcf_path)?),
+            Some(vcf_path) => Some(VariantRepository::from_vcf(vcf_path)?),
             None => None,
         };
 
         let bed_intervals = match &settings.bed_path {
-            Some(bed_path) => Some(BEDIntervals::from_bed(&bed_path)?),
+            Some(bed_path) => Some(BEDIntervals::from_bed(bed_path)?),
             None => None,
         };
 

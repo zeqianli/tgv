@@ -3,12 +3,12 @@ use crate::error::TGVError;
 use crate::intervals::GenomeInterval;
 use crate::{
     states::State,
-    window::{OnScreenCoordinate, ViewingWindow},
+    window::OnScreenCoordinate,
 };
 
 use ratatui::{
     buffer::Buffer,
-    layout::{Position, Rect},
+    layout::Rect,
     style::Color,
     style::Style,
 };

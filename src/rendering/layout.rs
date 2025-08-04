@@ -7,7 +7,7 @@ pub use crate::rendering::{
 
 use crate::error::TGVError;
 use crate::register::{RegisterType, Registers};
-use crate::repository::{self, Repository};
+use crate::repository::{Repository};
 use crate::settings::Settings;
 use crate::states::State;
 use crossterm::event;
@@ -16,7 +16,6 @@ use ratatui::{
     layout::{Constraint, Direction, Layout, Rect},
     style::{Color, Style},
 };
-use std::collections::HashMap;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum AreaType {
@@ -86,11 +85,8 @@ impl LayoutNode {
         if !self.resizable() {
             return;
         }
-        match self.constraint() {
-            Constraint::Length(x) => {
-                self.set_constraint(Constraint::Length(*x - u16::min(d, *x - 1)));
-            }
-            _ => {}
+        if let Constraint::Length(x) = self.constraint() {
+            self.set_constraint(Constraint::Length(*x - u16::min(d, *x - 1)));
         }
     }
 
@@ -98,11 +94,8 @@ impl LayoutNode {
         if !self.resizable() {
             return;
         }
-        match self.constraint() {
-            Constraint::Length(x) => {
-                self.set_constraint(Constraint::Length(*x + d));
-            }
-            _ => {}
+        if let Constraint::Length(x) = self.constraint() {
+            self.set_constraint(Constraint::Length(*x + d));
         }
     }
 
@@ -225,7 +218,7 @@ impl MainLayout {
         let root = LayoutNode::Split {
             constraint: Constraint::Fill(1), // Doesn't matter
             direction: Direction::Vertical,
-            children: children,
+            children,
         };
 
         Self::new(root)
@@ -280,51 +273,51 @@ impl MainLayout {
         repository: &Repository,
     ) -> Result<(), TGVError> {
         if let Some(background_color) = background_color {
-            buf.set_style(rect.clone(), Style::default().bg(background_color));
+            buf.set_style(*rect, Style::default().bg(background_color));
         }
         match area_type {
-            AreaType::Cytoband => render_cytobands(&rect, buf, state)?,
-            AreaType::Coordinate => render_coordinates(&rect, buf, state)?,
+            AreaType::Cytoband => render_cytobands(rect, buf, state)?,
+            AreaType::Coordinate => render_coordinates(rect, buf, state)?,
             AreaType::Coverage => {
                 if state.alignment_renderable()? {
                     if let Some(alignment) = &state.alignment {
-                        render_coverage(&rect, buf, state.viewing_window()?, alignment)?;
+                        render_coverage(rect, buf, state.viewing_window()?, alignment)?;
                     }
                 }
             }
             AreaType::Alignment => {
                 if state.alignment_renderable()? {
                     if let Some(alignment) = &state.alignment {
-                        render_alignment(&rect, buf, state.viewing_window()?, alignment)?;
+                        render_alignment(rect, buf, state.viewing_window()?, alignment)?;
                     }
                 }
             }
             AreaType::Sequence => {
                 if state.sequence_renderable()? {
-                    render_sequence(&rect, buf, state)?;
+                    render_sequence(rect, buf, state)?;
                 }
             }
             AreaType::GeneTrack => {
                 if state.track_renderable()? {
-                    render_track(&rect, buf, state)?;
+                    render_track(rect, buf, state)?;
                 }
             }
             AreaType::Console => {
                 if registers.current == RegisterType::Command {
-                    render_console(&rect, buf, &registers.command)?;
+                    render_console(rect, buf, &registers.command)?;
                 }
             }
             AreaType::Error => {
-                render_error(&rect, buf, &state.errors)?;
+                render_error(rect, buf, &state.errors)?;
             }
             AreaType::Variant => {
                 if let Some(variants) = repository.variant_repository.as_ref() {
-                    render_variants(&rect, buf, variants, state)?
+                    render_variants(rect, buf, variants, state)?
                 }
             }
             AreaType::Bed => {
                 if let Some(bed) = repository.bed_intervals.as_ref() {
-                    render_bed(&rect, buf, bed, state)?
+                    render_bed(rect, buf, bed, state)?
                 }
             }
         };
@@ -352,16 +345,12 @@ fn resize_node(
 
             // Mouse down is inside the area
 
-            if direction == &Direction::Horizontal {
-                if mouse_down_y < area.y || mouse_down_y > area.y + area.height {
-                    return Ok(());
-                }
+            if direction == &Direction::Horizontal && (mouse_down_y < area.y || mouse_down_y > area.y + area.height) {
+                return Ok(());
             }
 
-            if direction == &Direction::Vertical {
-                if mouse_down_y < area.y || mouse_down_y > area.y + area.height {
-                    return Ok(());
-                }
+            if direction == &Direction::Vertical && (mouse_down_y < area.y || mouse_down_y > area.y + area.height) {
+                return Ok(());
             }
 
             let children_areas = Layout::default()
@@ -530,7 +519,7 @@ fn resize_node(
         } => {}
     }
 
-    return Ok(());
+    Ok(())
 }
 
 pub struct MouseRegister {
@@ -561,23 +550,23 @@ impl MouseRegister {
                 self.mouse_down_x = event.column;
                 self.mouse_down_y = event.row;
                 self.root = root.clone();
-                return Ok(None);
+                Ok(None)
             }
 
             event::MouseEventKind::Drag(_) => {
                 if (event.row == self.mouse_down_y) && (event.column == self.mouse_down_x) {
                     return Ok(None);
                 }
-                return Ok(Some(UIMessage::ResizeTrack {
+                Ok(Some(UIMessage::ResizeTrack {
                     mouse_down_x: self.mouse_down_x,
                     mouse_down_y: self.mouse_down_y,
                     mouse_released_x: event.column,
                     mouse_released_y: event.row,
-                }));
+                }))
             }
 
             _ => {
-                return Ok(None);
+                Ok(None)
             }
         }
     }

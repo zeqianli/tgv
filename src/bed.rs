@@ -3,8 +3,7 @@ use crate::{
     error::TGVError,
     intervals::{GenomeInterval, SortedIntervalCollection},
 };
-use noodles::bed::{self, io::reader};
-use std::{fs, io};
+use noodles::bed::{self};
 
 #[derive(Debug, Clone)]
 pub struct BEDInterval {
@@ -23,13 +22,13 @@ impl BEDInterval {
         let start = record.feature_start()?.get(); // Noodles already converted to 1-based, inclusive
         Ok(Self {
             contig: Contig::new(&record.reference_sequence_name().to_string()),
-            index: index,
-            start: start, // BED start is 0-based, inclusive
+            index,
+            start, // BED start is 0-based, inclusive
             end: match record.feature_end() {
                 Some(end) => end?.get(),
                 None => start, // BED end is 0-based, exclusive
             },
-            record: record,
+            record,
         })
     }
 }
@@ -54,7 +53,7 @@ pub struct BEDIntervals {
 
 impl BEDIntervals {
     pub fn from_bed(bed_path: &str) -> Result<Self, TGVError> {
-        let mut reader = bed::io::reader::Builder::<3>::default().build_from_path(bed_path)?;
+        let mut reader = bed::io::reader::Builder::<3>.build_from_path(bed_path)?;
         let mut record = bed::Record::default();
 
         let mut records = Vec::new();

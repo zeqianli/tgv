@@ -1,9 +1,5 @@
 use crate::{contig::Contig, error::TGVError, region::Region};
-use std::ops::Bound::{Excluded, Included};
-use std::{
-    collections::{BTreeMap, BTreeSet, HashMap},
-    hash::Hash,
-};
+use std::collections::HashMap;
 
 pub trait GenomeInterval {
     fn contig(&self) -> &Contig;
@@ -76,10 +72,10 @@ where
                 .or_insert(vec![i]);
         }
 
-        return Ok(SortedIntervalCollection {
+        Ok(SortedIntervalCollection {
             intervals,
             contig_lookup,
-        });
+        })
     }
 
     /// Get intervals overlapping a region.

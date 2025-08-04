@@ -1,9 +1,8 @@
 use crate::error::TGVError;
 use crate::intervals::{GenomeInterval, SortedIntervalCollection};
-use crate::{contig::Contig, region::Region};
+use crate::contig::Contig;
 use rust_htslib::bcf::{Read, Reader, Record};
 use std::collections::{BTreeMap, HashMap};
-use std::ops::Bound::{Excluded, Included};
 pub struct Variant {
     /// Contig name. This is not stored in the record.
     pub contig: Contig,
@@ -25,9 +24,9 @@ impl Variant {
             TGVError::ValueError("VCF record {:?} doesn't have a valid contig. ".to_string())
         })?);
         Ok(Self {
-            index: index,
-            contig: contig,
-            record: record,
+            index,
+            contig,
+            record,
         })
     }
 }

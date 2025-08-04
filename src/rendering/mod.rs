@@ -29,15 +29,13 @@ pub use variants::render_variants;
 
 use crate::display_mode::DisplayMode;
 use crate::error::TGVError;
-use crate::register::{RegisterType, Registers};
-use crate::repository::{self, Repository};
-use crate::settings::Settings;
+use crate::register::Registers;
+use crate::repository::{Repository};
 use crate::states::State;
 use ratatui::{
     buffer::Buffer,
-    layout::{Constraint, Direction, Layout, Rect},
+    layout::Rect,
 };
-use std::collections::HashMap;
 
 pub struct RenderingState {
     last_frame_area: Rect,
