@@ -1,5 +1,4 @@
 use crate::error::TGVError;
-use crate::helpers::is_url;
 use crate::ucsc::UcscHost;
 use crate::{message::StateMessage, reference::Reference};
 use clap::{Parser, Subcommand, ValueEnum};

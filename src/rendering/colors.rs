@@ -5,6 +5,18 @@ use ratatui::style::palette::tailwind;
 ///
 use ratatui::style::Color;
 
+// Background
+pub struct Palette {
+    /// Track alternating colors
+    pub background_1: Color,
+    pub background_2: Color,
+}
+
+pub const DARK_THEME: Palette = Palette {
+    background_1: Color::from_u32(0x1e1e1e),
+    background_2: Color::from_u32(0x323232),
+};
+
 // Alignment
 pub const MATCH_COLOR: Color = tailwind::GRAY.c500;
 #[allow(dead_code)]

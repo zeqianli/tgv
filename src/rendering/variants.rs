@@ -1,18 +1,13 @@
 use crate::error::TGVError;
 
-use crate::intervals::GenomeInterval;
 use crate::variant::VariantRepository;
 use crate::{
     rendering::{self, intervals::render_simple_intervals},
     states::State,
-    window::{OnScreenCoordinate, ViewingWindow},
 };
-use crossterm::style;
 use ratatui::{
     buffer::Buffer,
-    layout::{Position, Rect},
-    style::Color,
-    style::Style,
+    layout::Rect,
 };
 
 pub fn render_variants(
@@ -22,7 +17,7 @@ pub fn render_variants(
     state: &State,
 ) -> Result<(), TGVError> {
     let variants = variants.variants.overlapping(&state.viewing_region()?)?;
-    if variants.len() > 0 {
+    if !variants.is_empty() {
         let first_color_index = variants[0].index % 2;
         render_simple_intervals(
             area,
