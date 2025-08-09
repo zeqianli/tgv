@@ -92,15 +92,15 @@ impl OnScreenCoordinate {
         left: &OnScreenCoordinate,  // inclusive
         right: &OnScreenCoordinate, // inclusive
         area: &Rect,
-    ) -> Option<(usize, usize)> {
+    ) -> Option<(u16, u16)> {
         match (left, right) {
             (OnScreenCoordinate::Left(_a), OnScreenCoordinate::Left(_b)) => None,
 
-            (OnScreenCoordinate::Left(_a), OnScreenCoordinate::OnScreen(b)) => Some((0, b + 1)),
-
-            (OnScreenCoordinate::Left(_a), OnScreenCoordinate::Right(_b)) => {
-                Some((0, area.width as usize))
+            (OnScreenCoordinate::Left(_a), OnScreenCoordinate::OnScreen(b)) => {
+                Some((0, (b + 1) as u16))
             }
+
+            (OnScreenCoordinate::Left(_a), OnScreenCoordinate::Right(_b)) => Some((0, area.width)),
 
             (OnScreenCoordinate::OnScreen(_a), OnScreenCoordinate::Left(_b)) => None,
 
@@ -108,11 +108,11 @@ impl OnScreenCoordinate {
                 if a > b {
                     return None;
                 }
-                Some((*a, b - a + 1))
+                Some((*a as u16, (b - a + 1) as u16))
             }
 
             (OnScreenCoordinate::OnScreen(a), OnScreenCoordinate::Right(_b)) => {
-                Some((*a, area.width as usize - a))
+                Some((*a as u16, (area.width - *a as u16)))
             }
             (OnScreenCoordinate::Right(_a), OnScreenCoordinate::Left(_b)) => None,
 
