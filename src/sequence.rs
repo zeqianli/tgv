@@ -13,14 +13,14 @@ pub struct Sequence {
     pub start: usize,
 
     /// Genome sequence
-    pub sequence: String,
+    pub sequence: Vec<u8>,
 
     /// Contig name
     pub contig: Contig,
 }
 
 impl Sequence {
-    pub fn new(start: usize, sequence: String, contig: Contig) -> Result<Self, ()> {
+    pub fn new(start: usize, sequence: Vec<u8>, contig: Contig) -> Result<Self, ()> {
         if usize::MAX - start < sequence.len() {
             return Err(());
         }
@@ -51,7 +51,7 @@ impl Sequence {
 impl Sequence {
     /// Get the sequence in [left, right].
     /// 1-based, inclusive.
-    pub fn get_sequence(&self, region: &Region) -> Option<String> {
+    pub fn get_sequence(&self, region: &Region) -> Option<Vec<u8>> {
         if !self.has_complete_data(region) {
             return None;
         }
@@ -60,8 +60,20 @@ impl Sequence {
             self.sequence
                 .get(region.start - self.start..region.end - self.start + 1)
                 .unwrap()
-                .to_string(),
+                .to_vec(),
         )
+    }
+
+    pub fn base_at(&self, coordinate: usize) -> Option<u8> {
+        if coordinate < self.start() {
+            return None;
+        }
+
+        if coordinate > self.end() {
+            return None;
+        }
+
+        Some(self.sequence[coordinate - self.start])
     }
 
     /// Whether the sequence has complete data in [left, right].
