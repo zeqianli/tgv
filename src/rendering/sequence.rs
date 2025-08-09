@@ -40,23 +40,14 @@ fn render_sequence_at_1x(
         .get_sequence(region)
         .ok_or(TGVError::StateError("Sequence not found".to_string()))?;
 
-    for i in 0..sequence_string.len() {
-        let base = sequence_string.chars().nth(i).unwrap();
-        let color = match base {
-            'A' | 'a' => pallete.BASE_A,
-            'C' | 'c' => pallete.BASE_C,
-            'G' | 'g' => pallete.BASE_G,
-            'T' | 't' => pallete.BASE_T,
-            _ => pallete.BASE_N,
-        };
-
+    for (i, base) in sequence_string.iter().enumerate() {
         buf.set_string(
             area.x + i as u16,
             area.y,
             base.to_string(),
             Style::default()
                 .fg(pallete.SEQUENCE_FOREGROUND_COLOR)
-                .bg(color),
+                .bg(pallete.base_color(*base)),
         );
     }
 
@@ -72,38 +63,26 @@ fn render_sequence_at_2x(
     buf: &mut Buffer,
     region: &Region,
     sequence: &Sequence,
-    pallete: &Palette,
+    palette: &Palette,
 ) -> Result<(), TGVError> {
-    let sequence_string = sequence
-        .get_sequence(region)
-        .ok_or(TGVError::StateError("Sequence not found".to_string()))?;
+    if area.width < MIN_AREA_WIDTH || area.height < MIN_AREA_HEIGHT {
+        return Ok(());
+    }
 
-    for i in 0..sequence_string.len() / 2 {
-        let base_1 = sequence_string.chars().nth(i * 2).unwrap();
-        let base_2 = sequence_string.chars().nth(i * 2 + 1).unwrap();
+    if let Some(sequence) = sequence.get_sequence(region) {
+        for i in 0..sequence.len() / 2 {
+            let base1 = sequence[i * 2];
+            let base2 = sequence[i * 2 + 1];
 
-        let color_character = match base_1 {
-            'A' | 'a' => pallete.BASE_A,
-            'C' | 'c' => pallete.BASE_C,
-            'G' | 'g' => pallete.BASE_G,
-            'T' | 't' => pallete.BASE_T,
-            _ => pallete.BASE_N,
-        };
-
-        let color_background = match base_2 {
-            'A' | 'a' => pallete.BASE_A,
-            'C' | 'c' => pallete.BASE_C,
-            'G' | 'g' => pallete.BASE_G,
-            'T' | 't' => pallete.BASE_T,
-            _ => pallete.BASE_N,
-        };
-
-        buf.set_string(
-            area.x + i as u16,
-            area.y,
-            "▌",
-            Style::default().fg(color_character).bg(color_background),
-        );
+            buf.set_string(
+                area.x + i as u16,
+                area.y,
+                "▌",
+                Style::default()
+                    .fg(palette.base_color(base1))
+                    .bg(palette.base_color(base2)),
+            );
+        }
     }
 
     Ok(())

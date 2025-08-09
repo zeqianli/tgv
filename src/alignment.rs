@@ -373,7 +373,7 @@ fn can_be_annotated_with_arrows(op: &Cigar) -> bool {
 pub struct Alignment {
     pub reads: Vec<AlignedRead>,
 
-    pub contig: Contig, // contig name
+    pub contig: usize, // contig name
 
     /// Coverage at each position. Keys are 1-based, inclusive.
     coverage: BTreeMap<usize, usize>,
@@ -470,6 +470,8 @@ impl AlignmentBuilder {
             region: region.clone(),
         })
     }
+
+    /// TODO: read contig headers
 
     /// Add a read to the alignment. Note that this function does not update coverage.
     pub fn add_read(

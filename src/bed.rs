@@ -7,7 +7,7 @@ use noodles::bed::{self};
 
 #[derive(Debug, Clone)]
 pub struct BEDInterval {
-    contig: Contig,
+    contig: usize,
 
     pub index: usize,
 
@@ -34,8 +34,8 @@ impl BEDInterval {
 }
 
 impl GenomeInterval for BEDInterval {
-    fn contig(&self) -> &Contig {
-        &self.contig
+    fn contig(&self) -> usize {
+        self.contig
     }
 
     fn start(&self) -> usize {

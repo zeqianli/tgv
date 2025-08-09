@@ -71,6 +71,16 @@ impl Palette {
             _ => self.SOFTCLIP_N,
         }
     }
+
+    pub fn base_color(&self, base: u8) -> Color {
+        match base {
+            b'A' | b'a' => self.BASE_A,
+            b'C' | b'c' => self.BASE_C,
+            b'G' | b'g' => self.BASE_G,
+            b'T' | b't' => self.BASE_T,
+            _ => self.BASE_N,
+        }
+    }
 }
 
 pub const DARK_THEME: Palette = Palette {

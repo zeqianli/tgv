@@ -26,8 +26,8 @@ impl GenomeInterval for Region {
         self.end
     }
 
-    fn contig(&self) -> &Contig {
-        &self.contig
+    fn contig(&self) -> usize {
+        self.contig
     }
 }
 

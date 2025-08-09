@@ -93,8 +93,8 @@ impl<T: GenomeInterval> GenomeInterval for Track<T> {
         self.most_right_bound
     }
 
-    fn contig(&self) -> &Contig {
-        &self.contig
+    fn contig(&self) -> usize {
+        self.contig
     }
 }
 
