@@ -2,7 +2,8 @@ use crate::{contig::Contig, error::TGVError, region::Region};
 use std::collections::HashMap;
 
 pub trait GenomeInterval {
-    fn contig(&self) -> &Contig;
+    // fn contig(&self) -> &Contig;
+    fn contig(&self) -> usize;
     fn start(&self) -> usize;
     fn end(&self) -> usize;
     fn length(&self) -> usize {
@@ -47,7 +48,7 @@ pub struct SortedIntervalCollection<T: GenomeInterval> {
     pub intervals: Vec<T>,
 
     /// {contig_name: [variant_indexes,... ]}
-    contig_lookup: HashMap<String, Vec<usize>>,
+    contig_lookup: HashMap<usize, Vec<usize>>,
 }
 
 /// TODO:
@@ -63,11 +64,11 @@ where
     T: GenomeInterval,
 {
     pub fn new(intervals: Vec<T>) -> Result<Self, TGVError> {
-        let mut contig_lookup: HashMap<String, Vec<usize>> = HashMap::new();
+        let mut contig_lookup: HashMap<usize, Vec<usize>> = HashMap::new();
 
         for (i, interval) in intervals.iter().enumerate() {
             contig_lookup
-                .entry(interval.contig().name.clone())
+                .entry(interval.contig())
                 .and_modify(|indexes| indexes.push(i))
                 .or_insert(vec![i]);
         }
@@ -80,7 +81,7 @@ where
 
     /// Get intervals overlapping a region.
     pub fn overlapping(&self, region: &Region) -> Result<Vec<&T>, TGVError> {
-        let indexes = match self.contig_lookup.get(&region.contig.name) {
+        let indexes = match self.contig_lookup.get(&region.contig) {
             Some(indexes) => indexes,
             None => return Ok(Vec::new()),
         };
