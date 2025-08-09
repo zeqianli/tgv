@@ -17,6 +17,7 @@ pub struct Palette {
     pub MISMATCH_COLOR: Color,
     pub DELETION_COLOR: Color,
     pub REFSKIP_COLOR: Color,
+    pub INSERTION_COLOR: Color,
     pub SOFTCLIP_A: Color,
     pub SOFTCLIP_C: Color,
     pub SOFTCLIP_G: Color,
@@ -81,6 +82,7 @@ pub const DARK_THEME: Palette = Palette {
     MISMATCH_COLOR: Color::Rgb(251, 198, 207),
     DELETION_COLOR: Color::Red,
     REFSKIP_COLOR: Color::Red,
+    INSERTION_COLOR: Color::Magenta,
 
     SOFTCLIP_A: Color::LightRed,
     SOFTCLIP_C: Color::LightGreen,

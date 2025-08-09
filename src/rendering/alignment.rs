@@ -4,7 +4,11 @@ use crate::{
     rendering::colors::Palette,
     window::{OnScreenCoordinate, ViewingWindow},
 };
-use ratatui::{buffer::Buffer, layout::Rect, style::Style};
+use ratatui::{
+    buffer::Buffer,
+    layout::Rect,
+    style::{Color, Style},
+};
 use rust_htslib::bam::record::Cigar;
 
 /// Render an alignment on the alignment area.
@@ -13,12 +17,15 @@ pub fn render_alignment(
     buf: &mut Buffer,
     window: &ViewingWindow,
     alignment: &Alignment,
+    background_color: &Color,
     pallete: &Palette,
 ) -> Result<(), TGVError> {
     // This iterates through all cached reads and re-calculates coordinates for each movement.
     // Consider improvement.
     for read in alignment.reads.iter() {
-        if let Some(contexts) = get_read_rendering_info(read, window, area, pallete) {
+        if let Some(contexts) =
+            get_read_rendering_info(read, window, area, background_color, pallete)
+        {
             for context in contexts {
                 buf.set_string(
                     area.x + context.x,
@@ -32,11 +39,48 @@ pub fn render_alignment(
     Ok(())
 }
 
+enum Modifier {
+    Forward,
+
+    Reverse,
+
+    Insertion(usize),
+}
+
 struct RenderingContext {
     x: u16,
     y: u16,
     string: String,
     style: Style,
+}
+
+impl RenderingContext {
+    fn forward_arrow(&self) -> Self {
+        return Self {
+            x: self.x + self.string.len() as u16 - 1,
+            y: self.y,
+            string: "►".to_string(),
+            style: self.style.clone(),
+        };
+    }
+
+    fn reverse_arrow(&self) -> Self {
+        return Self {
+            x: self.x,
+            y: self.y,
+            string: "◄".to_string(),
+            style: self.style.clone(),
+        };
+    }
+
+    fn insertion(&self, background_color: &Color, pallete: &Palette) -> Self {
+        return Self {
+            x: self.x,
+            y: self.y,
+            string: "▌".to_string(),
+            style: Style::default().fg(pallete.INSERTION_COLOR),
+        };
+    }
 }
 
 /// Get rendering needs for an aligned read.
@@ -45,6 +89,7 @@ fn get_read_rendering_info(
     read: &AlignedRead,
     viewing_window: &ViewingWindow,
     area: &Rect,
+    background_color: &Color,
     pallete: &Palette,
 ) -> Option<Vec<RenderingContext>> {
     let mut output: Vec<RenderingContext> = Vec::new();
@@ -59,13 +104,38 @@ fn get_read_rendering_info(
 
     let mut annotate_insertion_in_next_cigar = false;
 
+    let cigars = read.read.cigar();
+
+    if cigars.len() == 0 {
+        return None;
+    }
+
+    // Scan cigars 1st pass to find the cigar index with < / > annotation.
+    let cigar_index_with_direction_annotation = if read.read.is_reverse() {
+        // last cigar segment
+        cigars.len()
+            - cigars
+                .iter()
+                .rev()
+                .position(|op| can_be_annotated_with_arrows(op))
+                .unwrap_or(0)
+            - 1
+    } else {
+        // first eligible cigar
+        read.read
+            .cigar()
+            .iter()
+            .position(|op| can_be_annotated_with_arrows(op))
+            .unwrap_or(0)
+    };
+
     // let mut index_for_direction_annotaiton = None;
 
     //let mut indexes_for_insertion_annotation = 0;
 
     // See: https://samtools.github.io/hts-specs/SAMv1.pdf
 
-    for op in read.read.cigar().iter() {
+    for (i_op, op) in read.read.cigar().iter().enumerate() {
         let next_reference_pivot = if consumes_reference(op) {
             reference_pivot + op.len() as usize
             // Note that softclip does not consume query and is handled above.
@@ -78,6 +148,9 @@ fn get_read_rendering_info(
         } else {
             query_pivot
         };
+
+        let mut new_contexts = Vec::new();
+        let add_insertion = annotate_insertion_in_next_cigar;
         match op {
             Cigar::SoftClip(l) => {
                 // S
@@ -106,10 +179,10 @@ fn get_read_rendering_info(
                     {
                         let base = read.read.seq()[i_base];
                         let style = Style::default().bg(pallete.softclip_color(base));
-                        output.push(RenderingContext {
+                        new_contexts.push(RenderingContext {
                             x: onscreen_x,
                             y: onscreen_y,
-                            string: base.to_string(),
+                            string: String::from_utf8(vec![base]).unwrap_or("?".to_string()),
                             style,
                         });
                     } else {
@@ -132,11 +205,14 @@ fn get_read_rendering_info(
                     &viewing_window.onscreen_x_coordinate(next_reference_pivot, area),
                     area,
                 ) {
-                    output.push(RenderingContext {
+                    //println!("found deletion (readname = {:?})", read.read.cigar());
+                    new_contexts.push(RenderingContext {
                         x: x,
                         y: onscreen_y,
                         string: "-".repeat(length as usize),
-                        style: Style::default().fg(pallete.DELETION_COLOR),
+                        style: Style::new()
+                            .bg(*background_color)
+                            .fg(pallete.DELETION_COLOR),
                     })
                 }
             }
@@ -154,11 +230,11 @@ fn get_read_rendering_info(
                     &viewing_window.onscreen_x_coordinate(next_reference_pivot, area),
                     area,
                 ) {
-                    output.push(RenderingContext {
+                    new_contexts.push(RenderingContext {
                         x: x,
                         y: onscreen_y,
                         string: " ".repeat(length as usize),
-                        style: Style::default().bg(pallete.MISMATCH_COLOR),
+                        style: Style::new().bg(pallete.MISMATCH_COLOR),
                     })
                 }
             }
@@ -166,15 +242,16 @@ fn get_read_rendering_info(
             Cigar::Match(l) | Cigar::Equal(l) => {
                 // M / =
                 // Full color block
+                // TODO: IGV checks base with the reference here.
                 if let Some((x, length)) = OnScreenCoordinate::onscreen_start_and_length(
                     &viewing_window.onscreen_x_coordinate(reference_pivot, area),
                     &viewing_window.onscreen_x_coordinate(next_reference_pivot, area),
                     area,
                 ) {
-                    output.push(RenderingContext {
+                    new_contexts.push(RenderingContext {
                         x: x,
                         y: onscreen_y,
-                        string: " ".repeat(length as usize),
+                        string: "-".repeat(length as usize),
                         style: Style::default().bg(pallete.MATCH_COLOR),
                     })
                 }
@@ -183,8 +260,34 @@ fn get_read_rendering_info(
             Cigar::HardClip(l) | Cigar::Pad(l) => {
                 // P / H
                 // Don't need to do anything
+                //continue;
             }
         }
+
+        // add modifiers
+        if new_contexts.is_empty() {
+            continue;
+        }
+
+        if add_insertion {
+            new_contexts.push(
+                new_contexts
+                    .first()
+                    .unwrap()
+                    .insertion(background_color, pallete),
+            );
+        };
+        annotate_insertion_in_next_cigar = false;
+
+        if i_op == cigar_index_with_direction_annotation {
+            new_contexts.push(if read.read.is_reverse() {
+                new_contexts.first().unwrap().forward_arrow()
+            } else {
+                new_contexts.last().unwrap().reverse_arrow()
+            });
+        }
+
+        output.extend(new_contexts);
 
         reference_pivot = next_reference_pivot;
         query_pivot = next_query_pivot;
@@ -194,36 +297,8 @@ fn get_read_rendering_info(
     // If forward: Change the right most rendering context that's not a softclip / del to >
     // If reverse: Change the left most rendering context that's not a softclip / del to >
 
-    if read.read.is_reverse() {
-        if let Some(context) = output.last_mut() {
-            if context.string.len() > 0 {
-                context.string.pop();
-                context.string.push('>');
-            }
-        }
-    } else {
-        if let Some(context) = output.first_mut() {
-            if context.string.len() > 0 {
-                context.string =
-                    ">".to_string() + &context.string.chars().skip(1).collect::<String>();
-            }
-        }
-    }
-
     // TODO: draw insertions
     Some(output)
-}
-
-fn get_segment_string(length: usize, is_reverse: Option<bool>) -> String {
-    match is_reverse {
-        Some(true) => (0..length)
-            .map(|i| if i == 0 { "<" } else { "-" })
-            .collect::<String>(),
-        Some(false) => (0..length)
-            .map(|i| if i == length - 1 { ">" } else { "-" })
-            .collect::<String>(),
-        None => "-".repeat(length),
-    }
 }
 
 /// Whether the cigar operation consumes reference.
@@ -254,5 +329,21 @@ fn consumes_query(op: &Cigar) -> bool {
         | Cigar::Diff(_l) => true,
 
         Cigar::Del(_l) | Cigar::RefSkip(_l) | Cigar::HardClip(_l) | Cigar::Pad(_l) => false,
+    }
+}
+
+/// Whether the cigar operation can be annotated with the < / > signs.
+/// Yes: M/I/S/=/X
+/// No: D/N/H/P
+fn can_be_annotated_with_arrows(op: &Cigar) -> bool {
+    match op {
+        Cigar::Match(_l)
+        | Cigar::SoftClip(_l)
+        | Cigar::Equal(_l)
+        | Cigar::Diff(_l)
+        | Cigar::Del(_l)
+        | Cigar::RefSkip(_l) => true,
+
+        Cigar::HardClip(_l) | Cigar::Pad(_l) | Cigar::Ins(_l) => false,
     }
 }

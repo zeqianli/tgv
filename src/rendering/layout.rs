@@ -1,3 +1,5 @@
+use std::path::Path;
+
 use crate::message::UIMessage;
 pub use crate::rendering::colors::Palette;
 pub use crate::rendering::{
@@ -275,9 +277,7 @@ impl MainLayout {
         repository: &Repository,
         pallete: &Palette,
     ) -> Result<(), TGVError> {
-        if let Some(background_color) = background_color {
-            buf.set_style(*rect, Style::default().bg(background_color));
-        }
+        let background_color = background_color.unwrap_or(pallete.background_1);
         match area_type {
             AreaType::Cytoband => render_cytobands(rect, buf, state, pallete)?,
             AreaType::Coordinate => render_coordinates(rect, buf, state)?,
@@ -291,7 +291,14 @@ impl MainLayout {
             AreaType::Alignment => {
                 if state.alignment_renderable()? {
                     if let Some(alignment) = &state.alignment {
-                        render_alignment(rect, buf, state.viewing_window()?, alignment, pallete)?;
+                        render_alignment(
+                            rect,
+                            buf,
+                            state.viewing_window()?,
+                            alignment,
+                            &background_color,
+                            pallete,
+                        )?;
                     }
                 }
             }
