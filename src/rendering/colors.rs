@@ -6,6 +6,7 @@ use ratatui::style::palette::tailwind;
 use ratatui::style::Color;
 
 // Background
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct Palette {
     /// Track alternating colors
     pub background_1: Color,
@@ -14,6 +15,8 @@ pub struct Palette {
     // Alignment
     pub MATCH_COLOR: Color,
     pub MISMATCH_COLOR: Color,
+    pub DELETION_COLOR: Color,
+    pub REFSKIP_COLOR: Color,
     pub SOFTCLIP_A: Color,
     pub SOFTCLIP_C: Color,
     pub SOFTCLIP_G: Color,
@@ -47,16 +50,23 @@ pub struct Palette {
     pub VCF2: Color,
     pub BED1: Color,
     pub BED2: Color,
+
+    // Gene track
+    pub EXON_BACKGROUND_COLOR: Color,
+    pub EXON_FOREGROUND_COLOR: Color,
+    pub GENE_BACKGROUND_COLOR: Color,
+    pub NON_CDS_EXON_BACKGROUND_COLOR: Color,
+    pub INTRON_FOREGROUND_COLOR: Color,
 }
 
 impl Palette {
-    pub fn softclip_color(&self, base: char) -> Color {
+    pub fn softclip_color(&self, base: u8) -> Color {
         match base {
-            'A' => self.SOFTCLIP_A,
-            'C' => self.SOFTCLIP_C,
-            'G' => self.SOFTCLIP_G,
-            'T' => self.SOFTCLIP_T,
-            'N' => self.SOFTCLIP_N,
+            b'A' => self.SOFTCLIP_A,
+            b'C' => self.SOFTCLIP_C,
+            b'G' => self.SOFTCLIP_G,
+            b'T' => self.SOFTCLIP_T,
+            b'N' => self.SOFTCLIP_N,
             _ => self.SOFTCLIP_N,
         }
     }
@@ -69,6 +79,9 @@ pub const DARK_THEME: Palette = Palette {
     // Alignment
     MATCH_COLOR: tailwind::GRAY.c500,
     MISMATCH_COLOR: Color::Rgb(251, 198, 207),
+    DELETION_COLOR: Color::Red,
+    REFSKIP_COLOR: Color::Red,
+
     SOFTCLIP_A: Color::LightRed,
     SOFTCLIP_C: Color::LightGreen,
     SOFTCLIP_G: Color::LightBlue,
@@ -101,4 +114,11 @@ pub const DARK_THEME: Palette = Palette {
     VCF2: tailwind::VIOLET.c400,
     BED1: tailwind::INDIGO.c900,
     BED2: tailwind::INDIGO.c400,
+
+    // Gene track
+    EXON_BACKGROUND_COLOR: tailwind::BLUE.c800,
+    EXON_FOREGROUND_COLOR: tailwind::WHITE,
+    GENE_BACKGROUND_COLOR: tailwind::BLUE.c600,
+    NON_CDS_EXON_BACKGROUND_COLOR: tailwind::BLUE.c500,
+    INTRON_FOREGROUND_COLOR: tailwind::BLUE.c300,
 };

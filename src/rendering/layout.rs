@@ -1,5 +1,5 @@
 use crate::message::UIMessage;
-pub use crate::rendering::colors::DARK_THEME;
+pub use crate::rendering::colors::Palette;
 pub use crate::rendering::{
     render_alignment, render_bed, render_console, render_coordinates, render_coverage,
     render_cytobands, render_error, render_sequence, render_track, render_variants,
@@ -7,7 +7,7 @@ pub use crate::rendering::{
 
 use crate::error::TGVError;
 use crate::register::{RegisterType, Registers};
-use crate::repository::{Repository};
+use crate::repository::Repository;
 use crate::settings::Settings;
 use crate::states::State;
 use crossterm::event;
@@ -232,6 +232,7 @@ impl MainLayout {
         state: &State,
         registers: &Registers,
         repository: &Repository,
+        pallete: &Palette,
     ) -> Result<(), TGVError> {
         let mut areas: Vec<(AreaType, Rect)> = Vec::new();
         self.root.get_areas(area, &mut areas)?;
@@ -242,8 +243,8 @@ impl MainLayout {
             let background_color = if area_type.alternate_background() {
                 alternate_background += 1;
                 match alternate_background % 2 {
-                    1 => Some(DARK_THEME.background_1),
-                    _ => Some(DARK_THEME.background_2),
+                    1 => Some(pallete.background_1),
+                    _ => Some(pallete.background_2),
                 }
             } else {
                 alternate_background = 0;
@@ -257,6 +258,7 @@ impl MainLayout {
                 state,
                 registers,
                 repository,
+                pallete,
             )?;
         }
         Ok(())
@@ -271,12 +273,13 @@ impl MainLayout {
         state: &State,
         registers: &Registers,
         repository: &Repository,
+        pallete: &Palette,
     ) -> Result<(), TGVError> {
         if let Some(background_color) = background_color {
             buf.set_style(*rect, Style::default().bg(background_color));
         }
         match area_type {
-            AreaType::Cytoband => render_cytobands(rect, buf, state)?,
+            AreaType::Cytoband => render_cytobands(rect, buf, state, pallete)?,
             AreaType::Coordinate => render_coordinates(rect, buf, state)?,
             AreaType::Coverage => {
                 if state.alignment_renderable()? {
@@ -288,18 +291,18 @@ impl MainLayout {
             AreaType::Alignment => {
                 if state.alignment_renderable()? {
                     if let Some(alignment) = &state.alignment {
-                        render_alignment(rect, buf, state.viewing_window()?, alignment)?;
+                        render_alignment(rect, buf, state.viewing_window()?, alignment, pallete)?;
                     }
                 }
             }
             AreaType::Sequence => {
                 if state.sequence_renderable()? {
-                    render_sequence(rect, buf, state)?;
+                    render_sequence(rect, buf, state, pallete)?;
                 }
             }
             AreaType::GeneTrack => {
                 if state.track_renderable()? {
-                    render_track(rect, buf, state)?;
+                    render_track(rect, buf, state, pallete)?;
                 }
             }
             AreaType::Console => {
@@ -312,12 +315,12 @@ impl MainLayout {
             }
             AreaType::Variant => {
                 if let Some(variants) = repository.variant_repository.as_ref() {
-                    render_variants(rect, buf, variants, state)?
+                    render_variants(rect, buf, variants, state, pallete)?
                 }
             }
             AreaType::Bed => {
                 if let Some(bed) = repository.bed_intervals.as_ref() {
-                    render_bed(rect, buf, bed, state)?
+                    render_bed(rect, buf, bed, state, pallete)?
                 }
             }
         };
@@ -345,11 +348,15 @@ fn resize_node(
 
             // Mouse down is inside the area
 
-            if direction == &Direction::Horizontal && (mouse_down_y < area.y || mouse_down_y > area.y + area.height) {
+            if direction == &Direction::Horizontal
+                && (mouse_down_y < area.y || mouse_down_y > area.y + area.height)
+            {
                 return Ok(());
             }
 
-            if direction == &Direction::Vertical && (mouse_down_y < area.y || mouse_down_y > area.y + area.height) {
+            if direction == &Direction::Vertical
+                && (mouse_down_y < area.y || mouse_down_y > area.y + area.height)
+            {
                 return Ok(());
             }
 
@@ -565,9 +572,7 @@ impl MouseRegister {
                 }))
             }
 
-            _ => {
-                Ok(None)
-            }
+            _ => Ok(None),
         }
     }
 

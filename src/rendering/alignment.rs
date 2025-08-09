@@ -1,7 +1,7 @@
 use crate::{
     alignment::{AlignedRead, Alignment},
     error::TGVError,
-    rendering::colors::DARK_THEME,
+    rendering::colors::Palette,
     window::{OnScreenCoordinate, ViewingWindow},
 };
 use ratatui::{buffer::Buffer, layout::Rect, style::Style};
@@ -13,11 +13,12 @@ pub fn render_alignment(
     buf: &mut Buffer,
     window: &ViewingWindow,
     alignment: &Alignment,
+    pallete: &Palette,
 ) -> Result<(), TGVError> {
     // This iterates through all cached reads and re-calculates coordinates for each movement.
     // Consider improvement.
     for read in alignment.reads.iter() {
-        if let Some(contexts) = get_read_rendering_info(read, window, area) {
+        if let Some(contexts) = get_read_rendering_info(read, window, area, pallete) {
             for context in contexts {
                 buf.set_string(
                     area.x + context.x,
@@ -44,9 +45,9 @@ fn get_read_rendering_info(
     read: &AlignedRead,
     viewing_window: &ViewingWindow,
     area: &Rect,
+    pallete: &Palette,
 ) -> Option<Vec<RenderingContext>> {
     let mut output: Vec<RenderingContext> = Vec::new();
-    let cigar_coordinates_and_styles = Vec::new();
 
     let mut reference_pivot: usize = read.start; // used in the output
     let mut query_pivot: usize = 0; // # bases relative to the softclip start.
@@ -58,9 +59,32 @@ fn get_read_rendering_info(
 
     let mut annotate_insertion_in_next_cigar = false;
 
+    // let mut index_for_direction_annotaiton = None;
+
+    //let mut indexes_for_insertion_annotation = 0;
+
+    // See: https://samtools.github.io/hts-specs/SAMv1.pdf
+
     for op in read.read.cigar().iter() {
+        let next_reference_pivot = if consumes_reference(op) {
+            reference_pivot + op.len() as usize
+            // Note that softclip does not consume query and is handled above.
+        } else {
+            reference_pivot
+        };
+
+        let next_query_pivot = if consumes_query(op) {
+            query_pivot + op.len() as usize
+        } else {
+            query_pivot
+        };
         match op {
             Cigar::SoftClip(l) => {
+                // S
+                // TODO:
+                // 1x zoom: display color
+                // 2x zoom: half-block rendering
+                // higher zoom: whole block color? half-block to the best ability? Think about this.
                 for i_base in query_pivot..query_pivot + *l as usize {
                     // Prevent cases when a soft clip is at the very starting of the reference genome:
                     //    ----------- (ref)
@@ -81,7 +105,7 @@ fn get_read_rendering_info(
                         )
                     {
                         let base = read.read.seq()[i_base];
-                        let style = Style::default().bg(DARK_THEME.softclip_color(base));
+                        let style = Style::default().bg(pallete.softclip_color(base));
                         output.push(RenderingContext {
                             x: onscreen_x,
                             y: onscreen_y,
@@ -96,60 +120,98 @@ fn get_read_rendering_info(
 
             Cigar::Ins(l) => {
                 annotate_insertion_in_next_cigar = true;
+                // TODO: draw the insertion.
             }
 
-            Cigar::Del() => {
-
+            Cigar::Del(l) | Cigar::RefSkip(l) => {
+                // D / N
+                // ---------------- ref
+                // ===----===       read (lines with no bckground colors)
+                if let Some((x, length)) = OnScreenCoordinate::onscreen_start_and_length(
+                    &viewing_window.onscreen_x_coordinate(reference_pivot, area),
+                    &viewing_window.onscreen_x_coordinate(next_reference_pivot, area),
+                    area,
+                ) {
+                    output.push(RenderingContext {
+                        x: x,
+                        y: onscreen_y,
+                        string: "-".repeat(length as usize),
+                        style: Style::default().fg(pallete.DELETION_COLOR),
+                    })
+                }
             }
 
-            Cigar::Diff() => {
+            Cigar::Diff(l) => {
+                // X
+                // TODO:
+                // 1x zoom: Display base letter + color
+                // 2x zoom: (?) Half-base rendering with mismatch color
+                //
 
+                //
+                if let Some((x, length)) = OnScreenCoordinate::onscreen_start_and_length(
+                    &viewing_window.onscreen_x_coordinate(reference_pivot, area),
+                    &viewing_window.onscreen_x_coordinate(next_reference_pivot, area),
+                    area,
+                ) {
+                    output.push(RenderingContext {
+                        x: x,
+                        y: onscreen_y,
+                        string: " ".repeat(length as usize),
+                        style: Style::default().bg(pallete.MISMATCH_COLOR),
+                    })
+                }
             }
 
-            Cigar::Match() => {
-
+            Cigar::Match(l) | Cigar::Equal(l) => {
+                // M / =
+                // Full color block
+                if let Some((x, length)) = OnScreenCoordinate::onscreen_start_and_length(
+                    &viewing_window.onscreen_x_coordinate(reference_pivot, area),
+                    &viewing_window.onscreen_x_coordinate(next_reference_pivot, area),
+                    area,
+                ) {
+                    output.push(RenderingContext {
+                        x: x,
+                        y: onscreen_y,
+                        string: " ".repeat(length as usize),
+                        style: Style::default().bg(pallete.MATCH_COLOR),
+                    })
+                }
             }
 
-            Cigar::Pad() => 
+            Cigar::HardClip(l) | Cigar::Pad(l) => {
+                // P / H
+                // Don't need to do anything
+            }
         }
 
-        if consumes_reference(op) {
-            reference_pivot += op.len() as usize;
-            // Note that softclip does not consume query and is handled above.
-        }
-
-        if consumes_query(op) {
-            query_pivot += op.len() as usize;
-        }
+        reference_pivot = next_reference_pivot;
+        query_pivot = next_query_pivot;
     }
 
     // Annotate read direction
+    // If forward: Change the right most rendering context that's not a softclip / del to >
+    // If reverse: Change the left most rendering context that's not a softclip / del to >
 
-    let n_cigar_segments = cigar_coordinates_and_styles.len();
-
-    for (i_cigar_segment, (start_coord, end_coord, style)) in cigar_segments.iter().enumerate() {
-        if let Some((x, length)) = OnScreenCoordinate::onscreen_start_and_length(
-            &viewing_window.onscreen_x_coordinate(*start_coord, area),
-            &viewing_window.onscreen_x_coordinate(*end_coord, area),
-            area,
-        ) {
-            output.push((
-                x,
-                onscreen_y,
-                get_segment_string(length, {
-                    if i_cigar_segment == 0 {
-                        Some(true)
-                    } else if i_cigar_segment == n_cigar_segments - 1 {
-                        Some(false)
-                    } else {
-                        None
-                    }
-                }),
-                *style,
-            ));
+    if read.read.is_reverse() {
+        if let Some(context) = output.last_mut() {
+            if context.string.len() > 0 {
+                context.string.pop();
+                context.string.push('>');
+            }
+        }
+    } else {
+        if let Some(context) = output.first_mut() {
+            if context.string.len() > 0 {
+                context.string =
+                    ">".to_string() + &context.string.chars().skip(1).collect::<String>();
+            }
         }
     }
-    output
+
+    // TODO: draw insertions
+    Some(output)
 }
 
 fn get_segment_string(length: usize, is_reverse: Option<bool>) -> String {
@@ -163,11 +225,6 @@ fn get_segment_string(length: usize, is_reverse: Option<bool>) -> String {
         None => "-".repeat(length),
     }
 }
-
-/// Render a read as sections of styled texts
-/// See: https://samtools.github.io/hts-specs/SAMv1.pdf
-/// Returns: Vec<
-fn get_cigar_coordinates_and_styles(read: &AlignedRead) -> Vec<(usize, usize, Style)> {}
 
 /// Whether the cigar operation consumes reference.
 /// Yes: M/D/N/=/X
@@ -197,18 +254,5 @@ fn consumes_query(op: &Cigar) -> bool {
         | Cigar::Diff(_l) => true,
 
         Cigar::Del(_l) | Cigar::RefSkip(_l) | Cigar::HardClip(_l) | Cigar::Pad(_l) => false,
-    }
-}
-
-/// Only labels that consumes reference are display onscreen.
-fn get_cigar_style(op: &Cigar) -> Style {
-    match op {
-        Cigar::Match(_l) | Cigar::Equal(_l) => Style::default().bg(colors::MATCH_COLOR),
-        // By SAM spec, M can also be mismatch. TODO: think about this in the future.
-        Cigar::Diff(_l) => Style::default().bg(colors::MISMATCH_COLOR),
-
-        Cigar::Del(_l) | Cigar::RefSkip(_l) => Style::default(),
-
-        _ => Style::default(),
     }
 }

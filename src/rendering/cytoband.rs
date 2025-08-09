@@ -1,7 +1,7 @@
 use crate::cytoband::{Cytoband, CytobandSegment, Stain};
 use crate::error::TGVError;
 use crate::helpers::get_abbreviated_length_string;
-use crate::rendering::colors;
+use crate::rendering::colors::Palette;
 use crate::states::State;
 use crate::window::linear_scale;
 
@@ -15,7 +15,12 @@ const CYTOBAND_TEXT_MIN_LEFT_SPACING: u16 = 12;
 const CYTOBAND_TEXT_RIGHT_SPACING: u16 = 7;
 const MIN_AREA_WIDTH: u16 = CYTOBAND_TEXT_MIN_LEFT_SPACING + CYTOBAND_TEXT_RIGHT_SPACING + 1;
 const MIN_AREA_HEIGHT: u16 = 2;
-pub fn render_cytobands(area: &Rect, buf: &mut Buffer, state: &State) -> Result<(), TGVError> {
+pub fn render_cytobands(
+    area: &Rect,
+    buf: &mut Buffer,
+    state: &State,
+    pallete: &Palette,
+) -> Result<(), TGVError> {
     if area.width <= MIN_AREA_WIDTH {
         return Ok(());
     }
@@ -98,7 +103,7 @@ pub fn render_cytobands(area: &Rect, buf: &mut Buffer, state: &State) -> Result<
             let cell = buf.cell_mut(Position::new(area.x + x, area.y));
             if let Some(cell) = cell {
                 cell.set_char(' ');
-                cell.set_bg(colors::HIGHLIGHT_COLOR);
+                cell.set_bg(pallete.HIGHLIGHT_COLOR);
             }
         }
     }
