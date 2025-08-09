@@ -2,19 +2,17 @@ use crate::error::TGVError;
 
 use crate::variant::VariantRepository;
 use crate::{
-    rendering::{self, intervals::render_simple_intervals},
+    rendering::{self, colors::Palette, intervals::render_simple_intervals},
     states::State,
 };
-use ratatui::{
-    buffer::Buffer,
-    layout::Rect,
-};
+use ratatui::{buffer::Buffer, layout::Rect};
 
 pub fn render_variants(
     area: &Rect,
     buf: &mut Buffer,
     variants: &VariantRepository,
     state: &State,
+    pallete: &Palette,
 ) -> Result<(), TGVError> {
     let variants = variants.variants.overlapping(&state.viewing_region()?)?;
     if !variants.is_empty() {
@@ -24,7 +22,7 @@ pub fn render_variants(
             buf,
             variants,
             state,
-            vec![rendering::colors::VCF1, rendering::colors::VCF2],
+            vec![pallete.VCF1, pallete.VCF2],
             first_color_index,
         )?;
     }

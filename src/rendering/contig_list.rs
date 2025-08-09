@@ -10,7 +10,7 @@ use ratatui::{
 };
 
 use crate::helpers::get_abbreviated_length_string;
-use crate::rendering::colors;
+use crate::rendering::colors::Palette;
 const MIN_CONTIG_NAME_SPACING: u16 = 10;
 const MIN_CONTIG_LENGTH_SPACING: u16 = 10;
 
@@ -19,6 +19,7 @@ pub fn render_contig_list(
     buf: &mut Buffer,
     state: &State,
     registers: &Registers,
+    pallete: &Palette,
 ) -> Result<(), TGVError> {
     if area.height <= 1 {
         return Ok(());
@@ -38,7 +39,7 @@ pub fn render_contig_list(
         let cell = buf.cell_mut(Position::new(x, area.y + selection_row));
         if let Some(cell) = cell {
             cell.set_char(' ');
-            cell.set_bg(colors::HIGHLIGHT_COLOR);
+            cell.set_bg(pallete.HIGHLIGHT_COLOR);
         }
     }
 
@@ -86,6 +87,7 @@ pub fn render_contig_list(
             contig_name_spacing,
             max_contig_length,
             y,
+            pallete,
         )?;
     }
 
@@ -120,6 +122,7 @@ fn render_contig_at_y(
     left_spacing: u16,
     max_contig_length: Option<usize>,
     y: u16,
+    pallete: &Palette,
 ) -> Result<(), TGVError> {
     let contig_name = contig_datum.contig.name.clone();
     let contig_length = contig_datum.length;

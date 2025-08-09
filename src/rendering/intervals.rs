@@ -1,17 +1,10 @@
 use crate::error::TGVError;
 
 use crate::intervals::GenomeInterval;
-use crate::{
-    states::State,
-    window::OnScreenCoordinate,
-};
+use crate::rendering::colors::Palette;
+use crate::{states::State, window::OnScreenCoordinate};
 
-use ratatui::{
-    buffer::Buffer,
-    layout::Rect,
-    style::Color,
-    style::Style,
-};
+use ratatui::{buffer::Buffer, layout::Rect, style::Color, style::Style};
 
 /// Simple rendering of intervals
 /// The upstream code is responsible to pass only relevant intervals to this function.
@@ -38,7 +31,7 @@ pub fn render_simple_intervals<T: GenomeInterval>(
             buf.set_string(
                 area.x + x as u16,
                 area.y,
-                " ".repeat(length),
+                " ".repeat(length as usize),
                 Style::default().bg(colors[i_color]),
             );
         }

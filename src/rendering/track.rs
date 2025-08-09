@@ -2,6 +2,7 @@ use crate::intervals::GenomeInterval;
 use crate::{
     error::TGVError,
     feature::{Gene, SubGeneFeatureType},
+    rendering::colors::Palette,
     states::State,
     strand::Strand,
     window::{OnScreenCoordinate, ViewingWindow},
@@ -16,10 +17,22 @@ const MIN_AREA_WIDTH: u16 = 5;
 const MIN_AREA_HEIGHT: u16 = 2;
 
 // Type alias for the complex return type
-type TrackRenderInfo = (usize, String, Style, Option<(usize, String)>);
+struct TrackRenderContext {
+    x: u16,
+    string: String,
+    style: Style,
+
+    // Gene label below the gene segment.
+    label_info: Option<(u16, String)>,
+}
 
 /// Render the genome features.
-pub fn render_track(area: &Rect, buf: &mut Buffer, state: &State) -> Result<(), TGVError> {
+pub fn render_track(
+    area: &Rect,
+    buf: &mut Buffer,
+    state: &State,
+    pallete: &Palette,
+) -> Result<(), TGVError> {
     if area.width < MIN_AREA_WIDTH || area.height < MIN_AREA_HEIGHT {
         return Ok(());
     }
@@ -29,22 +42,20 @@ pub fn render_track(area: &Rect, buf: &mut Buffer, state: &State) -> Result<(), 
 
     let mut right_most_label_onscreen_x = 0;
     for feature in track.genes().iter() {
-        for (track_x, track_string, track_style, label_info) in
-            get_rendering_info(window, area, feature)
-        {
+        for context in get_rendering_info(window, area, feature, pallete) {
             buf.set_string(
-                track_x as u16 + area.x,
+                context.x + area.x,
                 area.y,
-                track_string.clone(),
-                track_style,
+                context.string.clone(),
+                context.style,
             );
 
-            if let Some((label_x, label)) = label_info {
+            if let Some((label_x, label)) = context.label_info {
                 if area.height >= 2 && label_x > right_most_label_onscreen_x + 1 {
-                    right_most_label_onscreen_x = label_x + label.len() - 1;
+                    right_most_label_onscreen_x = label_x + label.len() as u16 - 1;
 
                     buf.set_string(
-                        label_x as u16 + area.x,
+                        label_x + area.x,
                         area.y + 1,
                         label.clone(),
                         Style::default(),
@@ -59,7 +70,12 @@ pub fn render_track(area: &Rect, buf: &mut Buffer, state: &State) -> Result<(), 
 
 const MIN_GENE_ON_SCREEN_LENGTH_TO_SHOW_EXONS: usize = 10;
 
-fn get_rendering_info(window: &ViewingWindow, area: &Rect, gene: &Gene) -> Vec<TrackRenderInfo> {
+fn get_rendering_info(
+    window: &ViewingWindow,
+    area: &Rect,
+    gene: &Gene,
+    pallete: &Palette,
+) -> Vec<TrackRenderContext> {
     // First, check if the gene should be rendered as a single segment or multiple segments.
 
     let gene_start_x = window.onscreen_x_coordinate(gene.start(), area);
@@ -73,21 +89,27 @@ fn get_rendering_info(window: &ViewingWindow, area: &Rect, gene: &Gene) -> Vec<T
         if let Some((x, length)) =
             OnScreenCoordinate::onscreen_start_and_length(&gene_start_x, &gene_end_x, area)
         {
-            let (string, style) = get_gene_segment_string_and_style(length, gene.strand.clone());
+            let (string, style) =
+                get_gene_segment_string_and_style(length, gene.strand.clone(), pallete);
 
             // label x and text
             let label = gene.name.to_string();
-            let label_x = x + (length.saturating_sub(label.len()) / 2);
+            let label_x = x + (length.saturating_sub(label.len() as u16) / 2);
 
-            vec![(x, string, style, Some((label_x, label)))]
+            vec![TrackRenderContext {
+                x,
+                string,
+                style,
+                label_info: Some((label_x, label)),
+            }]
         } else {
             vec![]
         }
     } else {
         // Render each exon as a separate segment.
-        let mut exons_info: Vec<TrackRenderInfo> = Vec::new();
-        let mut non_cds_exons_info: Vec<TrackRenderInfo> = Vec::new();
-        let mut introns_info: Vec<TrackRenderInfo> = Vec::new();
+        let mut exons_info: Vec<TrackRenderContext> = Vec::new();
+        let mut non_cds_exons_info: Vec<TrackRenderContext> = Vec::new();
+        let mut introns_info: Vec<TrackRenderContext> = Vec::new();
         let mut right_most_label_onscreen_x = 0;
         for (feature_start, feature_end, feature_type, feature_index) in gene.features() {
             let feature_start_x = window.onscreen_x_coordinate(feature_start, area);
@@ -102,48 +124,54 @@ fn get_rendering_info(window: &ViewingWindow, area: &Rect, gene: &Gene) -> Vec<T
                     length,
                     gene.strand.clone(),
                     &feature_type,
+                    pallete,
                 );
 
                 match feature_type {
                     SubGeneFeatureType::Exon => {
                         let label = format!("{}:exon{}", gene.name, feature_index);
 
-                        let label_x = x + (length.saturating_sub(label.len()) / 2);
-                        let label_right_coordinate = label_x + label.len() - 1; // inclusive
+                        let label_x = x + (length.saturating_sub(label.len() as u16) / 2);
+                        let label_right_coordinate = label_x + label.len() as u16 - 1; // inclusive
 
-                        exons_info.push((
+                        exons_info.push(TrackRenderContext {
                             x,
                             string,
                             style,
-                            if label_x > right_most_label_onscreen_x + 1 {
+                            label_info: if label_x > right_most_label_onscreen_x + 1 {
                                 right_most_label_onscreen_x = label_right_coordinate;
 
                                 Some((label_x, label))
                             } else {
                                 None
                             },
-                        ));
+                        });
                     }
                     SubGeneFeatureType::NonCDSExon => {
                         let label = gene.name.to_string();
-                        let label_x = x + (length.saturating_sub(label.len()) / 2);
-                        let label_right_coordinate = label_x + label.len() - 1; // inclusive
+                        let label_x = x + (length.saturating_sub(label.len() as u16) / 2);
+                        let label_right_coordinate = label_x + label.len() as u16 - 1; // inclusive
 
-                        non_cds_exons_info.push((
+                        non_cds_exons_info.push(TrackRenderContext {
                             x,
                             string,
                             style,
-                            if label_x > right_most_label_onscreen_x + 1 {
+                            label_info: if label_x > right_most_label_onscreen_x + 1 {
                                 right_most_label_onscreen_x = label_right_coordinate;
 
                                 Some((label_x, label))
                             } else {
                                 None
                             },
-                        ));
+                        });
                     }
                     SubGeneFeatureType::Intron => {
-                        introns_info.push((x, string, style, None));
+                        introns_info.push(TrackRenderContext {
+                            x,
+                            string,
+                            style,
+                            label_info: None,
+                        });
                     }
                 }
             }
@@ -152,21 +180,23 @@ fn get_rendering_info(window: &ViewingWindow, area: &Rect, gene: &Gene) -> Vec<T
         // The order decides rendering order.
         // Exons are on top of non-CDS exons, on top of introns.
 
-        [introns_info, non_cds_exons_info, exons_info].concat()
+        introns_info
+            .into_iter()
+            .chain(non_cds_exons_info.into_iter())
+            .chain(exons_info.into_iter())
+            .collect()
     }
 }
 
-const EXON_ARROW_GAP: usize = 5;
-const INTRON_ARROW_GAP: usize = 10;
-const GENE_ARROW_GAP: usize = 5;
+const EXON_ARROW_GAP: u16 = 5;
+const INTRON_ARROW_GAP: u16 = 10;
+const GENE_ARROW_GAP: u16 = 5;
 
-const EXON_BACKGROUND_COLOR: Color = tailwind::BLUE.c800;
-const EXON_FOREGROUND_COLOR: Color = tailwind::WHITE;
-const GENE_BACKGROUND_COLOR: Color = tailwind::BLUE.c600;
-const NON_CDS_EXON_BACKGROUND_COLOR: Color = tailwind::BLUE.c500;
-const INTRON_FOREGROUND_COLOR: Color = tailwind::BLUE.c300;
-
-fn get_gene_segment_string_and_style(length: usize, strand: Strand) -> (String, Style) {
+fn get_gene_segment_string_and_style(
+    length: u16,
+    strand: Strand,
+    pallete: &Palette,
+) -> (String, Style) {
     let string = match strand {
         Strand::Forward => (0..length)
             .map(|i| if i % GENE_ARROW_GAP == 0 { ">" } else { " " })
@@ -176,15 +206,16 @@ fn get_gene_segment_string_and_style(length: usize, strand: Strand) -> (String, 
             .collect::<String>(),
     };
 
-    let style = Style::default().bg(GENE_BACKGROUND_COLOR);
+    let style = Style::default().bg(pallete.GENE_BACKGROUND_COLOR);
 
     (string, style)
 }
 
 fn get_feature_segment_string_and_style(
-    length: usize,
+    length: u16,
     strand: Strand,
     feature_type: &SubGeneFeatureType,
+    pallete: &Palette,
 ) -> (String, Style) {
     let string = match (strand, feature_type) {
         (Strand::Forward, SubGeneFeatureType::Exon) => (0..length)
@@ -209,10 +240,12 @@ fn get_feature_segment_string_and_style(
 
     let style = match feature_type {
         SubGeneFeatureType::Exon => Style::default()
-            .fg(EXON_FOREGROUND_COLOR)
-            .bg(EXON_BACKGROUND_COLOR),
-        SubGeneFeatureType::Intron => Style::default().fg(INTRON_FOREGROUND_COLOR),
-        SubGeneFeatureType::NonCDSExon => Style::default().fg(NON_CDS_EXON_BACKGROUND_COLOR),
+            .fg(pallete.EXON_FOREGROUND_COLOR)
+            .bg(pallete.EXON_BACKGROUND_COLOR),
+        SubGeneFeatureType::Intron => Style::default().fg(pallete.INTRON_FOREGROUND_COLOR),
+        SubGeneFeatureType::NonCDSExon => {
+            Style::default().fg(pallete.NON_CDS_EXON_BACKGROUND_COLOR)
+        }
     };
 
     (string, style)

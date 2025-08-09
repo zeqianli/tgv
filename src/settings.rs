@@ -1,4 +1,5 @@
 use crate::error::TGVError;
+use crate::rendering::{Palette, DARK_THEME};
 use crate::ucsc::UcscHost;
 use crate::{message::StateMessage, reference::Reference};
 use clap::{Parser, Subcommand, ValueEnum};
@@ -138,6 +139,8 @@ pub struct Settings {
     pub ucsc_host: UcscHost,
 
     pub cache_dir: String,
+
+    pub palette: Palette,
 }
 
 /// Settings to browse alignments
@@ -239,6 +242,7 @@ impl Settings {
             test_mode: false,
             debug: cli.debug,
             cache_dir,
+            palette: DARK_THEME,
         })
     }
 
@@ -310,6 +314,7 @@ mod tests {
             debug: false,
             ucsc_host: UcscHost::Us,
             cache_dir: shellexpand::tilde("~/.tgv").to_string(),
+            palette: DARK_THEME,
         }
     }
 

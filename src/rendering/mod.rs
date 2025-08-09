@@ -15,6 +15,7 @@ mod track;
 mod variants;
 pub use alignment::render_alignment;
 pub use bed::render_bed;
+pub use colors::{Palette, DARK_THEME};
 pub use console::render_console;
 pub use contig_list::render_contig_list;
 pub use coordinate::render_coordinates;
@@ -30,12 +31,9 @@ pub use variants::render_variants;
 use crate::display_mode::DisplayMode;
 use crate::error::TGVError;
 use crate::register::Registers;
-use crate::repository::{Repository};
+use crate::repository::Repository;
 use crate::states::State;
-use ratatui::{
-    buffer::Buffer,
-    layout::Rect,
-};
+use ratatui::{buffer::Buffer, layout::Rect};
 
 pub struct RenderingState {
     last_frame_area: Rect,
@@ -87,6 +85,7 @@ impl RenderingState {
         state: &State,
         registers: &Registers,
         repository: &Repository,
+        pallete: &Palette,
     ) -> Result<(), TGVError> {
         match &state.display_mode {
             DisplayMode::Main => {
@@ -94,13 +93,13 @@ impl RenderingState {
                 // For now, fall back to existing layout
                 state
                     .layout
-                    .render_all(area, buf, state, registers, repository)?;
+                    .render_all(area, buf, state, registers, repository, pallete)?;
             }
             DisplayMode::Help => {
                 render_help(area, buf)?;
             }
             DisplayMode::ContigList => {
-                render_contig_list(area, buf, state, registers)?;
+                render_contig_list(area, buf, state, registers, pallete)?;
             }
         }
         Ok(())
