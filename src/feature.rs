@@ -1,4 +1,4 @@
-use crate::{contig::Contig, intervals::GenomeInterval, strand::Strand};
+use crate::{intervals::GenomeInterval, strand::Strand};
 
 // A feature is a interval on a contig.
 
@@ -12,7 +12,7 @@ pub enum SubGeneFeatureType {
 
 #[derive(Debug, Clone)]
 pub struct SubGeneFeature {
-    pub contig: Contig,
+    pub contig: usize,
     pub start: usize,
     pub end: usize,
     pub feature_type: SubGeneFeatureType,
@@ -27,8 +27,8 @@ impl GenomeInterval for SubGeneFeature {
         self.end
     }
 
-    fn contig(&self) -> &Contig {
-        &self.contig
+    fn contig(&self) -> usize {
+        self.contig
     }
 }
 
@@ -39,7 +39,7 @@ pub struct Gene {
     pub name: String,
 
     pub strand: Strand,
-    pub contig: Contig,
+    pub contig: usize,
     pub transcription_start: usize,
     pub transcription_end: usize,
 
@@ -96,8 +96,8 @@ impl GenomeInterval for Gene {
         self.transcription_end
     }
 
-    fn contig(&self) -> &Contig {
-        &self.contig
+    fn contig(&self) -> usize {
+        self.contig
     }
 }
 

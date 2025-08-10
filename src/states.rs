@@ -108,7 +108,7 @@ impl State {
         let viewing_window = self.viewing_window()?;
 
         Ok(Region {
-            contig: viewing_window.contig.clone(),
+            contig: viewing_window.contig,
             start: viewing_window.left(),
             end: viewing_window.right(self.current_frame_area()?),
         })
@@ -132,8 +132,8 @@ impl State {
         Ok(self.viewing_window()?.middle(self.current_frame_area()?))
     }
 
-    pub fn contig(&self) -> Result<Contig, TGVError> {
-        Ok(self.viewing_window()?.contig.clone())
+    pub fn contig(&self) -> Result<usize, TGVError> {
+        Ok(self.viewing_window()?.contig)
     }
 
     pub fn current_cytoband(&self) -> Result<Option<&Cytoband>, TGVError> {
@@ -612,12 +612,12 @@ impl StateHandler {
 
             match state.window {
                 Some(ref mut window) => {
-                    window.contig = contig.clone();
+                    window.contig = contig;
                     window.set_middle(&current_frame_area, n, None); // Don't know contig length yet.
                     window.set_top(0);
                 }
                 None => {
-                    state.window = Some(ViewingWindow::new_basewise_window(contig.clone(), n, 0));
+                    state.window = Some(ViewingWindow::new_basewise_window(contig, n, 0));
                 }
             }
             Ok(())

@@ -15,12 +15,12 @@ pub struct Sequence {
     /// Genome sequence
     pub sequence: Vec<u8>,
 
-    /// Contig name
-    pub contig: Contig,
+    /// Contig id
+    pub contig: usize,
 }
 
 impl Sequence {
-    pub fn new(start: usize, sequence: Vec<u8>, contig: Contig) -> Result<Self, ()> {
+    pub fn new(start: usize, sequence: Vec<u8>, contig: usize) -> Result<Self, ()> {
         if usize::MAX - start < sequence.len() {
             return Err(());
         }
