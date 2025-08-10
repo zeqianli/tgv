@@ -30,9 +30,7 @@ mod tracks;
 use crate::reference::Reference;
 use crate::tracks::{UCSCDownloader, UcscDbTrackService};
 use crossterm::{
-    event::{
-        DisableMouseCapture, EnableMouseCapture,
-    },
+    event::{DisableMouseCapture, EnableMouseCapture},
     execute,
 };
 use settings::{Cli, Commands, Settings};
@@ -70,7 +68,9 @@ async fn main() -> Result<(), TGVError> {
     let mut terminal = ratatui::init();
     execute!(stdout(), EnableMouseCapture)?;
 
-    let mut app = match App::new(settings).await {
+    // Gather resources before starting the app.
+
+    let mut app = match App::new(settings, &mut terminal).await {
         Ok(app) => app,
         Err(e) => {
             ratatui::restore();

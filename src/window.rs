@@ -18,6 +18,17 @@ pub struct ViewingWindow {
     zoom: usize,
 }
 
+impl Default for ViewingWindow {
+    fn default() -> Self {
+        Self {
+            contig: 0,
+            left: 0,
+            top: 0,
+            zoom: 1,
+        }
+    }
+}
+
 impl ViewingWindow {
     pub fn new_basewise_window(contig: usize, left: usize, top: usize) -> Self {
         Self {

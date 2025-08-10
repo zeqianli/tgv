@@ -6,21 +6,164 @@ use std::fmt;
 use std::fmt::Display;
 
 #[derive(Debug)]
-pub struct ContigDatum {
-    pub contig: Contig,             // Name
+pub struct Contig {
+    // name should match with the UCSC genome browser.
+    pub name: String,
+
+    /// Aliases:
+    /// - chr1 -> 1
+    /// - chromAlias table in the UCSC database
+    pub aliases: Vec<String>,
     pub length: Option<usize>,      // Length
     pub cytoband: Option<Cytoband>, // Cytoband
 
     cytoband_loaded: bool, // Whether this contig's cytoband has been quried.
 }
 
-impl ContigDatum {
+impl Contig {
+    const APPREVIATABLE_CHROMOSOMES: [&'static str; 25] = [
+        "1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11", "12", "13", "14", "15", "16",
+        "17", "18", "19", "20", "21", "22", "X", "Y", "MT",
+    ];
+
     pub fn name(&self) -> &str {
-        &self.contig.name
+        &self.name
     }
 
     pub fn length(&self) -> Option<usize> {
         self.length
+    }
+
+    pub fn new(name: &str, length: Option<usize>) -> Self {
+        let mut aliases = Vec::new();
+        if Contig::APPREVIATABLE_CHROMOSOMES.contains(&name) {
+            aliases.push(format!("chr{}", name));
+        }
+
+        if name.starts_with("chr") && Contig::APPREVIATABLE_CHROMOSOMES.contains(&&name[3..]) {
+            aliases.push(name[3..].to_string());
+        }
+
+        Contig {
+            name: name.to_string(),
+            aliases,
+            length,
+            cytoband: None,
+            cytoband_loaded: false,
+        }
+    }
+
+    // pub fn add_alias(&mut self, alias: &str) {
+    //     self.aliases.push(alias.to_string());
+    // }
+
+    // pub fn add_aliases(&mut self, aliases: Vec<String>) {
+    //     self.aliases.extend(aliases);
+    // }
+
+    // pub fn all_aliases(&self) -> Vec<String> {
+    //     let mut all_aliases = Vec::new();
+    //     all_aliases.push(self.name.clone());
+    //     all_aliases.extend(self.aliases.clone());
+    //     all_aliases
+    // }
+
+    /// Helper function to sort contigs by name.
+    /// 1. chromosomes start with "chr" comes first.
+    /// 2. Then, if it follows numbers, sort by numbers.
+    /// 3. chrX, chrY, chrM / chrMT comes next.
+    /// 4. Otherwise, sort by the alphabetical order.
+    pub fn contigs_sort(contigs: Vec<Contig>) -> Vec<Contig> {
+        let mut sorted_contigs = contigs;
+        sorted_contigs.sort_by(Contig::contigs_compare);
+        sorted_contigs
+    }
+
+    pub fn contigs_compare(a: &Contig, b: &Contig) -> std::cmp::Ordering {
+        let a_name = &a.name;
+        let b_name = &b.name;
+
+        let a_is_chr = a_name.starts_with("chr");
+        let b_is_chr = b_name.starts_with("chr");
+
+        if a_is_chr && !b_is_chr {
+            return std::cmp::Ordering::Less;
+        } else if !a_is_chr && b_is_chr {
+            return std::cmp::Ordering::Greater;
+        }
+
+        let numeric_part = |s: &String| -> Option<i32> {
+            if s.starts_with("chr") {
+                s[3..].parse().ok()
+            } else {
+                s.parse().ok()
+            }
+        };
+
+        let a_num = numeric_part(a_name);
+        let b_num = numeric_part(b_name);
+
+        if let (Some(na), Some(nb)) = (a_num, b_num) {
+            return na.cmp(&nb);
+        }
+        if a_num.is_some() {
+            return std::cmp::Ordering::Less;
+        }
+        if b_num.is_some() {
+            return std::cmp::Ordering::Greater;
+        }
+
+        let rank = |s: &String| {
+            let s_lower = s.to_lowercase();
+            if s_lower == "chrx" {
+                1
+            } else if s_lower == "chry" {
+                2
+            } else if s_lower == "chrm" || s_lower == "chrm" {
+                3
+            } else {
+                4
+            }
+        };
+
+        let a_rank = rank(a_name);
+        let b_rank = rank(b_name);
+
+        if a_rank != b_rank {
+            return a_rank.cmp(&b_rank);
+        }
+
+        a_name.cmp(b_name)
+    }
+}
+
+impl Eq for Contig {}
+
+impl PartialEq for Contig {
+    fn eq(&self, other: &Self) -> bool {
+        if self.name == other.name {
+            return true;
+        }
+
+        for alias in other.aliases.iter() {
+            if alias == &self.name {
+                return true;
+            }
+        }
+
+        for alias in self.aliases.iter() {
+            if alias == &other.name {
+                return true;
+            }
+
+            for alias in other.aliases.iter() {
+                if alias == &self.name {
+                    return true;
+                }
+            }
+        }
+
+        false
     }
 }
 
@@ -28,8 +171,9 @@ impl ContigDatum {
 #[derive(Debug)]
 pub struct ContigCollection {
     reference: Option<Reference>,
-    contigs: Vec<ContigDatum>,
+    contigs: Vec<Contig>,
 
+    /// contig name / aliases -> index
     contig_index: HashMap<String, usize>,
 }
 
@@ -42,77 +186,64 @@ impl ContigCollection {
         }
     }
 
-    pub fn first(&self) -> Result<&Contig, TGVError> {
-        Ok(&self.contigs[0].contig)
+    pub fn first(&self) -> Result<usize, TGVError> {
+        Ok(0)
     }
 
-    #[allow(dead_code)]
-    pub fn last(&self) -> Result<&Contig, TGVError> {
-        Ok(&self.contigs[self.contigs.len() - 1].contig)
+    pub fn last(&self) -> Result<usize, TGVError> {
+        if self.contigs.is_empty() {
+            return Err(TGVError::StateError("No contigs found".to_string()));
+        }
+        Ok(self.contigs.len() - 1)
     }
 
     pub fn get_index(&self, contig: &Contig) -> Option<usize> {
-        match self.contig_index.get(&contig.name) {
-            Some(index) => Some(*index),
-            None => {
-                for alias in contig.aliases.iter() {
-                    if let Some(index) = self.contig_index.get(alias) {
-                        return Some(*index);
-                    }
-                }
-                None
+        if let Some(index) = self.contig_index.get(&contig.name) {
+            return Some(*index);
+        }
+
+        for alias in contig.aliases.iter() {
+            if let Some(index) = self.contig_index.get(alias) {
+                return Some(*index);
             }
         }
+
+        None
     }
 
-    pub fn get_contig_by_str(&self, s: &str) -> Option<&Contig> {
-        match self.contig_index.get(s) {
-            Some(index) => Some(&self.contigs[*index].contig),
-            None => None,
-        }
+    pub fn get_contig_by_str(&self, contig_name: &str) -> Option<&Contig> {
+        self.contig_index
+            .get(contig_name)
+            .map(|index| &self.contigs[*index])
     }
 
     pub fn update_cytoband(
         &mut self,
-        contig: &Contig,
+        contig_index: usize,
         cytoband: Option<Cytoband>,
     ) -> Result<(), TGVError> {
-        match self.get_index(contig) {
-            Some(index) => {
-                self.contigs[index].cytoband = cytoband;
-                self.contigs[index].cytoband_loaded = true; // can be None
-                Ok(())
-            }
-            None => Err(TGVError::StateError(format!(
-                "Contig {} not found",
-                contig.name
-            ))),
+        if contig_index >= self.contigs.len() {
+            return Err(TGVError::StateError(format!(
+                "Contig index out of bounds: {}",
+                contig_index
+            )));
         }
+
+        self.contigs[contig_index].cytoband = cytoband;
+        self.contigs[contig_index].cytoband_loaded = true; // can be None
+        Ok(())
     }
 
-    pub fn update_or_add_contig(
-        &mut self,
-        contig: Contig,
-        length: Option<usize>,
-    ) -> Result<(), TGVError> {
-        match self.get_index(&contig) {
-            Some(index) => {
-                self.contigs[index].length = length;
+    pub fn update_or_add_contig(&mut self, contig: Contig) -> Result<(), TGVError> {
+        if self.get_index(&contig).is_none() {
+            self.contig_index
+                .insert(contig.name.clone(), self.contigs.len());
+            for alias in contig.aliases.iter() {
+                self.contig_index.insert(alias.clone(), self.contigs.len());
             }
-            None => {
-                self.contig_index
-                    .insert(contig.name.clone(), self.contigs.len());
-                for alias in contig.aliases.iter() {
-                    self.contig_index.insert(alias.clone(), self.contigs.len());
-                }
-                self.contigs.push(ContigDatum {
-                    contig,
-                    length,
-                    cytoband: None,
-                    cytoband_loaded: false,
-                });
-            }
+            self.contigs.push(contig);
         }
+
         Ok(())
     }
 
@@ -124,7 +255,7 @@ impl ContigCollection {
         // Use the indexed_reader::Builder pattern as shown in alignment.rs
 
         for (contig_name, contig_length) in bam.read_header()? {
-            self.update_or_add_contig(Contig::new(&contig_name), contig_length)?;
+            self.update_or_add_contig(Contig::new(&contig_name, contig_length))?;
         }
 
         Ok(())
@@ -139,31 +270,13 @@ impl ContigCollection {
         self.contigs[index].length
     }
 
-    pub fn next(&self, contig: &Contig, k: usize) -> Result<Contig, TGVError> {
-        match self.get_index(contig) {
-            Some(index) => {
-                let next_index = (index + k) % self.contigs.len();
-                Ok(self.contigs[next_index].contig.clone())
-            }
-            None => Err(TGVError::StateError(format!(
-                "Contig {} not found",
-                contig.name.clone()
-            ))),
-        }
+    pub fn next(&self, contig_index: &usize, k: usize) -> usize {
+        (contig_index + k) % self.contigs.len() // TODO: bound check
     }
 
-    pub fn previous(&self, contig: &Contig, k: usize) -> Result<Contig, TGVError> {
-        match self.get_index(contig) {
-            Some(index) => {
-                let previous_index =
-                    (index + self.contigs.len() - k % self.contigs.len()) % self.contigs.len();
-                Ok(self.contigs[previous_index].contig.clone())
-            }
-            None => Err(TGVError::StateError(format!(
-                "Contig {} not found",
-                contig.name.clone()
-            ))),
-        }
+    pub fn previous(&self, contig_index: &usize, k: usize) -> usize {
+        (contig_index + self.contigs.len() - k % self.contigs.len()) % self.contigs.len()
+        // TODO: bound check
     }
 
     pub fn cytoband(&self, contig: &Contig) -> Option<&Cytoband> {
@@ -178,16 +291,12 @@ impl ContigCollection {
         )))?;
         Ok(self.contigs[index].cytoband_loaded)
     }
-
-    pub fn all_data(&self) -> &Vec<ContigDatum> {
-        &self.contigs
-    }
 }
 
 impl Display for ContigCollection {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         for contig in &self.contigs {
-            writeln!(f, "{}: {:?}", contig.contig.name, contig.length)?;
+            writeln!(f, "{}: {:?}", contig.name, contig.length)?;
         }
         Ok(())
     }

@@ -26,15 +26,31 @@ pub struct App {
 
 // initialization
 impl App {
-    pub async fn new(settings: Settings) -> Result<Self, TGVError> {
-        let mut state = State::new(&settings)?;
-        let (repository, sequence_cache) = Repository::new(&settings).await?;
-        if let Some(sequence_cache) = sequence_cache {
-            // This is needed in local mode.
-            // sequence_cache holds the 2bit IO buffers and is mutable.
-            // But repository is immutable at runtime. So, the cache needs to be assigned to state.
-            state.sequence_cache = sequence_cache;
-        }
+    pub async fn new<B: Backend>(
+        settings: Settings,
+        terminal: &mut Terminal<B>,
+    ) -> Result<Self, TGVError> {
+        // Gather resources before initializing the state.
+
+        // TODO: initial window
+
+        let (repository, sequence_cache, mut track_cache) = Repository::new(&settings).await?;
+
+        let contig_collection = repository
+            .load_contig_data(&settings, &mut track_cache)
+            .await?;
+
+        let mut state = State::new(
+            &settings,
+            terminal.get_frame().area(),
+            sequence_cache,
+            track_cache,
+            contig_collection,
+        )?;
+
+        // Find the initial window
+        StateHandler::handle_initial_messages(&mut state, &repository, &settings, Vec::new())
+            .await?;
 
         let mouse_register = MouseRegister::new(&state.layout.root);
 
@@ -50,18 +66,10 @@ impl App {
     }
 }
 
-// event handling
 impl App {
     /// Main loop
     pub async fn run<B: Backend>(&mut self, terminal: &mut Terminal<B>) -> Result<(), TGVError> {
         while !self.state.exit {
-            let frame_area = terminal.get_frame().area();
-            self.state.update_frame_area(frame_area);
-
-            if !self.state.initialized() {
-                StateHandler::initialize(&mut self.state, &self.repository, &self.settings).await?;
-            }
-
             self.registers.update_state(&self.state)?;
 
             // Prepare rendering
@@ -100,11 +108,11 @@ impl App {
                     let ui_message = self
                         .mouse_register
                         .handle_mouse_event(&self.state.layout.root, mouse_event)?;
-                    let frame_area = *self.state.current_frame_area()?;
+                    let area = self.state.area;
                     if let Some(ui_message) = ui_message {
                         self.mouse_register.handle_ui_message(
                             &mut self.state.layout,
-                            frame_area,
+                            area,
                             ui_message,
                         )?;
                     }
@@ -122,10 +130,7 @@ impl App {
 
     /// Draw the app
     pub fn draw(&self, frame: &mut Frame) {
-        if !self.state.initialized() {
-            panic!("The initial window is not initialized");
-        }
-        frame.render_widget(self, frame.area());
+        frame.render_widget(self, self.state.area);
     }
 
     /// close connections
@@ -150,3 +155,38 @@ impl Widget for &App {
             .unwrap()
     }
 }
+
+/*
+Saving some initial window logics here:
+
+    fn go_to_contig_coordinate(
+        state: &mut State,
+        contig_str: &str,
+        n: usize,
+    ) -> Result<(), TGVError> {
+        // If bam_path is provided, check that the contig is valid.
+
+        if let Some(contig) = state.contigs.get_contig_by_str(contig_str) {
+            let current_frame_area = *state.current_frame_area()?;
+
+            match state.window {
+                Some(ref mut window) => {
+                    window.contig = contig;
+                    window.set_middle(&current_frame_area, n, None); // Don't know contig length yet.
+                    window.set_top(0);
+                }
+                None => {
+                    state.window = Some(ViewingWindow::new_basewise_window(contig, n, 0));
+                }
+            }
+            Ok(())
+        } else {
+            Err(TGVError::StateError(format!(
+                "Contig {:?} not found for reference {:?}",
+                contig_str, state.reference
+            )))
+        }
+    }
+
+
+*/

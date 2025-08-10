@@ -1,6 +1,7 @@
 use crate::{
     alignment::{Alignment, AlignmentBuilder},
     bed::BEDIntervals,
+    contig_collection::ContigCollection,
     error::TGVError,
     helpers::is_url,
     reference::Reference,
@@ -9,6 +10,7 @@ use crate::{
         SequenceCache, SequenceRepositoryEnum, TwoBitSequenceRepository, UCSCApiSequenceRepository,
     },
     settings::{BackendType, Settings},
+    tracks::TrackCache,
     tracks::{
         LocalDbTrackService, TrackService, TrackServiceEnum, UcscApiTrackService,
         UcscDbTrackService,
@@ -35,7 +37,7 @@ pub struct Repository {
 }
 
 impl Repository {
-    pub async fn new(settings: &Settings) -> Result<(Self, Option<SequenceCache>), TGVError> {
+    pub async fn new(settings: &Settings) -> Result<(Self, SequenceCache, TrackCache), TGVError> {
         let alignment_repository = AlignmentRepositoryEnum::from(settings)?;
 
         let variant_repository = match &settings.vcf_path {
@@ -51,7 +53,7 @@ impl Repository {
         let (track_service, sequence_service, sequence_cache): (
             Option<TrackServiceEnum>,
             Option<SequenceRepositoryEnum>,
-            Option<SequenceCache>,
+            SequenceCache,
         ) = match settings.reference.as_ref() {
             Some(reference) => {
                 let ts = match (&settings.backend, reference) {
@@ -97,7 +99,7 @@ impl Repository {
                         SequenceRepositoryEnum::UCSCApi(UCSCApiSequenceRepository::new(
                             reference.clone(),
                         )?),
-                        None,
+                        SequenceCache::new(),
                     )
                 } else {
                     // query the chromInfo table to get the 2bit file path
@@ -108,11 +110,11 @@ impl Repository {
                         settings.cache_dir.clone(),
                     )?;
 
-                    (SequenceRepositoryEnum::TwoBit(ss), Some(cache))
+                    (SequenceRepositoryEnum::TwoBit(ss), cache)
                 };
                 (Some(ts), Some(ss), sc)
             }
-            None => (None, None, None),
+            None => (None, None, SequenceCache::new()),
         };
 
         Ok((
@@ -124,6 +126,7 @@ impl Repository {
                 sequence_service,
             },
             sequence_cache,
+            TrackCache::new(),
         ))
     }
 
@@ -168,6 +171,47 @@ impl Repository {
     }
 }
 
+impl Repository {
+    pub async fn load_contig_data(
+        &self,
+        settings: &Settings,
+        track_cache: &mut TrackCache,
+    ) -> Result<ContigCollection, TGVError> {
+        let mut contig_data = ContigCollection::new(settings.reference.clone());
+
+        if let (Some(reference), Some(track_service)) =
+            (settings.reference.as_ref(), self.track_service.as_ref())
+        {
+            for (contig, length) in track_service
+                .get_all_contigs(reference, track_cache)
+                .await?
+            {
+                contig_data
+                    .update_or_add_contig(contig, Some(length))
+                    .unwrap();
+            }
+        }
+
+        // if let Some(reference) = reference {
+        //     match &reference {
+        //         Reference::Hg19 | Reference::Hg38 => {
+        //             for cytoband in Cytoband::from_human_reference(reference)?.iter() {
+        //                 contig_data.update_cytoband(&cytoband.contig, Some(cytoband.clone()))?;
+        //             }
+        //         }
+        //         _ => {}
+        //     }
+        // }
+
+        if !matches!(self.alignment_repository, AlignmentRepositoryEnum::None) {
+            contig_data
+                .update_from_bam(settings.reference.as_ref(), &self.alignment_repository)
+                .unwrap();
+        }
+
+        Ok(contig_data)
+    }
+}
 #[derive(Debug)]
 enum RemoteSource {
     S3,
