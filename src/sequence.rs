@@ -1,4 +1,3 @@
-use crate::contig::Contig;
 use crate::error::TGVError;
 use crate::reference::Reference;
 use crate::region::Region;

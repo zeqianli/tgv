@@ -14,7 +14,7 @@ pub fn render_variants(
     state: &State,
     pallete: &Palette,
 ) -> Result<(), TGVError> {
-    let variants = variants.variants.overlapping(&state.viewing_region()?)?;
+    let variants = variants.variants.overlapping(&state.viewing_region())?;
     if !variants.is_empty() {
         let first_color_index = variants[0].index % 2;
         render_simple_intervals(

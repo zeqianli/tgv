@@ -1,4 +1,4 @@
-use crate::contig_collection::ContigDatum;
+use crate::contig_collection::Contig;
 use crate::error::TGVError;
 use crate::register::Registers;
 use crate::states::State;
@@ -46,9 +46,9 @@ pub fn render_contig_list(
     // Left label: contig name
     let max_contig_name_length = state
         .contigs
-        .all_data()
+        .contigs
         .iter()
-        .map(|c| c.contig.name.len())
+        .map(|c| c.name.len())
         .max()
         .unwrap_or(0) as u16;
 
@@ -60,7 +60,7 @@ pub fn render_contig_list(
 
     // Right label: contig length
     let mut max_contig_length: Option<usize> = None;
-    for contig in state.contigs.all_data() {
+    for contig in state.contigs.contigs.iter() {
         if let Some(length) = contig.length {
             if let Some(max_length) = max_contig_length {
                 max_contig_length = Some(max_length.max(length));
@@ -77,13 +77,11 @@ pub fn render_contig_list(
     // Middle: contig bars
     let selected_index = registers.contig_list.cursor_position;
 
-    for (y, contig_index) in
-        get_indexes(area.height, state.contigs.all_data().len(), selected_index)
-    {
+    for (y, contig_index) in get_indexes(area.height, state.contigs.contigs.len(), selected_index) {
         render_contig_at_y(
             area,
             buf,
-            &state.contigs.all_data()[contig_index],
+            &state.contigs.contigs[contig_index],
             contig_name_spacing,
             max_contig_length,
             y,
@@ -118,14 +116,14 @@ fn get_indexes(height: u16, n_contigs: usize, selected_index: usize) -> Vec<(u16
 fn render_contig_at_y(
     area: Rect,
     buf: &mut Buffer,
-    contig_datum: &ContigDatum,
+    contig: &Contig,
     left_spacing: u16,
     max_contig_length: Option<usize>,
     y: u16,
     pallete: &Palette,
 ) -> Result<(), TGVError> {
-    let contig_name = contig_datum.contig.name.clone();
-    let contig_length = contig_datum.length;
+    let contig_name = contig.name.clone();
+    let contig_length = contig.length;
 
     buf.set_string(area.x, area.y + y, contig_name, Style::default());
 

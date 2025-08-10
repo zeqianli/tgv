@@ -38,11 +38,10 @@ pub fn render_track(
     }
 
     let track = state.track_checked()?;
-    let window = state.viewing_window()?;
 
     let mut right_most_label_onscreen_x = 0;
     for feature in track.genes().iter() {
-        for context in get_rendering_info(window, area, feature, pallete) {
+        for context in get_rendering_info(&state.window, area, feature, pallete) {
             buf.set_string(
                 context.x + area.x,
                 area.y,

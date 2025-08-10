@@ -1,6 +1,5 @@
 use crate::tracks::{TrackCache, TrackService, TRACK_PREFERENCES};
 use crate::{
-    contig::Contig,
     cytoband::{Cytoband, CytobandSegment, Stain},
     error::TGVError,
     feature::{Gene, SubGeneFeature},

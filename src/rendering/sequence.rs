@@ -12,10 +12,10 @@ pub fn render_sequence(
     state: &State,
     pallete: &Palette,
 ) -> Result<(), TGVError> {
-    let region = &state.viewing_region()?;
+    let region = &state.viewing_region();
 
     if let Some(sequence) = &state.sequence {
-        match state.viewing_window()?.zoom() {
+        match state.window.zoom() {
             1 => render_sequence_at_1x(area, buf, region, sequence, pallete),
             2 => render_sequence_at_2x(area, buf, region, sequence, pallete),
             _ => Ok(()),

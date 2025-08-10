@@ -66,11 +66,11 @@ impl RenderingState {
     }
 
     pub fn update(&mut self, state: &State) -> Result<&mut Self, TGVError> {
-        if self.last_frame_area.width != state.current_frame_area()?.width
-            || self.last_frame_area.height != state.current_frame_area()?.height
+        if self.last_frame_area.width != state.area.width
+            || self.last_frame_area.height != state.area.height
         {
             self.refresh = true;
-            self.last_frame_area = *state.current_frame_area()?;
+            self.last_frame_area = state.area;
         } else {
             self.refresh = false;
         }

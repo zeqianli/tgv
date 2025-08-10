@@ -15,7 +15,7 @@ pub fn render_bed(
     pallete: &Palette,
 ) -> Result<(), TGVError> {
     //panic!("{:?}", bed);
-    let intervals = bed.intervals.overlapping(&state.viewing_region()?)?;
+    let intervals = bed.intervals.overlapping(&state.viewing_region())?;
     if !intervals.is_empty() {
         let first_color_index = intervals[0].index % 2;
         render_simple_intervals(

@@ -1,7 +1,6 @@
 mod alignment;
 mod app;
 mod bed;
-mod contig;
 mod contig_collection;
 mod cytoband;
 mod display_mode;

@@ -1,6 +1,6 @@
 use crate::error::TGVError;
 use crate::repository::{AlignmentRepository, AlignmentRepositoryEnum};
-use crate::{contig::Contig, cytoband::Cytoband, reference::Reference};
+use crate::{cytoband::Cytoband, reference::Reference};
 use std::collections::HashMap;
 use std::fmt;
 use std::fmt::Display;
@@ -171,10 +171,10 @@ impl PartialEq for Contig {
 #[derive(Debug)]
 pub struct ContigCollection {
     reference: Option<Reference>,
-    contigs: Vec<Contig>,
+    pub contigs: Vec<Contig>,
 
     /// contig name / aliases -> index
-    contig_index: HashMap<String, usize>,
+    contig_lookup: HashMap<String, usize>,
 }
 
 impl ContigCollection {
@@ -182,7 +182,7 @@ impl ContigCollection {
         Self {
             reference,
             contigs: Vec::new(),
-            contig_index: HashMap::new(),
+            contig_lookup: HashMap::new(),
         }
     }
 
@@ -197,13 +197,20 @@ impl ContigCollection {
         Ok(self.contigs.len() - 1)
     }
 
+    pub fn get(&self, index: usize) -> Result<&Contig, TGVError> {
+        self.contigs.get(index).ok_or(TGVError::StateError(format!(
+            "Contig index out of bounds: {}",
+            index
+        )))
+    }
+
     pub fn get_index(&self, contig: &Contig) -> Option<usize> {
-        if let Some(index) = self.contig_index.get(&contig.name) {
+        if let Some(index) = self.contig_lookup.get(&contig.name) {
             return Some(*index);
         }
 
         for alias in contig.aliases.iter() {
-            if let Some(index) = self.contig_index.get(alias) {
+            if let Some(index) = self.contig_lookup.get(alias) {
                 return Some(*index);
             }
         }
@@ -212,7 +219,7 @@ impl ContigCollection {
     }
 
     pub fn get_contig_by_str(&self, contig_name: &str) -> Option<&Contig> {
-        self.contig_index
+        self.contig_lookup
             .get(contig_name)
             .map(|index| &self.contigs[*index])
     }
@@ -236,10 +243,10 @@ impl ContigCollection {
 
     pub fn update_or_add_contig(&mut self, contig: Contig) -> Result<(), TGVError> {
         if self.get_index(&contig).is_none() {
-            self.contig_index
+            self.contig_lookup
                 .insert(contig.name.clone(), self.contigs.len());
             for alias in contig.aliases.iter() {
-                self.contig_index.insert(alias.clone(), self.contigs.len());
+                self.contig_lookup.insert(alias.clone(), self.contigs.len());
             }
             self.contigs.push(contig);
         }
@@ -279,9 +286,8 @@ impl ContigCollection {
         // TODO: bound check
     }
 
-    pub fn cytoband(&self, contig: &Contig) -> Option<&Cytoband> {
-        let index = self.get_index(contig)?;
-        self.contigs[index].cytoband.as_ref()
+    pub fn cytoband(&self, contig_index: usize) -> Option<&Cytoband> {
+        self.get(contig_index).unwrap().cytoband.as_ref() // TODO: bound check
     }
 
     pub fn cytoband_is_loaded(&self, contig: &Contig) -> Result<bool, TGVError> {

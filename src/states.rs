@@ -6,7 +6,6 @@ use crate::settings::Settings;
 use crate::tracks::{TrackCache, TrackService};
 use crate::{
     alignment::Alignment,
-    contig::Contig,
     contig_collection::ContigCollection,
     cytoband::Cytoband,
     display_mode::DisplayMode,
@@ -131,12 +130,7 @@ impl State {
 
     /// Maximum length of the contig.
     pub fn contig_length(&self) -> Result<Option<usize>, TGVError> {
-        let contig = self.contig();
-
-        if let Some(length) = self.contigs.length(&contig) {
-            return Ok(Some(length));
-        }
-        Ok(None)
+        Ok(self.contigs.get(self.contig())?.length)
     }
 
     /// Get the reference if set.
