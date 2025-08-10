@@ -34,16 +34,16 @@ pub enum RenderingContextKind {
 #[derive(Clone, Debug)]
 pub struct RenderingContext {
     /// Start coordinate of a displayed segment
-    start: usize,
+    pub start: usize,
 
     /// End coordinates of a displayed segmenbt
-    end: usize,
+    pub end: usize,
 
     /// The renderer will decide style based on the cigar segment kind.
-    kind: RenderingContextKind,
+    pub kind: RenderingContextKind,
 
     /// Mismatches, insertions, arrows, etc
-    modifiers: Vec<RenderingContextModifier>,
+    pub modifiers: Vec<RenderingContextModifier>,
 }
 
 impl RenderingContext {
