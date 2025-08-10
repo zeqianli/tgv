@@ -1,6 +1,6 @@
 use crate::error::TGVError;
+use crate::region::Region;
 use crate::sequence::Sequence;
-use crate::{contig::Contig, region::Region};
 use rust_htslib::bam::ext::BamRecordExtensions;
 use rust_htslib::bam::record::{Cigar, CigarStringView};
 use rust_htslib::bam::{Read, Record};

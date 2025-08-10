@@ -169,7 +169,7 @@ mod tests {
 
         let mut terminal = Terminal::new(TestBackend::new(50, 20)).unwrap();
 
-        let mut app = App::new(settings).await.unwrap();
+        let mut app = App::new(settings, &mut terminal).await.unwrap();
         app.run(&mut terminal).await.unwrap();
         app.close().await.unwrap();
 
