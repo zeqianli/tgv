@@ -44,10 +44,7 @@ impl Registers {
 
     pub fn update_state(&mut self, state: &State) -> Result<(), TGVError> {
         if self.current != RegisterType::ContigList {
-            self.contig_list.cursor_position = state
-                .contigs
-                .get_index(&state.contig()?)
-                .ok_or(TGVError::RegisterError("No contigs".to_string()))?;
+            self.contig_list.cursor_position = state.contig_index();
         }
         Ok(())
     }
@@ -456,7 +453,7 @@ impl CommandModeRegister {
                 Err(_) => Ok(vec![StateMessage::GoToGene(split[0].to_string())]),
             },
             2 => match split[1].parse::<usize>() {
-                Ok(n) => Ok(vec![StateMessage::GotoContigCoordinate(
+                Ok(n) => Ok(vec![StateMessage::GotoContigNameCoordinate(
                     split[0].to_string(),
                     n,
                 )]),
@@ -521,7 +518,7 @@ impl Register for ContigListModeRegister {
         match key_event.code {
             KeyCode::Char('j') | KeyCode::Down => {
                 self.cursor_position = self.cursor_position.saturating_add(1);
-                let total_n_contigs = state.contigs.all_data().len();
+                let total_n_contigs = state.contig_header.contigs.len();
                 if self.cursor_position >= total_n_contigs && total_n_contigs > 0 {
                     self.cursor_position = total_n_contigs - 1;
                 }
@@ -546,11 +543,11 @@ mod tests {
     #[rstest]
     #[case("q", Ok(vec![StateMessage::Quit]))]
     #[case("1234", Ok(vec![StateMessage::GotoCoordinate(1234)]))]
-    #[case("chr1:1000", Ok(vec![StateMessage::GotoContigCoordinate(
+    #[case("chr1:1000", Ok(vec![StateMessage::GotoContigNameCoordinate(
         "chr1".to_string(),
         1000,
     )]))]
-    #[case("17:7572659", Ok(vec![StateMessage::GotoContigCoordinate(
+    #[case("17:7572659", Ok(vec![StateMessage::GotoContigNameCoordinate(
         "17".to_string(),
         7572659,
     )]))]

@@ -1,5 +1,6 @@
 use crate::tracks::{TrackCache, TrackService, TRACK_PREFERENCES};
 use crate::{
+    contig_collection::{Contig, ContigHeader},
     cytoband::{Cytoband, CytobandSegment, Stain},
     error::TGVError,
     feature::{Gene, SubGeneFeature},
@@ -171,7 +172,7 @@ impl TrackService for LocalDbTrackService {
         &self,
         reference: &Reference,
         cache: &mut TrackCache,
-    ) -> Result<Vec<(Contig, usize)>, TGVError> {
+    ) -> Result<Vec<Contig>, TGVError> {
         if let Ok(rows_with_alias) = sqlx::query(
             "SELECT chromInfo.chrom as chrom, chromInfo.size as size, chromAlias.alias as alias
              FROM chromInfo 
@@ -182,32 +183,29 @@ impl TrackService for LocalDbTrackService {
         .fetch_all(&*self.pool)
         .await
         {
-            let mut contigs_hashmap: HashMap<String, (Contig, usize)> = HashMap::new();
+            let mut contigs_hashmap: HashMap<String, Contig> = HashMap::new();
             for row in rows_with_alias {
                 let chrom: String = row.try_get("chrom")?;
                 let size: i64 = row.try_get("size")?;
                 let alias: String = row.try_get("alias")?;
 
                 match contigs_hashmap.get_mut(&chrom) {
-                    Some((ref mut contig, _)) => {
-                        contig.alias(&alias);
+                    Some(ref mut contig) => {
+                        contig.add_alias(&alias);
                     }
                     None => {
-                        let mut contig = Contig::new(&chrom);
-                        contig.alias(&alias);
-                        contigs_hashmap.insert(chrom.clone(), (contig, size as usize));
+                        let mut contig = Contig::new(&chrom, Some(size as usize));
+                        contig.add_alias(&alias);
+                        contigs_hashmap.insert(chrom.clone(), contig);
                     }
                 }
             }
-            let mut contigs = contigs_hashmap
-                .values()
-                .cloned()
-                .collect::<Vec<(Contig, usize)>>();
-            contigs.sort_by(|(a, length_a), (b, length_b)| {
+            let mut contigs = contigs_hashmap.into_values().collect::<Vec<Contig>>();
+            contigs.sort_by(|a, b| {
                 if a.name.starts_with("chr") || b.name.starts_with("chr") {
-                    Contig::contigs_compare(a, b)
+                    Contig::contigs_compare(&a, &b)
                 } else {
-                    length_b.cmp(length_a) // Sort by length in descending order
+                    b.length().cmp(&a.length()) // Sort by length in descending order
                 }
             });
 
@@ -227,15 +225,15 @@ impl TrackService for LocalDbTrackService {
                 .map(|row| {
                     let chrom: String = row.try_get("chrom")?;
                     let size: i64 = row.try_get("size")?;
-                    Ok((Contig::new(&chrom), size as usize))
+                    Ok(Contig::new(&chrom, Some(size as usize)))
                 })
-                .collect::<Result<Vec<(Contig, usize)>, TGVError>>()?;
+                .collect::<Result<Vec<Contig>, TGVError>>()?;
 
-            contigs.sort_by(|(a, length_a), (b, length_b)| {
+            contigs.sort_by(|a, b| {
                 if a.name.starts_with("chr") || b.name.starts_with("chr") {
-                    Contig::contigs_compare(a, b)
+                    Contig::contigs_compare(&a, &b)
                 } else {
-                    length_b.cmp(length_a) // Sort by length in descending order
+                    b.length().cmp(&a.length()) // Sort by length in descending order
                 }
             });
 

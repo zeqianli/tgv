@@ -3,7 +3,7 @@ use ratatui::layout::Rect;
 
 #[derive(Clone)]
 pub struct ViewingWindow {
-    pub contig: usize,
+    pub contig_index: usize,
 
     /// Left most genome coordinate displayed on the screen.
     /// 1-based, inclusive.
@@ -20,7 +20,7 @@ pub struct ViewingWindow {
 impl Default for ViewingWindow {
     fn default() -> Self {
         Self {
-            contig: 0,
+            contig_index: 0,
             left: 0,
             top: 0,
             zoom: 1,
@@ -31,7 +31,7 @@ impl Default for ViewingWindow {
 impl ViewingWindow {
     pub fn new_basewise_window(contig: usize, left: usize, top: usize) -> Self {
         Self {
-            contig,
+            contig_index: contig,
             left,
             top,
             zoom: 1,
@@ -40,7 +40,7 @@ impl ViewingWindow {
 
     pub fn new_zoom_out_window(contig: usize, left: usize, top: usize, zoom: usize) -> Self {
         Self {
-            contig,
+            contig_index: contig,
             left,
             top,
             zoom,

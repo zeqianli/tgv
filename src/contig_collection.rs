@@ -5,7 +5,7 @@ use std::collections::HashMap;
 use std::fmt;
 use std::fmt::Display;
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Contig {
     // name should match with the UCSC genome browser.
     pub name: String,
@@ -53,9 +53,9 @@ impl Contig {
         }
     }
 
-    // pub fn add_alias(&mut self, alias: &str) {
-    //     self.aliases.push(alias.to_string());
-    // }
+    pub fn add_alias(&mut self, alias: &str) {
+        self.aliases.push(alias.to_string());
+    }
 
     // pub fn add_aliases(&mut self, aliases: Vec<String>) {
     //     self.aliases.extend(aliases);
@@ -169,7 +169,7 @@ impl PartialEq for Contig {
 
 /// A collection of contigs. This helps relative contig movements.
 #[derive(Debug)]
-pub struct ContigCollection {
+pub struct ContigHeader {
     reference: Option<Reference>,
     pub contigs: Vec<Contig>,
 
@@ -177,7 +177,7 @@ pub struct ContigCollection {
     contig_lookup: HashMap<String, usize>,
 }
 
-impl ContigCollection {
+impl ContigHeader {
     pub fn new(reference: Option<Reference>) -> Self {
         Self {
             reference,
@@ -299,7 +299,7 @@ impl ContigCollection {
     }
 }
 
-impl Display for ContigCollection {
+impl Display for ContigHeader {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         for contig in &self.contigs {
             writeln!(f, "{}: {:?}", contig.name, contig.length)?;

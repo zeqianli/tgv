@@ -273,7 +273,7 @@ impl Settings {
         if split.len() == 2 {
             match split[1].parse::<usize>() {
                 Ok(n) => {
-                    return Ok(vec![StateMessage::GotoContigCoordinate(
+                    return Ok(vec![StateMessage::GotoContigNameCoordinate(
                         split[0].to_string(),
                         n,
                     )]);
@@ -350,7 +350,7 @@ mod tests {
     }))]
     #[case("tgv input.bam -r chr1:12345", Ok(Settings {
         bam_path: Some("input.bam".to_string()),
-        initial_state_messages: vec![StateMessage::GotoContigCoordinate(
+        initial_state_messages: vec![StateMessage::GotoContigNameCoordinate(
             "chr1".to_string(),
             12345,
         )],
@@ -378,7 +378,7 @@ mod tests {
     #[case("tgv input.bam -r 1:12345 --no-reference", Ok(Settings {
         bam_path: Some("input.bam".to_string()),
         reference: None,
-        initial_state_messages: vec![StateMessage::GotoContigCoordinate(
+        initial_state_messages: vec![StateMessage::GotoContigNameCoordinate(
             "1".to_string(),
             12345,
         )],

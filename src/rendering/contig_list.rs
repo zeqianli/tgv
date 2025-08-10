@@ -45,7 +45,7 @@ pub fn render_contig_list(
 
     // Left label: contig name
     let max_contig_name_length = state
-        .contigs
+        .contig_header
         .contigs
         .iter()
         .map(|c| c.name.len())
@@ -60,7 +60,7 @@ pub fn render_contig_list(
 
     // Right label: contig length
     let mut max_contig_length: Option<usize> = None;
-    for contig in state.contigs.contigs.iter() {
+    for contig in state.contig_header.contigs.iter() {
         if let Some(length) = contig.length {
             if let Some(max_length) = max_contig_length {
                 max_contig_length = Some(max_length.max(length));
@@ -77,11 +77,15 @@ pub fn render_contig_list(
     // Middle: contig bars
     let selected_index = registers.contig_list.cursor_position;
 
-    for (y, contig_index) in get_indexes(area.height, state.contigs.contigs.len(), selected_index) {
+    for (y, contig_index) in get_indexes(
+        area.height,
+        state.contig_header.contigs.len(),
+        selected_index,
+    ) {
         render_contig_at_y(
             area,
             buf,
-            &state.contigs.contigs[contig_index],
+            &state.contig_header.contigs[contig_index],
             contig_name_spacing,
             max_contig_length,
             y,

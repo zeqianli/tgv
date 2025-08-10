@@ -1,7 +1,7 @@
 use crate::{
     alignment::{Alignment, AlignmentBuilder},
     bed::BEDIntervals,
-    contig_collection::ContigCollection,
+    contig_collection::ContigHeader,
     error::TGVError,
     helpers::is_url,
     reference::Reference,
@@ -176,8 +176,8 @@ impl Repository {
         &self,
         settings: &Settings,
         track_cache: &mut TrackCache,
-    ) -> Result<ContigCollection, TGVError> {
-        let mut contig_data = ContigCollection::new(settings.reference.clone());
+    ) -> Result<ContigHeader, TGVError> {
+        let mut contig_data = ContigHeader::new(settings.reference.clone());
 
         if let (Some(reference), Some(track_service)) =
             (settings.reference.as_ref(), self.track_service.as_ref())

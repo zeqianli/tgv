@@ -4,7 +4,7 @@ mod ucsc_api;
 mod ucsc_db;
 
 use crate::{
-    contig::Contig,
+    contig_collection::{Contig, ContigHeader},
     cytoband::Cytoband,
     error::TGVError,
     feature::{Gene, SubGeneFeature},
@@ -37,8 +37,8 @@ pub struct TrackCache {
     /// Contig name/aliases -> Track
     tracks: Vec<Option<Track<Gene>>>,
 
-    /// Contig name/aliases -> Index
-    tracks_by_contig: HashMap<String, usize>,
+    /// Contig index -> Track index
+    tracks_by_contig: HashMap<usize, usize>,
 
     /// Gene name -> Option<Gene>.
     /// If the gene name is not found, the value is None.
@@ -73,29 +73,16 @@ impl TrackCache {
         }
     }
 
-    pub fn get_track_index(&self, contig: &Contig) -> Option<usize> {
-        match self.tracks_by_contig.get(&contig.name) {
-            Some(index) => Some(*index),
-            None => {
-                for alias in contig.aliases.iter() {
-                    if let Some(index) = self.tracks_by_contig.get(alias) {
-                        return Some(*index);
-                    }
-                }
-                None
-            }
-        }
-    }
-
-    pub fn includes_contig(&self, contig: &Contig) -> bool {
-        self.get_track_index(contig).is_some()
+    pub fn includes_contig(&self, contig_index: usize) -> bool {
+        self.tracks_by_contig.contains_key(&contig_index)
     }
 
     /// Note that this returns None both when the contig is not queried,
     ///    and returns Some(None) when the contig is queried but the track data is not found.
-    pub fn get_track(&self, contig: &Contig) -> Option<Option<&Track<Gene>>> {
-        self.get_track_index(contig)
-            .map(|index| self.tracks[index].as_ref())
+    pub fn get_track(&self, contig_index: usize) -> Option<Option<&Track<Gene>>> {
+        self.tracks_by_contig
+            .get(&contig_index)
+            .map(|index| self.tracks[*index].as_ref())
     }
 
     pub fn includes_gene(&self, gene_name: &str) -> bool {
@@ -108,7 +95,7 @@ impl TrackCache {
         self.gene_by_name.get(gene_name).map(|gene| gene.as_ref())
     }
 
-    pub fn add_track(&mut self, contig: &Contig, track: Option<Track<Gene>>) {
+    pub fn add_track(&mut self, contig_index: usize, track: Option<Track<Gene>>) {
         if let Some(track) = &track {
             for (i, gene) in track.genes().iter().enumerate() {
                 self.gene_by_name
@@ -117,11 +104,7 @@ impl TrackCache {
         }
         self.tracks.push(track);
         self.tracks_by_contig
-            .insert(contig.name.clone(), self.tracks.len() - 1);
-        for alias in contig.aliases.iter() {
-            self.tracks_by_contig
-                .insert(alias.clone(), self.tracks.len() - 1);
-        }
+            .insert(contig_index, self.tracks.len() - 1);
     }
 
     pub fn get_preferred_track_name(&self) -> Option<Option<String>> {
@@ -140,12 +123,12 @@ pub trait TrackService {
     /// Close the track service.
     async fn close(&self) -> Result<(), TGVError>;
 
-    // Return all contigs given a reference.
+    // Query contigs data given a reference.
     async fn get_all_contigs(
         &self,
         reference: &Reference,
         cache: &mut TrackCache,
-    ) -> Result<Vec<(Contig, usize)>, TGVError>;
+    ) -> Result<Vec<Contig>, TGVError>;
 
     // Return the cytoband data given a reference and a contig.
     async fn get_cytoband(
@@ -284,7 +267,7 @@ impl TrackService for TrackServiceEnum {
         &self,
         reference: &Reference,
         cache: &mut TrackCache,
-    ) -> Result<Vec<(Contig, usize)>, TGVError> {
+    ) -> Result<Vec<Contig>, TGVError> {
         match self {
             TrackServiceEnum::Api(service) => service.get_all_contigs(reference, cache).await,
             TrackServiceEnum::Db(service) => service.get_all_contigs(reference, cache).await,

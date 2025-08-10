@@ -637,7 +637,7 @@ impl TrackService for UcscApiTrackService {
     ) -> Result<Gene, TGVError> {
         if !cache.includes_gene(name) {
             // query all possible tracks until the gene is found
-            for (contig, _) in self.get_all_contigs(reference, cache).await? {
+            for contig in self.get_all_contigs(reference, cache).await? {
                 let track = self
                     .query_track_by_contig(reference, &contig, cache)
                     .await?;

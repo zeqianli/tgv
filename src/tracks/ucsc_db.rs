@@ -1,5 +1,5 @@
 use crate::{
-    contig::Contig,
+    contig_collection::{Contig, ContigHeader},
     cytoband::{Cytoband, CytobandSegment, Stain},
     error::TGVError,
     feature::{Gene, SubGeneFeature},
@@ -13,7 +13,7 @@ use crate::{
 use async_trait::async_trait;
 use sqlx::{
     mysql::{MySqlPoolOptions, MySqlRow},
-    Column, MySqlPool, Row,
+    Column, FromRow, MySqlPool, Row,
 };
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -23,6 +23,74 @@ pub struct UcscDbTrackService {
     pool: Arc<MySqlPool>,
 }
 use crate::tracks::{TrackCache, TrackService, TRACK_PREFERENCES};
+
+/// Deserialization target for a row in the gene table. Converting to Gene needs the header information and is done downstream.
+#[derive(Debug, FromRow)]
+struct UcscGeneRow {
+    name: String,
+    chrom: String,
+    strand: String,
+    tx_start: u64,
+    tx_end: u64,
+    cds_start: u64,
+    cds_end: u64,
+    name2: Option<String>,
+    exon_starts: Vec<u8>,
+    exon_ends: Vec<u8>,
+}
+
+impl UcscGeneRow {
+    // Helper function to parse BLOB of comma-separated coordinates
+    fn parse_blob_to_coords(blob: &[u8]) -> Vec<usize> {
+        let coords_str = String::from_utf8_lossy(blob);
+        coords_str
+            .trim_end_matches(',')
+            .split(',')
+            .filter_map(|s| s.parse::<usize>().ok())
+            .collect()
+    }
+
+    fn to_gene(self, contig_header: &ContigHeader) -> Result<Gene, TGVError> {
+        // USCS coordinates are 0-based, half-open
+        // https://genome-blog.gi.ucsc.edu/blog/2016/12/12/the-ucsc-genome-browser-coordinate-counting-systems/
+        Ok(Gene {
+            id: self.name,
+            name: self.name2.unwrap_or(self.name),
+            strand: Strand::from_str(self.strand)?,
+            contig: Contig::new(&self.chrom),
+            transcription_start: self.tx_start as usize + 1,
+            transcription_end: tx_end as usize,
+            cds_start: cds_start as usize + 1,
+            cds_end: cds_end as usize,
+            exon_starts: Self::parse_blob_to_coords(&exon_starts_blob)
+                .iter()
+                .map(|v| v + 1)
+                .collect(),
+            exon_ends: Self::parse_blob_to_coords(&exon_ends_blob),
+            has_exons: true,
+        })
+    }
+}
+
+#[derive(Debug, FromRow)]
+struct CytobandSegmentRow {
+    chromStart: u64,
+    chromEnd: u64,
+    name: String,
+    gieStain: String,
+}
+
+impl CytobandSegmentRow {
+    fn to_cytoband_segment(self, header: &ContigHeader) -> Result<CytobandSegment, TGVError> {
+        Ok(CytobandSegment {
+            contig: Contig::new(&self.chrom, header.length),
+            start: self.chromStart as usize + 1,
+            end: self.chromEnd as usize,
+            name: self.name,
+            stain: Stain::from(&self.gieStain)?,
+        })
+    }
+}
 
 impl UcscDbTrackService {
     // Initialize the database connections. Reference is needed to find the corresponding schema.
@@ -102,49 +170,6 @@ impl UcscDbTrackService {
         Ok(assemblies)
     }
 
-    /// Parse a MySQL row in a gene table to Vec<Gene>.
-    fn parse_gene_rows(&self, rows: Vec<MySqlRow>) -> Result<Vec<Gene>, TGVError> {
-        let mut genes = Vec::new();
-        for row in rows {
-            let name: String = row.try_get("name")?;
-            let chrom: String = row.try_get("chrom")?;
-            let strand_str: String = row.try_get("strand")?;
-            let tx_start: u64 = row.try_get("txStart")?;
-            let tx_end: u64 = row.try_get("txEnd")?;
-            let cds_start: u64 = row.try_get("cdsStart")?;
-            let cds_end: u64 = row.try_get("cdsEnd")?;
-
-            let name2: String = match row.try_get("name2") {
-                Ok(name2) => name2,
-                Err(e) => name.clone(),
-            };
-            let exon_starts_blob: Vec<u8> = row.try_get("exonStarts")?;
-            let exon_ends_blob: Vec<u8> = row.try_get("exonEnds")?;
-
-            // USCS coordinates are 0-based, half-open
-            // https://genome-blog.gi.ucsc.edu/blog/2016/12/12/the-ucsc-genome-browser-coordinate-counting-systems/
-
-            genes.push(Gene {
-                id: name,
-                name: name2,
-                strand: Strand::from_str(strand_str).unwrap(),
-                contig: Contig::new(&chrom),
-                transcription_start: tx_start as usize + 1,
-                transcription_end: tx_end as usize,
-                cds_start: cds_start as usize + 1,
-                cds_end: cds_end as usize,
-                exon_starts: Self::parse_blob_to_coords(&exon_starts_blob)
-                    .iter()
-                    .map(|v| v + 1)
-                    .collect(),
-                exon_ends: Self::parse_blob_to_coords(&exon_ends_blob),
-                has_exons: true,
-            });
-        }
-
-        Ok(genes)
-    }
-
     async fn get_preferred_track_name_with_cache(
         &self,
         reference: &Reference,
@@ -196,15 +221,19 @@ impl UcscDbTrackService {
 
         Ok(filename_hashmap)
     }
+}
 
-    // Helper function to parse BLOB of comma-separated coordinates
-    fn parse_blob_to_coords(blob: &[u8]) -> Vec<usize> {
-        let coords_str = String::from_utf8_lossy(blob);
-        coords_str
-            .trim_end_matches(',')
-            .split(',')
-            .filter_map(|s| s.parse::<usize>().ok())
-            .collect()
+impl<'r> FromRow<'r, MySqlRow> for Contig {
+    fn from_row(row: &'r MySqlRow) -> sqlx::Result<Self> {
+        let chrom: String = row.try_get("chrom")?;
+        let size: u32 = row.try_get("size")?;
+        let aliases: String = row.try_get("aliases").unwrap_or("".to_string());
+
+        let mut contig = Contig::new(&chrom, Some(size as usize));
+        for alias in aliases.split(',') {
+            contig.add_alias(alias);
+        }
+        Ok(contig)
     }
 }
 
@@ -219,76 +248,37 @@ impl TrackService for UcscDbTrackService {
         &self,
         reference: &Reference,
         cache: &mut TrackCache,
-    ) -> Result<Vec<(Contig, usize)>, TGVError> {
-        if let Ok(rows_with_alias) = sqlx::query(
-            "SELECT chromInfo.chrom as chrom, chromInfo.size as size, chromAlias.alias as alias
-             FROM chromInfo 
-             LEFT JOIN chromAlias ON chromAlias.chrom = chromInfo.chrom
-             WHERE chromInfo.chrom NOT LIKE 'chr%\\_%'
-             ORDER BY chromInfo.chrom",
+    ) -> Result<Vec<Contig>, TGVError> {
+        let mut contigs: Vec<Contig> = sqlx::query_as(
+            "IF EXISTS (SELECT 1 FROM chromAlias)
+            BEGIN
+                SELECT chromInfo.chrom as chrom, chromInfo.size as size, GROUP_CONCAT(chromAlias.alias SEPARATOR ',') as aliases
+                FROM chromInfo 
+                LEFT JOIN chromAlias ON chromAlias.chrom = chromInfo.chrom
+                WHERE chromInfo.chrom NOT LIKE 'chr%\\_%'
+                ORDER BY chromInfo.chrom
+                GROUP BY chromInfo.chrom
+            END
+            ELSE
+            BEGIN
+                SELECT chromInfo.chrom as chrom, chromInfo.size as size, '' as aliases
+                FROM chromInfo
+                WHERE chromInfo.chrom NOT LIKE 'chr%\\_%'
+                ORDER BY chromInfo.chrom
+            END",
         )
         .fetch_all(&*self.pool)
-        .await
-        {
-            let mut contigs_hashmap: HashMap<String, (Contig, usize)> = HashMap::new();
-            for row in rows_with_alias {
-                let chrom: String = row.try_get("chrom")?;
-                let size: u32 = row.try_get("size")?;
-                let alias: String = row.try_get("alias")?;
+        .await?;
 
-                match contigs_hashmap.get_mut(&chrom) {
-                    Some((ref mut contig, _)) => {
-                        contig.alias(&alias);
-                    }
-                    None => {
-                        let mut contig = Contig::new(&chrom);
-                        contig.alias(&alias);
-                        contigs_hashmap.insert(chrom.clone(), (contig, size as usize));
-                    }
-                }
+        contigs.sort_by(|a, b| {
+            if a.name.starts_with("chr") || b.name.starts_with("chr") {
+                Contig::contigs_compare(&a, &b)
+            } else {
+                b.length().cmp(&a.length()) // Sort by length in descending order
             }
-            let mut contigs = contigs_hashmap
-                .values()
-                .cloned()
-                .collect::<Vec<(Contig, usize)>>();
-            contigs.sort_by(|(a, length_a), (b, length_b)| {
-                if a.name.starts_with("chr") || b.name.starts_with("chr") {
-                    Contig::contigs_compare(a, b)
-                } else {
-                    length_b.cmp(length_a) // Sort by length in descending order
-                }
-            });
+        });
 
-            return Ok(contigs);
-        } else {
-            let rows = sqlx::query(
-                "SELECT chromInfo.chrom as chrom, chromInfo.size as size
-                 FROM chromInfo
-                 WHERE chromInfo.chrom NOT LIKE 'chr%\\_%'
-                 ORDER BY chromInfo.chrom",
-            )
-            .fetch_all(&*self.pool)
-            .await?;
-
-            let mut contigs = rows
-                .into_iter()
-                .map(|row| {
-                    let chrom: String = row.try_get("chrom")?;
-                    let size: u32 = row.try_get("size")?;
-                    Ok((Contig::new(&chrom), size as usize))
-                })
-                .collect::<Result<Vec<(Contig, usize)>, TGVError>>()?;
-
-            contigs.sort_by(|(a, length_a), (b, length_b)| {
-                if a.name.starts_with("chr") || b.name.starts_with("chr") {
-                    Contig::contigs_compare(a, b)
-                } else {
-                    length_b.cmp(length_a) // Sort by length in descending order
-                }
-            });
-
-            return Ok(contigs);
-        }
+        return Ok(contigs);
     }
 
     async fn get_cytoband(
@@ -296,45 +286,27 @@ impl TrackService for UcscDbTrackService {
         reference: &Reference,
         contig: &Contig,
         cache: &mut TrackCache,
+        contig_header: &ContigHeader,
     ) -> Result<Option<Cytoband>, TGVError> {
-        if let Ok(rows) = sqlx::query(
+        let cytoband_segment_rows: Option<Vec<CytobandSegmentRow>> = sqlx::query_as(
             "SELECT chrom, chromStart, chromEnd, name, gieStain FROM cytoBandIdeo WHERE chrom = ?",
         )
         .bind(contig.name.clone())
         .fetch_all(&*self.pool)
         .await
-        {
-            if rows.is_empty() {
-                return Ok(None);
-            }
-
-            let mut segments = Vec::with_capacity(rows.len());
-            for row in rows {
-                let chrom_start: u32 = row.try_get("chromStart")?;
-                let chrom_end: u32 = row.try_get("chromEnd")?;
-                let name: String = row.try_get("name")?;
-                let gie_stain_str: String = row.try_get("gieStain")?;
-
-                let stain = Stain::from(&gie_stain_str)?;
-
-                segments.push(CytobandSegment {
-                    contig: contig.clone(),          // Use the input contig
-                    start: chrom_start as usize + 1, // 0-based to 1-based
-                    end: chrom_end as usize,
-                    name,
-                    stain,
-                });
-            }
-
-            return Ok(Some(Cytoband {
-                reference: Some(reference.clone()),
-                contig: contig.clone(),
-                segments,
-            }));
-        } else {
+        .unwrap_or(None);
             /// Cytoband table is not available.
-            return Ok(None);
-        }
+       
+        return match cytoband_segment_rows {
+            Some(segments) => {
+                Ok(Some(Cytoband {
+                    reference: Some(reference.clone()),
+                    contig: contig.clone(),
+                    segments.map(|segment| segment.to_cytoband_segment(contig_header)),
+                }))
+            }
+            None => Ok(None),
+        };
     }
 
     async fn get_preferred_track_name(
@@ -363,8 +335,9 @@ impl TrackService for UcscDbTrackService {
         reference: &Reference,
         region: &Region,
         cache: &mut TrackCache,
+        contig_header: &ContigHeader,
     ) -> Result<Vec<Gene>, TGVError> {
-        let rows = sqlx::query(
+        let gene_rows: Vec<UcscGeneRow> = sqlx::query_as(
             format!(
                 "SELECT * FROM {} 
              WHERE chrom = ? AND (txStart <= ?) AND (txEnd >= ?)",
@@ -379,7 +352,7 @@ impl TrackService for UcscDbTrackService {
         .fetch_all(&*self.pool)
         .await?;
 
-        self.parse_gene_rows(rows)
+        gene_rows.map(|row| row.to_gene(contig_header)).collect::<Result<Vec<Gene>, TGVError>>()?
     }
 
     async fn query_gene_covering(

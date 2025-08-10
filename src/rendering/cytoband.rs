@@ -35,7 +35,7 @@ pub fn render_cytobands(
         None => "".to_string(),
     };
 
-    let contig_description = match state.contig() {
+    let contig_description = match state.contig_index() {
         Ok(contig) => contig.name.clone(),
         Err(_) => "".to_string(),
     };
