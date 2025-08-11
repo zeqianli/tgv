@@ -137,6 +137,7 @@ pub trait TrackService {
         reference: &Reference,
         contig: &Contig,
         cache: &mut TrackCache,
+        contig_header: &ContigHeader,
     ) -> Result<Option<Cytoband>, TGVError>;
 
     /// Return a Track<Gene> that covers a region.
@@ -145,9 +146,10 @@ pub trait TrackService {
         reference: &Reference,
         region: &Region,
         cache: &mut TrackCache,
+        contig_header: &ContigHeader,
     ) -> Result<Track<Gene>, TGVError> {
         let genes = self
-            .query_genes_overlapping(reference, region, cache)
+            .query_genes_overlapping(reference, region, cache, contig_header)
             .await?;
         Track::from_genes(genes, region.contig.clone())
     }
@@ -165,6 +167,7 @@ pub trait TrackService {
         reference: &Reference,
         region: &Region,
         cache: &mut TrackCache,
+        contig_header: &ContigHeader,
     ) -> Result<Vec<Gene>, TGVError>;
 
     /// Return the Gene covering a contig:coordinate.
@@ -174,6 +177,7 @@ pub trait TrackService {
         contig: &Contig,
         coord: usize,
         cache: &mut TrackCache,
+        contig_header: &ContigHeader,
     ) -> Result<Option<Gene>, TGVError>;
 
     async fn query_gene_name(
@@ -181,6 +185,7 @@ pub trait TrackService {
         reference: &Reference,
         gene_id: &String,
         cache: &mut TrackCache,
+        contig_header: &ContigHeader,
     ) -> Result<Gene, TGVError>;
 
     /// Return the k-th gene after a contig:coordinate.
@@ -191,6 +196,7 @@ pub trait TrackService {
         coord: usize,
         k: usize,
         cache: &mut TrackCache,
+        contig_header: &ContigHeader,
     ) -> Result<Gene, TGVError>;
 
     /// Return the k-th gene before a contig:coordinate.
@@ -201,6 +207,7 @@ pub trait TrackService {
         coord: usize,
         k: usize,
         cache: &mut TrackCache,
+        contig_header: &ContigHeader,
     ) -> Result<Gene, TGVError>;
 
     /// Return the k-th exon after a contig:coordinate.
@@ -211,6 +218,7 @@ pub trait TrackService {
         coord: usize,
         k: usize,
         cache: &mut TrackCache,
+        contig_header: &ContigHeader,
     ) -> Result<SubGeneFeature, TGVError>;
 
     /// Return the k-th exon before a contig:coordinate.
@@ -221,6 +229,7 @@ pub trait TrackService {
         coord: usize,
         k: usize,
         cache: &mut TrackCache,
+        contig_header: &ContigHeader,
     ) -> Result<SubGeneFeature, TGVError>;
 }
 
@@ -281,12 +290,23 @@ impl TrackService for TrackServiceEnum {
         reference: &Reference,
         contig: &Contig,
         cache: &mut TrackCache,
+        contig_header: &ContigHeader,
     ) -> Result<Option<Cytoband>, TGVError> {
         match self {
-            TrackServiceEnum::Api(service) => service.get_cytoband(reference, contig, cache).await,
-            TrackServiceEnum::Db(service) => service.get_cytoband(reference, contig, cache).await,
+            TrackServiceEnum::Api(service) => {
+                service
+                    .get_cytoband(reference, contig, cache, contig_header)
+                    .await
+            }
+            TrackServiceEnum::Db(service) => {
+                service
+                    .get_cytoband(reference, contig, cache, contig_header)
+                    .await
+            }
             TrackServiceEnum::LocalDb(service) => {
-                service.get_cytoband(reference, contig, cache).await
+                service
+                    .get_cytoband(reference, contig, cache, contig_header)
+                    .await
             }
         }
     }
@@ -295,16 +315,23 @@ impl TrackService for TrackServiceEnum {
         &self,
         reference: &Reference,
         cache: &mut TrackCache,
+        contig_header: &ContigHeader,
     ) -> Result<Option<String>, TGVError> {
         match self {
             TrackServiceEnum::Api(service) => {
-                service.get_preferred_track_name(reference, cache).await
+                service
+                    .get_preferred_track_name(reference, cache, contig_header)
+                    .await
             }
             TrackServiceEnum::Db(service) => {
-                service.get_preferred_track_name(reference, cache).await
+                service
+                    .get_preferred_track_name(reference, cache, contig_header)
+                    .await
             }
             TrackServiceEnum::LocalDb(service) => {
-                service.get_preferred_track_name(reference, cache).await
+                service
+                    .get_preferred_track_name(reference, cache, contig_header)
+                    .await
             }
         }
     }
@@ -314,21 +341,22 @@ impl TrackService for TrackServiceEnum {
         reference: &Reference,
         region: &Region,
         cache: &mut TrackCache,
+        contig_header: &ContigHeader,
     ) -> Result<Vec<Gene>, TGVError> {
         match self {
             TrackServiceEnum::Api(service) => {
                 service
-                    .query_genes_overlapping(reference, region, cache)
+                    .query_genes_overlapping(reference, region, cache, contig_header)
                     .await
             }
             TrackServiceEnum::Db(service) => {
                 service
-                    .query_genes_overlapping(reference, region, cache)
+                    .query_genes_overlapping(reference, region, cache, contig_header)
                     .await
             }
             TrackServiceEnum::LocalDb(service) => {
                 service
-                    .query_genes_overlapping(reference, region, cache)
+                    .query_genes_overlapping(reference, region, cache, contig_header)
                     .await
             }
         }
@@ -340,21 +368,22 @@ impl TrackService for TrackServiceEnum {
         contig: &Contig,
         coord: usize,
         cache: &mut TrackCache,
+        contig_header: &ContigHeader,
     ) -> Result<Option<Gene>, TGVError> {
         match self {
             TrackServiceEnum::Api(service) => {
                 service
-                    .query_gene_covering(reference, contig, coord, cache)
+                    .query_gene_covering(reference, contig, coord, cache, contig_header)
                     .await
             }
             TrackServiceEnum::Db(service) => {
                 service
-                    .query_gene_covering(reference, contig, coord, cache)
+                    .query_gene_covering(reference, contig, coord, cache, contig_header)
                     .await
             }
             TrackServiceEnum::LocalDb(service) => {
                 service
-                    .query_gene_covering(reference, contig, coord, cache)
+                    .query_gene_covering(reference, contig, coord, cache, contig_header)
                     .await
             }
         }
@@ -365,16 +394,23 @@ impl TrackService for TrackServiceEnum {
         reference: &Reference,
         gene_id: &String,
         cache: &mut TrackCache,
+        contig_header: &ContigHeader,
     ) -> Result<Gene, TGVError> {
         match self {
             TrackServiceEnum::Api(service) => {
-                service.query_gene_name(reference, gene_id, cache).await
+                service
+                    .query_gene_name(reference, gene_id, cache, contig_header)
+                    .await
             }
             TrackServiceEnum::Db(service) => {
-                service.query_gene_name(reference, gene_id, cache).await
+                service
+                    .query_gene_name(reference, gene_id, cache, contig_header)
+                    .await
             }
             TrackServiceEnum::LocalDb(service) => {
-                service.query_gene_name(reference, gene_id, cache).await
+                service
+                    .query_gene_name(reference, gene_id, cache, contig_header)
+                    .await
             }
         }
     }
@@ -386,21 +422,22 @@ impl TrackService for TrackServiceEnum {
         coord: usize,
         k: usize,
         cache: &mut TrackCache,
+        contig_header: &ContigHeader,
     ) -> Result<Gene, TGVError> {
         match self {
             TrackServiceEnum::Api(service) => {
                 service
-                    .query_k_genes_after(reference, contig, coord, k, cache)
+                    .query_k_genes_after(reference, contig, coord, k, cache, contig_header)
                     .await
             }
             TrackServiceEnum::Db(service) => {
                 service
-                    .query_k_genes_after(reference, contig, coord, k, cache)
+                    .query_k_genes_after(reference, contig, coord, k, cache, contig_header)
                     .await
             }
             TrackServiceEnum::LocalDb(service) => {
                 service
-                    .query_k_genes_after(reference, contig, coord, k, cache)
+                    .query_k_genes_after(reference, contig, coord, k, cache, contig_header)
                     .await
             }
         }
@@ -413,21 +450,22 @@ impl TrackService for TrackServiceEnum {
         coord: usize,
         k: usize,
         cache: &mut TrackCache,
+        contig_header: &ContigHeader,
     ) -> Result<Gene, TGVError> {
         match self {
             TrackServiceEnum::Api(service) => {
                 service
-                    .query_k_genes_before(reference, contig, coord, k, cache)
+                    .query_k_genes_before(reference, contig, coord, k, cache, contig_header)
                     .await
             }
             TrackServiceEnum::Db(service) => {
                 service
-                    .query_k_genes_before(reference, contig, coord, k, cache)
+                    .query_k_genes_before(reference, contig, coord, k, cache, contig_header)
                     .await
             }
             TrackServiceEnum::LocalDb(service) => {
                 service
-                    .query_k_genes_before(reference, contig, coord, k, cache)
+                    .query_k_genes_before(reference, contig, coord, k, cache, contig_header)
                     .await
             }
         }
@@ -440,21 +478,22 @@ impl TrackService for TrackServiceEnum {
         coord: usize,
         k: usize,
         cache: &mut TrackCache,
+        contig_header: &ContigHeader,
     ) -> Result<SubGeneFeature, TGVError> {
         match self {
             TrackServiceEnum::Api(service) => {
                 service
-                    .query_k_exons_after(reference, contig, coord, k, cache)
+                    .query_k_exons_after(reference, contig, coord, k, cache, contig_header)
                     .await
             }
             TrackServiceEnum::Db(service) => {
                 service
-                    .query_k_exons_after(reference, contig, coord, k, cache)
+                    .query_k_exons_after(reference, contig, coord, k, cache, contig_header)
                     .await
             }
             TrackServiceEnum::LocalDb(service) => {
                 service
-                    .query_k_exons_after(reference, contig, coord, k, cache)
+                    .query_k_exons_after(reference, contig, coord, k, cache, contig_header)
                     .await
             }
         }
@@ -467,21 +506,22 @@ impl TrackService for TrackServiceEnum {
         coord: usize,
         k: usize,
         cache: &mut TrackCache,
+        contig_header: &ContigHeader,
     ) -> Result<SubGeneFeature, TGVError> {
         match self {
             TrackServiceEnum::Api(service) => {
                 service
-                    .query_k_exons_before(reference, contig, coord, k, cache)
+                    .query_k_exons_before(reference, contig, coord, k, cache, contig_header)
                     .await
             }
             TrackServiceEnum::Db(service) => {
                 service
-                    .query_k_exons_before(reference, contig, coord, k, cache)
+                    .query_k_exons_before(reference, contig, coord, k, cache, contig_header)
                     .await
             }
             TrackServiceEnum::LocalDb(service) => {
                 service
-                    .query_k_exons_before(reference, contig, coord, k, cache)
+                    .query_k_exons_before(reference, contig, coord, k, cache, contig_header)
                     .await
             }
         }
@@ -492,16 +532,23 @@ impl TrackService for TrackServiceEnum {
         reference: &Reference,
         region: &Region,
         cache: &mut TrackCache,
+        contig_header: &ContigHeader,
     ) -> Result<Track<Gene>, TGVError> {
         match self {
             TrackServiceEnum::Api(service) => {
-                service.query_gene_track(reference, region, cache).await
+                service
+                    .query_gene_track(reference, region, cache, contig_header)
+                    .await
             }
             TrackServiceEnum::Db(service) => {
-                service.query_gene_track(reference, region, cache).await
+                service
+                    .query_gene_track(reference, region, cache, contig_header)
+                    .await
             }
             TrackServiceEnum::LocalDb(service) => {
-                service.query_gene_track(reference, region, cache).await
+                service
+                    .query_gene_track(reference, region, cache, contig_header)
+                    .await
             }
         }
     }

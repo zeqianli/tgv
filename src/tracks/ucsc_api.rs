@@ -1,6 +1,6 @@
 use crate::tracks::{TrackCache, TrackService, TRACK_PREFERENCES};
 use crate::{
-    contig::Contig,
+    contig_collection::{Contig, ContigHeader},
     cytoband::{Cytoband, CytobandSegment},
     error::TGVError,
     feature::{Gene, SubGeneFeature},
@@ -9,6 +9,7 @@ use crate::{
     region::Region,
     strand::Strand,
     track::Track,
+    tracks::schema::*,
 };
 use async_trait::async_trait;
 use reqwest::{Client, StatusCode};
@@ -23,146 +24,6 @@ use sqlx::{Column, Row};
 #[derive(Debug)]
 pub struct UcscApiTrackService {
     client: Client,
-}
-
-#[derive(Debug, Clone, Deserialize)]
-#[allow(non_snake_case)]
-struct GeneResponse1 {
-    name: String,
-    name2: String,
-
-    strand: String,
-
-    txStart: usize,
-    txEnd: usize,
-    cdsStart: usize,
-    cdsEnd: usize,
-    exonStarts: String,
-    exonEnds: String,
-}
-
-impl GeneResponse1 {
-    /// Custom deserializer for strand field
-    fn gene(self, contig: &Contig) -> Result<Gene, TGVError> {
-        Ok(Gene {
-            id: self.name,
-            name: self.name2,
-            strand: Strand::from_str(self.strand)?,
-            contig: contig.clone(),
-            transcription_start: self.txStart,
-            transcription_end: self.txEnd,
-            cds_start: self.cdsStart,
-            cds_end: self.cdsEnd,
-            exon_starts: parse_comma_separated_list(&self.exonStarts)?,
-            exon_ends: parse_comma_separated_list(&self.exonEnds)?,
-            has_exons: true,
-        })
-    }
-}
-
-#[derive(Debug, Clone, Deserialize)]
-#[allow(non_snake_case)]
-struct GeneResponse2 {
-    name: String,
-
-    strand: String,
-    txStart: usize,
-    txEnd: usize,
-    cdsStart: usize,
-    cdsEnd: usize,
-    exonStarts: String,
-    exonEnds: String,
-}
-
-impl GeneResponse2 {
-    /// Custom deserializer for strand field
-    fn gene(self, contig: &Contig) -> Result<Gene, TGVError> {
-        Ok(Gene {
-            id: self.name.clone(),
-            name: self.name.clone(),
-            strand: Strand::from_str(self.strand)?,
-            contig: contig.clone(),
-            transcription_start: self.txStart,
-            transcription_end: self.txEnd,
-            cds_start: self.cdsStart,
-            cds_end: self.cdsEnd,
-            exon_starts: parse_comma_separated_list(&self.exonStarts)?,
-            exon_ends: parse_comma_separated_list(&self.exonEnds)?,
-            has_exons: true,
-        })
-    }
-}
-
-#[derive(Debug, Clone, Deserialize)]
-#[allow(non_snake_case)]
-struct GeneResponse3 {
-    /*
-
-    Example responsse:
-
-    {
-    "chrom": "NC_072398.2",
-    "chromStart": 130929426,
-    "chromEnd": 130985030,
-    "name": "NM_001142759.1",
-    "score": 0,
-    "strand": "+",
-    "thickStart": 130929440,
-    "thickEnd": 130982945,
-    "reserved": "0",
-    "blockCount": 13,
-    "blockSizes": "65,124,76,182,122,217,167,126,78,192,72,556,374,",
-    "chromStarts": "0,8926,14265,18877,31037,33561,34781,36127,39014,43150,43484,53351,55230,",
-    "name2": "DBT",
-    "cdsStartStat": "cmpl",
-    "cdsEndStat": "cmpl",
-    "exonFrames": "0,0,1,2,1,0,1,0,0,0,0,0,-1,",
-    "type": "",
-    "geneName": "NM_001142759.1",
-    "geneName2": "DBT",
-    "geneType": ""
-    }
-
-    I'm not sure if the implementation is correct.
-
-    */
-    chromStart: usize,
-    chromEnd: usize,
-    name: String,
-    strand: String,
-    thickStart: usize,
-    thickEnd: usize,
-}
-
-impl GeneResponse3 {
-    /// TODO: I'm not sure if this is correct.
-    fn gene(self, contig: &Contig) -> Result<Gene, TGVError> {
-        Ok(Gene {
-            id: self.name.clone(),
-            name: self.name.clone(),
-            strand: Strand::from_str(self.strand)?,
-            contig: contig.clone(),
-            transcription_start: self.chromStart,
-            transcription_end: self.chromEnd,
-            cds_start: self.thickStart,
-            cds_end: self.thickEnd,
-            exon_starts: vec![],
-            exon_ends: vec![],
-            has_exons: false,
-        })
-    }
-}
-
-/// Custom deserializer for comma-separated lists in UCSC response
-fn parse_comma_separated_list(s: &str) -> Result<Vec<usize>, TGVError> {
-    s.trim_end_matches(',')
-        .split(',')
-        .filter(|s| !s.is_empty())
-        .map(|num| {
-            num.parse::<usize>()
-                .map_err(|_| TGVError::ValueError(format!("Failed to parse {}", num)))
-        })
-        .collect()
 }
 
 impl UcscApiTrackService {
@@ -205,15 +66,17 @@ impl UcscApiTrackService {
         let response_value: serde_json::Value =
             self.client.get(query_url).send().await?.json().await?;
 
-        let genes_array_value = response_value.get(&preferred_track).ok_or_else(|| {
-            TGVError::JsonSerializationError(serde_json::Error::custom(format!(
-                "Track key \'{}\' not found in UCSC API response. Full response: {:?}",
-                preferred_track, response_value
-            )))
-        })?;
+        let genes_array_value =
+            response_value
+                .get(&preferred_track)
+                .ok_or(Err(TGVError::JsonSerializationError(
+                    serde_json::Error::custom(format!(
+                        "Track key \'{}\' not found in UCSC API response. Full response: {:?}",
+                        preferred_track, response_value
+                    )),
+                )))?;
 
         let mut genes: Vec<Gene> = Vec::new();
-        let mut deserialized_successfully = false;
 
         // Attempt 1: GeneResponse1
         if let Ok(gene_responses) =
@@ -222,43 +85,25 @@ impl UcscApiTrackService {
             for gr in gene_responses {
                 genes.push(gr.gene(contig)?);
             }
-            deserialized_successfully = true;
+            return Ok(Track::from_genes(genes, contig.clone()));
         }
-
-        // Attempt 2: GeneResponse2
-        if !deserialized_successfully {
-            if let Ok(gene_responses) =
-                serde_json::from_value::<Vec<GeneResponse2>>(genes_array_value.clone())
-            {
-                for gr in gene_responses {
-                    genes.push(gr.gene(contig)?);
-                }
-                deserialized_successfully = true;
-            }
-        }
-
         // Attempt 3: Direct Gene deserialization (handles complex format via GeneHelper in feature.rs)
-        if !deserialized_successfully {
-            if let Ok(gene_responses) =
-                serde_json::from_value::<Vec<GeneResponse3>>(genes_array_value.clone())
-            {
-                for gr in gene_responses {
-                    genes.push(gr.gene(contig)?);
-                }
-                deserialized_successfully = true;
+
+        if let Ok(gene_responses) =
+            serde_json::from_value::<Vec<GeneResponse3>>(genes_array_value.clone())
+        {
+            for gr in gene_responses {
+                genes.push(gr.gene(contig)?);
             }
+            return Ok(Track::from_genes(genes, contig.clone()));
         }
 
-        if !deserialized_successfully {
-            return Err(TGVError::JsonSerializationError(serde_json::Error::custom(
-                format!(
-                    "Failed to deserialize gene data from UCSC API for track \'{}\' using any known format. Gene array value: {:?}",
-                    preferred_track, genes_array_value
-                )
-            )));
-        }
-
-        Track::from_genes(genes, contig.clone())
+        Err(TGVError::JsonSerializationError(serde_json::Error::custom(
+            format!(
+                "Failed to deserialize gene data from UCSC API for track \'{}\' using any known format. Gene array value: {:?}",
+                preferred_track, genes_array_value
+            )
+        )))
     }
 
     const CYTOBAND_TRACK: &str = "cytoBandIdeo";
@@ -278,11 +123,11 @@ impl UcscApiTrackService {
                 contig.name
             )),
             Reference::UcscAccession(genome) => {
-                if cache.hub_url.is_none() {
+                let hub_url = cache.hub_url.clone().unwrap_or({
                     let hub_url = self.get_hub_url_for_genark_accession(genome).await?;
-                    cache.hub_url = Some(hub_url);
-                }
-                let hub_url = cache.hub_url.as_ref().unwrap();
+                    cache.hub_url = Some(hub_url.clone());
+                    hub_url
+                });
                 Ok(format!(
                     "https://api.genome.ucsc.edu/getData/track?hubUrl={}&genome={}&track={}&chrom={}",
                     hub_url, genome, track_name, contig.name
@@ -295,46 +140,18 @@ impl UcscApiTrackService {
         &self,
         accession: &str,
     ) -> Result<String, TGVError> {
-        let query_url = format!(
-            "https://api.genome.ucsc.edu/list/genarkGenomes?genome={}",
-            accession
-        );
-        let response = self.client.get(query_url).send().await?;
+        let response = self
+            .client
+            .get(format!(
+                "https://api.genome.ucsc.edu/list/genarkGenomes?genome={}",
+                accession
+            ))
+            .send()
+            .await?
+            .json::<UcscApiHubUrlResponse>()
+            .await?;
 
-        // Example response:
-        // {
-        //     "downloadTime": "2025:05:06T03:46:07Z",
-        //     "downloadTimeStamp": 1746503167,
-        //     "dataTime": "2025-04-29T10:42:00",
-        //     "dataTimeStamp": 1745948520,
-        //     "hubUrlPrefix": "/gbdb/genark",
-        //     "genarkGenomes": {
-        //       "GCF_028858775.2": {
-        //         "hubUrl": "GCF/028/858/775/GCF_028858775.2/hub.txt",
-        //         "asmName": "NHGRI_mPanTro3-v2.0_pri",
-        //         "scientificName": "Pan troglodytes",
-        //         "commonName": "chimpanzee (v2 AG18354 primary hap 2024 refseq)",
-        //         "taxId": 9598,
-        //         "priority": 138,
-        //         "clade": "primates"
-        //       }
-        //     },
-        //     "totalAssemblies": 5691,
-        //     "itemsReturned": 1
-        //   }
-
-        let response_text = response.text().await?;
-        let value: serde_json::Value = serde_json::from_str(&response_text)?;
-
-        Ok(format!(
-            "https://hgdownload.soe.ucsc.edu/hubs/{}",
-            value["genarkGenomes"][accession]["hubUrl"]
-                .as_str()
-                .ok_or(TGVError::IOError(format!(
-                    "Failed to get hub url for {}",
-                    accession
-                )))?
-        ))
+        response.get_hub_url(accession)
     }
 }
 
@@ -377,95 +194,51 @@ impl TrackService for UcscApiTrackService {
         &self,
         reference: &Reference,
         track_cache: &mut TrackCache,
-    ) -> Result<Vec<(Contig, usize)>, TGVError> {
-        match reference {
+    ) -> Result<Vec<Contig>, TGVError> {
+        let query_url = match reference {
             Reference::Hg19 | Reference::Hg38 | Reference::UcscGenome(_) => {
-                let query_url = format!(
+                format!(
                     "https://api.genome.ucsc.edu/list/chromosomes?genome={}",
                     reference.to_string()
-                );
-
-                let response = self.client.get(query_url).send().await?.text().await?;
-
-                let err = TGVError::IOError(format!(
-                    "Failed to deserialize chromosomes for {}",
-                    reference.to_string()
-                ));
-
-                // schema: {..., "chromosomes": [{"__name__", len}]}
-
-                let value: serde_json::Value = serde_json::from_str(&response)?;
-
-                let mut output = Vec::new();
-                for (k, v) in value["chromosomes"].as_object().ok_or(err)?.iter() {
-                    // TODO: save length
-                    output.push((Contig::new(k), v.as_u64().unwrap() as usize));
-                }
-
-                output.sort_by(|(a, length_a), (b, length_b)| {
-                    if a.name.starts_with("chr") || b.name.starts_with("chr") {
-                        Contig::contigs_compare(a, b)
-                    } else {
-                        length_b.cmp(length_a) // Sort by length in descending order
-                    }
-                });
-
-                Ok(output)
+                )
             }
             Reference::UcscAccession(genome) => {
-                if track_cache.hub_url.is_none() {
+                let hub_url = track_cache.hub_url.clone().unwrap_or({
                     let hub_url = self.get_hub_url_for_genark_accession(genome).await?;
-                    track_cache.hub_url = Some(hub_url);
-                }
-                let hub_url = track_cache.hub_url.as_ref().unwrap();
+                    track_cache.hub_url = Some(hub_url.clone());
+                    hub_url
+                });
 
-                let query_url = format!(
+                format!(
                     "https://api.genome.ucsc.edu/list/chromosomes?hubUrl={};genome={}",
                     hub_url, genome
-                );
-
-                let response = self
-                    .client
-                    .get(query_url)
-                    .send()
-                    .await?
-                    .json::<serde_json::Value>()
-                    .await?;
-
-                let mut output = Vec::new();
-
-                for (k, v) in response
-                    .get("chromosomes")
-                    .ok_or(TGVError::IOError(format!(
-                        "Failed to parse response for chromosomes for UCSC accession {}. Response: {:?}",
-                        genome, response
-                    )))?
-                    .as_object()
-                    .ok_or(TGVError::IOError(format!(
-                        "Failed to parse response for chromosomes for UCSC accession {}. Response: {:?}",
-                        genome, response
-                    )))?
-                    .iter()
-                {
-                    output.push((
-                        Contig::new(k),
-                        v.as_u64()
-                            .ok_or(TGVError::IOError(format!(
-                                "Failed to get contig {} length for UCSC accession {}. Response: {:?}",
-                                k, genome, response
-                            )))?
-                            as usize,
-                    ));
-                }
-
-                // Longest contig first
-                // These contigs are likely not well-named, so longest contig first.
-                // Note that this is different from the UCSC assemblies.
-                output.sort_by(|(a, a_len), (b, b_len)| b_len.cmp(a_len));
-
-                Ok(output)
+                )
             }
+        };
+
+        let response = self
+            .client
+            .get(query_url)
+            .send()
+            .await?
+            .json::<UcscListChromosomeResponse>()
+            .await?;
+
+        let mut output = Vec::new();
+        for (name_string, length) in response.chromosomes.into_iter() {
+            // TODO: save length
+            output.push(Contig::new(&name_string, Some(length)));
         }
+
+        output.sort_by(|a, b| {
+            if a.name.starts_with("chr") || b.name.starts_with("chr") {
+                Contig::contigs_compare(a, b)
+            } else {
+                b.length.cmp(&a.length) // Sort by length in descending order
+            }
+        });
+
+        Ok(output)
     }
 
     async fn get_cytoband(
