@@ -8,6 +8,7 @@ use crate::{
     region::Region,
     strand::Strand,
     track::Track,
+    tracks::schema::*,
     ucsc::UcscHost,
 };
 use async_trait::async_trait;
@@ -23,74 +24,6 @@ pub struct UcscDbTrackService {
     pool: Arc<MySqlPool>,
 }
 use crate::tracks::{TrackCache, TrackService, TRACK_PREFERENCES};
-
-/// Deserialization target for a row in the gene table. Converting to Gene needs the header information and is done downstream.
-#[derive(Debug, FromRow)]
-struct UcscGeneRow {
-    name: String,
-    chrom: String,
-    strand: String,
-    tx_start: u64,
-    tx_end: u64,
-    cds_start: u64,
-    cds_end: u64,
-    name2: Option<String>,
-    exon_starts: Vec<u8>,
-    exon_ends: Vec<u8>,
-}
-
-impl UcscGeneRow {
-    // Helper function to parse BLOB of comma-separated coordinates
-    fn parse_blob_to_coords(blob: &[u8]) -> Vec<usize> {
-        let coords_str = String::from_utf8_lossy(blob);
-        coords_str
-            .trim_end_matches(',')
-            .split(',')
-            .filter_map(|s| s.parse::<usize>().ok())
-            .collect()
-    }
-
-    fn to_gene(self, contig_header: &ContigHeader) -> Result<Gene, TGVError> {
-        // USCS coordinates are 0-based, half-open
-        // https://genome-blog.gi.ucsc.edu/blog/2016/12/12/the-ucsc-genome-browser-coordinate-counting-systems/
-        Ok(Gene {
-            id: self.name,
-            name: self.name2.unwrap_or(self.name),
-            strand: Strand::from_str(self.strand)?,
-            contig: Contig::new(&self.chrom),
-            transcription_start: self.tx_start as usize + 1,
-            transcription_end: tx_end as usize,
-            cds_start: cds_start as usize + 1,
-            cds_end: cds_end as usize,
-            exon_starts: Self::parse_blob_to_coords(&exon_starts_blob)
-                .iter()
-                .map(|v| v + 1)
-                .collect(),
-            exon_ends: Self::parse_blob_to_coords(&exon_ends_blob),
-            has_exons: true,
-        })
-    }
-}
-
-#[derive(Debug, FromRow)]
-struct CytobandSegmentRow {
-    chromStart: u64,
-    chromEnd: u64,
-    name: String,
-    gieStain: String,
-}
-
-impl CytobandSegmentRow {
-    fn to_cytoband_segment(self, header: &ContigHeader) -> Result<CytobandSegment, TGVError> {
-        Ok(CytobandSegment {
-            contig: Contig::new(&self.chrom, header.length),
-            start: self.chromStart as usize + 1,
-            end: self.chromEnd as usize,
-            name: self.name,
-            stain: Stain::from(&self.gieStain)?,
-        })
-    }
-}
 
 impl UcscDbTrackService {
     // Initialize the database connections. Reference is needed to find the corresponding schema.
@@ -223,19 +156,6 @@ impl UcscDbTrackService {
     }
 }
 
-impl<'r> FromRow<'r, MySqlRow> for Contig {
-    fn from_row(row: &'r MySqlRow) -> sqlx::Result<Self> {
-        let chrom: String = row.try_get("chrom")?;
-        let size: u32 = row.try_get("size")?;
-        let aliases: String = row.try_get("aliases").unwrap_or("".to_string());
-
-        let mut contig = Contig::new(&chrom, Some(size as usize));
-        for alias in aliases.split(',') {
-            contig.add_alias(alias);
-        }
-        Ok(contig)
-    }
-}
 
 #[async_trait]
 impl TrackService for UcscDbTrackService {
@@ -249,7 +169,7 @@ impl TrackService for UcscDbTrackService {
         reference: &Reference,
         cache: &mut TrackCache,
     ) -> Result<Vec<Contig>, TGVError> {
-        let mut contigs: Vec<Contig> = sqlx::query_as(
+        let mut contigs: Vec<ContigRow> = sqlx::query_as(
             "IF EXISTS (SELECT 1 FROM chromAlias)
             BEGIN
                 SELECT chromInfo.chrom as chrom, chromInfo.size as size, GROUP_CONCAT(chromAlias.alias SEPARATOR ',') as aliases
@@ -269,6 +189,8 @@ impl TrackService for UcscDbTrackService {
         )
         .fetch_all(&*self.pool)
         .await?;
+
+        let contigs = contigs.iter().map(|row| row.to_contig()).collect::<Result<Vec<Contig>, TGVError>>()?;
 
         contigs.sort_by(|a, b| {
             if a.name.starts_with("chr") || b.name.starts_with("chr") {
@@ -361,8 +283,9 @@ impl TrackService for UcscDbTrackService {
         contig: &Contig,
         coord: usize,
         cache: &mut TrackCache,
+        contig_header: &ContigHeader,
     ) -> Result<Option<Gene>, TGVError> {
-        let row = sqlx::query(
+        let gene_row: Option<UcscGeneRow> = sqlx::query_as(
             format!(
                 "SELECT *
              FROM {} 
@@ -378,11 +301,7 @@ impl TrackService for UcscDbTrackService {
         .fetch_optional(&*self.pool)
         .await?;
 
-        if let Some(row) = row {
-            Ok(self.parse_gene_rows(vec![row])?.first().cloned())
-        } else {
-            Ok(None)
-        }
+        Ok(gene_row.map(|row| row.to_gene(contig_header)))
     }
 
     async fn query_gene_name(
@@ -390,8 +309,9 @@ impl TrackService for UcscDbTrackService {
         reference: &Reference,
         gene_id: &String,
         cache: &mut TrackCache,
+        contig_header: &ContigHeader,
     ) -> Result<Gene, TGVError> {
-        let row = sqlx::query(
+        let gene_row: Option<UcscGeneRow> = sqlx::query(
             format!(
                 "SELECT *
             FROM {} 
@@ -405,16 +325,9 @@ impl TrackService for UcscDbTrackService {
         .fetch_optional(&*self.pool)
         .await?;
 
-        if let Some(row) = row {
-            self.parse_gene_rows(vec![row])?
-                .first()
-                .cloned()
-                .ok_or(TGVError::IOError(format!(
-                    "Failed to query gene: {}",
-                    gene_id
-                )))
-        } else {
-            Err(TGVError::IOError(format!(
+        match gene_row {
+            Ok(gene_row) => Ok(gene_row.to_gene(contig_header)),
+            None => Err(TGVError::IOError(format!(
                 "Failed to query gene: {}",
                 gene_id
             )))
@@ -428,12 +341,13 @@ impl TrackService for UcscDbTrackService {
         coord: usize,
         k: usize,
         cache: &mut TrackCache,
+        contig_header: &ContigHeader,
     ) -> Result<Gene, TGVError> {
         if k == 0 {
             return Err(TGVError::ValueError("k cannot be 0".to_string()));
         }
 
-        let rows = sqlx::query(
+        let gene_rows: Vec<UcscGeneRow> = sqlx::query_as(
             format!(
                 "SELECT *
              FROM {} 
@@ -450,11 +364,13 @@ impl TrackService for UcscDbTrackService {
         .fetch_all(&*self.pool)
         .await?;
 
-        if rows.is_empty() {
+        if gene_rows.is_empty() {
             return Err(TGVError::IOError("No genes found".to_string()));
         }
 
-        Track::from_genes(self.parse_gene_rows(rows)?, contig.clone())?
+        let genes = gene_rows.iter().map(|row| row.to_gene(contig_header)).collect::<Result<Vec<Gene>, TGVError>>()?;
+
+        Track::from_genes(genes, contig.clone())?
             .get_saturating_k_genes_after(coord, k)
             .cloned()
             .ok_or(TGVError::IOError("No genes found".to_string()))

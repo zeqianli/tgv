@@ -9,6 +9,7 @@ use crate::{
     region::Region,
     strand::Strand,
     track::Track,
+    tracks::schema::*,
 };
 use async_trait::async_trait;
 use sqlx::{
@@ -64,48 +65,6 @@ impl LocalDbTrackService {
             .split(',')
             .filter_map(|s| s.parse::<usize>().ok())
             .collect()
-    }
-
-    fn parse_gene_rows(&self, rows: Vec<SqliteRow>) -> Result<Vec<Gene>, TGVError> {
-        let mut genes = Vec::new();
-        for row in rows {
-            let name: String = row.try_get("name")?;
-            let chrom: String = row.try_get("chrom")?;
-            let strand_str: String = row.try_get("strand")?;
-            let tx_start: i64 = row.try_get("txStart")?;
-            let tx_end: i64 = row.try_get("txEnd")?;
-            let cds_start: i64 = row.try_get("cdsStart")?;
-            let cds_end: i64 = row.try_get("cdsEnd")?;
-
-            let name2: String = match row.try_get("name2") {
-                Ok(name2) => name2,
-                Err(_) => name.clone(),
-            };
-            let exon_starts_blob: Vec<u8> = row.try_get("exonStarts")?;
-            let exon_ends_blob: Vec<u8> = row.try_get("exonEnds")?;
-
-            // USCS coordinates are 0-based, half-open
-            // https://genome-blog.gi.ucsc.edu/blog/2016/12/12/the-ucsc-genome-browser-coordinate-counting-systems/
-
-            genes.push(Gene {
-                id: name,
-                name: name2,
-                strand: Strand::from_str(strand_str).unwrap(),
-                contig: Contig::new(&chrom),
-                transcription_start: tx_start as usize + 1,
-                transcription_end: tx_end as usize,
-                cds_start: cds_start as usize + 1,
-                cds_end: cds_end as usize,
-                exon_starts: Self::parse_blob_to_coords(&exon_starts_blob)
-                    .iter()
-                    .map(|v| v + 1)
-                    .collect(),
-                exon_ends: Self::parse_blob_to_coords(&exon_ends_blob),
-                has_exons: true,
-            });
-        }
-
-        Ok(genes)
     }
 
     async fn get_preferred_track_name_with_cache(
@@ -173,72 +132,41 @@ impl TrackService for LocalDbTrackService {
         reference: &Reference,
         cache: &mut TrackCache,
     ) -> Result<Vec<Contig>, TGVError> {
-        if let Ok(rows_with_alias) = sqlx::query(
-            "SELECT chromInfo.chrom as chrom, chromInfo.size as size, chromAlias.alias as alias
-             FROM chromInfo 
-             LEFT JOIN chromAlias ON chromAlias.chrom = chromInfo.chrom
-             WHERE chromInfo.chrom NOT LIKE 'chr%\\_%'
-             ORDER BY chromInfo.chrom",
+        let mut contigs: Vec<ContigRow> = sqlx::query_as(
+            "IF EXISTS (SELECT 1 FROM chromAlias)
+            BEGIN
+                SELECT chromInfo.chrom as chrom, chromInfo.size as size, GROUP_CONCAT(chromAlias.alias SEPARATOR ',') as aliases
+                FROM chromInfo 
+                LEFT JOIN chromAlias ON chromAlias.chrom = chromInfo.chrom
+                WHERE chromInfo.chrom NOT LIKE 'chr%\\_%'
+                ORDER BY chromInfo.chrom
+                GROUP BY chromInfo.chrom
+            END
+            ELSE
+            BEGIN
+                SELECT chromInfo.chrom as chrom, chromInfo.size as size, '' as aliases
+                FROM chromInfo
+                WHERE chromInfo.chrom NOT LIKE 'chr%\\_%'
+                ORDER BY chromInfo.chrom
+            END",
         )
         .fetch_all(&*self.pool)
-        .await
-        {
-            let mut contigs_hashmap: HashMap<String, Contig> = HashMap::new();
-            for row in rows_with_alias {
-                let chrom: String = row.try_get("chrom")?;
-                let size: i64 = row.try_get("size")?;
-                let alias: String = row.try_get("alias")?;
+        .await?;
 
-                match contigs_hashmap.get_mut(&chrom) {
-                    Some(ref mut contig) => {
-                        contig.add_alias(&alias);
-                    }
-                    None => {
-                        let mut contig = Contig::new(&chrom, Some(size as usize));
-                        contig.add_alias(&alias);
-                        contigs_hashmap.insert(chrom.clone(), contig);
-                    }
-                }
+        let contigs = contigs
+            .iter()
+            .map(|row| row.to_contig())
+            .collect::<Result<Vec<Contig>, TGVError>>()?;
+
+        contigs.sort_by(|a, b| {
+            if a.name.starts_with("chr") || b.name.starts_with("chr") {
+                Contig::contigs_compare(&a, &b)
+            } else {
+                b.length().cmp(&a.length()) // Sort by length in descending order
             }
-            let mut contigs = contigs_hashmap.into_values().collect::<Vec<Contig>>();
-            contigs.sort_by(|a, b| {
-                if a.name.starts_with("chr") || b.name.starts_with("chr") {
-                    Contig::contigs_compare(&a, &b)
-                } else {
-                    b.length().cmp(&a.length()) // Sort by length in descending order
-                }
-            });
+        });
 
-            return Ok(contigs);
-        } else {
-            let rows = sqlx::query(
-                "SELECT chromInfo.chrom as chrom, chromInfo.size as size
-                 FROM chromInfo
-                 WHERE chromInfo.chrom NOT LIKE 'chr%\\_%'
-                 ORDER BY chromInfo.chrom",
-            )
-            .fetch_all(&*self.pool)
-            .await?;
-
-            let mut contigs = rows
-                .into_iter()
-                .map(|row| {
-                    let chrom: String = row.try_get("chrom")?;
-                    let size: i64 = row.try_get("size")?;
-                    Ok(Contig::new(&chrom, Some(size as usize)))
-                })
-                .collect::<Result<Vec<Contig>, TGVError>>()?;
-
-            contigs.sort_by(|a, b| {
-                if a.name.starts_with("chr") || b.name.starts_with("chr") {
-                    Contig::contigs_compare(&a, &b)
-                } else {
-                    b.length().cmp(&a.length()) // Sort by length in descending order
-                }
-            });
-
-            return Ok(contigs);
-        }
+        Ok(contigs)
     }
 
     async fn get_cytoband(

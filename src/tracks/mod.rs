@@ -1,5 +1,6 @@
 mod downloader;
 mod local_db;
+mod schema;
 mod ucsc_api;
 mod ucsc_db;
 
