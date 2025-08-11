@@ -3,22 +3,11 @@ use crate::{
     cytoband::{Cytoband, CytobandSegment, Stain},
     error::TGVError,
     feature::{Gene, SubGeneFeature},
-    intervals::GenomeInterval,
-    reference::Reference,
-    region::Region,
     strand::Strand,
-    track::Track,
-    ucsc::UcscHost,
 };
-use async_trait::async_trait;
-use serde::de::Error as _;
 use serde::Deserialize;
-use sqlx::{
-    mysql::{MySqlPoolOptions, MySqlRow},
-    Column, FromRow, MySqlPool, Row,
-};
+use sqlx::FromRow;
 use std::collections::HashMap;
-use std::sync::Arc;
 
 /// Deserialization target for a row in the gene table.
 /// Converting to Gene needs the header information and is done downstream.

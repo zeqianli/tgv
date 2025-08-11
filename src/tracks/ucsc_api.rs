@@ -7,7 +7,6 @@ use crate::{
     intervals::GenomeInterval,
     reference::Reference,
     region::Region,
-    strand::Strand,
     track::Track,
     tracks::schema::*,
 };
@@ -15,7 +14,6 @@ use async_trait::async_trait;
 use reqwest::{Client, StatusCode};
 use serde::de::Error as _;
 use serde::Deserialize;
-use sqlx::{Column, Row};
 
 // TODO: improved pattern:
 // Service doesn't save anything. No reference, no cache.
@@ -76,16 +74,17 @@ impl UcscApiTrackService {
                     )),
                 )))?;
 
-        let mut genes: Vec<Gene> = Vec::new();
-
         // Attempt 1: GeneResponse1
         if let Ok(gene_responses) =
             serde_json::from_value::<Vec<GeneResponse1>>(genes_array_value.clone())
         {
-            for gr in gene_responses {
-                genes.push(gr.gene(contig)?);
-            }
-            return Ok(Track::from_genes(genes, contig.clone()));
+            return Ok(Track::from_genes(
+                genes: gene_responses
+                    .into_iter()
+                    .map(|gr| gr.to_gene(contig))
+                    .collect::<Result<Vec<Gene>, _>>()?,
+                contig.clone(),
+            ));
         }
         // Attempt 3: Direct Gene deserialization (handles complex format via GeneHelper in feature.rs)
 
