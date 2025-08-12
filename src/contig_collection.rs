@@ -204,6 +204,10 @@ impl ContigHeader {
         )))
     }
 
+    pub fn get_name(&self, index: usize) -> Result<&String, TGVError> {
+        Ok(&self.get(index)?.name)
+    }
+
     pub fn get_index(&self, contig: &Contig) -> Option<usize> {
         if let Some(index) = self.contig_lookup.get(&contig.name) {
             return Some(*index);

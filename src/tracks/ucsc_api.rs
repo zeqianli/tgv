@@ -31,13 +31,20 @@ impl UcscApiTrackService {
     }
 
     /// Query the API to download the gene track data for a contig.
-    pub async fn query_track_by_contig(
+    pub async fn query_track_by_contig_if_not_cached(
         &self,
         reference: &Reference,
-        contig: &Contig,
+        contig_index: usize,
         cache: &mut TrackCache,
-    ) -> Result<Track<Gene>, TGVError> {
-        let preferred_track = match cache.get_preferred_track_name() {
+        contig_header: &ContigHeader,
+    ) -> Result<(), TGVError> {
+        if cache.contig_quried(contig_index) {
+            return Ok(());
+        }
+
+        let contig_name = contig_header.get_name(contig_index)?;
+
+        let preferred_track = match &cache.preferred_track_name {
             None => {
                 {
                     let preferred_track = self
@@ -45,17 +52,17 @@ impl UcscApiTrackService {
                         .await?
                         .ok_or(TGVError::IOError(format!(
                             "Failed to get prefered track for {} from UCSC API",
-                            contig.name
+                            contig_name
                         )))?; // TODO: proper handling
 
-                    cache.set_preferred_track_name(Some(preferred_track));
+                    cache.set_preferred_track_name(Some(preferred_track.clone()));
                     preferred_track
                 }
             }
 
-            Some(preferred_track) => preferred_track.ok_or(TGVError::IOError(format!(
+            Some(preferred_track) => preferred_track.clone().ok_or(TGVError::IOError(format!(
                 "Failed to get prefered track for {} from UCSC API",
-                contig.name
+                contig_name
             )))?,
         };
 
@@ -64,7 +71,7 @@ impl UcscApiTrackService {
                 "https://api.genome.ucsc.edu/getData/track?genome={}&track={}&chrom={}",
                 reference.to_string(),
                 preferred_track,
-                contig.name
+                contig_name
             ),
             Reference::UcscAccession(genome) => {
                 let hub_url = cache.hub_url.clone().unwrap_or({
@@ -74,7 +81,7 @@ impl UcscApiTrackService {
                 });
                 format!(
                     "https://api.genome.ucsc.edu/getData/track?hubUrl={}&genome={}&track={}&chrom={}",
-                    hub_url, genome, preferred_track, contig.name
+                    hub_url, genome, preferred_track, contig_name
                 )
             }
         };
@@ -82,7 +89,9 @@ impl UcscApiTrackService {
         let response: UcscApiListGeneResponse =
             self.client.get(query_url).send().await?.json().await?;
 
-        response.to_track(preferred_track)
+        cache.add_track(contig_index, Some(response.to_track(&preferred_track)?));
+
+        Ok(())
     }
 
     pub async fn get_hub_url_for_genark_accession(
@@ -333,99 +342,94 @@ impl TrackService for UcscApiTrackService {
     async fn query_k_genes_after(
         &self,
         reference: &Reference,
-        contig: &Contig,
+        contig_index: usize,
         coord: usize,
         k: usize,
         cache: &mut TrackCache,
+        contig_header: &ContigHeader,
     ) -> Result<Gene, TGVError> {
-        if !cache.includes_contig(contig) {
-            let track = self.query_track_by_contig(reference, contig, cache).await?;
-            cache.add_track(contig, Some(track));
-        }
+        self.query_track_by_contig_if_not_cached(reference, contig_index, cache, contig_header)
+            .await?;
 
-        if let Some(Some(track)) = cache.get_track(contig) {
-            Ok(track
-                .get_saturating_k_genes_after(coord, k)
-                .ok_or(TGVError::IOError("No genes found".to_string()))?
-                .clone())
-        } else {
-            Err(TGVError::IOError(format!(
+        cache
+            .tracks
+            .get(&contig_index)
+            .ok_or(TGVError::IOError(format!(
                 "Track not found for contig {}",
-                contig.name
-            )))
-        }
+                contig_index
+            )))?
+            .get_saturating_k_genes_after(coord, k)
+            .ok_or(TGVError::IOError("No genes found".to_string()))
+            .cloned()
     }
 
     async fn query_k_genes_before(
         &self,
         reference: &Reference,
-        contig: &Contig,
+        contig_index: usize,
         coord: usize,
         k: usize,
         cache: &mut TrackCache,
+        contig_header: &ContigHeader,
     ) -> Result<Gene, TGVError> {
-        if !cache.includes_contig(contig) {
-            let track = self.query_track_by_contig(reference, contig, cache).await?;
-            cache.add_track(contig, Some(track));
-        }
-        if let Some(Some(track)) = cache.get_track(contig) {
-            Ok(track
-                .get_saturating_k_genes_before(coord, k)
-                .ok_or(TGVError::IOError("No genes found".to_string()))?
-                .clone())
-        } else {
-            Err(TGVError::IOError(format!(
+        self.query_track_by_contig_if_not_cached(reference, contig_index, cache, contig_header)
+            .await?;
+
+        cache
+            .tracks
+            .get(&contig_index)
+            .ok_or(TGVError::IOError(format!(
                 "Track not found for contig {}",
-                contig.name
-            )))
-        }
+                contig_index
+            )))?
+            .get_saturating_k_genes_before(coord, k)
+            .ok_or(TGVError::IOError("No genes found".to_string()))
+            .cloned()
     }
 
     async fn query_k_exons_after(
         &self,
         reference: &Reference,
-        contig: &Contig,
+        contig_index: usize,
         coord: usize,
         k: usize,
         cache: &mut TrackCache,
+        contig_header: &ContigHeader,
     ) -> Result<SubGeneFeature, TGVError> {
-        if !cache.includes_contig(contig) {
-            let track = self.query_track_by_contig(reference, contig, cache).await?;
-            cache.add_track(contig, Some(track));
-        }
-        if let Some(Some(track)) = cache.get_track(contig) {
-            Ok(track
-                .get_saturating_k_exons_after(coord, k)
-                .ok_or(TGVError::IOError("No exons found".to_string()))?)
-        } else {
-            Err(TGVError::IOError(format!(
+        self.query_track_by_contig_if_not_cached(reference, contig_index, cache, contig_header)
+            .await?;
+
+        cache
+            .tracks
+            .get(&contig_index)
+            .ok_or(TGVError::IOError(format!(
                 "Track not found for contig {}",
-                contig.name
-            )))
-        }
+                contig_index
+            )))?
+            .get_saturating_k_exons_after(coord, k)
+            .ok_or(TGVError::IOError("No exons found".to_string()))
     }
 
     async fn query_k_exons_before(
         &self,
         reference: &Reference,
-        contig: &Contig,
+        contig_index: usize,
         coord: usize,
         k: usize,
         cache: &mut TrackCache,
+        contig_header: &ContigHeader,
     ) -> Result<SubGeneFeature, TGVError> {
-        if !cache.includes_contig(contig) {
-            let track = self.query_track_by_contig(reference, contig, cache).await?;
-            cache.add_track(contig, Some(track));
-        }
-        if let Some(Some(track)) = cache.get_track(contig) {
-            Ok(track
-                .get_saturating_k_exons_before(coord, k)
-                .ok_or(TGVError::IOError("No exons found".to_string()))?)
-        } else {
-            Err(TGVError::IOError(format!(
+        self.query_track_by_contig_if_not_cached(reference, contig_index, cache, contig_header)
+            .await?;
+
+        cache
+            .tracks
+            .get(&contig_index)
+            .ok_or(TGVError::IOError(format!(
                 "Track not found for contig {}",
-                contig.name
-            )))
-        }
+                contig_index
+            )))?
+            .get_saturating_k_exons_before(coord, k)
+            .ok_or(TGVError::IOError("No exons found".to_string()))
     }
 }

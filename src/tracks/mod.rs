@@ -16,7 +16,7 @@ use crate::{
 };
 use async_trait::async_trait;
 use sqlx::{Column, Row};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 pub use downloader::UCSCDownloader;
 pub use local_db::LocalDbTrackService;
@@ -36,10 +36,10 @@ const TRACK_PREFERENCES: [&str; 5] = [
 /// Can be returned or pass into queries.
 pub struct TrackCache {
     /// Contig name/aliases -> Track
-    tracks: Vec<Option<Track<Gene>>>,
+    pub tracks: HashMap<usize, Track<Gene>>,
 
-    /// Contig index -> Track index
-    tracks_by_contig: HashMap<usize, usize>,
+    /// Contig index -> whether the track has been quried
+    contig_queried: HashSet<usize>,
 
     /// Gene name -> Option<Gene>.
     /// If the gene name is not found, the value is None.
@@ -49,7 +49,7 @@ pub struct TrackCache {
     /// None: Not initialized.
     /// Some(None): Queried but not found.
     /// Some(Some(name)): Queried and found.
-    preferred_track_name: Option<Option<String>>,
+    pub preferred_track_name: Option<Option<String>>,
 
     /// hub_url for UCSC accessions.
     /// None: Not initialized.
@@ -67,23 +67,15 @@ impl TrackCache {
     pub fn new() -> Self {
         Self {
             tracks: Vec::new(),
-            tracks_by_contig: HashMap::new(),
+            contig_queried: HashSet::new(),
             gene_by_name: HashMap::new(),
             preferred_track_name: None,
             hub_url: None,
         }
     }
 
-    pub fn includes_contig(&self, contig_index: usize) -> bool {
-        self.tracks_by_contig.contains_key(&contig_index)
-    }
-
-    /// Note that this returns None both when the contig is not queried,
-    ///    and returns Some(None) when the contig is queried but the track data is not found.
-    pub fn get_track(&self, contig_index: usize) -> Option<Option<&Track<Gene>>> {
-        self.tracks_by_contig
-            .get(&contig_index)
-            .map(|index| self.tracks[*index].as_ref())
+    pub fn contig_quried(&self, contig_index: usize) -> bool {
+        self.contig_queried.contains(contig_index)
     }
 
     pub fn includes_gene(&self, gene_name: &str) -> bool {
@@ -103,13 +95,7 @@ impl TrackCache {
                     .insert(gene.name.clone(), Some(gene.clone()));
             }
         }
-        self.tracks.push(track);
-        self.tracks_by_contig
-            .insert(contig_index, self.tracks.len() - 1);
-    }
-
-    pub fn get_preferred_track_name(&self) -> Option<Option<String>> {
-        self.preferred_track_name.clone()
+        self.tracks.insert(contig_index, track);
     }
 
     pub fn set_preferred_track_name(&mut self, preferred_track_name: Option<String>) {
@@ -192,7 +178,7 @@ pub trait TrackService {
     async fn query_k_genes_after(
         &self,
         reference: &Reference,
-        contig: &Contig,
+        contig_index: usize,
         coord: usize,
         k: usize,
         cache: &mut TrackCache,
@@ -203,7 +189,7 @@ pub trait TrackService {
     async fn query_k_genes_before(
         &self,
         reference: &Reference,
-        contig: &Contig,
+        contig_index: usize,
         coord: usize,
         k: usize,
         cache: &mut TrackCache,
@@ -214,7 +200,7 @@ pub trait TrackService {
     async fn query_k_exons_after(
         &self,
         reference: &Reference,
-        contig: &Contig,
+        contig_index: usize,
         coord: usize,
         k: usize,
         cache: &mut TrackCache,
@@ -225,7 +211,7 @@ pub trait TrackService {
     async fn query_k_exons_before(
         &self,
         reference: &Reference,
-        contig: &Contig,
+        contig_index: usize,
         coord: usize,
         k: usize,
         cache: &mut TrackCache,
