@@ -3,6 +3,7 @@ use crate::{
     cytoband::{Cytoband, CytobandSegment, Stain},
     error::TGVError,
     feature::{Gene, SubGeneFeature},
+    reference::Reference,
     strand::Strand,
 };
 use serde::Deserialize;
@@ -58,7 +59,7 @@ impl UcscGeneRow {
     }
 }
 
-#[derive(Debug, FromRow)]
+#[derive(Debug, FromRow, Deserialize)]
 struct CytobandSegmentRow {
     chromStart: u64,
     chromEnd: u64,
@@ -266,4 +267,59 @@ pub struct GenarkGenome {
 #[derive(Debug, Clone, Deserialize)]
 pub struct UcscListChromosomeResponse {
     pub chromosomes: HashMap<String, usize>,
+}
+
+///{
+//   "downloadTime": "2025:08:12T01:04:48Z",
+//   "downloadTimeStamp": 1754960688,
+//   "genome": "mm9",
+//   "dataTime": "2007-08-15T11:51:13",
+//   "dataTimeStamp": 1187203873,
+//   "trackType": "bed 4 +",
+//   "track": "cytoBandIdeo",
+//   "chrom": "chr1",
+//   "start": 0,
+//   "end": 197195432,
+//   "cytoBandIdeo": [
+//     {
+//       "chrom": "chr1",
+//       "chromStart": 0,
+//       "chromEnd": 8918386,
+//       "name": "qA1",
+//       "gieStain": "gpos100"
+//     },
+#[derive(Debug, Deserialize)]
+pub struct UcscApiCytobandResponse {
+    cytoBandIdeo: Vec<CytobandSegmentRow>,
+}
+
+impl Default for UcscApiCytobandResponse {
+    fn default() -> Self {
+        UcscApiCytobandResponse {
+            cytoBandIdeo: vec![],
+        }
+    }
+}
+
+impl UcscApiCytobandResponse {
+    pub fn to_cytoband(
+        self,
+        reference: &Reference,
+        contig: &Contig,
+        contig_header: &ContigHeader,
+    ) -> Result<Option<Cytoband>, TGVError> {
+        if self.cytoBandIdeo.is_empty() {
+            Ok(None)
+        } else {
+            Ok(Some(Cytoband {
+                reference: Some(reference.clone()),
+                contig: contig.clone(),
+                segments: self
+                    .cytoBandIdeo
+                    .iter()
+                    .map(|cytoband| cytoband.to_cytoband_segment(contig_header))
+                    .collect(),
+            }))
+        }
+    }
 }
