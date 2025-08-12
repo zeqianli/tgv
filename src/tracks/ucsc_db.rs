@@ -375,16 +375,7 @@ impl TrackService for UcscDbTrackService {
         .fetch_all(&*self.pool)
         .await?;
 
-        if gene_rows.is_empty() {
-            return Err(TGVError::IOError("No genes found".to_string()));
-        }
-
-        let genes = gene_rows
-            .into_iter()
-            .map(|row| row.to_gene(contig_header))
-            .collect::<Result<Vec<Gene>, TGVError>>()?;
-
-        Track::from_genes(genes, contig_index)?
+        Track::from_gene_rows(gene_rows, contig_index, contig_header)?
             .get_saturating_k_genes_after(coord, k)
             .cloned()
             .ok_or(TGVError::IOError("No genes found".to_string()))
@@ -421,16 +412,7 @@ impl TrackService for UcscDbTrackService {
         .fetch_all(&*self.pool)
         .await?;
 
-        if gene_rows.is_empty() {
-            return Err(TGVError::IOError("No genes found".to_string()));
-        }
-
-        let genes = gene_rows
-            .into_iter()
-            .map(|row| row.to_gene(contig_header))
-            .collect::<Result<Vec<Gene>, TGVError>>()?;
-
-        Track::from_genes(genes, contig_index)?
+        Track::from_gene_rows(gene_rows, contig_index, contig_header)?
             .get_saturating_k_genes_before(coord, k)
             .cloned()
             .ok_or(TGVError::IOError("No genes found".to_string()))
@@ -467,16 +449,7 @@ impl TrackService for UcscDbTrackService {
         .fetch_all(&*self.pool)
         .await?;
 
-        if gene_rows.is_empty() {
-            return Err(TGVError::IOError("No genes found".to_string()));
-        }
-
-        let genes = gene_rows
-            .into_iter()
-            .map(|row| row.to_gene(contig_header))
-            .collect::<Result<Vec<Gene>, TGVError>>()?;
-
-        Track::from_genes(genes, contig_index)?
+        Track::from_gene_rows(gene_rows, contig_index, contig_header)?
             .get_saturating_k_exons_after(coord, k)
             .ok_or(TGVError::IOError("No exons found".to_string()))
     }
@@ -512,16 +485,7 @@ impl TrackService for UcscDbTrackService {
         .fetch_all(&*self.pool)
         .await?;
 
-        if gene_rows.is_empty() {
-            return Err(TGVError::IOError("No genes found".to_string()));
-        }
-
-        let genes = gene_rows
-            .into_iter()
-            .map(|row| row.to_gene(contig_header))
-            .collect::<Result<Vec<Gene>, TGVError>>()?;
-
-        Track::from_genes(genes, contig_index)?
+        Track::from_gene_rows(gene_rows, contig_index, contig_header)?
             .get_saturating_k_exons_before(coord, k)
             .ok_or(TGVError::IOError("No exons found".to_string()))
     }

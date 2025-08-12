@@ -60,6 +60,24 @@ impl UcscGeneRow {
     }
 }
 
+impl Track<Gene> {
+    pub fn from_gene_rows(
+        gene_rows: Vec<UcscGeneRow>,
+        contig_index: usize,
+        contig_header: &ContigHeader,
+    ) -> Result<Self, TGVError> {
+        if gene_rows.is_empty() {
+            return Err(TGVError::IOError("No genes found".to_string()));
+        }
+
+        let genes = gene_rows
+            .into_iter()
+            .map(|row| row.to_gene(contig_header))
+            .collect::<Result<Vec<Gene>, TGVError>>()?;
+        Track::from_genes(genes, contig_index)
+    }
+}
+
 #[derive(Debug, FromRow, Deserialize)]
 pub struct CytobandSegmentRow {
     chromStart: i64, // sqlite doesn't support unsigned int
