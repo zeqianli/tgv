@@ -23,8 +23,8 @@ pub struct UcscGeneRow {
     pub cds_start: i64,
     pub cds_end: i64,
     pub name2: Option<String>,
-    pub exon_starts: Vec<u8>,
-    pub exon_ends: Vec<u8>,
+    pub exon_starts_blob: Vec<u8>,
+    pub exon_ends_blob: Vec<u8>,
 }
 
 impl UcscGeneRow {
@@ -42,19 +42,19 @@ impl UcscGeneRow {
         // USCS coordinates are 0-based, half-open
         // https://genome-blog.gi.ucsc.edu/blog/2016/12/12/the-ucsc-genome-browser-coordinate-counting-systems/
         Ok(Gene {
-            id: self.name,
-            name: self.name2.unwrap_or(self.name),
+            id: self.name.clone(),
+            name: self.name2.unwrap_or(self.name.clone()),
             strand: Strand::from_str(self.strand)?,
             contig_index: contig_header.get_index_by_str(&self.chrom)?,
             transcription_start: self.tx_start as usize + 1,
             transcription_end: self.tx_end as usize,
             cds_start: self.cds_start as usize + 1,
             cds_end: self.cds_end as usize,
-            exon_starts: Self::parse_blob_to_coords(exon_starts_blob)
+            exon_starts: Self::parse_blob_to_coords(&self.exon_starts_blob)
                 .iter()
                 .map(|v| v + 1)
                 .collect(),
-            exon_ends: Self::parse_blob_to_coords(&exon_ends_blob),
+            exon_ends: Self::parse_blob_to_coords(&self.exon_ends_blob),
             has_exons: true,
         })
     }
@@ -187,7 +187,7 @@ enum UcscGeneResponse {
 
 impl UcscGeneResponse {
     /// Custom deserializer for strand field
-    fn to_gene(self, contig_index: usize) -> Result<Gene, TGVError> {
+    pub fn to_gene(self, contig_index: usize) -> Result<Gene, TGVError> {
         match self {
             UcscGeneResponse::GeneResponse1 {
                 name,
@@ -237,27 +237,39 @@ impl UcscGeneResponse {
     }
 }
 
+// {
+//   "downloadTime": "2025:08:12T17:08:55Z",
+//   "downloadTimeStamp": 1755018535,
+//   "genome": "hg38",
+//   "dataTime": "2022-10-18T23:39:31",
+//   "dataTimeStamp": 1666161571,
+//   "trackType": "bed 3 +",
+//   "track": "gold",
+//   "chrom": "chrM",
+//   "start": 0,
+//   "end": 16569,
+//   "gold": [
+//     {
+//       "bin": 585,
+//       "chrom": "chrM",
+//       "chromStart": 0,
+//       "chromEnd": 16569,
+//       "ix": 1,
+//       "type": "O",
+//       "frag": "J01415.2",
+//       "fragStart": 0,
+//       "fragEnd": 16569,
+//       "strand": "+"
+//     }
+//   ],
+//   "itemsReturned": 1
+// }
 #[derive(Debug, Clone, Deserialize)]
 pub struct UcscApiListGeneResponse {
-    genes: HashMap<String, UcscGeneResponse>,
-    // tODO
+    #[serde(flatten)]
+    pub genes: Vec<UcscGeneResponse>,
 }
 
-impl UcscApiListGeneResponse {
-    pub fn to_track(self, preferred_track: &str) -> Result<Track<Gene>, TGVError> {
-        Track::new(
-            self.genes
-                .get(preferred_track)
-                .ok_or(TGVError::ValueError(format!(
-                    "Track key \'{}\' not found in UCSC API response. Full response: {:?}",
-                    preferred_track,
-                    self.clone()
-                )))
-                .and_then(|response| response.to_gene(&Contig::new(&name)))
-                .collect::<Vec<Gene>>(),
-        )
-    }
-}
 ///
 /// Example response:
 /// {
@@ -351,7 +363,7 @@ impl UcscApiCytobandResponse {
                 contig_index: contig_index,
                 segments: self
                     .cytoBandIdeo
-                    .iter()
+                    .into_iter()
                     .map(|cytoband| cytoband.to_cytoband_segment(contig_header))
                     .collect::<Result<Vec<CytobandSegment>, TGVError>>()?,
             }))

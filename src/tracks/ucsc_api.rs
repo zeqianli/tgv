@@ -86,10 +86,23 @@ impl UcscApiTrackService {
             }
         };
 
-        let response: UcscApiListGeneResponse =
+        let mut response: serde_json::Value =
             self.client.get(query_url).send().await?.json().await?;
 
-        cache.add_track(contig_index, response.to_track(&preferred_track)?);
+        let response: UcscApiListGeneResponse =
+            serde_json::from_value(response[preferred_track].take())?;
+
+        cache.add_track(
+            contig_index,
+            Track::from_genes(
+                response
+                    .genes
+                    .into_iter()
+                    .map(|response| response.to_gene(contig_index))
+                    .collect::<Result<Vec<Gene>, TGVError>>()?,
+                contig_index,
+            )?,
+        );
 
         Ok(())
     }

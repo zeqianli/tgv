@@ -1,5 +1,5 @@
 use crate::{
-    contig::Contig,
+    contig_collection::ContigHeader,
     error::TGVError,
     feature::{Gene, SubGeneFeature},
     intervals::GenomeInterval,
