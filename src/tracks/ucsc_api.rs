@@ -31,14 +31,14 @@ impl UcscApiTrackService {
     }
 
     /// Query the API to download the gene track data for a contig.
-    pub async fn query_track_by_contig_if_not_cached(
+    pub async fn query_track_if_not_cached(
         &self,
         reference: &Reference,
         contig_index: usize,
         cache: &mut TrackCache,
         contig_header: &ContigHeader,
     ) -> Result<(), TGVError> {
-        if cache.contig_quried(contig_index) {
+        if cache.contig_quried(&contig_index) {
             return Ok(());
         }
 
@@ -89,7 +89,7 @@ impl UcscApiTrackService {
         let response: UcscApiListGeneResponse =
             self.client.get(query_url).send().await?.json().await?;
 
-        cache.add_track(contig_index, Some(response.to_track(&preferred_track)?));
+        cache.add_track(contig_index, response.to_track(&preferred_track)?);
 
         Ok(())
     }
@@ -156,7 +156,6 @@ impl TrackService for UcscApiTrackService {
 
         let mut output = Vec::new();
         for (name_string, length) in response.chromosomes.into_iter() {
-            // TODO: save length
             output.push(Contig::new(&name_string, Some(length)));
         }
 
@@ -268,75 +267,68 @@ impl TrackService for UcscApiTrackService {
         reference: &Reference,
         region: &Region,
         cache: &mut TrackCache,
+        contig_header: &ContigHeader,
     ) -> Result<Vec<Gene>, TGVError> {
-        if !cache.includes_contig(region.contig()) {
-            let track = self
-                .query_track_by_contig(reference, region.contig(), cache)
-                .await?;
-            cache.add_track(region.contig(), Some(track));
-        }
+        self.query_track_if_not_cached(reference, region.contig(), cache, contig_header)
+            .await?;
+
         // TODO: now I don't really handle empty query results
 
-        if let Some(Some(track)) = cache.get_track(region.contig()) {
-            Ok(track
-                .get_features_overlapping(region)
-                .iter()
-                .map(|g| (*g).clone())
-                .collect())
-        } else {
-            Err(TGVError::IOError(format!(
-                "Track not found for contig {}",
-                region.contig().name
-            )))
-        }
+        Ok(cache
+            .tracks
+            .get(&region.contig())
+            .ok_or(TGVError::IOError(format!(
+                "Track not found for contig index {}",
+                region.contig()
+            )))?
+            .get_features_overlapping(region)
+            .iter()
+            .map(|g| (*g).clone())
+            .collect())
     }
 
     async fn query_gene_covering(
         &self,
         reference: &Reference,
-        contig: &Contig,
+        contig_index: usize,
         position: usize,
         cache: &mut TrackCache,
+        contig_header: &ContigHeader,
     ) -> Result<Option<Gene>, TGVError> {
-        if !cache.includes_contig(contig) {
-            let track = self.query_track_by_contig(reference, contig, cache).await?;
-            cache.add_track(contig, Some(track));
-        }
-        if let Some(Some(track)) = cache.get_track(contig) {
-            Ok(track.get_gene_at(position).map(|g| (*g).clone()))
-        } else {
-            Err(TGVError::IOError(format!(
-                "Track not found for contig {}",
-                contig.name
-            )))
-        }
+        self.query_track_if_not_cached(reference, contig_index, cache, contig_header)
+            .await?;
+
+        Ok(cache
+            .tracks
+            .get(&contig_index)
+            .ok_or(TGVError::IOError(format!(
+                "Track not found for contig index {}",
+                contig_index
+            )))?
+            .get_gene_at(position)
+            .cloned())
     }
 
     async fn query_gene_name(
         &self,
         reference: &Reference,
-        name: &String,
+        gene_name: &String,
         cache: &mut TrackCache,
+        contig_header: &ContigHeader,
     ) -> Result<Gene, TGVError> {
-        if !cache.includes_gene(name) {
+        if !cache.gene_quried(gene_name) {
             // query all possible tracks until the gene is found
-            for contig in self.get_all_contigs(reference, cache).await? {
-                let track = self
-                    .query_track_by_contig(reference, &contig, cache)
+            for contig_index in 0..contig_header.contigs.len() {
+                self.query_track_if_not_cached(reference, contig_index, cache, contig_header)
                     .await?;
-                cache.add_track(&contig, Some(track));
 
-                if let Some(Some(gene)) = cache.get_gene(name) {
-                    break;
+                if let Some(gene) = cache.get_gene(gene_name) {
+                    return Ok(gene.clone());
                 }
             }
         }
 
-        if let Some(Some(gene)) = cache.get_gene(name) {
-            Ok(gene.clone())
-        } else {
-            Err(TGVError::IOError(format!("Gene {} not found", name)))
-        }
+        Err(TGVError::IOError(format!("Gene {} not found", gene_name)))
     }
 
     async fn query_k_genes_after(
@@ -348,7 +340,7 @@ impl TrackService for UcscApiTrackService {
         cache: &mut TrackCache,
         contig_header: &ContigHeader,
     ) -> Result<Gene, TGVError> {
-        self.query_track_by_contig_if_not_cached(reference, contig_index, cache, contig_header)
+        self.query_track_if_not_cached(reference, contig_index, cache, contig_header)
             .await?;
 
         cache
@@ -372,7 +364,7 @@ impl TrackService for UcscApiTrackService {
         cache: &mut TrackCache,
         contig_header: &ContigHeader,
     ) -> Result<Gene, TGVError> {
-        self.query_track_by_contig_if_not_cached(reference, contig_index, cache, contig_header)
+        self.query_track_if_not_cached(reference, contig_index, cache, contig_header)
             .await?;
 
         cache
@@ -396,7 +388,7 @@ impl TrackService for UcscApiTrackService {
         cache: &mut TrackCache,
         contig_header: &ContigHeader,
     ) -> Result<SubGeneFeature, TGVError> {
-        self.query_track_by_contig_if_not_cached(reference, contig_index, cache, contig_header)
+        self.query_track_if_not_cached(reference, contig_index, cache, contig_header)
             .await?;
 
         cache
@@ -419,7 +411,7 @@ impl TrackService for UcscApiTrackService {
         cache: &mut TrackCache,
         contig_header: &ContigHeader,
     ) -> Result<SubGeneFeature, TGVError> {
-        self.query_track_by_contig_if_not_cached(reference, contig_index, cache, contig_header)
+        self.query_track_if_not_cached(reference, contig_index, cache, contig_header)
             .await?;
 
         cache

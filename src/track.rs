@@ -6,7 +6,7 @@ use crate::{
     region::Region,
 };
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashMap};
 use std::ops::Bound::{Excluded, Included};
 
 // A track is a collections of features on a single contig.
@@ -30,6 +30,9 @@ pub struct Track<T: GenomeInterval> {
     /// (i, j) -> exon [self.genes[i].exon_starts[j], self.genes[i].exon_ends[j]]
     exons_by_start: Option<BTreeMap<usize, (usize, usize)>>,
     exons_by_end: Option<BTreeMap<usize, (usize, usize)>>,
+
+    /// feature name -> index in features
+    feature_lookup: HashMap<String, usize>,
 }
 
 impl<T: GenomeInterval> Track<T> {
@@ -68,6 +71,7 @@ impl<T: GenomeInterval> Track<T> {
             most_right_bound,
             exons_by_start: None,
             exons_by_end: None,
+            feature_lookup: HashMap::new(),
         })
     }
 
@@ -238,6 +242,13 @@ impl Track<Gene> {
         &self.features
     }
 
+    pub fn gene_by_name(&self, gene_name: &str) -> Option<&Gene> {
+        match self.feature_lookup.get(gene_name) {
+            None => None,
+            Some(index) => self.features.get(*index),
+        }
+    }
+
     pub fn from_genes(genes: Vec<Gene>, contig: usize) -> Result<Self, TGVError> {
         let mut genes = genes;
         genes.sort_by_key(|gene| gene.start());
@@ -276,6 +287,7 @@ impl Track<Gene> {
             most_right_bound,
             exons_by_start: Some(exons_by_start),
             exons_by_end: Some(exons_by_end),
+            feature_lookup: HashMap::new(),
         })
     }
 
