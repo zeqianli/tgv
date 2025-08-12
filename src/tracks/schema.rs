@@ -38,19 +38,19 @@ impl UcscGeneRow {
             .collect()
     }
 
-    fn to_gene(self, contig_header: &ContigHeader) -> Result<Gene, TGVError> {
+    pub fn to_gene(self, contig_header: &ContigHeader) -> Result<Gene, TGVError> {
         // USCS coordinates are 0-based, half-open
         // https://genome-blog.gi.ucsc.edu/blog/2016/12/12/the-ucsc-genome-browser-coordinate-counting-systems/
         Ok(Gene {
             id: self.name,
             name: self.name2.unwrap_or(self.name),
             strand: Strand::from_str(self.strand)?,
-            contig: Contig::new(&self.chrom),
+            contig_index: contig_header.get_index(&self.chrom)?,
             transcription_start: self.tx_start as usize + 1,
-            transcription_end: tx_end as usize,
-            cds_start: cds_start as usize + 1,
-            cds_end: cds_end as usize,
-            exon_starts: Self::parse_blob_to_coords(&exon_starts_blob)
+            transcription_end: self.tx_end as usize,
+            cds_start: self.cds_start as usize + 1,
+            cds_end: self.cds_end as usize,
+            exon_starts: Self::parse_blob_to_coords(exon_starts_blob)
                 .iter()
                 .map(|v| v + 1)
                 .collect(),
@@ -169,7 +169,7 @@ enum UcscGeneResponse {
 
 impl UcscGeneResponse {
     /// Custom deserializer for strand field
-    fn to_gene(self, contig: &Contig) -> Result<Gene, TGVError> {
+    fn to_gene(self, contig_index: usize) -> Result<Gene, TGVError> {
         match self {
             UcscGeneResponse::GeneResponse1 {
                 name,
@@ -181,11 +181,11 @@ impl UcscGeneResponse {
                 cdsEnd,
                 exonStarts,
                 exonEnds,
-            } => Gene {
+            } => Ok(Gene {
                 id: name.clone(),
                 name: name2.unwrap_or(name.clone()),
                 strand: Strand::from_str(strand)?,
-                contig: contig.clone(),
+                contig_index: contig_index,
                 transcription_start: txStart,
                 transcription_end: txEnd,
                 cds_start: cdsStart,
@@ -193,7 +193,7 @@ impl UcscGeneResponse {
                 exon_starts: parse_comma_separated_list(&exonStarts)?,
                 exon_ends: parse_comma_separated_list(&exonEnds)?,
                 has_exons: true,
-            },
+            }),
 
             UcscGeneResponse::GeneResponse2 {
                 chromStart,
@@ -203,10 +203,10 @@ impl UcscGeneResponse {
                 thickStart,
                 thickEnd,
             } => Ok(Gene {
-                id: name,
+                id: name.clone(),
                 name: name,
                 strand: Strand::from_str(strand)?,
-                contig: contig.clone(),
+                contig_index: contig_index,
                 transcription_start: chromStart,
                 transcription_end: chromEnd,
                 cds_start: thickStart,
@@ -322,7 +322,7 @@ impl UcscApiCytobandResponse {
     pub fn to_cytoband(
         self,
         reference: &Reference,
-        contig: &Contig,
+        contig_index: usize,
         contig_header: &ContigHeader,
     ) -> Result<Option<Cytoband>, TGVError> {
         if self.cytoBandIdeo.is_empty() {
@@ -330,12 +330,12 @@ impl UcscApiCytobandResponse {
         } else {
             Ok(Some(Cytoband {
                 reference: Some(reference.clone()),
-                contig: contig.clone(),
+                contig_index: contig_index,
                 segments: self
                     .cytoBandIdeo
                     .iter()
                     .map(|cytoband| cytoband.to_cytoband_segment(contig_header))
-                    .collect(),
+                    .collect::<Result<Vec<CytobandSegment>, TGVError>>()?,
             }))
         }
     }

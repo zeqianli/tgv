@@ -13,7 +13,7 @@ use std::ops::Bound::{Excluded, Included};
 #[derive(Debug)]
 pub struct Track<T: GenomeInterval> {
     pub features: Vec<T>, // TODO: what about hierarchy in features? e.g. exons of a gene?
-    pub contig: usize,
+    pub contig_index: usize,
 
     features_by_start: BTreeMap<usize, usize>, // start -> index in features
     features_by_end: BTreeMap<usize, usize>,   // end -> index in features
@@ -38,7 +38,7 @@ pub struct Track<T: GenomeInterval> {
 impl<T: GenomeInterval> Track<T> {
     /// Create a track from a list of features.
     /// Assumes no feature overlapping.
-    pub fn from_features(features: Vec<T>, contig: usize) -> Result<Self, TGVError> {
+    pub fn from_features(features: Vec<T>, contig_index: usize) -> Result<Self, TGVError> {
         let mut features = features;
         features.sort_by_key(|feature| feature.start());
 
@@ -62,7 +62,7 @@ impl<T: GenomeInterval> Track<T> {
 
         Ok(Self {
             features,
-            contig,
+            contig_index,
             features_by_start,
             features_by_end,
             // data_complete_left_bound: data_complete_left_bound,
@@ -97,8 +97,8 @@ impl<T: GenomeInterval> GenomeInterval for Track<T> {
         self.most_right_bound
     }
 
-    fn contig(&self) -> usize {
-        self.contig
+    fn contig_index(&self) -> usize {
+        self.contig_index
     }
 }
 
@@ -249,7 +249,7 @@ impl Track<Gene> {
         }
     }
 
-    pub fn from_genes(genes: Vec<Gene>, contig: usize) -> Result<Self, TGVError> {
+    pub fn from_genes(genes: Vec<Gene>, contig_index: usize) -> Result<Self, TGVError> {
         let mut genes = genes;
         genes.sort_by_key(|gene| gene.start());
 
@@ -280,7 +280,7 @@ impl Track<Gene> {
 
         Ok(Self {
             features: genes,
-            contig,
+            contig_index,
             features_by_start,
             features_by_end,
             most_left_bound,
@@ -466,7 +466,7 @@ mod tests {
                 id: "gene1".to_string(),
                 name: "gene1".to_string(),
                 strand: Strand::Forward,
-                contig: 0,
+                contig_index: 0,
                 transcription_start: 2,
                 transcription_end: 10,
                 cds_start: 2,
@@ -479,7 +479,7 @@ mod tests {
                 id: "gene_no_exon".to_string(),
                 name: "gene_no_exon".to_string(),
                 strand: Strand::Forward,
-                contig: 0,
+                contig_index: 0,
                 transcription_start: 21,
                 transcription_end: 30,
                 cds_start: 25,
@@ -492,7 +492,7 @@ mod tests {
                 id: "gene2".to_string(),
                 name: "gene2".to_string(),
                 strand: Strand::Forward,
-                contig: 0,
+                contig_index: 0,
                 transcription_start: 41,
                 transcription_end: 50,
                 cds_start: 45,

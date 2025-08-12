@@ -102,7 +102,7 @@ where
 #[derive(Debug, Clone, Deserialize)]
 pub struct CytobandSegment {
     #[serde(rename = "chrom", deserialize_with = "deserialize_contig_from_string")]
-    pub contig: usize,
+    pub contig_index: usize,
     #[serde(
         rename = "chromStart",
         deserialize_with = "deserialize_start_from_0_based"
@@ -121,20 +121,25 @@ pub struct CytobandSegment {
 #[derive(Debug, Clone)]
 pub struct Cytoband {
     pub reference: Option<Reference>,
-    pub contig: usize,
+    pub contig_index: usize,
     pub segments: Vec<CytobandSegment>,
 }
 
 impl Cytoband {
-    pub fn default(reference: &Reference, contig: usize, contig_length: usize) -> Self {
+    pub fn default(
+        reference: &Reference,
+        contig_index: usize,
+        contig_length: usize,
+        contig_name: &str,
+    ) -> Self {
         Self {
             reference: Some(reference.clone()),
-            contig: contig.clone(),
+            contig_index: contig_index,
             segments: vec![CytobandSegment {
-                contig: contig.clone(),
+                contig_index: contig_index,
                 start: 1,
                 end: contig_length,
-                name: contig.name.clone(),
+                name: contig_name.to_string(),
                 stain: Stain::Other("unknown".to_string()),
             }],
         }

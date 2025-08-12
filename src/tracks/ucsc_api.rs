@@ -173,15 +173,16 @@ impl TrackService for UcscApiTrackService {
     async fn get_cytoband(
         &self,
         reference: &Reference,
-        contig: &Contig,
+        contig_index: usize,
         cache: &mut TrackCache,
         contig_header: &ContigHeader,
     ) -> Result<Option<Cytoband>, TGVError> {
+        let contig_name = contig_header.get_name(contig_index)?;
         let query_url = match reference {
             Reference::Hg19 | Reference::Hg38 | Reference::UcscGenome(_) => format!(
                 "https://api.genome.ucsc.edu/getData/track?genome={}&track=cytoBandIdeo&chrom={}",
                 reference.to_string(),
-                contig.name
+                contig_name
             ),
             Reference::UcscAccession(genome) => {
                 if cache.hub_url.is_none() {
@@ -191,7 +192,7 @@ impl TrackService for UcscApiTrackService {
                 let hub_url = cache.hub_url.as_ref().unwrap();
                 format!(
                     "https://api.genome.ucsc.edu/getData/track?hubUrl={}&genome={}&track=cytoBandIdeo&chrom={}",
-                    hub_url, genome, contig.name
+                    hub_url, genome, contig_name
                 )
             }
         };
@@ -205,7 +206,7 @@ impl TrackService for UcscApiTrackService {
             .await
             .unwrap_or_default();
 
-        response.to_cytoband(reference, contig, contig_header)
+        response.to_cytoband(reference, contig_index, contig_header)
     }
 
     async fn get_preferred_track_name(

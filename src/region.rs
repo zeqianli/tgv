@@ -6,7 +6,7 @@ use std::fmt;
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Region {
     /// contig id. Need to read the header for full contig string name.
-    pub contig: usize,
+    pub contig_index: usize,
 
     /// Start coordinate of a genome region.
     /// 1-based, inclusive.
@@ -26,24 +26,32 @@ impl GenomeInterval for Region {
         self.end
     }
 
-    fn contig(&self) -> usize {
-        self.contig
+    fn contig_index(&self) -> usize {
+        self.contig_index
     }
 }
 
 impl fmt::Display for Region {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "contig_id={}:{}-{}", self.contig, self.start, self.end)
+        write!(
+            f,
+            "contig_index={}:{}-{}",
+            self.contig_index, self.start, self.end
+        )
     }
 }
 
 impl Region {
-    pub fn new(contig: usize, start: usize, end: usize) -> Result<Self, ()> {
+    pub fn new(contig_index: usize, start: usize, end: usize) -> Result<Self, ()> {
         if start > end {
             return Err(());
         }
 
-        Ok(Self { contig, start, end })
+        Ok(Self {
+            contig_index,
+            start,
+            end,
+        })
     }
 
     /// Width of a genome region.

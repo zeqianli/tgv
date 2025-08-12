@@ -4,6 +4,7 @@ use crate::{
     error::TGVError,
     feature::{Gene, SubGeneFeature},
     reference::Reference,
+    region::Region,
     track::Track,
     tracks::schema::*,
     ucsc::UcscHost,
@@ -105,17 +106,15 @@ impl UcscDbTrackService {
         reference: &Reference,
         cache: &mut TrackCache,
     ) -> Result<String, TGVError> {
-        if cache.get_preferred_track_name().is_none() {
-            let preferred_track = self.get_preferred_track_name(reference, cache).await?;
-            cache.set_preferred_track_name(preferred_track);
+        match &cache.preferred_track_name {
+            None => {
+                let preferred_track = self.get_preferred_track_name(reference, cache).await?;
+                cache.set_preferred_track_name(preferred_track.clone());
+                preferred_track
+            }
+            Some(track) => track.clone(),
         }
-
-        let preferred_track = match cache.get_preferred_track_name().unwrap() {
-            Some(track) => track,
-            None => return Err(TGVError::IOError("No preferred track found".to_string())),
-        };
-
-        Ok(preferred_track)
+        .ok_or(TGVError::IOError("No preferred track found".to_string()))
     }
 
     /// chrom name -> 2bit file name.
@@ -153,7 +152,6 @@ impl UcscDbTrackService {
     }
 }
 
-
 #[async_trait]
 impl TrackService for UcscDbTrackService {
     async fn close(&self) -> Result<(), TGVError> {
@@ -187,7 +185,10 @@ impl TrackService for UcscDbTrackService {
         .fetch_all(&*self.pool)
         .await?;
 
-        let contigs = contigs.iter().map(|row| row.to_contig()).collect::<Result<Vec<Contig>, TGVError>>()?;
+        let mut contigs = contigs
+            .into_iter()
+            .map(|row| row.to_contig())
+            .collect::<Result<Vec<Contig>, TGVError>>()?;
 
         contigs.sort_by(|a, b| {
             if a.name.starts_with("chr") || b.name.starts_with("chr") {
@@ -203,27 +204,27 @@ impl TrackService for UcscDbTrackService {
     async fn get_cytoband(
         &self,
         reference: &Reference,
-        contig: &Contig,
+        contig_index: usize,
         cache: &mut TrackCache,
         contig_header: &ContigHeader,
     ) -> Result<Option<Cytoband>, TGVError> {
+        let contig_name = contig_header.get_name(contig_index)?;
         let cytoband_segment_rows: Option<Vec<CytobandSegmentRow>> = sqlx::query_as(
             "SELECT chrom, chromStart, chromEnd, name, gieStain FROM cytoBandIdeo WHERE chrom = ?",
         )
-        .bind(contig.name.clone())
+        .bind(contig_name)
         .fetch_all(&*self.pool)
         .await
         .unwrap_or(None);
-            /// Cytoband table is not available.
-       
+        /// Cytoband table is not available.
         return match cytoband_segment_rows {
-            Some(segments) => {
-                Ok(Some(Cytoband {
-                    reference: Some(reference.clone()),
-                    contig: contig.clone(),
-                    segments.map(|segment| segment.to_cytoband_segment(contig_header)),
-                }))
-            }
+            Some(segments) => Ok(Some(Cytoband {
+                reference: Some(reference.clone()),
+                contig_index: contig_index,
+                segments: segments
+                    .map(|segment| segment.to_cytoband_segment(contig_header))
+                    .collect::<Result<Vec<CytobandSegment>, TGVError>>()?,
+            })),
             None => Ok(None),
         };
     }
@@ -256,6 +257,7 @@ impl TrackService for UcscDbTrackService {
         cache: &mut TrackCache,
         contig_header: &ContigHeader,
     ) -> Result<Vec<Gene>, TGVError> {
+        let contig_name = contig_header.get_name(region.contig_index())?;
         let gene_rows: Vec<UcscGeneRow> = sqlx::query_as(
             format!(
                 "SELECT * FROM {} 
@@ -265,23 +267,26 @@ impl TrackService for UcscDbTrackService {
             )
             .as_str(),
         )
-        .bind(region.contig.name.clone())
+        .bind(contig_name)
         .bind(u64::try_from(region.end).unwrap()) // end is 1-based inclusive, UCSC is 0-based exclusive
         .bind(u64::try_from(region.start.saturating_sub(1)).unwrap()) // start is 1-based inclusive, UCSC is 0-based inclusive
         .fetch_all(&*self.pool)
         .await?;
 
-        gene_rows.map(|row| row.to_gene(contig_header)).collect::<Result<Vec<Gene>, TGVError>>()?
+        gene_rows
+            .map(|row| row.to_gene(contig_header))
+            .collect::<Result<Vec<Gene>, TGVError>>()?
     }
 
     async fn query_gene_covering(
         &self,
         reference: &Reference,
-        contig: &Contig,
+        contig_index: usize,
         coord: usize,
         cache: &mut TrackCache,
         contig_header: &ContigHeader,
     ) -> Result<Option<Gene>, TGVError> {
+        let contig_name = contig_header.get_name(contig_index)?;
         let gene_row: Option<UcscGeneRow> = sqlx::query_as(
             format!(
                 "SELECT *
@@ -292,23 +297,23 @@ impl TrackService for UcscDbTrackService {
             )
             .as_str(),
         )
-        .bind(contig.name.clone())
+        .bind(contig_name)
         .bind(u32::try_from(coord.saturating_sub(1)).unwrap()) // coord is 1-based inclusive, UCSC is 0-based inclusive
         .bind(u32::try_from(coord).unwrap()) // coord is 1-based inclusive, UCSC is 0-based exclusive
         .fetch_optional(&*self.pool)
         .await?;
 
-        Ok(gene_row.map(|row| row.to_gene(contig_header)))
+        Ok(gene_row.map(|row| row.to_gene(contig_index)))
     }
 
     async fn query_gene_name(
         &self,
         reference: &Reference,
-        gene_id: &String,
+        gene_name: &String,
         cache: &mut TrackCache,
         contig_header: &ContigHeader,
     ) -> Result<Gene, TGVError> {
-        let gene_row: Option<UcscGeneRow> = sqlx::query(
+        let gene_row: Option<UcscGeneRow> = sqlx::query_as(
             format!(
                 "SELECT *
             FROM {} 
@@ -318,28 +323,28 @@ impl TrackService for UcscDbTrackService {
             )
             .as_str(),
         )
-        .bind(gene_id)
+        .bind(gene_name)
         .fetch_optional(&*self.pool)
         .await?;
 
-        match gene_row {
-            Ok(gene_row) => Ok(gene_row.to_gene(contig_header)),
-            None => Err(TGVError::IOError(format!(
+        gene_row
+            .ok_or(TGVError::IOError(format!(
                 "Failed to query gene: {}",
-                gene_id
-            )))
-        }
+                gene_name
+            )))?
+            .to_gene(contig_header)
     }
 
     async fn query_k_genes_after(
         &self,
         reference: &Reference,
-        contig: &Contig,
+        contig_index: usize,
         coord: usize,
         k: usize,
         cache: &mut TrackCache,
         contig_header: &ContigHeader,
     ) -> Result<Gene, TGVError> {
+        let contig_name = contig_header.get_name(contig_index)?;
         if k == 0 {
             return Err(TGVError::ValueError("k cannot be 0".to_string()));
         }
@@ -355,7 +360,7 @@ impl TrackService for UcscDbTrackService {
             )
             .as_str(),
         )
-        .bind(contig.name.clone())
+        .bind(contig_name)
         .bind(u32::try_from(coord).unwrap()) // coord is 1-based inclusive, UCSC is 0-based exclusive
         .bind(u32::try_from(k + 1).unwrap())
         .fetch_all(&*self.pool)
@@ -365,7 +370,10 @@ impl TrackService for UcscDbTrackService {
             return Err(TGVError::IOError("No genes found".to_string()));
         }
 
-        let genes = gene_rows.iter().map(|row| row.to_gene(contig_header)).collect::<Result<Vec<Gene>, TGVError>>()?;
+        let genes = gene_rows
+            .iter()
+            .map(|row| row.to_gene(contig_header))
+            .collect::<Result<Vec<Gene>, TGVError>>()?;
 
         Track::from_genes(genes, contig.clone())?
             .get_saturating_k_genes_after(coord, k)
@@ -376,10 +384,11 @@ impl TrackService for UcscDbTrackService {
     async fn query_k_genes_before(
         &self,
         reference: &Reference,
-        contig: &Contig,
+        contig_index: usize,
         coord: usize,
         k: usize,
         cache: &mut TrackCache,
+        contig_header: &ContigHeader,
     ) -> Result<Gene, TGVError> {
         if k == 0 {
             return Err(TGVError::ValueError("k cannot be 0".to_string()));
@@ -415,10 +424,11 @@ impl TrackService for UcscDbTrackService {
     async fn query_k_exons_after(
         &self,
         reference: &Reference,
-        contig: &Contig,
+        contig_index: usize,
         coord: usize,
         k: usize,
         cache: &mut TrackCache,
+        contig_header: &ContigHeader,
     ) -> Result<SubGeneFeature, TGVError> {
         if k == 0 {
             return Err(TGVError::ValueError("k cannot be 0".to_string()));
@@ -453,10 +463,11 @@ impl TrackService for UcscDbTrackService {
     async fn query_k_exons_before(
         &self,
         reference: &Reference,
-        contig: &Contig,
+        contig_index: usize,
         coord: usize,
         k: usize,
         cache: &mut TrackCache,
+        contig_header: &ContigHeader,
     ) -> Result<SubGeneFeature, TGVError> {
         if k == 0 {
             return Err(TGVError::ValueError("k cannot be 0".to_string()));

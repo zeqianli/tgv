@@ -12,7 +12,7 @@ pub enum SubGeneFeatureType {
 
 #[derive(Debug, Clone)]
 pub struct SubGeneFeature {
-    pub contig: usize,
+    pub contig_index: usize,
     pub start: usize,
     pub end: usize,
     pub feature_type: SubGeneFeatureType,
@@ -27,8 +27,8 @@ impl GenomeInterval for SubGeneFeature {
         self.end
     }
 
-    fn contig(&self) -> usize {
-        self.contig
+    fn contig_index(&self) -> usize {
+        self.contig_index
     }
 }
 
@@ -39,7 +39,7 @@ pub struct Gene {
     pub name: String,
 
     pub strand: Strand,
-    pub contig: usize,
+    pub contig_index: usize,
     pub transcription_start: usize,
     pub transcription_end: usize,
 
@@ -96,8 +96,8 @@ impl GenomeInterval for Gene {
         self.transcription_end
     }
 
-    fn contig(&self) -> usize {
-        self.contig
+    fn contig_index(&self) -> usize {
+        self.contig_index
     }
 }
 
@@ -116,7 +116,7 @@ impl Gene {
         }
 
         Some(SubGeneFeature {
-            contig: self.contig.clone(),
+            contig_index: self.contig_index,
             start: self.exon_starts[idx],
             end: self.exon_ends[idx],
             feature_type: SubGeneFeatureType::Exon,

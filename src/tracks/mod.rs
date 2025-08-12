@@ -132,7 +132,7 @@ pub trait TrackService {
     async fn get_cytoband(
         &self,
         reference: &Reference,
-        contig: &Contig,
+        contig_index: usize,
         cache: &mut TrackCache,
         contig_header: &ContigHeader,
     ) -> Result<Option<Cytoband>, TGVError>;
@@ -148,7 +148,7 @@ pub trait TrackService {
         let genes = self
             .query_genes_overlapping(reference, region, cache, contig_header)
             .await?;
-        Track::from_genes(genes, region.contig.clone())
+        Track::from_genes(genes, region.contig_index)
     }
 
     /// Given a reference, return the prefered track name.
@@ -285,24 +285,24 @@ impl TrackService for TrackServiceEnum {
     async fn get_cytoband(
         &self,
         reference: &Reference,
-        contig: &Contig,
+        contig_index: usize,
         cache: &mut TrackCache,
         contig_header: &ContigHeader,
     ) -> Result<Option<Cytoband>, TGVError> {
         match self {
             TrackServiceEnum::Api(service) => {
                 service
-                    .get_cytoband(reference, contig, cache, contig_header)
+                    .get_cytoband(reference, contig_index, cache, contig_header)
                     .await
             }
             TrackServiceEnum::Db(service) => {
                 service
-                    .get_cytoband(reference, contig, cache, contig_header)
+                    .get_cytoband(reference, contig_index, cache, contig_header)
                     .await
             }
             TrackServiceEnum::LocalDb(service) => {
                 service
-                    .get_cytoband(reference, contig, cache, contig_header)
+                    .get_cytoband(reference, contig_index, cache, contig_header)
                     .await
             }
         }
@@ -312,23 +312,16 @@ impl TrackService for TrackServiceEnum {
         &self,
         reference: &Reference,
         cache: &mut TrackCache,
-        contig_header: &ContigHeader,
     ) -> Result<Option<String>, TGVError> {
         match self {
             TrackServiceEnum::Api(service) => {
-                service
-                    .get_preferred_track_name(reference, cache, contig_header)
-                    .await
+                service.get_preferred_track_name(reference, cache).await
             }
             TrackServiceEnum::Db(service) => {
-                service
-                    .get_preferred_track_name(reference, cache, contig_header)
-                    .await
+                service.get_preferred_track_name(reference, cache).await
             }
             TrackServiceEnum::LocalDb(service) => {
-                service
-                    .get_preferred_track_name(reference, cache, contig_header)
-                    .await
+                service.get_preferred_track_name(reference, cache).await
             }
         }
     }
@@ -396,17 +389,17 @@ impl TrackService for TrackServiceEnum {
         match self {
             TrackServiceEnum::Api(service) => {
                 service
-                    .query_gene_name(reference, gene_id, cache, contig_header)
+                    .query_gene_name(reference, gene_name, cache, contig_header)
                     .await
             }
             TrackServiceEnum::Db(service) => {
                 service
-                    .query_gene_name(reference, gene_id, cache, contig_header)
+                    .query_gene_name(reference, gene_name, cache, contig_header)
                     .await
             }
             TrackServiceEnum::LocalDb(service) => {
                 service
-                    .query_gene_name(reference, gene_id, cache, contig_header)
+                    .query_gene_name(reference, gene_name, cache, contig_header)
                     .await
             }
         }
