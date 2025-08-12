@@ -5,6 +5,7 @@ use crate::{
     feature::{Gene, SubGeneFeature},
     reference::Reference,
     strand::Strand,
+    track::Track,
 };
 use serde::Deserialize;
 use sqlx::FromRow;
@@ -110,100 +111,135 @@ fn parse_comma_separated_list(s: &str) -> Result<Vec<usize>, TGVError> {
 
 #[derive(Debug, Clone, Deserialize)]
 #[allow(non_snake_case)]
-struct GeneResponse1 {
-    name: String,
-    name2: Option<String>,
+enum UcscGeneResponse {
+    GeneResponse1 {
+        name: String,
+        name2: Option<String>,
 
-    strand: String,
+        strand: String,
 
-    txStart: usize,
-    txEnd: usize,
-    cdsStart: usize,
+        txStart: usize,
+        txEnd: usize,
+        cdsStart: usize,
 
-    cdsEnd: usize,
-    exonStarts: String,
-    exonEnds: String,
+        cdsEnd: usize,
+        exonStarts: String,
+        exonEnds: String,
+    },
+
+    GeneResponse2 {
+        /*
+
+        Example responsse:
+
+        {
+        "chrom": "NC_072398.2",
+        "chromStart": 130929426,
+        "chromEnd": 130985030,
+        "name": "NM_001142759.1",
+        "score": 0,
+        "strand": "+",
+        "thickStart": 130929440,
+        "thickEnd": 130982945,
+        "reserved": "0",
+        "blockCount": 13,
+        "blockSizes": "65,124,76,182,122,217,167,126,78,192,72,556,374,",
+        "chromStarts": "0,8926,14265,18877,31037,33561,34781,36127,39014,43150,43484,53351,55230,",
+        "name2": "DBT",
+        "cdsStartStat": "cmpl",
+        "cdsEndStat": "cmpl",
+        "exonFrames": "0,0,1,2,1,0,1,0,0,0,0,0,-1,",
+        "type": "",
+        "geneName": "NM_001142759.1",
+        "geneName2": "DBT",
+        "geneType": ""
+        }
+
+        I'm not sure if the implementation is correct.
+
+        */
+        chromStart: usize,
+        chromEnd: usize,
+        name: String,
+        strand: String,
+        thickStart: usize,
+        thickEnd: usize,
+    },
 }
 
-impl GeneResponse1 {
+impl UcscGeneResponse {
     /// Custom deserializer for strand field
-    fn gene(self, contig: &Contig) -> Result<Gene, TGVError> {
-        Ok(Gene {
-            id: self.name,
-            name: self.name2.unwrap_or(self.name),
-            strand: Strand::from_str(self.strand)?,
-            contig: contig.clone(),
-            transcription_start: self.txStart,
-            transcription_end: self.txEnd,
-            cds_start: self.cdsStart,
-            cds_end: self.cdsEnd,
-            exon_starts: parse_comma_separated_list(&self.exonStarts)?,
-            exon_ends: parse_comma_separated_list(&self.exonEnds)?,
-            has_exons: true,
-        })
+    fn to_gene(self, contig: &Contig) -> Result<Gene, TGVError> {
+        match self {
+            UcscGeneResponse::GeneResponse1 {
+                name,
+                name2,
+                strand,
+                txStart,
+                txEnd,
+                cdsStart,
+                cdsEnd,
+                exonStarts,
+                exonEnds,
+            } => Gene {
+                id: name.clone(),
+                name: name2.unwrap_or(name.clone()),
+                strand: Strand::from_str(strand)?,
+                contig: contig.clone(),
+                transcription_start: txStart,
+                transcription_end: txEnd,
+                cds_start: cdsStart,
+                cds_end: cdsEnd,
+                exon_starts: parse_comma_separated_list(&exonStarts)?,
+                exon_ends: parse_comma_separated_list(&exonEnds)?,
+                has_exons: true,
+            },
+
+            UcscGeneResponse::GeneResponse2 {
+                chromStart,
+                chromEnd,
+                name,
+                strand,
+                thickStart,
+                thickEnd,
+            } => Ok(Gene {
+                id: name,
+                name: name,
+                strand: Strand::from_str(strand)?,
+                contig: contig.clone(),
+                transcription_start: chromStart,
+                transcription_end: chromEnd,
+                cds_start: thickStart,
+                cds_end: thickEnd,
+                exon_starts: vec![],
+                exon_ends: vec![],
+                has_exons: false,
+            }),
+        }
     }
 }
 
 #[derive(Debug, Clone, Deserialize)]
-#[allow(non_snake_case)]
-struct GeneResponse3 {
-    /*
-
-    Example responsse:
-
-    {
-    "chrom": "NC_072398.2",
-    "chromStart": 130929426,
-    "chromEnd": 130985030,
-    "name": "NM_001142759.1",
-    "score": 0,
-    "strand": "+",
-    "thickStart": 130929440,
-    "thickEnd": 130982945,
-    "reserved": "0",
-    "blockCount": 13,
-    "blockSizes": "65,124,76,182,122,217,167,126,78,192,72,556,374,",
-    "chromStarts": "0,8926,14265,18877,31037,33561,34781,36127,39014,43150,43484,53351,55230,",
-    "name2": "DBT",
-    "cdsStartStat": "cmpl",
-    "cdsEndStat": "cmpl",
-    "exonFrames": "0,0,1,2,1,0,1,0,0,0,0,0,-1,",
-    "type": "",
-    "geneName": "NM_001142759.1",
-    "geneName2": "DBT",
-    "geneType": ""
-    }
-
-    I'm not sure if the implementation is correct.
-
-    */
-    chromStart: usize,
-    chromEnd: usize,
-    name: String,
-    strand: String,
-    thickStart: usize,
-    thickEnd: usize,
+pub struct UcscApiListGeneResponse {
+    genes: HashMap<String, UcscGeneResponse>,
+    // tODO
 }
 
-impl GeneResponse3 {
-    /// TODO: I'm not sure if this is correct.
-    fn to_gene(self, contig_index: usize, contig_header: &ContigHeader) -> Result<Gene, TGVError> {
-        Ok(Gene {
-            id: self.name.clone(),
-            name: self.name.clone(),
-            strand: Strand::from_str(self.strand)?,
-            contig: contig.clone(),
-            transcription_start: self.chromStart,
-            transcription_end: self.chromEnd,
-            cds_start: self.thickStart,
-            cds_end: self.thickEnd,
-            exon_starts: vec![],
-            exon_ends: vec![],
-            has_exons: false,
-        })
+impl UcscApiListGeneResponse {
+    pub fn to_track(self, preferred_track: &str) -> Result<Track<Gene>, TGVError> {
+        Track::new(
+            self.genes
+                .get(preferred_track)
+                .ok_or(TGVError::ValueError(format!(
+                    "Track key \'{}\' not found in UCSC API response. Full response: {:?}",
+                    preferred_track,
+                    self.clone()
+                )))
+                .and_then(|response| response.to_gene(&Contig::new(&name)))
+                .collect::<Vec<Gene>>(),
+        )
     }
 }
-
 ///
 /// Example response:
 /// {

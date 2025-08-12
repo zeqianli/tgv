@@ -40,26 +40,25 @@ impl UcscApiTrackService {
         cache: &mut TrackCache,
     ) -> Result<Track<Gene>, TGVError> {
         let preferred_track = match cache.get_preferred_track_name() {
-            None => {{
-                let preferred_track = self
-                    .get_preferred_track_name(reference, cache)
-                    .await?
-                    .ok_or(TGVError::IOError(format!(
-                        "Failed to get prefered track for {} from UCSC API",
-                        contig.name
-                    )))?; // TODO: proper handling
-    
-                cache.set_preferred_track_name(Some(preferred_track));
-                preferred_track
-            }}
+            None => {
+                {
+                    let preferred_track = self
+                        .get_preferred_track_name(reference, cache)
+                        .await?
+                        .ok_or(TGVError::IOError(format!(
+                            "Failed to get prefered track for {} from UCSC API",
+                            contig.name
+                        )))?; // TODO: proper handling
 
-            Some(preferred_track) => {
-                preferred_track.ok_or(TGVError::IOError(format!(
-                    "Failed to get prefered track for {} from UCSC API",
-                    contig.name
-                )))?
+                    cache.set_preferred_track_name(Some(preferred_track));
+                    preferred_track
+                }
             }
-            
+
+            Some(preferred_track) => preferred_track.ok_or(TGVError::IOError(format!(
+                "Failed to get prefered track for {} from UCSC API",
+                contig.name
+            )))?,
         };
 
         let query_url = match reference {
@@ -82,50 +81,11 @@ impl UcscApiTrackService {
             }
         };
 
-        let response_value: serde_json::Value =
+        let response: UcscApiListGeneResponse =
             self.client.get(query_url).send().await?.json().await?;
 
-        let genes_array_value =
-            response_value
-                .get(&preferred_track)
-                .ok_or(Err(TGVError::JsonSerializationError(
-                    serde_json::Error::custom(format!(
-                        "Track key \'{}\' not found in UCSC API response. Full response: {:?}",
-                        preferred_track, response_value
-                    )),
-                )))?;
-
-        // Attempt 1: GeneResponse1
-        if let Ok(gene_responses) =
-            serde_json::from_value::<Vec<GeneResponse1>>(genes_array_value.clone())
-        {
-            return Ok(Track::from_genes(
-                genes: gene_responses
-                    .into_iter()
-                    .map(|gr| gr.to_gene(contig))
-                    .collect::<Result<Vec<Gene>, _>>()?,
-                contig.clone(),
-            ));
-        }
-        // Attempt 3: Direct Gene deserialization (handles complex format via GeneHelper in feature.rs)
-
-        if let Ok(gene_responses) =
-            serde_json::from_value::<Vec<GeneResponse3>>(genes_array_value.clone())
-        {
-            for gr in gene_responses {
-                genes.push(gr.gene(contig)?);
-            }
-            return Ok(Track::from_genes(genes, contig.clone()));
-        }
-
-        Err(TGVError::JsonSerializationError(serde_json::Error::custom(
-            format!(
-                "Failed to deserialize gene data from UCSC API for track \'{}\' using any known format. Gene array value: {:?}",
-                preferred_track, genes_array_value
-            )
-        )))
+        response.to_track(preferred_track)
     }
-
 
     pub async fn get_hub_url_for_genark_accession(
         &self,
@@ -145,7 +105,6 @@ impl UcscApiTrackService {
         response.get_hub_url(accession)
     }
 }
-
 
 #[async_trait]
 impl TrackService for UcscApiTrackService {
@@ -231,7 +190,14 @@ impl TrackService for UcscApiTrackService {
             }
         };
 
-        let response: UcscApiCytobandResponse = self.client.get(query_url).send().await?.json().await.unwrap_or_default();
+        let response: UcscApiCytobandResponse = self
+            .client
+            .get(query_url)
+            .send()
+            .await?
+            .json()
+            .await
+            .unwrap_or_default();
 
         response.to_cytoband(reference, contig, contig_header)
     }
@@ -245,7 +211,6 @@ impl TrackService for UcscApiTrackService {
             Reference::Hg19 | Reference::Hg38 | Reference::UcscGenome(_) => format!(
                 "https://api.genome.ucsc.edu/list/tracks?trackLeavesOnly=1;genome={}",
                 reference.to_string(),
-                
             ),
             Reference::UcscAccession(genome) => {
                 if cache.hub_url.is_none() {
@@ -262,17 +227,23 @@ impl TrackService for UcscApiTrackService {
         match reference.clone() {
             Reference::Hg19 | Reference::Hg38 => Ok(Some("ncbiRefSeqSelect".to_string())),
             reference => {
-                
                 let response = reqwest::get(query_url)
                     .await?
                     .json::<serde_json::Value>()
                     .await?;
-                
-                let track_names = response.get(reference.to_string()).ok_or(
-                    TGVError::IOError("Failed to get genome from UCSC API".to_string()),
-                )?.as_object().ok_or(
-                    TGVError::IOError("Failed to get genome from UCSC API".to_string()),
-                )?.keys().cloned().collect::<Vec<String>>();
+
+                let track_names = response
+                    .get(reference.to_string())
+                    .ok_or(TGVError::IOError(
+                        "Failed to get genome from UCSC API".to_string(),
+                    ))?
+                    .as_object()
+                    .ok_or(TGVError::IOError(
+                        "Failed to get genome from UCSC API".to_string(),
+                    ))?
+                    .keys()
+                    .cloned()
+                    .collect::<Vec<String>>();
 
                 for pref in TRACK_PREFERENCES {
                     if track_names.contains(&pref.to_string()) {
@@ -282,7 +253,6 @@ impl TrackService for UcscApiTrackService {
 
                 Ok(None)
             }
-            
         }
     }
 
