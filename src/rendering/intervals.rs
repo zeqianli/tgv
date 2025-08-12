@@ -21,10 +21,8 @@ pub fn render_simple_intervals<T: GenomeInterval>(
 
     let mut i_color = first_color_index;
     for interval in intervals {
-        let viewing_window = state.viewing_window()?;
-
-        let onscreen_x = viewing_window.onscreen_x_coordinate(interval.start(), area);
-        let onscreen_y = viewing_window.onscreen_x_coordinate(interval.end(), area);
+        let onscreen_x = state.window.onscreen_x_coordinate(interval.start(), area);
+        let onscreen_y = state.window.onscreen_x_coordinate(interval.end(), area);
         if let Some((x, length)) =
             OnScreenCoordinate::onscreen_start_and_length(&onscreen_x, &onscreen_y, area)
         {

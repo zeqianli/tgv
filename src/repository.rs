@@ -46,7 +46,7 @@ impl Repository {
         };
 
         let bed_intervals = match &settings.bed_path {
-            Some(bed_path) => Some(BEDIntervals::from_bed(bed_path)?),
+            Some(bed_path) => Some(BEDIntervals::from_bed(bed_path, &contig_header)?),
             None => None,
         };
 

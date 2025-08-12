@@ -276,15 +276,16 @@ impl MainLayout {
         registers: &Registers,
         repository: &Repository,
         pallete: &Palette,
+        contig_header: &ContigHeader,
     ) -> Result<(), TGVError> {
         let background_color = background_color.unwrap_or(pallete.background_1);
         match area_type {
-            AreaType::Cytoband => render_cytobands(rect, buf, state, pallete)?,
+            AreaType::Cytoband => render_cytobands(rect, buf, state, pallete, contig_header)?,
             AreaType::Coordinate => render_coordinates(rect, buf, state)?,
             AreaType::Coverage => {
                 if state.alignment_renderable()? {
                     if let Some(alignment) = &state.alignment {
-                        render_coverage(rect, buf, state.viewing_window()?, alignment)?;
+                        render_coverage(rect, buf, state.window, alignment)?;
                     }
                 }
             }

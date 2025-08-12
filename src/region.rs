@@ -1,4 +1,3 @@
-use crate::contig::Contig;
 use crate::intervals::GenomeInterval;
 use std::fmt;
 

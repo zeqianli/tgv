@@ -1,9 +1,12 @@
-use crate::cytoband::{Cytoband, CytobandSegment, Stain};
-use crate::error::TGVError;
-use crate::helpers::get_abbreviated_length_string;
-use crate::rendering::colors::Palette;
-use crate::states::State;
-use crate::window::linear_scale;
+use crate::{
+    contig_collection::ContigHeader,
+    cytoband::{Cytoband, CytobandSegment, Stain},
+    error::TGVError,
+    helpers::get_abbreviated_length_string,
+    rendering::colors::Palette,
+    states::State,
+    window::linear_scale,
+};
 
 use ratatui::{
     buffer::Buffer,
@@ -20,6 +23,7 @@ pub fn render_cytobands(
     buf: &mut Buffer,
     state: &State,
     pallete: &Palette,
+    contig_header: &ContigHeader,
 ) -> Result<(), TGVError> {
     if area.width <= MIN_AREA_WIDTH {
         return Ok(());
@@ -35,10 +39,7 @@ pub fn render_cytobands(
         None => "".to_string(),
     };
 
-    let contig_description = match state.contig_index() {
-        Ok(contig) => contig.name.clone(),
-        Err(_) => "".to_string(),
-    };
+    let contig_description = contig_header.get_name(state.contig_index())?;
 
     let cytoband_left_spacing = u16::max(
         CYTOBAND_TEXT_MIN_LEFT_SPACING,
@@ -64,10 +65,7 @@ pub fn render_cytobands(
 
     // panic!("Current cytoband: {:?}", state.current_cytoband());
 
-    if let Some(cytoband) = state.current_cytoband()? {
-        let viewing_window = state.viewing_window()?;
-        let contig_length = state.contig_length()?;
-
+    if let Some(cytoband) = state.current_cytoband() {
         for (x, string, style) in get_cytoband_xs_strings_and_styles(
             cytoband,
             cytoband_left_spacing,
@@ -87,13 +85,13 @@ pub fn render_cytobands(
     // Highlight the current viewing window
     if let Some(contig_length) = state.contig_length()? {
         let viewing_window_start = linear_scale(
-            state.viewing_window()?.left(),
+            state.window.left(),
             contig_length,
             cytoband_left_spacing,
             area.width - CYTOBAND_TEXT_RIGHT_SPACING,
         )?;
         let viewing_window_end = linear_scale(
-            state.viewing_window()?.right(area),
+            state.window.right(area),
             contig_length,
             cytoband_left_spacing,
             area.width - CYTOBAND_TEXT_RIGHT_SPACING,

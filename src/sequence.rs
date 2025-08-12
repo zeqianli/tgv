@@ -1,3 +1,4 @@
+use crate::contig_collection::ContigHeader;
 use crate::error::TGVError;
 use crate::reference::Reference;
 use crate::region::Region;
@@ -15,17 +16,17 @@ pub struct Sequence {
     pub sequence: Vec<u8>,
 
     /// Contig id
-    pub contig: usize,
+    pub contig_index: usize,
 }
 
 impl Sequence {
-    pub fn new(start: usize, sequence: Vec<u8>, contig: usize) -> Result<Self, ()> {
+    pub fn new(start: usize, sequence: Vec<u8>, contig_index: usize) -> Result<Self, ()> {
         if usize::MAX - start < sequence.len() {
             return Err(());
         }
 
         Ok(Self {
-            contig,
+            contig_index,
             start,
             sequence,
         })
@@ -78,7 +79,7 @@ impl Sequence {
     /// Whether the sequence has complete data in [left, right].
     /// 1-based, inclusive.
     pub fn has_complete_data(&self, region: &Region) -> bool {
-        (region.contig == self.contig)
+        (region.contig_index == self.contig_index)
             && ((region.start >= self.start()) && (region.end <= self.end()))
     }
 }
@@ -90,8 +91,8 @@ pub struct SequenceCache {
     /// Some(hub_url): Queried and cached.
     hub_url: Option<String>,
 
-    /// contig name -> 2bit buffer index in buffers. Used in local mode (TwoBitSequenceRepository).
-    contig_to_buffer_index: HashMap<String, usize>,
+    /// contig index -> 2bit buffer index in buffers. Used in local mode (TwoBitSequenceRepository).
+    contig_to_buffer_index: HashMap<usize, usize>,
 
     /// 2bit file buffers. Used in local mode (TwoBitSequenceRepository).
     buffers: Vec<TwoBitFile<std::io::BufReader<std::fs::File>>>,
@@ -118,6 +119,7 @@ pub trait SequenceRepository {
         &self,
         region: &Region,
         cache: &mut SequenceCache,
+        contig_header: &ContigHeader,
     ) -> Result<Sequence, TGVError>;
 
     async fn close(&self) -> Result<(), TGVError>;
@@ -133,10 +135,11 @@ impl SequenceRepositoryEnum {
         &self,
         region: &Region,
         cache: &mut SequenceCache,
+        contig_header: &ContigHeader,
     ) -> Result<Sequence, TGVError> {
         match self {
-            Self::UCSCApi(repo) => repo.query_sequence(region, cache).await,
-            Self::TwoBit(repo) => repo.query_sequence(region, cache).await,
+            Self::UCSCApi(repo) => repo.query_sequence(region, cache, contig_header).await,
+            Self::TwoBit(repo) => repo.query_sequence(region, cache, contig_header).await,
         }
     }
 
@@ -169,16 +172,18 @@ impl UCSCApiSequenceRepository {
     /// start / end: 1-based, inclusive.
     async fn get_api_url(
         &self,
-        contig: &Contig,
+        contig_index: &usize,
         start: usize,
         end: usize,
         cache: &mut SequenceCache,
+        contig_header: &ContigHeader,
     ) -> Result<String, TGVError> {
+        let contig_name = contig_header.get_name(*contig_index)?;
         match &self.reference {
             Reference::Hg19 | Reference::Hg38 | Reference::UcscGenome(_) => Ok(format!(
                 "https://api.genome.ucsc.edu/getData/sequence?genome={};chrom={};start={};end={}",
                 self.reference.to_string(),
-                contig.name,
+                contig_name,
                 start - 1, // start is 0-based, inclusive.
                 end
             )),
@@ -190,7 +195,7 @@ impl UCSCApiSequenceRepository {
                 let hub_url = cache.hub_url.as_ref().unwrap();
                 Ok(format!(
                     "https://api.genome.ucsc.edu/getData/sequence?hubUrl={}&genome={};chrom={};start={};end={}",
-                    hub_url, genome, contig.name, start - 1, end
+                    hub_url, genome, contig_name, start - 1, end
                 ))
             }
         }
@@ -250,17 +255,24 @@ impl SequenceRepository for UCSCApiSequenceRepository {
         &self,
         region: &Region,
         cache: &mut SequenceCache,
+        contig_header: &ContigHeader,
     ) -> Result<Sequence, TGVError> {
         let url = self
-            .get_api_url(&region.contig, region.start, region.end, cache)
+            .get_api_url(
+                &region.contig_index,
+                region.start,
+                region.end,
+                cache,
+                contig_header,
+            )
             .await?;
 
         let response: UcscResponse = self.client.get(&url).send().await?.json().await?;
 
         Ok(Sequence {
             start: region.start,
-            sequence: response.dna,
-            contig: region.contig.clone(),
+            sequence: response.dna.into_bytes(),
+            contig_index: region.contig_index,
         })
     }
 
@@ -275,7 +287,7 @@ pub struct TwoBitSequenceRepository {
     reference: Reference,
 
     /// reference genome string -> 2bit file base name
-    contig_to_file_name: HashMap<String, String>,
+    contig_to_file_name: HashMap<usize, String>,
 
     /// Cache root directory. 2bit files are in cache_dir/_reference_name/*.2bit
     cache_dir: String,
@@ -284,7 +296,7 @@ pub struct TwoBitSequenceRepository {
 impl TwoBitSequenceRepository {
     pub fn new(
         reference: Reference,
-        contig_to_file_name: HashMap<String, Option<String>>,
+        contig_to_file_name: HashMap<usize, Option<String>>,
         cache_dir: String,
     ) -> Result<(Self, SequenceCache), TGVError> {
         // Get the file path for this contig
@@ -294,7 +306,7 @@ impl TwoBitSequenceRepository {
         let mut contig_to_buffer_index = HashMap::new();
 
         // Remove contigs that have no 2bit file.
-        let contig_to_file_name: HashMap<String, String> = contig_to_file_name
+        let contig_to_file_name: HashMap<usize, String> = contig_to_file_name
             .into_iter()
             .filter(|(_, file_name)| file_name.is_some())
             .map(|(contig, file_name)| (contig, file_name.unwrap()))
@@ -345,17 +357,19 @@ impl SequenceRepository for TwoBitSequenceRepository {
         &self,
         region: &Region,
         cache: &mut SequenceCache,
+        contig_header: &ContigHeader,
     ) -> Result<Sequence, TGVError> {
-        let buffer = &mut cache.buffers[cache.contig_to_buffer_index[&region.contig.name]];
+        let contig_name = contig_header.get_name(region.contig_index)?;
+        let buffer = &mut cache.buffers[cache.contig_to_buffer_index[&region.contig_index]];
         let sequence_str = buffer.read_sequence(
-            &region.contig.name,
+            &contig_name,
             (region.start - 1)..region.end, // Convert to 0-based range
         )?;
 
         Ok(Sequence {
             start: region.start,
-            sequence: sequence_str,
-            contig: region.contig.clone(),
+            sequence: sequence_str.into_bytes(),
+            contig_index: region.contig_index,
         })
     }
 

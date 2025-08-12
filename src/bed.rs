@@ -1,5 +1,5 @@
 use crate::{
-    contig::Contig,
+    contig_collection::ContigHeader,
     error::TGVError,
     intervals::{GenomeInterval, SortedIntervalCollection},
 };
@@ -7,7 +7,7 @@ use noodles::bed::{self};
 
 #[derive(Debug, Clone)]
 pub struct BEDInterval {
-    contig: usize,
+    contig_index: usize,
 
     pub index: usize,
 
@@ -18,10 +18,15 @@ pub struct BEDInterval {
 }
 
 impl BEDInterval {
-    pub fn new(record: bed::Record<3>, index: usize) -> Result<Self, TGVError> {
+    pub fn new(
+        record: bed::Record<3>,
+        index: usize,
+        contig_header: &ContigHeader,
+    ) -> Result<Self, TGVError> {
         let start = record.feature_start()?.get(); // Noodles already converted to 1-based, inclusive
         Ok(Self {
-            contig: Contig::new(&record.reference_sequence_name().to_string()),
+            contig_index: contig_header
+                .get_index_by_str(&record.reference_sequence_name().to_string())?,
             index,
             start, // BED start is 0-based, inclusive
             end: match record.feature_end() {
@@ -34,8 +39,8 @@ impl BEDInterval {
 }
 
 impl GenomeInterval for BEDInterval {
-    fn contig(&self) -> usize {
-        self.contig
+    fn contig_index(&self) -> usize {
+        self.contig_index
     }
 
     fn start(&self) -> usize {
@@ -52,7 +57,7 @@ pub struct BEDIntervals {
 }
 
 impl BEDIntervals {
-    pub fn from_bed(bed_path: &str) -> Result<Self, TGVError> {
+    pub fn from_bed(bed_path: &str, contig_header: &ContigHeader) -> Result<Self, TGVError> {
         let mut reader = bed::io::reader::Builder::<3>.build_from_path(bed_path)?;
         let mut record = bed::Record::default();
 
@@ -61,7 +66,7 @@ impl BEDIntervals {
         let mut index = 0;
 
         while reader.read_record(&mut record)? != 0 {
-            records.push(BEDInterval::new(record.clone(), index)?);
+            records.push(BEDInterval::new(record.clone(), index, contig_header)?);
             index += 1;
         }
 

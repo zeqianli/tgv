@@ -1,16 +1,5 @@
 use crate::{error::TGVError, reference::Reference};
 use ratatui::style::Color;
-use serde::Deserialize;
-
-// const VALID_CHROMOSOMES: [&str; 25] = [
-//     "chr1", "chr2", "chr3", "chr4", "chr5", "chr6", "chr7", "chr8", "chr9", "chr10", "chr11",
-//     "chr12", "chr13", "chr14", "chr15", "chr16", "chr17", "chr18", "chr19", "chr20", "chr21",
-//     "chr22", "chrX", "chrY", "chrMT",
-// ];
-
-// // Include the csv files as static bytes
-// const HG19_CYTOBAND: &[u8] = include_bytes!("resources/hg19_cytoband.csv");
-// const HG38_CYTOBAND: &[u8] = include_bytes!("resources/hg38_cytoband.csv");
 
 #[derive(Debug, Clone, Eq, PartialEq)]
 pub enum Stain {
@@ -75,46 +64,12 @@ impl Stain {
     }
 }
 
-fn deserialize_stain_from_string<'de, D>(deserializer: D) -> Result<Stain, D::Error>
-where
-    D: serde::Deserializer<'de>,
-{
-    let s = String::deserialize(deserializer)?;
-    Stain::from(&s).map_err(serde::de::Error::custom)
-}
-
-fn deserialize_contig_from_string<'de, D>(deserializer: D) -> Result<Contig, D::Error>
-where
-    D: serde::Deserializer<'de>,
-{
-    let s = String::deserialize(deserializer)?;
-    Ok(Contig::new(&s))
-}
-
-fn deserialize_start_from_0_based<'de, D>(deserializer: D) -> Result<usize, D::Error>
-where
-    D: serde::Deserializer<'de>,
-{
-    let start_0_based = usize::deserialize(deserializer)?;
-    Ok(start_0_based + 1)
-}
-
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone)]
 pub struct CytobandSegment {
-    #[serde(rename = "chrom", deserialize_with = "deserialize_contig_from_string")]
     pub contig_index: usize,
-    #[serde(
-        rename = "chromStart",
-        deserialize_with = "deserialize_start_from_0_based"
-    )]
     pub start: usize,
-    #[serde(rename = "chromEnd")]
     pub end: usize,
     pub name: String,
-    #[serde(
-        rename = "gieStain",
-        deserialize_with = "deserialize_stain_from_string"
-    )]
     pub stain: Stain,
 }
 

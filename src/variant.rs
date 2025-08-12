@@ -5,7 +5,7 @@ use rust_htslib::bcf::{Read, Reader, Record};
 use std::collections::{BTreeMap, HashMap};
 pub struct Variant {
     /// Contig id name. This is not stored in the record.
-    pub contig: usize,
+    pub contig_index: usize,
 
     pub index: usize,
 
@@ -14,26 +14,28 @@ pub struct Variant {
 }
 
 impl Variant {
-    pub fn new(record: Record, index: usize) -> Result<Self, TGVError> {
+    pub fn new(
+        record: Record,
+        index: usize,
+        contig_header: &ContigHeader,
+    ) -> Result<Self, TGVError> {
         let contig_u8 = record
             .header()
             .rid2name(record.rid().ok_or(TGVError::ValueError(
                 "VCF record {:?} doesn't have a valid contig.".to_string(),
             ))?)?;
-        let contig = Contig::new(std::str::from_utf8(contig_u8).map_err(|_| {
-            TGVError::ValueError("VCF record {:?} doesn't have a valid contig. ".to_string())
-        })?);
+        let contig_index = contig_header.get_index_by_str(contig_u8)?;
         Ok(Self {
             index,
-            contig,
+            contig_index,
             record,
         })
     }
 }
 
 impl GenomeInterval for Variant {
-    fn contig(&self) -> usize {
-        self.contig
+    fn contig_index(&self) -> usize {
+        self.contig_index
     }
 
     fn start(&self) -> usize {
