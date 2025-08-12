@@ -243,11 +243,7 @@ impl UcscApiListGeneResponse {
 ///
 /// Example response:
 /// {
-///     "downloadTime": "2025:05:06T03:46:07Z",
-///     "downloadTimeStamp": 1746503167,
-///     "dataTime": "2025-04-29T10:42:00",
-///     "dataTimeStamp": 1745948520,
-///     "hubUrlPrefix": "/gbdb/genark",
+///    ...
 ///     "genarkGenomes": {
 ///       "GCF_028858775.2": {
 ///         "hubUrl": "GCF/028/858/775/GCF_028858775.2/hub.txt",
@@ -259,8 +255,7 @@ impl UcscApiListGeneResponse {
 ///         "clade": "primates"
 ///       }
 ///     },
-///     "totalAssemblies": 5691,
-///     "itemsReturned": 1
+///     
 ///   }
 #[derive(Debug, Clone, Deserialize)]
 #[allow(non_snake_case)]
@@ -285,12 +280,7 @@ pub struct GenarkGenome {
 
 /// Example response:
 /// {
-///   "downloadTime": "2025:08:11T00:48:50Z",
-///   "downloadTimeStamp": 1754873330,
-///   "genome": "mm9",
-///   "dataTime": "2007-07-19T15:39:00",
-///   "dataTimeStamp": 1184884740,
-///   "chromCount": 35,
+///   ...,
 ///   "chromosomes": {
 ///     "chr1": 197195432,
 ///     "chr16_random": 3994,
@@ -306,16 +296,7 @@ pub struct UcscListChromosomeResponse {
 }
 
 ///{
-//   "downloadTime": "2025:08:12T01:04:48Z",
-//   "downloadTimeStamp": 1754960688,
-//   "genome": "mm9",
-//   "dataTime": "2007-08-15T11:51:13",
-//   "dataTimeStamp": 1187203873,
-//   "trackType": "bed 4 +",
-//   "track": "cytoBandIdeo",
-//   "chrom": "chr1",
-//   "start": 0,
-//   "end": 197195432,
+//   ...
 //   "cytoBandIdeo": [
 //     {
 //       "chrom": "chr1",

@@ -12,9 +12,7 @@ use crate::{
     tracks::schema::*,
 };
 use async_trait::async_trait;
-use reqwest::{Client, StatusCode};
-use serde::de::Error as _;
-use serde::Deserialize;
+use reqwest::Client;
 
 // TODO: improved pattern:
 // Service doesn't save anything. No reference, no cache.
