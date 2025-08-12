@@ -270,17 +270,17 @@ impl TrackService for UcscApiTrackService {
         cache: &mut TrackCache,
         contig_header: &ContigHeader,
     ) -> Result<Vec<Gene>, TGVError> {
-        self.query_track_if_not_cached(reference, region.contig(), cache, contig_header)
+        self.query_track_if_not_cached(reference, region.contig_index(), cache, contig_header)
             .await?;
 
         // TODO: now I don't really handle empty query results
 
         Ok(cache
             .tracks
-            .get(&region.contig())
+            .get(&region.contig_index())
             .ok_or(TGVError::IOError(format!(
                 "Track not found for contig index {}",
-                region.contig()
+                region.contig_index()
             )))?
             .get_features_overlapping(region)
             .iter()

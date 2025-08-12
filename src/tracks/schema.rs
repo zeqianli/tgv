@@ -18,10 +18,10 @@ pub struct UcscGeneRow {
     pub name: String,
     pub chrom: String,
     pub strand: String,
-    pub tx_start: u64,
-    pub tx_end: u64,
-    pub cds_start: u64,
-    pub cds_end: u64,
+    pub tx_start: i64,
+    pub tx_end: i64,
+    pub cds_start: i64,
+    pub cds_end: i64,
     pub name2: Option<String>,
     pub exon_starts: Vec<u8>,
     pub exon_ends: Vec<u8>,
@@ -45,7 +45,7 @@ impl UcscGeneRow {
             id: self.name,
             name: self.name2.unwrap_or(self.name),
             strand: Strand::from_str(self.strand)?,
-            contig_index: contig_header.get_index(&self.chrom)?,
+            contig_index: contig_header.get_index_by_str(&self.chrom)?,
             transcription_start: self.tx_start as usize + 1,
             transcription_end: self.tx_end as usize,
             cds_start: self.cds_start as usize + 1,
@@ -61,17 +61,17 @@ impl UcscGeneRow {
 }
 
 #[derive(Debug, FromRow, Deserialize)]
-struct CytobandSegmentRow {
-    chromStart: u64,
-    chromEnd: u64,
+pub struct CytobandSegmentRow {
+    chromStart: i64, // sqlite doesn't support unsigned int
+    chromEnd: i64,
     name: String,
     gieStain: String,
 }
 
 impl CytobandSegmentRow {
-    fn to_cytoband_segment(self, header: &ContigHeader) -> Result<CytobandSegment, TGVError> {
+    pub fn to_cytoband_segment(self, header: &ContigHeader) -> Result<CytobandSegment, TGVError> {
         Ok(CytobandSegment {
-            contig: Contig::new(&self.chrom, header.length),
+            contig_index: header.get_index_by_str(&self.name)?,
             start: self.chromStart as usize + 1,
             end: self.chromEnd as usize,
             name: self.name,
@@ -83,7 +83,7 @@ impl CytobandSegmentRow {
 #[derive(Debug, FromRow)]
 pub struct ContigRow {
     pub chrom: String,
-    pub size: u32,
+    pub size: i64,
     pub aliases: String,
 }
 

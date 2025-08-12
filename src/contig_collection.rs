@@ -222,6 +222,16 @@ impl ContigHeader {
         None
     }
 
+    pub fn get_index_by_str(&self, contig_name: &str) -> Result<usize, TGVError> {
+        self.contig_lookup
+            .get(contig_name)
+            .cloned()
+            .ok_or(TGVError::StateError(format!(
+                "Contig {} not found",
+                contig_name
+            )))
+    }
+
     pub fn get_contig_by_str(&self, contig_name: &str) -> Option<&Contig> {
         self.contig_lookup
             .get(contig_name)
