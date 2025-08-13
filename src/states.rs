@@ -692,9 +692,8 @@ impl StateHandler {
         }
 
         let middle = state.middle();
-        let track = state.track_checked()?;
 
-        if let Some(target_exon) = track.get_k_exons_after(middle, n) {
+        if let Some(target_exon) = state.track_checked()?.get_k_exons_after(middle, n) {
             return Self::go_to_coordinate(state, target_exon.end() + 1);
         }
 
