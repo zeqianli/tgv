@@ -1,18 +1,18 @@
 use crate::{
     alignment::{Alignment, AlignmentBuilder},
     bed::BEDIntervals,
-    contig_header::ContigHeader,
+    contig_header::{self, ContigHeader},
     error::TGVError,
     helpers::is_url,
     reference::Reference,
     region::Region,
     sequence::{
-        SequenceCache, SequenceRepositoryEnum, TwoBitSequenceRepository, UCSCApiSequenceRepository,
+        Sequence, SequenceCache, SequenceRepositoryEnum, TwoBitSequenceRepository,
+        UCSCApiSequenceRepository,
     },
     settings::{BackendType, Settings},
-    tracks::TrackCache,
     tracks::{
-        LocalDbTrackService, TrackService, TrackServiceEnum, UcscApiTrackService,
+        LocalDbTrackService, TrackCache, TrackService, TrackServiceEnum, UcscApiTrackService,
         UcscDbTrackService,
     },
     variant::VariantRepository,
@@ -128,7 +128,7 @@ impl Repository {
         };
 
         let variant_repository = match &settings.vcf_path {
-            Some(vcf_path) => Some(VariantRepository::from_vcf(vcf_path)?),
+            Some(vcf_path) => Some(VariantRepository::from_vcf(vcf_path, &contig_header)?),
             None => None,
         };
 
@@ -217,7 +217,12 @@ impl RemoteSource {
 }
 
 pub trait AlignmentRepository {
-    fn read_alignment(&self, region: &Region) -> Result<Alignment, TGVError>;
+    fn read_alignment(
+        &self,
+        region: &Region,
+        sequence: Option<&Sequence>,
+        contig_header: &ContigHeader,
+    ) -> Result<Alignment, TGVError>;
 
     fn read_header(&self) -> Result<Vec<(String, Option<usize>)>, TGVError>;
 }
@@ -268,7 +273,13 @@ impl BamRepository {
 }
 
 impl AlignmentRepository for BamRepository {
-    fn read_alignment(&self, region: &Region) -> Result<Alignment, TGVError> {
+    /// Read an alignment from a BAM file.
+    fn read_alignment(
+        &self,
+        region: &Region,
+        sequence: Option<&Sequence>,
+        contig_header: &ContigHeader,
+    ) -> Result<Alignment, TGVError> {
         let mut bam = match self.bai_path.as_ref() {
             Some(bai_path) => {
                 IndexedReader::from_path_and_index(self.bam_path.clone(), bai_path.clone())?
@@ -278,7 +289,7 @@ impl AlignmentRepository for BamRepository {
 
         let header = bam::Header::from_template(bam.header());
 
-        let query_contig_string = get_query_contig_string(&header, region)?;
+        let query_contig_string = get_query_contig_string(&header, region, contig_header)?;
         bam.fetch((
             &query_contig_string,
             region.start as i32 - 1,
@@ -286,14 +297,13 @@ impl AlignmentRepository for BamRepository {
         ))
         .map_err(|e| TGVError::IOError(e.to_string()))?;
 
-        let mut alignment_builder = AlignmentBuilder::new()?;
+        let mut alignment_builder = AlignmentBuilder::new(region)?;
 
         for record in bam.records() {
-            let read = record.map_err(|e| TGVError::IOError(e.to_string()))?;
-            alignment_builder.add_read(read)?;
+            alignment_builder.add_read(record?, sequence)?;
         }
 
-        alignment_builder.region(region)?.build()
+        alignment_builder.build()
     }
 
     /// Read BAM headers and return contig namesa and lengths.
@@ -327,14 +337,19 @@ impl RemoteBamRepository {
 }
 
 impl AlignmentRepository for RemoteBamRepository {
-    fn read_alignment(&self, region: &Region) -> Result<Alignment, TGVError> {
+    fn read_alignment(
+        &self,
+        region: &Region,
+        sequence: Option<&Sequence>,
+        contig_header: &ContigHeader,
+    ) -> Result<Alignment, TGVError> {
         let mut bam = IndexedReader::from_url(
             &Url::parse(&self.bam_path).map_err(|e| TGVError::IOError(e.to_string()))?,
         )?;
 
         let header = bam::Header::from_template(bam.header());
 
-        let query_contig_string = get_query_contig_string(&header, region)?;
+        let query_contig_string = get_query_contig_string(&header, region, contig_header)?;
         bam.fetch((
             &query_contig_string,
             region.start as i32 - 1,
@@ -342,14 +357,13 @@ impl AlignmentRepository for RemoteBamRepository {
         ))
         .map_err(|e| TGVError::IOError(e.to_string()))?;
 
-        let mut alignment_builder = AlignmentBuilder::new()?;
+        let mut alignment_builder = AlignmentBuilder::new(region)?;
 
         for record in bam.records() {
-            let read = record.map_err(|e| TGVError::IOError(e.to_string()))?;
-            alignment_builder.add_read(read)?;
+            alignment_builder.add_read(record?, sequence)?;
         }
 
-        alignment_builder.region(region)?.build()
+        alignment_builder.build()
     }
 
     fn read_header(&self) -> Result<Vec<(String, Option<usize>)>, TGVError> {
@@ -397,7 +411,11 @@ fn get_contig_names_and_lengths_from_header(
 
 /// Get the query string for a region.
 /// Look through the header to decide if the bam file chromosome names are abbreviated or full.
-fn get_query_contig_string(header: &Header, region: &Region) -> Result<String, TGVError> {
+fn get_query_contig_string(
+    header: &Header,
+    region: &Region,
+    contig_header: &ContigHeader,
+) -> Result<String, TGVError> {
     let mut bam_headers = Vec::new();
 
     for (_key, records) in header.to_hashmap().iter() {
@@ -405,8 +423,11 @@ fn get_query_contig_string(header: &Header, region: &Region) -> Result<String, T
             if record.contains_key("SN") {
                 let reference_name = record["SN"].to_string();
 
-                if reference_name == region.contig.name
-                    || region.contig.aliases.contains(&reference_name)
+                if reference_name == contig_header.get(region.contig_index)?.name
+                    || contig_header
+                        .get(region.contig_index)?
+                        .aliases
+                        .contains(&reference_name)
                 {
                     return Ok(reference_name);
                 }
@@ -417,9 +438,8 @@ fn get_query_contig_string(header: &Header, region: &Region) -> Result<String, T
     }
 
     Err(TGVError::IOError(format!(
-        "Contig {} (aliases: {}) not found in the bam file header. BAM file has {} contigs: {}",
-        region.contig.name,
-        region.contig.aliases.join(", "),
+        "Contig index {}  not found in the bam file header. BAM file has {} contigs: {}",
+        region.contig_index,
         bam_headers.len(),
         bam_headers.join(", ")
     )))
@@ -460,10 +480,19 @@ impl AlignmentRepositoryEnum {
 }
 
 impl AlignmentRepository for AlignmentRepositoryEnum {
-    fn read_alignment(&self, region: &Region) -> Result<Alignment, TGVError> {
+    fn read_alignment(
+        &self,
+        region: &Region,
+        sequence: Option<&Sequence>,
+        contig_header: &ContigHeader,
+    ) -> Result<Alignment, TGVError> {
         match self {
-            AlignmentRepositoryEnum::Bam(repository) => repository.read_alignment(region),
-            AlignmentRepositoryEnum::RemoteBam(repository) => repository.read_alignment(region),
+            AlignmentRepositoryEnum::Bam(repository) => {
+                repository.read_alignment(region, sequence, contig_header)
+            }
+            AlignmentRepositoryEnum::RemoteBam(repository) => {
+                repository.read_alignment(region, sequence, contig_header)
+            }
         }
     }
 

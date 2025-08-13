@@ -373,7 +373,7 @@ fn can_be_annotated_with_arrows(op: &Cigar) -> bool {
 pub struct Alignment {
     pub reads: Vec<AlignedRead>,
 
-    pub contig: usize, // contig name
+    pub contig_index: usize,
 
     /// Coverage at each position. Keys are 1-based, inclusive.
     coverage: BTreeMap<usize, usize>,
@@ -394,7 +394,7 @@ impl Alignment {
     /// Check if data in [left, right] is all loaded.
     /// 1-based, inclusive.
     pub fn has_complete_data(&self, region: &Region) -> bool {
-        (region.contig == self.contig)
+        (region.contig_index == self.contig_index)
             && (region.start >= self.data_complete_left_bound)
             && (region.end <= self.data_complete_right_bound)
     }
@@ -578,7 +578,7 @@ impl AlignmentBuilder {
 
         Ok(Alignment {
             reads: self.aligned_reads.clone(), // TODO: lookup on how to move this
-            contig: self.region.contig.clone(),
+            contig_index: self.region.contig_index,
             coverage,
             data_complete_left_bound: self.region.start,
             data_complete_right_bound: self.region.end,

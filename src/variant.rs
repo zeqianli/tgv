@@ -1,4 +1,4 @@
-use crate::contig::Contig;
+use crate::contig_header::ContigHeader;
 use crate::error::TGVError;
 use crate::intervals::{GenomeInterval, SortedIntervalCollection};
 use rust_htslib::bcf::{Read, Reader, Record};
@@ -24,7 +24,10 @@ impl Variant {
             .rid2name(record.rid().ok_or(TGVError::ValueError(
                 "VCF record {:?} doesn't have a valid contig.".to_string(),
             ))?)?;
-        let contig_index = contig_header.get_index_by_str(contig_u8)?;
+        let contig_index =
+            contig_header.get_index_by_str(&std::str::from_utf8(contig_u8).map_err(|_| {
+                TGVError::ValueError("VCF record {:?} doesn't have a valid contig.".to_string())
+            })?)?;
         Ok(Self {
             index,
             contig_index,
@@ -53,13 +56,13 @@ pub struct VariantRepository {
 }
 
 impl VariantRepository {
-    pub fn from_vcf(path: &str) -> Result<Self, TGVError> {
+    pub fn from_vcf(path: &str, contig_header: &ContigHeader) -> Result<Self, TGVError> {
         let mut bcf = Reader::from_path(path)?;
 
         let variants: Result<Vec<Variant>, _> = bcf
             .records()
             .enumerate()
-            .map(|(index, record)| Variant::new(record?, index))
+            .map(|(index, record)| Variant::new(record?, index, contig_header))
             .collect();
         let variants = variants?;
 
@@ -69,7 +72,7 @@ impl VariantRepository {
 
         for (i, variant) in variants.iter().enumerate() {
             variant_lookup
-                .entry(variant.contig())
+                .entry(variant.contig_index)
                 .and_modify(|vs| {
                     vs.entry(variant.start())
                         .and_modify(|vvs| vvs.push(i))
