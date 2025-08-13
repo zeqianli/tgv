@@ -65,6 +65,7 @@ async fn main() -> Result<(), TGVError> {
     let settings: Settings = Settings::new(cli)?;
 
     let mut terminal = ratatui::init();
+    set_panic_hook();
     execute!(stdout(), EnableMouseCapture)?;
 
     // Gather resources before starting the app.
@@ -106,6 +107,17 @@ async fn print_ucsc_assemblies() -> Result<usize, TGVError> {
         println!("{} (Organism: {})", name, common_name);
     }
     Ok(assemblies.len())
+}
+
+/// Add to ratatui's panic hook: disable mouse capture.
+fn set_panic_hook() {
+    let hook = std::panic::take_hook();
+    std::panic::set_hook(Box::new(move |info| {
+        hook(info);
+        if let Err(err) = execute!(stdout(), DisableMouseCapture) {
+            eprintln!("Error disabling mouse capture: {err}");
+        }
+    }));
 }
 
 #[cfg(test)]
