@@ -49,11 +49,3 @@ pub enum TGVError {
     #[error("UTF-8 decoding error: {0}")]
     Utf8DecodingError(#[from] std::string::FromUtf8Error),
 }
-
-// impl TGVError {
-//     pub fn is_same_type(&self, other: &TGVError) -> bool {
-//         matches!(self, other)
-//     }
-// }
-
-// TODO: tracing
