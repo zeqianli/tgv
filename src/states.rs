@@ -963,32 +963,6 @@ impl StateHandler {
         Ok(loaded_data)
     }
 
-    pub async fn load_all_data(
-        state: &mut State,
-        repository: &Repository,
-        region: Region,
-    ) -> Result<bool, TGVError> {
-        let loaded_alignment = Self::handle_data_message(
-            state,
-            repository,
-            DataMessage::RequiresCompleteAlignments(region.clone()),
-        )
-        .await?;
-        let loaded_track = Self::handle_data_message(
-            state,
-            repository,
-            DataMessage::RequiresCompleteFeatures(region.clone()),
-        )
-        .await?;
-        let loaded_sequence = Self::handle_data_message(
-            state,
-            repository,
-            DataMessage::RequiresCompleteSequences(region.clone()),
-        )
-        .await?;
-        Ok(loaded_alignment || loaded_track || loaded_sequence)
-    }
-
     pub fn has_complete_alignment(state: &State, region: &Region) -> bool {
         state.alignment.is_some() && state.alignment.as_ref().unwrap().has_complete_data(region)
     }

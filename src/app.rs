@@ -150,38 +150,3 @@ impl Widget for &App {
             .unwrap()
     }
 }
-
-/*
-Saving some initial window logics here:
-
-    fn go_to_contig_coordinate(
-        state: &mut State,
-        contig_str: &str,
-        n: usize,
-    ) -> Result<(), TGVError> {
-        // If bam_path is provided, check that the contig is valid.
-
-        if let Some(contig) = state.contigs.get_contig_by_str(contig_str) {
-            let current_frame_area = *state.current_frame_area()?;
-
-            match state.window {
-                Some(ref mut window) => {
-                    window.contig = contig;
-                    window.set_middle(&current_frame_area, n, None); // Don't know contig length yet.
-                    window.set_top(0);
-                }
-                None => {
-                    state.window = Some(ViewingWindow::new_basewise_window(contig, n, 0));
-                }
-            }
-            Ok(())
-        } else {
-            Err(TGVError::StateError(format!(
-                "Contig {:?} not found for reference {:?}",
-                contig_str, state.reference
-            )))
-        }
-    }
-
-
-*/
