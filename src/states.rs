@@ -91,7 +91,7 @@ impl State {
 
     pub fn viewing_region(&self) -> Region {
         Region {
-            contig: self.window.contig_index,
+            contig_index: self.window.contig_index,
             start: self.window.left(),
             end: self.window.right(&self.area),
         }
@@ -251,7 +251,11 @@ impl StateHandler {
             StateMessage::MoveDown(n) => StateHandler::move_down(state, n)?,
             StateMessage::GotoCoordinate(n) => StateHandler::go_to_coordinate(state, n)?,
             StateMessage::GotoContigNameCoordinate(contig_str, n) => {
-                StateHandler::go_to_contig_coordinate(state, &contig_str, n)?
+                StateHandler::go_to_contig_coordinate(
+                    state,
+                    state.contig_header.get_index_by_str(&contig_str)?,
+                    n,
+                )?
             }
 
             // Zoom handling
@@ -348,6 +352,18 @@ impl StateHandler {
 
         let viewing_region = state.viewing_region();
 
+        // It's important to load sequence first!
+        // Alignment IO requires calculating mismatches with the reference sequence.
+
+        if settings.needs_sequence()
+            && (state.window.zoom() <= Self::MAX_ZOOM_TO_DISPLAY_SEQUENCES)
+            && !Self::has_complete_sequence(state, &viewing_region)
+        {
+            let sequence_cache_region = Self::sequence_cache_region(state, &viewing_region)?;
+            data_messages.push(DataMessage::RequiresCompleteSequences(
+                sequence_cache_region,
+            ));
+        }
         if settings.needs_alignment()
             && state.window.zoom() <= Self::MAX_ZOOM_TO_DISPLAY_ALIGNMENTS
             && !Self::has_complete_alignment(state, &viewing_region)
@@ -369,16 +385,6 @@ impl StateHandler {
             data_messages.push(DataMessage::RequiresCytobands(state.contig_index()));
         }
 
-        if settings.needs_sequence()
-            && (state.window.zoom() <= Self::MAX_ZOOM_TO_DISPLAY_SEQUENCES)
-            && !Self::has_complete_sequence(state, &viewing_region)
-        {
-            let sequence_cache_region = Self::sequence_cache_region(state, &viewing_region)?;
-            data_messages.push(DataMessage::RequiresCompleteSequences(
-                sequence_cache_region,
-            ));
-        }
-
         Ok(data_messages)
     }
 
@@ -398,7 +404,7 @@ impl StateHandler {
                 usize::MAX
             });
         Ok(Region {
-            contig: region.contig.clone(),
+            contig_index: region.contig_index,
             start: left,
             end: right,
         })
@@ -420,7 +426,7 @@ impl StateHandler {
                 usize::MAX
             });
         Ok(Region {
-            contig: region.contig.clone(),
+            contig_index: region.contig_index,
             start: left,
             end: right,
         })
@@ -442,7 +448,7 @@ impl StateHandler {
                 usize::MAX
             });
         Ok(Region {
-            contig: region.contig.clone(),
+            contig_index: region.contig_index,
             start: left,
             end: right,
         })
@@ -452,15 +458,11 @@ impl StateHandler {
 // Movement handling
 impl StateHandler {
     fn move_left(state: &mut State, n: usize) -> Result<(), TGVError> {
-        let current_frame_area = *state.current_frame_area()?;
         let contig_length = state.contig_length()?;
-        let viewing_window = state.viewing_window_mut()?;
 
-        viewing_window.set_left(
-            viewing_window
-                .left()
-                .saturating_sub(n * viewing_window.zoom()),
-            &current_frame_area,
+        state.window.set_left(
+            state.window.left().saturating_sub(n * state.window.zoom()),
+            &state.area,
             contig_length,
         );
         Ok(())
@@ -491,23 +493,16 @@ impl StateHandler {
     }
     fn go_to_contig_coordinate(
         state: &mut State,
-        contig_str: &str,
+        contig_index: usize,
         n: usize,
     ) -> Result<(), TGVError> {
         // If bam_path is provided, check that the contig is valid.
 
-        if let Some(contig) = state.contig_header.get_contig_by_str(contig_str) {
-            state.window.contig_index = contig;
-            state.window.set_middle(&state.area, n, None); // Don't know contig length yet.
-            state.window.set_top(0);
+        state.window.contig_index = contig_index;
+        state.window.set_middle(&state.area, n, None); // Don't know contig length yet.
+        state.window.set_top(0);
 
-            Ok(())
-        } else {
-            Err(TGVError::StateError(format!(
-                "Contig {:?} not found for reference {:?}",
-                contig_str, state.reference
-            )))
-        }
+        Ok(())
     }
 
     fn handle_zoom_out(state: &mut State, r: usize) -> Result<(), TGVError> {
@@ -521,12 +516,9 @@ impl StateHandler {
     }
 
     fn handle_zoom_in(state: &mut State, r: usize) -> Result<(), TGVError> {
-        let contig_length = state.contig_length()?;
-        let current_frame_area: Rect = *state.current_frame_area()?;
-        let viewing_window = state.viewing_window_mut()?;
-
-        viewing_window
-            .zoom_in(r, &current_frame_area, contig_length)
+        state
+            .window
+            .zoom_in(r, &state.area, state.contig_length()?)
             .unwrap();
         Ok(())
     }
@@ -540,8 +532,8 @@ impl StateHandler {
             return Ok(());
         }
 
-        let middle = state.middle()?;
         let track = state.track_checked()?;
+        let middle = state.middle();
 
         // The gene is in the track.
         if let Some(target_gene) = track.get_k_genes_after(middle, n) {
@@ -549,20 +541,19 @@ impl StateHandler {
         }
 
         // Query for the target gene
-        if repository.track_service.is_none() {
-            return Err(TGVError::StateError(
+        let gene = repository
+            .track_service
+            .as_ref()
+            .ok_or(TGVError::StateError(
                 "Track service not initialized".to_string(),
-            ));
-        }
-
-        let track_service = repository.track_service.as_ref().unwrap();
-        let gene = track_service
+            ))?
             .query_k_genes_after(
                 &state.reference_checked()?.clone(),
-                &state.contig_index()?.clone(),
+                state.contig_index(),
                 middle,
                 n,
                 &mut state.track_cache,
+                &state.contig_header,
             )
             .await?;
 
@@ -578,7 +569,7 @@ impl StateHandler {
             return Ok(());
         }
 
-        let middle = state.middle()?;
+        let middle = state.middle();
         let track = state.track_checked()?;
 
         if let Some(target_gene) = track.get_k_genes_after(middle, n) {
@@ -586,14 +577,15 @@ impl StateHandler {
         }
 
         // Query for the target gene
-        let track_service = repository.track_service_checked()?;
-        let gene = track_service
+        let gene = repository
+            .track_service_checked()?
             .query_k_genes_after(
                 &state.reference_checked()?.clone(),
-                &state.contig_index()?.clone(),
+                state.contig_index(),
                 middle,
                 n,
                 &mut state.track_cache,
+                &state.contig_header,
             )
             .await?;
 
@@ -609,7 +601,7 @@ impl StateHandler {
             return Ok(());
         }
 
-        let middle = state.middle()?;
+        let middle = state.middle();
         let track = state.track_checked()?;
 
         if let Some(target_gene) = track.get_k_genes_before(middle, n) {
@@ -617,14 +609,15 @@ impl StateHandler {
         }
 
         // Query for the target gene
-        let track_service = repository.track_service_checked()?;
-        let gene = track_service
+        let gene = repository
+            .track_service_checked()?
             .query_k_genes_before(
                 &state.reference_checked()?.clone(),
-                &state.contig_index()?.clone(),
+                state.contig_index(),
                 middle,
                 n,
                 &mut state.track_cache,
+                &state.contig_header,
             )
             .await?;
 
@@ -640,7 +633,7 @@ impl StateHandler {
             return Ok(());
         }
 
-        let middle = state.middle()?;
+        let middle = state.middle();
         let track = state.track_checked()?;
 
         if let Some(target_gene) = track.get_k_genes_before(middle, n) {
@@ -648,14 +641,15 @@ impl StateHandler {
         }
 
         // Query for the target gene
-        let track_service = repository.track_service_checked()?;
-        let gene = track_service
+        let gene = repository
+            .track_service_checked()?
             .query_k_genes_before(
                 &state.reference_checked()?.clone(),
-                &state.contig_index()?.clone(),
+                state.contig_index(),
                 middle,
                 n,
                 &mut state.track_cache,
+                &state.contig_header,
             )
             .await?;
 
@@ -671,7 +665,7 @@ impl StateHandler {
             return Ok(());
         }
 
-        let middle = state.middle()?;
+        let middle = state.middle();
         let track = state.track_checked()?;
 
         if let Some(target_exon) = track.get_k_exons_after(middle, n) {
@@ -679,14 +673,15 @@ impl StateHandler {
         }
 
         // Query for the target exon
-        let track_service = repository.track_service_checked()?;
-        let exon = track_service
+        let exon = repository
+            .track_service_checked()?
             .query_k_exons_after(
                 &state.reference_checked()?.clone(),
-                &state.contig_index()?.clone(),
+                state.contig_index(),
                 middle,
                 n,
                 &mut state.track_cache,
+                &state.contig_header,
             )
             .await?;
 
@@ -702,7 +697,7 @@ impl StateHandler {
             return Ok(());
         }
 
-        let middle = state.middle()?;
+        let middle = state.middle();
         let track = state.track_checked()?;
 
         if let Some(target_exon) = track.get_k_exons_after(middle, n) {
@@ -710,14 +705,15 @@ impl StateHandler {
         }
 
         // Query for the target exon
-        let track_service = repository.track_service_checked()?;
-        let exon = track_service
+        let exon = repository
+            .track_service_checked()?
             .query_k_exons_after(
                 &state.reference_checked()?.clone(),
-                &state.contig_index()?.clone(),
+                state.contig_index(),
                 middle,
                 n,
                 &mut state.track_cache,
+                &state.contig_header,
             )
             .await?;
 
@@ -733,7 +729,7 @@ impl StateHandler {
             return Ok(());
         }
 
-        let middle = state.middle()?;
+        let middle = state.middle();
         let track = state.track_checked()?;
 
         if let Some(target_exon) = track.get_k_exons_before(middle, n) {
@@ -741,14 +737,15 @@ impl StateHandler {
         }
 
         // Query for the target exon
-        let track_service = repository.track_service_checked()?;
-        let exon = track_service
+        let exon = repository
+            .track_service_checked()?
             .query_k_exons_before(
                 &state.reference_checked()?.clone(),
-                &state.contig_index()?.clone(),
+                state.contig_index(),
                 middle,
                 n,
                 &mut state.track_cache,
+                &state.contig_header,
             )
             .await?;
 
@@ -764,7 +761,7 @@ impl StateHandler {
             return Ok(());
         }
 
-        let middle = state.middle()?;
+        let middle = state.middle();
         let track = state.track_checked()?;
 
         let target_exon = track.get_k_exons_before(middle, n);
@@ -773,14 +770,15 @@ impl StateHandler {
         }
 
         // Query for the target exon
-        let track_service = repository.track_service_checked()?;
-        let exon = track_service
+        let exon = repository
+            .track_service_checked()?
             .query_k_exons_before(
                 &state.reference_checked()?.clone(),
-                &state.contig_index()?.clone(),
+                state.contig_index(),
                 middle,
                 n,
                 &mut state.track_cache,
+                &state.contig_header,
             )
             .await?;
 
@@ -790,43 +788,35 @@ impl StateHandler {
     async fn go_to_gene(
         state: &mut State,
         repository: &Repository,
-        gene_id: String,
+        gene_name: String,
     ) -> Result<(), TGVError> {
-        let track_service = repository.track_service_checked()?;
-
-        let gene = track_service
+        let gene = repository
+            .track_service_checked()?
             .query_gene_name(
                 &state.reference_checked()?.clone(),
-                &gene_id,
+                &gene_name,
                 &mut state.track_cache,
+                &state.contig_header,
             )
             .await?;
 
-        Self::go_to_contig_coordinate(state, gene.contig().name.as_str(), gene.start() + 1)
+        Self::go_to_contig_coordinate(state, gene.contig_index(), gene.start() + 1)
     }
 
     async fn go_to_next_contig(state: &mut State, n: usize) -> Result<(), TGVError> {
-        let current_contig = state.contig_index();
-        let contig = state.contig_header.next(&current_contig, n)?;
-        Self::go_to_contig_coordinate(state, contig.name.as_str(), 1)
+        Self::go_to_contig_coordinate(state, state.contig_header.next(&state.contig_index(), n), 1)
     }
 
     async fn go_to_previous_contig(state: &mut State, n: usize) -> Result<(), TGVError> {
-        let current_contig = state.contig_index()?;
-        let contig = state.contig_header.previous(&current_contig, n)?;
-        Self::go_to_contig_coordinate(state, contig.name.as_str(), 1)
+        Self::go_to_contig_coordinate(
+            state,
+            state.contig_header.previous(&state.contig_index(), n),
+            1,
+        )
     }
 
-    async fn go_to_contig_index(state: &mut State, index: usize) -> Result<(), TGVError> {
-        if index >= state.contig_header.all_data().len() {
-            return Err(TGVError::StateError(format!(
-                "Contig index {} out of range. There are {} contigs.",
-                index,
-                state.contig_header.all_data().len()
-            )));
-        }
-        let contig = state.contig_header.all_data()[index].contig.clone();
-        Self::go_to_contig_coordinate(state, contig.name.as_str(), 1)
+    async fn go_to_contig_index(state: &mut State, contig_index: usize) -> Result<(), TGVError> {
+        Self::go_to_contig_coordinate(state, contig_index, 1)
     }
 
     async fn go_to_default(state: &mut State, repository: &Repository) -> Result<(), TGVError> {
@@ -838,19 +828,20 @@ impl StateHandler {
 
             Some(Reference::UcscGenome { .. }) | Some(Reference::UcscAccession { .. }) => {
                 // Find the first gene on the first contig. If anything is not found, handle it later.
-                let track_service = repository.track_service_checked()?;
 
                 let first_contig = state.contig_header.first()?;
 
                 // Try to get the first gene in the first contig.
                 // We use query_k_genes_after starting from coordinate 0 with k=1.
-                match track_service
+                match repository
+                    .track_service_checked()?
                     .query_k_genes_after(
                         &state.reference_checked()?.clone(),
                         first_contig,
                         0,
                         1,
                         &mut state.track_cache,
+                        &state.contig_header,
                     )
                     .await
                 {
@@ -858,7 +849,7 @@ impl StateHandler {
                         // Found a gene, go to its start (using 1-based coordinates for Goto)
                         return Self::go_to_contig_coordinate(
                             state,
-                            gene.contig().name.as_str(),
+                            gene.contig_index(),
                             gene.start() + 1,
                         );
                     }
@@ -869,8 +860,8 @@ impl StateHandler {
         };
 
         // If reaches here, go to the first contig:1
-        if let Ok(ref first_contig) = state.contig_header.first().cloned() {
-            return Self::go_to_contig_coordinate(state, first_contig.name.as_str(), 1);
+        if let Ok(_) = Self::go_to_contig_coordinate(state, state.contig_header.first()?, 1) {
+            return Ok(());
         }
 
         Err(TGVError::StateError(
@@ -892,8 +883,17 @@ impl StateHandler {
         match data_message {
             DataMessage::RequiresCompleteAlignments(region) => {
                 if !Self::has_complete_alignment(state, &region) {
-                    state.alignment =
-                        Some(repository.alignment_repository.read_alignment(&region)?); // TODO: use repository
+                    state.alignment = Some(
+                        repository
+                            .alignment_repository
+                            .as_ref()
+                            .unwrap()
+                            .read_alignment(
+                                &region,
+                                state.sequence.as_ref(),
+                                &state.contig_header,
+                            )?,
+                    ); // TODO: unwrap is weird.
                     loaded_data = true;
                 }
             }
@@ -904,7 +904,12 @@ impl StateHandler {
                 {
                     if !has_complete_track {
                         if let Ok(track) = track_service
-                            .query_gene_track(reference, &region, &mut state.track_cache)
+                            .query_gene_track(
+                                reference,
+                                &region,
+                                &mut state.track_cache,
+                                &state.contig_header,
+                            )
                             .await
                         {
                             state.track = Some(track);
@@ -926,7 +931,7 @@ impl StateHandler {
 
                 if !Self::has_complete_sequence(state, &region) {
                     let sequence = sequence_service
-                        .query_sequence(&region, &mut state.sequence_cache)
+                        .query_sequence(&region, &mut state.sequence_cache, &state.contig_header)
                         .await?;
 
                     state.sequence = Some(sequence);
@@ -934,16 +939,8 @@ impl StateHandler {
                 }
             }
 
-            DataMessage::RequiresCytobands(contig_name) => {
-                let contig = state
-                    .contig_header
-                    .get_contig_by_str(&contig_name)
-                    .ok_or(TGVError::StateError(format!(
-                        "Contig {:?} not found for reference {:?}",
-                        contig_name, state.reference
-                    )))?
-                    .clone();
-                if state.contig_header.cytoband_is_loaded(&contig)? {
+            DataMessage::RequiresCytobands(contig_index) => {
+                if state.contig_header.cytoband_is_loaded(contig_index)? {
                     return Ok(false);
                 }
 
@@ -951,9 +948,16 @@ impl StateHandler {
                     (state.reference.clone(), repository.track_service.as_ref())
                 {
                     let cytoband = track_service
-                        .get_cytoband(reference, &contig, &mut state.track_cache)
+                        .get_cytoband(
+                            reference,
+                            contig_index,
+                            &mut state.track_cache,
+                            &state.contig_header,
+                        )
                         .await?;
-                    state.contig_header.update_cytoband(&contig, cytoband)?;
+                    state
+                        .contig_header
+                        .update_cytoband(contig_index, cytoband)?;
                     loaded_data = true;
                 } else if state.reference.is_none() {
                     // Cannot load cytobands without reference

@@ -129,7 +129,7 @@ fn parse_comma_separated_list(s: &str) -> Result<Vec<usize>, TGVError> {
 
 #[derive(Debug, Clone, Deserialize)]
 #[allow(non_snake_case)]
-enum UcscGeneResponse {
+pub enum UcscGeneResponse {
     GeneResponse1 {
         name: String,
         name2: Option<String>,

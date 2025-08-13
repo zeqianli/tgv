@@ -4,6 +4,7 @@ use crate::{
     },
     error::TGVError,
     rendering::colors::Palette,
+    states::State,
     window::{OnScreenCoordinate, ViewingWindow},
 };
 use ratatui::{
@@ -16,25 +17,31 @@ use ratatui::{
 pub fn render_alignment(
     area: &Rect,
     buf: &mut Buffer,
-    window: &ViewingWindow,
-    alignment: &Alignment,
+    state: &State,
     background_color: &Color,
     pallete: &Palette,
 ) -> Result<(), TGVError> {
     // This iterates through all cached reads and re-calculates coordinates for each movement.
     // Consider improvement.
-    for read in alignment.reads.iter() {
-        for context in read.rendering_contexts.iter() {
-            if let Some(onscreen_contexts) =
-                get_read_rendering_info(context, read.y, window, area, background_color, pallete)
-            {
-                for onscreen_context in onscreen_contexts {
-                    buf.set_string(
-                        area.x + onscreen_context.x,
-                        area.y + onscreen_context.y,
-                        onscreen_context.string,
-                        onscreen_context.style,
-                    )
+    if let Some(alignment) = &state.alignment {
+        for read in alignment.reads.iter() {
+            for context in read.rendering_contexts.iter() {
+                if let Some(onscreen_contexts) = get_read_rendering_info(
+                    context,
+                    read.y,
+                    &state.window,
+                    area,
+                    background_color,
+                    pallete,
+                ) {
+                    for onscreen_context in onscreen_contexts {
+                        buf.set_string(
+                            area.x + onscreen_context.x,
+                            area.y + onscreen_context.y,
+                            onscreen_context.string,
+                            onscreen_context.style,
+                        )
+                    }
                 }
             }
         }

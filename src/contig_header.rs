@@ -187,6 +187,9 @@ impl ContigHeader {
     }
 
     pub fn first(&self) -> Result<usize, TGVError> {
+        if self.contigs.is_empty() {
+            return Err(TGVError::StateError("No contigs found".to_string()));
+        }
         Ok(0)
     }
 
@@ -304,12 +307,8 @@ impl ContigHeader {
         self.get(contig_index).unwrap().cytoband.as_ref() // TODO: bound check
     }
 
-    pub fn cytoband_is_loaded(&self, contig: &Contig) -> Result<bool, TGVError> {
-        let index = self.get_index(contig).ok_or(TGVError::StateError(format!(
-            "Contig {} not found",
-            contig.name.clone()
-        )))?;
-        Ok(self.contigs[index].cytoband_loaded)
+    pub fn cytoband_is_loaded(&self, contig_index: usize) -> Result<bool, TGVError> {
+        Ok(self.get(contig_index)?.cytoband_loaded)
     }
 }
 

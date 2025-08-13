@@ -7,26 +7,27 @@ use ratatui::{
 
 use crate::alignment::Alignment;
 use crate::error::TGVError;
-use crate::window::ViewingWindow;
+use crate::states::State;
 
 const MIN_AREA_WIDTH: u16 = 2;
 const MIN_AREA_HEIGHT: u16 = 1;
 
 /// Render the coverage barplot.
-pub fn render_coverage(
-    area: &Rect,
-    buf: &mut Buffer,
-    window: &ViewingWindow,
-    alignment: &Alignment,
-) -> Result<(), TGVError> {
+pub fn render_coverage(area: &Rect, buf: &mut Buffer, state: &State) -> Result<(), TGVError> {
     if area.width < MIN_AREA_WIDTH || area.height < MIN_AREA_HEIGHT {
         return Ok(());
     }
 
+    if state.alignment.is_none() {
+        return Ok(());
+    }
+
+    let alignment = state.alignment.as_ref().unwrap();
+
     let binned_coverage = calculate_binned_coverage(
         alignment,
-        window.left(),
-        window.right(area),
+        state.window.left(),
+        state.window.right(area),
         area.width as usize,
     )?;
 

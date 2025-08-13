@@ -276,40 +276,28 @@ impl MainLayout {
         registers: &Registers,
         repository: &Repository,
         pallete: &Palette,
-        contig_header: &ContigHeader,
     ) -> Result<(), TGVError> {
         let background_color = background_color.unwrap_or(pallete.background_1);
         match area_type {
-            AreaType::Cytoband => render_cytobands(rect, buf, state, pallete, contig_header)?,
+            AreaType::Cytoband => render_cytobands(rect, buf, state, pallete)?,
             AreaType::Coordinate => render_coordinates(rect, buf, state)?,
             AreaType::Coverage => {
-                if state.alignment_renderable()? {
-                    if let Some(alignment) = &state.alignment {
-                        render_coverage(rect, buf, state.window, alignment)?;
-                    }
+                if state.alignment_renderable() {
+                    render_coverage(rect, buf, state)?;
                 }
             }
             AreaType::Alignment => {
-                if state.alignment_renderable()? {
-                    if let Some(alignment) = &state.alignment {
-                        render_alignment(
-                            rect,
-                            buf,
-                            state.viewing_window()?,
-                            alignment,
-                            &background_color,
-                            pallete,
-                        )?;
-                    }
+                if state.alignment_renderable() {
+                    render_alignment(rect, buf, state, &background_color, pallete)?;
                 }
             }
             AreaType::Sequence => {
-                if state.sequence_renderable()? {
+                if state.sequence_renderable() {
                     render_sequence(rect, buf, state, pallete)?;
                 }
             }
             AreaType::GeneTrack => {
-                if state.track_renderable()? {
+                if state.track_renderable() {
                     render_track(rect, buf, state, pallete)?;
                 }
             }

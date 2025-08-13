@@ -23,7 +23,6 @@ pub fn render_cytobands(
     buf: &mut Buffer,
     state: &State,
     pallete: &Palette,
-    contig_header: &ContigHeader,
 ) -> Result<(), TGVError> {
     if area.width <= MIN_AREA_WIDTH {
         return Ok(());
@@ -39,7 +38,7 @@ pub fn render_cytobands(
         None => "".to_string(),
     };
 
-    let contig_description = contig_header.get_name(state.contig_index())?;
+    let contig_description = state.contig_header.get_name(state.contig_index())?;
 
     let cytoband_left_spacing = u16::max(
         CYTOBAND_TEXT_MIN_LEFT_SPACING,
