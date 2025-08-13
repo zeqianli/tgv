@@ -108,15 +108,6 @@ async fn print_ucsc_assemblies() -> Result<usize, TGVError> {
     Ok(assemblies.len())
 }
 
-// async fn print_ucsc_accessions(n: usize, offset: usize) -> Result<(), TGVError> {
-//     let accessions = UcscDbTrackService::list_accessions(n, 0).await?;
-
-//     for (name, common_name) in accessions {
-//         println!("{} (Organism: {})", name, common_name);
-//     }
-//     Ok(())
-// }
-
 #[cfg(test)]
 mod tests {
     use super::*;

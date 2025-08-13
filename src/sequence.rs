@@ -2,6 +2,7 @@ use crate::contig_header::ContigHeader;
 use crate::error::TGVError;
 use crate::reference::Reference;
 use crate::region::Region;
+use crate::tracks::schema::*;
 use reqwest::Client;
 use serde::Deserialize;
 use std::collections::HashMap;
@@ -201,47 +202,22 @@ impl UCSCApiSequenceRepository {
         }
     }
 
-    async fn get_hub_url_for_genark_accession(&self, accession: &str) -> Result<String, TGVError> {
-        let query_url = format!(
-            "https://api.genome.ucsc.edu/list/genarkGenomes?genome={}",
-            accession
-        );
-        let response = self.client.get(query_url).send().await?;
+    pub async fn get_hub_url_for_genark_accession(
+        &self,
+        accession: &str,
+    ) -> Result<String, TGVError> {
+        let response = self
+            .client
+            .get(format!(
+                "https://api.genome.ucsc.edu/list/genarkGenomes?genome={}",
+                accession
+            ))
+            .send()
+            .await?
+            .json::<UcscApiHubUrlResponse>()
+            .await?;
 
-        // Example response:
-        // {
-        //     "downloadTime": "2025:05:06T03:46:07Z",
-        //     "downloadTimeStamp": 1746503167,
-        //     "dataTime": "2025-04-29T10:42:00",
-        //     "dataTimeStamp": 1745948520,
-        //     "hubUrlPrefix": "/gbdb/genark",
-        //     "genarkGenomes": {
-        //       "GCF_028858775.2": {
-        //         "hubUrl": "GCF/028/858/775/GCF_028858775.2/hub.txt",
-        //         "asmName": "NHGRI_mPanTro3-v2.0_pri",
-        //         "scientificName": "Pan troglodytes",
-        //         "commonName": "chimpanzee (v2 AG18354 primary hap 2024 refseq)",
-        //         "taxId": 9598,
-        //         "priority": 138,
-        //         "clade": "primates"
-        //       }
-        //     },
-        //     "totalAssemblies": 5691,
-        //     "itemsReturned": 1
-        //   }
-
-        let response_text = response.text().await?;
-        let value: serde_json::Value = serde_json::from_str(&response_text)?;
-
-        Ok(format!(
-            "https://hgdownload.soe.ucsc.edu/hubs/{}",
-            value["genarkGenomes"][accession]["hubUrl"]
-                .as_str()
-                .ok_or(TGVError::IOError(format!(
-                    "Failed to get hub url for {}",
-                    accession
-                )))?
-        ))
+        response.get_hub_url(accession)
     }
 }
 

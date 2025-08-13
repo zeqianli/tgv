@@ -13,7 +13,6 @@ pub trait GenomeInterval {
         self.start() <= position && self.end() >= position
     }
 
-    #[allow(dead_code)]
     fn overlaps(&self, other: &impl GenomeInterval) -> bool {
         self.contig_index() == other.contig_index()
             && self.start() <= other.end()
@@ -27,7 +26,6 @@ pub trait GenomeInterval {
     }
 
     // The region ends at the end of the genome. Inclusive.
-    #[allow(dead_code)]
     fn is_properly_bounded(&self, end: Option<usize>) -> bool {
         match end {
             Some(e) => self.start() <= self.end() && self.end() <= e,
@@ -35,7 +33,6 @@ pub trait GenomeInterval {
         }
     }
 
-    #[allow(dead_code)]
     fn middle(&self) -> usize {
         (self.start() + self.end()).div_ceil(2)
     }

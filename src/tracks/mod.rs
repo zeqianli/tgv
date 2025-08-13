@@ -1,6 +1,6 @@
 mod downloader;
 mod local_db;
-mod schema;
+pub mod schema;
 mod ucsc_api;
 mod ucsc_db;
 
@@ -15,7 +15,6 @@ use crate::{
     track::Track,
 };
 use async_trait::async_trait;
-use sqlx::{Column, Row};
 use std::collections::{HashMap, HashSet};
 
 pub use downloader::UCSCDownloader;

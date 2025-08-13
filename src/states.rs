@@ -496,10 +496,10 @@ impl StateHandler {
         contig_index: usize,
         n: usize,
     ) -> Result<(), TGVError> {
-        // If bam_path is provided, check that the contig is valid.
-
         state.window.contig_index = contig_index;
-        state.window.set_middle(&state.area, n, None); // Don't know contig length yet.
+        state
+            .window
+            .set_middle(&state.area, n, state.contig_length()?);
         state.window.set_top(0);
 
         Ok(())
