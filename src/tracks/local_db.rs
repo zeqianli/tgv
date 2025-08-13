@@ -90,9 +90,11 @@ impl LocalDbTrackService {
         reference: &Reference,
         contig_header: &ContigHeader,
     ) -> Result<HashMap<usize, Option<String>>, TGVError> {
-        let rows_with_alias = sqlx::query("SELECT chrom, fileName FROM chromInfo")
-            .fetch_all(&*self.pool)
-            .await?;
+        let rows_with_alias = sqlx::query(
+            "SELECT chrom, fileName FROM chromInfo WHERE chrom NOT LIKE 'chr%\\_%' ESCAPE '\\'",
+        )
+        .fetch_all(&*self.pool)
+        .await?;
 
         let mut filename_hashmap: HashMap<usize, Option<String>> = HashMap::new();
         for row in rows_with_alias {
@@ -112,6 +114,7 @@ impl LocalDbTrackService {
                         .to_string(),
                 )
             };
+
             filename_hashmap.insert(contig_header.get_index_by_str(&chrom)?, basename);
         }
 
@@ -131,26 +134,32 @@ impl TrackService for LocalDbTrackService {
         reference: &Reference,
         cache: &mut TrackCache,
     ) -> Result<Vec<Contig>, TGVError> {
-        let  contigs: Vec<ContigRow> = sqlx::query_as(
-            "IF EXISTS (SELECT 1 FROM chromAlias)
-            BEGIN
-                SELECT chromInfo.chrom as chrom, chromInfo.size as size, GROUP_CONCAT(chromAlias.alias SEPARATOR ',') as aliases
-                FROM chromInfo 
-                LEFT JOIN chromAlias ON chromAlias.chrom = chromInfo.chrom
-                WHERE chromInfo.chrom NOT LIKE 'chr%\\_%'
-                ORDER BY chromInfo.chrom
-                GROUP BY chromInfo.chrom
-            END
-            ELSE
-            BEGIN
-                SELECT chromInfo.chrom as chrom, chromInfo.size as size, '' as aliases
-                FROM chromInfo
-                WHERE chromInfo.chrom NOT LIKE 'chr%\\_%'
-                ORDER BY chromInfo.chrom
-            END",
+        let contigs: Vec<ContigRow> = sqlx::query_as(
+            "SELECT 
+                chromInfo.chrom as chrom, 
+                chromInfo.size as size,
+                GROUP_CONCAT(chromAlias.alias, ',') as aliases
+            FROM chromInfo 
+            LEFT JOIN chromAlias ON chromAlias.chrom = chromInfo.chrom
+            WHERE chromInfo.chrom NOT LIKE 'chr%\\_%' ESCAPE '\\' 
+            GROUP BY chromInfo.chrom
+            ORDER BY chromInfo.chrom;
+            ",
         )
         .fetch_all(&*self.pool)
-        .await?;
+        .await
+        .unwrap_or({
+            sqlx::query_as(
+                "SELECT 
+                    chromInfo.chrom as chrom, 
+                    chromInfo.size as size
+                FROM chromInfo 
+                WHERE chromInfo.chrom NOT LIKE 'chr%\\_%' ESCAPE '\\'
+                ORDER BY chromInfo.chrom",
+            )
+            .fetch_all(&*self.pool)
+            .await?
+        });
 
         let mut contigs = contigs
             .into_iter()
@@ -193,7 +202,7 @@ impl TrackService for LocalDbTrackService {
             contig_index: contig_index,
             segments: cytoband_segment_rows
                 .into_iter()
-                .map(|segment| segment.to_cytoband_segment(contig_header))
+                .map(|segment| segment.to_cytoband_segment(contig_index))
                 .collect::<Result<Vec<CytobandSegment>, TGVError>>()?,
         }))
     }

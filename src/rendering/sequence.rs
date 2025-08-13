@@ -36,18 +36,20 @@ fn render_sequence_at_1x(
         return Ok(());
     }
 
-    let sequence_string = sequence
-        .get_sequence(region)
-        .ok_or(TGVError::StateError("Sequence not found".to_string()))?;
+    let sequence_string = String::from_utf8(
+        sequence
+            .get_sequence(region)
+            .ok_or(TGVError::StateError("Sequence not found".to_string()))?,
+    )?;
 
-    for (i, base) in sequence_string.iter().enumerate() {
+    for (i, base) in sequence_string.chars().enumerate() {
         buf.set_string(
             area.x + i as u16,
             area.y,
             base.to_string(),
             Style::default()
                 .fg(pallete.SEQUENCE_FOREGROUND_COLOR)
-                .bg(pallete.base_color(*base)),
+                .bg(pallete.base_color(base as u8)),
         );
     }
 

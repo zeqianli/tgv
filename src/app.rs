@@ -32,7 +32,7 @@ impl App {
     ) -> Result<Self, TGVError> {
         // Gather resources before initializing the state.
 
-        let (repository, sequence_cache, mut track_cache, contig_header) =
+        let (repository, sequence_cache, track_cache, contig_header) =
             Repository::new(&settings).await?;
 
         let mut state = State::new(
@@ -44,8 +44,13 @@ impl App {
         )?;
 
         // Find the initial window
-        StateHandler::handle_initial_messages(&mut state, &repository, &settings, Vec::new())
-            .await?;
+        StateHandler::handle_initial_messages(
+            &mut state,
+            &repository,
+            &settings,
+            settings.initial_state_messages.clone(),
+        )
+        .await?;
 
         let mouse_register = MouseRegister::new(&state.layout.root);
 

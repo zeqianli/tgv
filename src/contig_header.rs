@@ -259,6 +259,7 @@ impl ContigHeader {
     }
 
     pub fn update_or_add_contig(&mut self, contig: Contig) -> Result<(), TGVError> {
+        // TODO: this causes problems when the aliases have repeats.
         if self.get_index(&contig).is_none() {
             self.contig_lookup
                 .insert(contig.name.clone(), self.contigs.len());

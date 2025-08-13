@@ -8,6 +8,7 @@ use serde::Deserialize;
 use std::collections::HashMap;
 use twobit::TwoBitFile; // Add twobit crate to Cargo.toml
 /// Sequences of a genome region.
+#[derive(Debug)]
 pub struct Sequence {
     /// 1-based genome coordinate of sequence[0].
     /// 1-based, inclusive.

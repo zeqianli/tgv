@@ -191,8 +191,7 @@ impl Settings {
         };
 
         // Initial messages
-        let initial_state_messages =
-            Self::translate_initial_state_messages(cli.region, reference.as_ref())?;
+        let initial_state_messages = Self::translate_initial_state_messages(cli.region)?;
 
         // Backend
         let backend = match (cli.offline, cli.online) {
@@ -253,7 +252,6 @@ impl Settings {
 
     fn translate_initial_state_messages(
         region_string: Option<String>,
-        _reference: Option<&Reference>,
     ) -> Result<Vec<StateMessage>, TGVError> {
         let region_string = match region_string {
             Some(region_string) => region_string,

@@ -18,33 +18,33 @@ pub struct UcscGeneRow {
     pub name: String,
     pub chrom: String,
     pub strand: String,
-    pub tx_start: u64,
-    pub tx_end: u64,
-    pub cds_start: u64,
-    pub cds_end: u64,
+    pub txStart: u64,
+    pub txEnd: u64,
+    pub cdsStart: u64,
+    pub cdsEnd: u64,
     pub name2: Option<String>,
-    pub exon_starts_blob: Vec<u8>,
-    pub exon_ends_blob: Vec<u8>,
+    pub exonStarts: Vec<u8>,
+    pub exonEnds: Vec<u8>,
 }
 
 impl FromRow<'_, SqliteRow> for UcscGeneRow {
     fn from_row(row: &SqliteRow) -> sqlx::Result<Self> {
-        let tx_start: i64 = row.try_get("tx_start")?;
-        let tx_end: i64 = row.try_get("tx_end")?;
-        let cds_start: i64 = row.try_get("cds_start")?;
-        let cds_end: i64 = row.try_get("cds_end")?;
+        let txStart: i64 = row.try_get("txStart")?;
+        let txEnd: i64 = row.try_get("txEnd")?;
+        let cdsStart: i64 = row.try_get("cdsStart")?;
+        let cdsEnd: i64 = row.try_get("cdsEnd")?;
 
         Ok(UcscGeneRow {
             name: row.try_get("name")?,
             chrom: row.try_get("chrom")?,
             strand: row.try_get("strand")?,
-            tx_start: tx_start as u64,
-            tx_end: tx_end as u64,
-            cds_start: cds_start as u64,
-            cds_end: cds_end as u64,
+            txStart: txStart as u64,
+            txEnd: txEnd as u64,
+            cdsStart: cdsStart as u64,
+            cdsEnd: cdsEnd as u64,
             name2: row.try_get("name2")?,
-            exon_starts_blob: row.try_get("exon_starts_blob")?,
-            exon_ends_blob: row.try_get("exon_ends_blob")?,
+            exonStarts: row.try_get("exonStarts")?,
+            exonEnds: row.try_get("exonEnds")?,
         })
     }
 }
@@ -55,13 +55,13 @@ impl FromRow<'_, MySqlRow> for UcscGeneRow {
             name: row.try_get("name")?,
             chrom: row.try_get("chrom")?,
             strand: row.try_get("strand")?,
-            tx_start: row.try_get("tx_start")?,
-            tx_end: row.try_get("tx_end")?,
-            cds_start: row.try_get("cds_start")?,
-            cds_end: row.try_get("cds_end")?,
+            txStart: row.try_get("txStart")?,
+            txEnd: row.try_get("txEnd")?,
+            cdsStart: row.try_get("cdsStart")?,
+            cdsEnd: row.try_get("cdsEnd")?,
             name2: row.try_get("name2")?,
-            exon_starts_blob: row.try_get("exon_starts_blob")?,
-            exon_ends_blob: row.try_get("exon_ends_blob")?,
+            exonStarts: row.try_get("exonStarts")?,
+            exonEnds: row.try_get("exonEnds")?,
         })
     }
 }
@@ -85,15 +85,15 @@ impl UcscGeneRow {
             name: self.name2.unwrap_or(self.name.clone()),
             strand: Strand::from_str(self.strand)?,
             contig_index: contig_header.get_index_by_str(&self.chrom)?,
-            transcription_start: self.tx_start as usize + 1,
-            transcription_end: self.tx_end as usize,
-            cds_start: self.cds_start as usize + 1,
-            cds_end: self.cds_end as usize,
-            exon_starts: Self::parse_blob_to_coords(&self.exon_starts_blob)
+            transcription_start: self.txStart as usize + 1,
+            transcription_end: self.txEnd as usize,
+            cds_start: self.cdsStart as usize + 1,
+            cds_end: self.cdsEnd as usize,
+            exon_starts: Self::parse_blob_to_coords(&self.exonStarts)
                 .iter()
                 .map(|v| v + 1)
                 .collect(),
-            exon_ends: Self::parse_blob_to_coords(&self.exon_ends_blob),
+            exon_ends: Self::parse_blob_to_coords(&self.exonEnds),
             has_exons: true,
         })
     }
@@ -150,9 +150,9 @@ impl FromRow<'_, MySqlRow> for CytobandSegmentRow {
 }
 
 impl CytobandSegmentRow {
-    pub fn to_cytoband_segment(self, header: &ContigHeader) -> Result<CytobandSegment, TGVError> {
+    pub fn to_cytoband_segment(self, contig_index: usize) -> Result<CytobandSegment, TGVError> {
         Ok(CytobandSegment {
-            contig_index: header.get_index_by_str(&self.name)?,
+            contig_index: contig_index,
             start: self.chromStart as usize + 1,
             end: self.chromEnd as usize,
             name: self.name,
@@ -436,7 +436,6 @@ impl UcscApiCytobandResponse {
         self,
         reference: &Reference,
         contig_index: usize,
-        contig_header: &ContigHeader,
     ) -> Result<Option<Cytoband>, TGVError> {
         if self.cytoBandIdeo.is_empty() {
             Ok(None)
@@ -447,7 +446,7 @@ impl UcscApiCytobandResponse {
                 segments: self
                     .cytoBandIdeo
                     .into_iter()
-                    .map(|cytoband| cytoband.to_cytoband_segment(contig_header))
+                    .map(|cytoband| cytoband.to_cytoband_segment(contig_index))
                     .collect::<Result<Vec<CytobandSegment>, TGVError>>()?,
             }))
         }

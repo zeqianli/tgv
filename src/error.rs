@@ -10,8 +10,8 @@ pub enum TGVError {
     #[error("Ucsc API IO error: {0}")]
     UcscApiIOError(#[from] reqwest::Error),
 
-    #[error("UCSC DB IO error: {0}")]
-    UcscDbIOError(#[from] sqlx::Error),
+    #[error("SQLx error: {0}")]
+    SqlxError(#[from] sqlx::Error),
 
     #[error("JSON serialization error: {0}")]
     JsonSerializationError(#[from] serde_json::Error),
@@ -45,6 +45,9 @@ pub enum TGVError {
 
     #[error("BigBed interal parsing error: {0}")]
     BigBedIntervalError(#[from] BBIReadError),
+
+    #[error("UTF-8 decoding error: {0}")]
+    Utf8DecodingError(#[from] std::string::FromUtf8Error),
 }
 
 // impl TGVError {

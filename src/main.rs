@@ -65,11 +65,12 @@ async fn main() -> Result<(), TGVError> {
     let settings: Settings = Settings::new(cli)?;
 
     let mut terminal = ratatui::init();
+
     set_panic_hook();
+
     execute!(stdout(), EnableMouseCapture)?;
 
     // Gather resources before starting the app.
-
     let mut app = match App::new(settings, &mut terminal).await {
         Ok(app) => app,
         Err(e) => {

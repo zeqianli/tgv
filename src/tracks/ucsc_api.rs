@@ -219,7 +219,7 @@ impl TrackService for UcscApiTrackService {
             .await
             .unwrap_or_default();
 
-        response.to_cytoband(reference, contig_index, contig_header)
+        response.to_cytoband(reference, contig_index)
     }
 
     async fn get_preferred_track_name(

@@ -125,9 +125,11 @@ impl UcscDbTrackService {
         reference: &Reference,
         contig_header: &ContigHeader,
     ) -> Result<HashMap<usize, Option<String>>, TGVError> {
-        let rows_with_alias = sqlx::query("SELECT chrom, fileName FROM chromInfo")
-            .fetch_all(&*self.pool)
-            .await?;
+        let rows_with_alias = sqlx::query(
+            "SELECT chrom, fileName FROM chromInfo WHERE chrom NOT LIKE 'chr%\\_%' ESCAPE '\\'",
+        )
+        .fetch_all(&*self.pool)
+        .await?;
 
         let mut filename_hashmap: HashMap<usize, Option<String>> = HashMap::new();
         for row in rows_with_alias {
@@ -182,7 +184,6 @@ impl TrackService for UcscDbTrackService {
         .fetch_all(&*self.pool)
         .await
         .unwrap_or({
-            println!("check check!!");
             sqlx::query_as(
                 "SELECT 
                     chromInfo.chrom as chrom, 
@@ -236,7 +237,7 @@ impl TrackService for UcscDbTrackService {
             contig_index: contig_index,
             segments: cytoband_segment_rows
                 .into_iter()
-                .map(|segment| segment.to_cytoband_segment(contig_header))
+                .map(|segment| segment.to_cytoband_segment(contig_index))
                 .collect::<Result<Vec<CytobandSegment>, TGVError>>()?,
         }))
     }
