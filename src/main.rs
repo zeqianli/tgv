@@ -73,6 +73,9 @@ async fn main() -> Result<(), TGVError> {
         Ok(app) => app,
         Err(e) => {
             ratatui::restore();
+            if let Err(err) = execute!(stdout(), DisableMouseCapture) {
+                eprintln!("Error disabling mouse capture: {err}");
+            }
             return Err(e);
         }
     };

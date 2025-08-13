@@ -506,11 +506,9 @@ impl StateHandler {
     }
 
     fn handle_zoom_out(state: &mut State, r: usize) -> Result<(), TGVError> {
-        let contig_length = state.contig_length()?;
-
         state
             .window
-            .zoom_out(r, &state.area, contig_length)
+            .zoom_out(r, &state.area, state.contig_length()?)
             .unwrap();
         Ok(())
     }
@@ -542,11 +540,7 @@ impl StateHandler {
 
         // Query for the target gene
         let gene = repository
-            .track_service
-            .as_ref()
-            .ok_or(TGVError::StateError(
-                "Track service not initialized".to_string(),
-            ))?
+            .track_service_checked()?
             .query_k_genes_after(
                 &state.reference_checked()?.clone(),
                 state.contig_index(),
