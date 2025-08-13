@@ -5,7 +5,7 @@ mod ucsc_api;
 mod ucsc_db;
 
 use crate::{
-    contig_collection::{Contig, ContigHeader},
+    contig_header::{Contig, ContigHeader},
     cytoband::Cytoband,
     error::TGVError,
     feature::{Gene, SubGeneFeature},
@@ -246,14 +246,21 @@ impl TrackServiceEnum {
     pub async fn get_contig_2bit_file_lookup(
         &self,
         reference: &Reference,
-    ) -> Result<HashMap<String, Option<String>>, TGVError> {
+        contig_header: &ContigHeader,
+    ) -> Result<HashMap<usize, Option<String>>, TGVError> {
         match self {
             TrackServiceEnum::Api(_) => Err(TGVError::IOError(
                 "get_contig_2bit_file_lookup is not supported for UcscApiTrackService".to_string(),
             )),
-            TrackServiceEnum::Db(service) => service.get_contig_2bit_file_lookup(reference).await,
+            TrackServiceEnum::Db(service) => {
+                service
+                    .get_contig_2bit_file_lookup(reference, contig_header)
+                    .await
+            }
             TrackServiceEnum::LocalDb(service) => {
-                service.get_contig_2bit_file_lookup(reference).await
+                service
+                    .get_contig_2bit_file_lookup(reference, contig_header)
+                    .await
             }
         }
     }

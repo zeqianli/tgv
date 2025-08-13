@@ -6,7 +6,7 @@ use crate::settings::Settings;
 use crate::tracks::{TrackCache, TrackService};
 use crate::{
     alignment::Alignment,
-    contig_collection::ContigHeader,
+    contig_header::ContigHeader,
     cytoband::Cytoband,
     display_mode::DisplayMode,
     feature::Gene,

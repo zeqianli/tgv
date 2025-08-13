@@ -1,5 +1,5 @@
 use crate::{
-    contig_collection::ContigHeader,
+    contig_header::ContigHeader,
     cytoband::{Cytoband, CytobandSegment, Stain},
     error::TGVError,
     helpers::get_abbreviated_length_string,

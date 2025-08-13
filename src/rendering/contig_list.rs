@@ -1,4 +1,4 @@
-use crate::contig_collection::Contig;
+use crate::contig_header::Contig;
 use crate::error::TGVError;
 use crate::register::Registers;
 use crate::states::State;

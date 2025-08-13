@@ -1,5 +1,5 @@
 use crate::{
-    contig_collection::{Contig, ContigHeader},
+    contig_header::{Contig, ContigHeader},
     cytoband::{Cytoband, CytobandSegment, Stain},
     error::TGVError,
     feature::{Gene, SubGeneFeature},
@@ -123,12 +123,13 @@ impl UcscDbTrackService {
     pub async fn get_contig_2bit_file_lookup(
         &self,
         reference: &Reference,
-    ) -> Result<HashMap<String, Option<String>>, TGVError> {
+        contig_header: &ContigHeader,
+    ) -> Result<HashMap<usize, Option<String>>, TGVError> {
         let rows_with_alias = sqlx::query("SELECT chrom, fileName FROM chromInfo")
             .fetch_all(&*self.pool)
             .await?;
 
-        let mut filename_hashmap: HashMap<String, Option<String>> = HashMap::new();
+        let mut filename_hashmap: HashMap<usize, Option<String>> = HashMap::new();
         for row in rows_with_alias {
             let chrom: String = row.try_get("chrom")?;
             let file_name: String = row.try_get("fileName")?;
@@ -146,7 +147,7 @@ impl UcscDbTrackService {
                         .to_string(),
                 )
             };
-            filename_hashmap.insert(chrom, basename);
+            filename_hashmap.insert(contig_header.get_index_by_str(&chrom)?, basename);
         }
 
         Ok(filename_hashmap)

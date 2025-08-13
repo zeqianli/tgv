@@ -32,18 +32,15 @@ impl App {
     ) -> Result<Self, TGVError> {
         // Gather resources before initializing the state.
 
-        let (repository, sequence_cache, mut track_cache) = Repository::new(&settings).await?;
-
-        let contig_collection = repository
-            .load_contig_data(&settings, &mut track_cache)
-            .await?;
+        let (repository, sequence_cache, mut track_cache, contig_header) =
+            Repository::new(&settings).await?;
 
         let mut state = State::new(
             &settings,
             terminal.get_frame().area(),
             sequence_cache,
             track_cache,
-            contig_collection,
+            contig_header,
         )?;
 
         // Find the initial window

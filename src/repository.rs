@@ -1,7 +1,7 @@
 use crate::{
     alignment::{Alignment, AlignmentBuilder},
     bed::BEDIntervals,
-    contig_collection::ContigHeader,
+    contig_header::ContigHeader,
     error::TGVError,
     helpers::is_url,
     reference::Reference,
@@ -25,7 +25,7 @@ use std::path::Path;
 use url::Url;
 
 pub struct Repository {
-    pub alignment_repository: AlignmentRepositoryEnum,
+    pub alignment_repository: Option<AlignmentRepositoryEnum>,
 
     pub variant_repository: Option<VariantRepository>,
 
@@ -37,16 +37,17 @@ pub struct Repository {
 }
 
 impl Repository {
-    pub async fn new(settings: &Settings) -> Result<(Self, SequenceCache, TrackCache), TGVError> {
-        let alignment_repository = AlignmentRepositoryEnum::from(settings)?;
-
-        let variant_repository = match &settings.vcf_path {
-            Some(vcf_path) => Some(VariantRepository::from_vcf(vcf_path)?),
-            None => None,
-        };
-
-        let bed_intervals = match &settings.bed_path {
-            Some(bed_path) => Some(BEDIntervals::from_bed(bed_path, &contig_header)?),
+    pub async fn new(
+        settings: &Settings,
+    ) -> Result<(Self, SequenceCache, TrackCache, ContigHeader), TGVError> {
+        let mut contig_header = ContigHeader::new(settings.reference.clone());
+        let mut track_cache = TrackCache::new();
+        let alignment_repository = match settings.bam_path {
+            Some(_) => {
+                let repository = AlignmentRepositoryEnum::from(settings)?;
+                contig_header.update_from_bam(settings.reference.as_ref(), &repository)?;
+                Some(repository)
+            }
             None => None,
         };
 
@@ -91,6 +92,14 @@ impl Repository {
                     }
                 };
 
+                for contig in ts
+                    .get_all_contigs(reference, &mut track_cache)
+                    .await?
+                    .into_iter()
+                {
+                    contig_header.update_or_add_contig(contig).unwrap();
+                }
+
                 let use_ucsc_api_sequence =
                     matches!(ts, TrackServiceEnum::Api(_) | TrackServiceEnum::Db(_));
 
@@ -106,7 +115,8 @@ impl Repository {
 
                     let (ss, cache) = TwoBitSequenceRepository::new(
                         reference.clone(),
-                        ts.get_contig_2bit_file_lookup(reference).await?,
+                        ts.get_contig_2bit_file_lookup(reference, &contig_header)
+                            .await?,
                         settings.cache_dir.clone(),
                     )?;
 
@@ -115,6 +125,16 @@ impl Repository {
                 (Some(ts), Some(ss), sc)
             }
             None => (None, None, SequenceCache::new()),
+        };
+
+        let variant_repository = match &settings.vcf_path {
+            Some(vcf_path) => Some(VariantRepository::from_vcf(vcf_path)?),
+            None => None,
+        };
+
+        let bed_intervals = match &settings.bed_path {
+            Some(bed_path) => Some(BEDIntervals::from_bed(bed_path, &contig_header)?),
+            None => None,
         };
 
         Ok((
@@ -126,7 +146,8 @@ impl Repository {
                 sequence_service,
             },
             sequence_cache,
-            TrackCache::new(),
+            track_cache,
+            contig_header,
         ))
     }
 
@@ -159,7 +180,7 @@ impl Repository {
     }
 
     pub fn has_alignment(&self) -> bool {
-        self.alignment_repository.has_alignment()
+        self.alignment_repository.is_some()
     }
 
     pub fn has_track(&self) -> bool {
@@ -171,47 +192,6 @@ impl Repository {
     }
 }
 
-impl Repository {
-    pub async fn load_contig_data(
-        &self,
-        settings: &Settings,
-        track_cache: &mut TrackCache,
-    ) -> Result<ContigHeader, TGVError> {
-        let mut contig_data = ContigHeader::new(settings.reference.clone());
-
-        if let (Some(reference), Some(track_service)) =
-            (settings.reference.as_ref(), self.track_service.as_ref())
-        {
-            for (contig, length) in track_service
-                .get_all_contigs(reference, track_cache)
-                .await?
-            {
-                contig_data
-                    .update_or_add_contig(contig, Some(length))
-                    .unwrap();
-            }
-        }
-
-        // if let Some(reference) = reference {
-        //     match &reference {
-        //         Reference::Hg19 | Reference::Hg38 => {
-        //             for cytoband in Cytoband::from_human_reference(reference)?.iter() {
-        //                 contig_data.update_cytoband(&cytoband.contig, Some(cytoband.clone()))?;
-        //             }
-        //         }
-        //         _ => {}
-        //     }
-        // }
-
-        if !matches!(self.alignment_repository, AlignmentRepositoryEnum::None) {
-            contig_data
-                .update_from_bam(settings.reference.as_ref(), &self.alignment_repository)
-                .unwrap();
-        }
-
-        Ok(contig_data)
-    }
-}
 #[derive(Debug)]
 enum RemoteSource {
     S3,
@@ -447,7 +427,6 @@ fn get_query_contig_string(header: &Header, region: &Region) -> Result<String, T
 
 #[derive(Debug)]
 pub enum AlignmentRepositoryEnum {
-    None,
     Bam(BamRepository),
     RemoteBam(RemoteBamRepository),
 }
@@ -455,7 +434,7 @@ pub enum AlignmentRepositoryEnum {
 impl AlignmentRepositoryEnum {
     pub fn from(settings: &Settings) -> Result<Self, TGVError> {
         if settings.bam_path.is_none() {
-            return Ok(AlignmentRepositoryEnum::None);
+            return Err(TGVError::ValueError("BAM path is not set".to_string()));
         }
 
         let bam_path = settings.bam_path.clone().unwrap();
@@ -476,7 +455,6 @@ impl AlignmentRepositoryEnum {
         match self {
             AlignmentRepositoryEnum::Bam(_) => true,
             AlignmentRepositoryEnum::RemoteBam(_) => true,
-            AlignmentRepositoryEnum::None => false,
         }
     }
 }
@@ -486,7 +464,6 @@ impl AlignmentRepository for AlignmentRepositoryEnum {
         match self {
             AlignmentRepositoryEnum::Bam(repository) => repository.read_alignment(region),
             AlignmentRepositoryEnum::RemoteBam(repository) => repository.read_alignment(region),
-            AlignmentRepositoryEnum::None => Err(TGVError::IOError("No alignment".to_string())),
         }
     }
 
@@ -494,7 +471,6 @@ impl AlignmentRepository for AlignmentRepositoryEnum {
         match self {
             AlignmentRepositoryEnum::Bam(repository) => repository.read_header(),
             AlignmentRepositoryEnum::RemoteBam(repository) => repository.read_header(),
-            AlignmentRepositoryEnum::None => Err(TGVError::IOError("No alignment".to_string())),
         }
     }
 }

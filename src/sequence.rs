@@ -1,4 +1,4 @@
-use crate::contig_collection::ContigHeader;
+use crate::contig_header::ContigHeader;
 use crate::error::TGVError;
 use crate::reference::Reference;
 use crate::region::Region;

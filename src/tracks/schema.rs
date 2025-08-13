@@ -1,5 +1,5 @@
 use crate::{
-    contig_collection::{Contig, ContigHeader},
+    contig_header::{Contig, ContigHeader},
     cytoband::{Cytoband, CytobandSegment, Stain},
     error::TGVError,
     feature::{Gene, SubGeneFeature},
