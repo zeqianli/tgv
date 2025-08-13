@@ -121,14 +121,14 @@ fn get_read_rendering_info(
             }),
 
             RenderingContextModifier::Reverse => output.push(OnScreenRenderingContext {
-                x: onscreen_x + length - 1,
+                x: onscreen_x,
                 y: onscreen_y,
                 string: "◄".to_string(),
                 style: output.first().unwrap().style.clone(),
             }),
 
             RenderingContextModifier::Insertion(l) => output.push(OnScreenRenderingContext {
-                x: onscreen_x + length - 1,
+                x: onscreen_x,
                 y: onscreen_y,
                 string: "▌".to_string(),
                 style: Style::default().fg(pallete.INSERTION_COLOR),
