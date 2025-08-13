@@ -8,23 +8,62 @@ use crate::{
     track::Track,
 };
 use serde::Deserialize;
-use sqlx::FromRow;
+use sqlx::{mysql::MySqlRow, sqlite::SqliteRow, FromRow, Row};
 use std::collections::HashMap;
 
 /// Deserialization target for a row in the gene table.
 /// Converting to Gene needs the header information and is done downstream.
-#[derive(Debug, FromRow)]
+#[derive(Debug)]
 pub struct UcscGeneRow {
     pub name: String,
     pub chrom: String,
     pub strand: String,
-    pub tx_start: i64,
-    pub tx_end: i64,
-    pub cds_start: i64,
-    pub cds_end: i64,
+    pub tx_start: u64,
+    pub tx_end: u64,
+    pub cds_start: u64,
+    pub cds_end: u64,
     pub name2: Option<String>,
     pub exon_starts_blob: Vec<u8>,
     pub exon_ends_blob: Vec<u8>,
+}
+
+impl FromRow<'_, SqliteRow> for UcscGeneRow {
+    fn from_row(row: &SqliteRow) -> sqlx::Result<Self> {
+        let tx_start: i64 = row.try_get("tx_start")?;
+        let tx_end: i64 = row.try_get("tx_end")?;
+        let cds_start: i64 = row.try_get("cds_start")?;
+        let cds_end: i64 = row.try_get("cds_end")?;
+
+        Ok(UcscGeneRow {
+            name: row.try_get("name")?,
+            chrom: row.try_get("chrom")?,
+            strand: row.try_get("strand")?,
+            tx_start: tx_start as u64,
+            tx_end: tx_end as u64,
+            cds_start: cds_start as u64,
+            cds_end: cds_end as u64,
+            name2: row.try_get("name2")?,
+            exon_starts_blob: row.try_get("exon_starts_blob")?,
+            exon_ends_blob: row.try_get("exon_ends_blob")?,
+        })
+    }
+}
+
+impl FromRow<'_, MySqlRow> for UcscGeneRow {
+    fn from_row(row: &MySqlRow) -> sqlx::Result<Self> {
+        Ok(UcscGeneRow {
+            name: row.try_get("name")?,
+            chrom: row.try_get("chrom")?,
+            strand: row.try_get("strand")?,
+            tx_start: row.try_get("tx_start")?,
+            tx_end: row.try_get("tx_end")?,
+            cds_start: row.try_get("cds_start")?,
+            cds_end: row.try_get("cds_end")?,
+            name2: row.try_get("name2")?,
+            exon_starts_blob: row.try_get("exon_starts_blob")?,
+            exon_ends_blob: row.try_get("exon_ends_blob")?,
+        })
+    }
 }
 
 impl UcscGeneRow {
@@ -78,12 +117,36 @@ impl Track<Gene> {
     }
 }
 
-#[derive(Debug, FromRow, Deserialize)]
+#[derive(Debug, Deserialize)]
 pub struct CytobandSegmentRow {
-    chromStart: i64, // sqlite doesn't support unsigned int
-    chromEnd: i64,
+    chromStart: u64, // sqlite doesn't support unsigned int
+    chromEnd: u64,
     name: String,
     gieStain: String,
+}
+
+impl FromRow<'_, SqliteRow> for CytobandSegmentRow {
+    fn from_row(row: &SqliteRow) -> sqlx::Result<Self> {
+        let chromStart: i64 = row.try_get("chromStart")?;
+        let chromEnd: i64 = row.try_get("chromEnd")?;
+        Ok(CytobandSegmentRow {
+            chromStart: chromStart as u64,
+            chromEnd: chromEnd as u64,
+            name: row.try_get("name")?,
+            gieStain: row.try_get("gieStain")?,
+        })
+    }
+}
+
+impl FromRow<'_, MySqlRow> for CytobandSegmentRow {
+    fn from_row(row: &MySqlRow) -> sqlx::Result<Self> {
+        Ok(CytobandSegmentRow {
+            chromStart: row.try_get("chromStart")?,
+            chromEnd: row.try_get("chromEnd")?,
+            name: row.try_get("name")?,
+            gieStain: row.try_get("gieStain")?,
+        })
+    }
 }
 
 impl CytobandSegmentRow {
@@ -98,11 +161,32 @@ impl CytobandSegmentRow {
     }
 }
 
-#[derive(Debug, FromRow)]
+#[derive(Debug)]
 pub struct ContigRow {
     pub chrom: String,
-    pub size: i64,
+    pub size: u64,
     pub aliases: String,
+}
+
+impl FromRow<'_, SqliteRow> for ContigRow {
+    fn from_row(row: &SqliteRow) -> sqlx::Result<Self> {
+        let size: i64 = row.try_get("size")?;
+        Ok(ContigRow {
+            chrom: row.try_get("chrom")?,
+            size: size as u64,
+            aliases: row.try_get("aliases").unwrap_or("".to_string()),
+        })
+    }
+}
+
+impl FromRow<'_, MySqlRow> for ContigRow {
+    fn from_row(row: &MySqlRow) -> sqlx::Result<Self> {
+        Ok(ContigRow {
+            chrom: row.try_get("chrom")?,
+            size: row.try_get("size")?,
+            aliases: row.try_get("aliases").unwrap_or("".to_string()),
+        })
+    }
 }
 
 impl ContigRow {
@@ -113,18 +197,6 @@ impl ContigRow {
         }
         Ok(contig)
     }
-}
-
-/// Custom deserializer for comma-separated lists in UCSC response
-fn parse_comma_separated_list(s: &str) -> Result<Vec<usize>, TGVError> {
-    s.trim_end_matches(',')
-        .split(',')
-        .filter(|s| !s.is_empty())
-        .map(|num| {
-            num.parse::<usize>()
-                .map_err(|_| TGVError::ValueError(format!("Failed to parse {}", num)))
-        })
-        .collect()
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -208,8 +280,8 @@ impl UcscGeneResponse {
                 transcription_end: txEnd,
                 cds_start: cdsStart,
                 cds_end: cdsEnd,
-                exon_starts: parse_comma_separated_list(&exonStarts)?,
-                exon_ends: parse_comma_separated_list(&exonEnds)?,
+                exon_starts: Self::parse_comma_separated_list(&exonStarts)?,
+                exon_ends: Self::parse_comma_separated_list(&exonEnds)?,
                 has_exons: true,
             }),
 
@@ -234,6 +306,17 @@ impl UcscGeneResponse {
                 has_exons: false,
             }),
         }
+    }
+    /// Custom deserializer for comma-separated lists in UCSC response
+    fn parse_comma_separated_list(s: &str) -> Result<Vec<usize>, TGVError> {
+        s.trim_end_matches(',')
+            .split(',')
+            .filter(|s| !s.is_empty())
+            .map(|num| {
+                num.parse::<usize>()
+                    .map_err(|_| TGVError::ValueError(format!("Failed to parse {}", num)))
+            })
+            .collect()
     }
 }
 

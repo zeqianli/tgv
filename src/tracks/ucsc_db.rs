@@ -166,26 +166,34 @@ impl TrackService for UcscDbTrackService {
         reference: &Reference,
         cache: &mut TrackCache,
     ) -> Result<Vec<Contig>, TGVError> {
-        let  contigs: Vec<ContigRow> = sqlx::query_as(
-            "IF EXISTS (SELECT 1 FROM chromAlias)
-            BEGIN
-                SELECT chromInfo.chrom as chrom, chromInfo.size as size, GROUP_CONCAT(chromAlias.alias SEPARATOR ',') as aliases
-                FROM chromInfo 
-                LEFT JOIN chromAlias ON chromAlias.chrom = chromInfo.chrom
-                WHERE chromInfo.chrom NOT LIKE 'chr%\\_%'
-                ORDER BY chromInfo.chrom
-                GROUP BY chromInfo.chrom
-            END
-            ELSE
-            BEGIN
-                SELECT chromInfo.chrom as chrom, chromInfo.size as size, '' as aliases
-                FROM chromInfo
-                WHERE chromInfo.chrom NOT LIKE 'chr%\\_%'
-                ORDER BY chromInfo.chrom
-            END",
+        // Some references have chromAlias table, some don't.
+        let contigs: Vec<ContigRow> = sqlx::query_as(
+            "SELECT 
+                chromInfo.chrom as chrom, 
+                chromInfo.size as size,
+                GROUP_CONCAT(chromAlias.alias SEPARATOR ',') as aliases
+            FROM chromInfo 
+            LEFT JOIN chromAlias ON chromAlias.chrom = chromInfo.chrom
+            WHERE chromInfo.chrom NOT LIKE 'chr%\\_%'
+            GROUP BY chromInfo.chrom
+            ORDER BY chromInfo.chrom
+            ",
         )
         .fetch_all(&*self.pool)
-        .await?;
+        .await
+        .unwrap_or({
+            println!("check check!!");
+            sqlx::query_as(
+                "SELECT 
+                    chromInfo.chrom as chrom, 
+                    chromInfo.size as size
+                FROM chromInfo 
+                WHERE chromInfo.chrom NOT LIKE 'chr%\\_%'
+                ORDER BY chromInfo.chrom",
+            )
+            .fetch_all(&*self.pool)
+            .await?
+        });
 
         let mut contigs = contigs
             .into_iter()
