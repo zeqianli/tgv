@@ -42,14 +42,6 @@ impl Repository {
     ) -> Result<(Self, SequenceCache, TrackCache, ContigHeader), TGVError> {
         let mut contig_header = ContigHeader::new(settings.reference.clone());
         let mut track_cache = TrackCache::new();
-        let alignment_repository = match settings.bam_path {
-            Some(_) => {
-                let repository = AlignmentRepositoryEnum::from(settings)?;
-                contig_header.update_from_bam(settings.reference.as_ref(), &repository)?;
-                Some(repository)
-            }
-            None => None,
-        };
 
         let (track_service, sequence_service, sequence_cache): (
             Option<TrackServiceEnum>,
@@ -92,13 +84,11 @@ impl Repository {
                     }
                 };
 
-                for contig in ts
-                    .get_all_contigs(reference, &mut track_cache)
+                ts.get_all_contigs(reference, &mut track_cache)
                     .await?
                     .into_iter()
-                {
-                    contig_header.update_or_add_contig(contig).unwrap();
-                }
+                    .map(|contig| contig_header.update_or_add_contig(contig))
+                    .collect::<Result<(), _>>()?;
 
                 let use_ucsc_api_sequence =
                     matches!(ts, TrackServiceEnum::Api(_) | TrackServiceEnum::Db(_));
@@ -125,6 +115,15 @@ impl Repository {
                 (Some(ts), Some(ss), sc)
             }
             None => (None, None, SequenceCache::new()),
+        };
+
+        let alignment_repository = match settings.bam_path {
+            Some(_) => {
+                let repository = AlignmentRepositoryEnum::from(settings)?;
+                contig_header.update_from_bam(settings.reference.as_ref(), &repository)?;
+                Some(repository)
+            }
+            None => None,
         };
 
         let variant_repository = match &settings.vcf_path {

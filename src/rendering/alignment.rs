@@ -33,7 +33,7 @@ pub fn render_alignment(
                     area,
                     background_color,
                     pallete,
-                ) {
+                )? {
                     for onscreen_context in onscreen_contexts {
                         buf.set_string(
                             area.x + onscreen_context.x,
@@ -67,10 +67,10 @@ fn get_read_rendering_info(
     area: &Rect,
     background_color: &Color,
     pallete: &Palette,
-) -> Option<Vec<OnScreenRenderingContext>> {
+) -> Result<Option<Vec<OnScreenRenderingContext>>, TGVError> {
     let onscreen_y = match viewing_window.onscreen_y_coordinate(y, area) {
         OnScreenCoordinate::OnScreen(y_start) => y_start as u16,
-        _ => return None,
+        _ => return Ok(None),
     };
 
     let (onscreen_x, length) = match OnScreenCoordinate::onscreen_start_and_length(
@@ -79,7 +79,7 @@ fn get_read_rendering_info(
         area,
     ) {
         Some((onscreen_x, length)) => (onscreen_x, length),
-        None => return None,
+        None => return Ok(None),
     };
 
     let mut output = Vec::new();
@@ -92,7 +92,7 @@ fn get_read_rendering_info(
             style: Style::default().bg(pallete.MATCH_COLOR),
         }),
 
-        RenderingContextKind::Deltion => output.push(OnScreenRenderingContext {
+        RenderingContextKind::Deletion => output.push(OnScreenRenderingContext {
             x: onscreen_x,
             y: onscreen_y,
             string: "-".repeat(length as usize),
@@ -104,7 +104,7 @@ fn get_read_rendering_info(
         RenderingContextKind::SoftClip(base) => output.push(OnScreenRenderingContext {
             x: onscreen_x,
             y: onscreen_y,
-            string: base.to_string(),
+            string: String::from_utf8(vec![base])?,
             style: Style::default().bg(pallete.softclip_color(base)),
         }),
     }
@@ -141,13 +141,18 @@ fn get_read_rendering_info(
                     output.push(OnScreenRenderingContext {
                         x: modifier_onscreen_x as u16,
                         y: onscreen_y,
-                        string: base.to_string(),
-                        style: output.last().unwrap().style.clone(),
+                        string: String::from_utf8(vec![*base])?,
+                        style: output
+                            .last()
+                            .unwrap()
+                            .style
+                            .clone()
+                            .fg(pallete.mismatch_color(*base)),
                     })
                 }
             }
         }
     }
 
-    Some(output)
+    Ok(Some(output))
 }

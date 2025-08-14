@@ -373,14 +373,14 @@ pub struct UcscApiListGeneResponse {
 #[derive(Debug, Clone, Deserialize)]
 #[allow(non_snake_case)]
 pub struct UcscApiHubUrlResponse {
-    genearkGenomes: HashMap<String, GenarkGenome>,
+    genarkGenomes: HashMap<String, GenarkGenome>,
 }
 
 impl UcscApiHubUrlResponse {
     pub fn get_hub_url(&self, accession: &str) -> Result<String, TGVError> {
         Ok(format!(
             "https://hgdownload.soe.ucsc.edu/hubs/{}",
-            self.genearkGenomes[accession].hubUrl
+            self.genarkGenomes[accession].hubUrl
         ))
     }
 }

@@ -27,16 +27,16 @@ pub enum RenderingContextKind {
 
     Match, // Mismatches are annotated with modifiers
 
-    Deltion,
+    Deletion,
 }
 /// Information on how to display the read on screen. Each context represent a segment on screen.
 /// Parsed from the cigar string.
 #[derive(Clone, Debug)]
 pub struct RenderingContext {
-    /// Start coordinate of a displayed segment
+    /// Start coordinate of a displayed segment, 1-based
     pub start: usize,
 
-    /// End coordinates of a displayed segmenbt
+    /// End coordinates of a displayed segment, 1-based, inclusive
     pub end: usize,
 
     /// The renderer will decide style based on the cigar segment kind.
@@ -118,16 +118,14 @@ fn get_cigar_index_with_arrow_annotation(cigars: &CigarStringView, is_reverse: b
 /// See: https://samtools.github.io/hts-specs/SAMv1.pdf
 fn calculate_rendering_contexts(
     read: &Record,
-    start: usize,
-    end: usize,
     leading_softclips: usize,
     trailing_softclips: usize,
     reference_sequence: Option<&Sequence>,
 ) -> Result<Vec<RenderingContext>, TGVError> {
     let mut output: Vec<RenderingContext> = Vec::new();
 
-    let mut reference_pivot: usize = start; // used in the output
-    let mut query_pivot: usize = 0; // # bases relative to the softclip start.
+    let mut reference_pivot: usize = read.reference_start() as usize + 1; // 1-based
+    let mut query_pivot: usize = 1; // 1-based. # bases on the sequence. Note that need to substract leading softclips to get aligned base coordinate.
 
     let is_reverse = read.is_reverse();
 
@@ -166,24 +164,49 @@ fn calculate_rendering_contexts(
                 // 1x zoom: display color
                 // 2x zoom: half-block rendering
                 // higher zoom: whole block color? half-block to the best ability? Think about this.
-                for i_base in query_pivot..query_pivot + *l as usize {
-                    // Prevent cases when a soft clip is at the very starting of the reference genome:
-                    //    ----------- (ref)
-                    //  ssss======>   (read)
-                    //    ^           edge of screen
-                    //  ^^            these softcliped bases are not displayed
-                    if reference_pivot + i_base < 1 + leading_softclips {
-                        continue;
-                    }
 
-                    let base_coordinate: usize = reference_pivot + i_base - leading_softclips;
-                    let base = seq[i_base];
-                    new_contexts.push(RenderingContext {
-                        start: base_coordinate,
-                        end: base_coordinate,
-                        kind: RenderingContextKind::SoftClip(base),
-                        modifiers: Vec::new(),
-                    });
+                if query_pivot <= leading_softclips {
+                    // leading softclips. base rendered at the left of reference pivot.
+                    for i_soft_clip_base in 0..*l as usize {
+                        // Prevent cases when a soft clip is at the very starting of the reference genome:
+                        //    ----------- (ref)
+                        //  ssss======>   (read)
+                        //    ^           edge of screen
+                        //  ^^            these softcliped bases are not displayed
+
+                        if reference_pivot + i_soft_clip_base <= leading_softclips + 1 {
+                            //base_coordinate <=1 (on the edge of screen)
+                            continue;
+                        }
+
+                        let base_coordinate: usize =
+                            reference_pivot - leading_softclips + i_soft_clip_base;
+                        let base = seq[i_soft_clip_base + query_pivot - 1];
+                        new_contexts.push(RenderingContext {
+                            start: base_coordinate,
+                            end: base_coordinate,
+                            kind: RenderingContextKind::SoftClip(base),
+                            modifiers: Vec::new(),
+                        });
+                    }
+                } else {
+                    // right softclips. base rendered at the right of reference pivot.
+                    for i_soft_clip_base in 0..*l as usize {
+                        // Prevent cases when a soft clip is at the very starting of the reference genome:
+                        //    ----------- (ref)
+                        //  ssss======>   (read)
+                        //    ^           edge of screen
+                        //  ^^            these softcliped bases are not displayed
+
+                        let base_coordinate: usize = reference_pivot + i_soft_clip_base;
+                        let base = seq[query_pivot + i_soft_clip_base + leading_softclips - 1];
+                        new_contexts.push(RenderingContext {
+                            start: base_coordinate,
+                            end: base_coordinate,
+                            kind: RenderingContextKind::SoftClip(base),
+                            modifiers: Vec::new(),
+                        });
+                    }
                 }
             }
 
@@ -198,8 +221,8 @@ fn calculate_rendering_contexts(
                 // ===----===       read (lines with no bckground colors)
                 new_contexts.push(RenderingContext {
                     start: reference_pivot,
-                    end: next_reference_pivot,
-                    kind: RenderingContextKind::Deltion,
+                    end: next_reference_pivot - 1,
+                    kind: RenderingContextKind::Deletion,
                     modifiers: Vec::new(),
                 });
             }
@@ -213,11 +236,14 @@ fn calculate_rendering_contexts(
 
                 new_contexts.push(RenderingContext {
                     start: reference_pivot,
-                    end: next_reference_pivot,
+                    end: next_reference_pivot - 1,
                     kind: RenderingContextKind::Match,
                     modifiers: (query_pivot..next_query_pivot as usize)
                         .map(|coordinate| {
-                            RenderingContextModifier::Mismatch(coordinate, seq[coordinate])
+                            RenderingContextModifier::Mismatch(
+                                coordinate,
+                                seq[coordinate - 1 + leading_softclips],
+                            )
                         })
                         .collect::<Vec<_>>(),
                 })
@@ -239,7 +265,7 @@ fn calculate_rendering_contexts(
             Cigar::Equal(l) => new_contexts.push(RenderingContext {
                 // =
                 start: reference_pivot,
-                end: next_query_pivot,
+                end: next_query_pivot - 1,
                 kind: RenderingContextKind::Match,
                 modifiers: Vec::new(),
             }),
@@ -251,11 +277,13 @@ fn calculate_rendering_contexts(
                 let modifiers: Vec<RenderingContextModifier> = match reference_sequence {
                     Some(reference_sequence) => (0..*l)
                         .filter_map(|i| {
+                            let reference_position = reference_pivot + i as usize;
                             if let Some(reference_base) =
-                                reference_sequence.base_at(reference_pivot + i as usize)
+                                reference_sequence.base_at(reference_position)
+                            // convert to 1-based
                             {
-                                let query_position = query_pivot + i as usize;
-                                let query_base = seq[query_position];
+                                let query_position = query_pivot + i as usize; // 1-based
+                                let query_base = seq[query_position - 1 + leading_softclips];
                                 if query_base != reference_base {
                                     Some(RenderingContextModifier::Mismatch(
                                         query_position,
@@ -493,8 +521,6 @@ impl AlignmentBuilder {
 
         let rendering_contexts = calculate_rendering_contexts(
             &read,
-            read_start,
-            read_end,
             leading_softclips,
             trailing_softclips,
             reference_sequence,

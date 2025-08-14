@@ -23,6 +23,11 @@ pub struct Palette {
     pub SOFTCLIP_G: Color,
     pub SOFTCLIP_T: Color,
     pub SOFTCLIP_N: Color,
+    pub MISMATCH_A: Color,
+    pub MISMATCH_C: Color,
+    pub MISMATCH_G: Color,
+    pub MISMATCH_T: Color,
+    pub MISMATCH_N: Color,
 
     // Cytoband
     pub HIGHLIGHT_COLOR: Color,
@@ -81,6 +86,16 @@ impl Palette {
             _ => self.BASE_N,
         }
     }
+
+    pub fn mismatch_color(&self, base: u8) -> Color {
+        match base {
+            b'A' | b'a' => self.MISMATCH_A,
+            b'C' | b'c' => self.MISMATCH_C,
+            b'G' | b'g' => self.MISMATCH_G,
+            b'T' | b't' => self.MISMATCH_T,
+            _ => self.MISMATCH_N,
+        }
+    }
 }
 
 pub const DARK_THEME: Palette = Palette {
@@ -99,6 +114,12 @@ pub const DARK_THEME: Palette = Palette {
     SOFTCLIP_G: Color::LightBlue,
     SOFTCLIP_T: Color::LightYellow,
     SOFTCLIP_N: Color::LightMagenta,
+
+    MISMATCH_A: Color::LightRed,
+    MISMATCH_C: Color::LightGreen,
+    MISMATCH_G: Color::LightBlue,
+    MISMATCH_T: Color::LightYellow,
+    MISMATCH_N: Color::LightMagenta,
 
     // Cytoband
     HIGHLIGHT_COLOR: tailwind::RED.c800,
