@@ -7,7 +7,7 @@ use rust_htslib::bam::{record::Seq, Read, Record};
 use sqlx::query;
 use std::collections::{BTreeMap, HashMap};
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub enum RenderingContextModifier {
     /// Annoate the forward arrow at the end.
     Forward,
@@ -21,7 +21,7 @@ pub enum RenderingContextModifier {
     /// Mismatch at location with base
     Mismatch(usize, u8),
 }
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub enum RenderingContextKind {
     SoftClip(u8),
 
@@ -31,7 +31,7 @@ pub enum RenderingContextKind {
 }
 /// Information on how to display the read on screen. Each context represent a segment on screen.
 /// Parsed from the cigar string.
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct RenderingContext {
     /// Start coordinate of a displayed segment, 1-based
     pub start: usize,
@@ -243,6 +243,9 @@ fn calculate_rendering_contexts(
                 // M
                 // check reference sequence for mismatches
 
+                // TODO: use basemods_iter?
+                // https://docs.rs/rust-htslib/latest/rust_htslib/bam/record/struct.Record.html#method.basemods_iter
+
                 let modifiers: Vec<RenderingContextModifier> = match reference_sequence {
                     Some(reference_sequence) => (0..*l)
                         .filter_map(|i| {
@@ -272,7 +275,7 @@ fn calculate_rendering_contexts(
 
                 new_contexts.push(RenderingContext {
                     start: reference_pivot,
-                    end: next_reference_pivot,
+                    end: next_reference_pivot-1,
                     kind: RenderingContextKind::Match,
                     modifiers: modifiers,
                 });
@@ -470,8 +473,6 @@ impl AlignmentBuilder {
         })
     }
 
-    /// TODO: read contig headers
-
     /// Add a read to the alignment. Note that this function does not update coverage.
     pub fn add_read(
         &mut self,
@@ -585,5 +586,51 @@ impl AlignmentBuilder {
 
             depth: self.track_left_bounds.len(),
         })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+
+    use super::*;
+    use rstest::rstest;
+    use rust_htslib::bam::{
+        record::{Cigar, CigarString},
+        Read,
+    };
+
+    #[rstest]
+    #[case(10, vec![Cigar::Match(3)],  b"ATT", false,None, vec![RenderingContext{
+        start:10, 
+        end:12,
+        kind: RenderingContextKind::Match,
+        modifiers:vec![RenderingContextModifier::Forward]
+    }])]
+    fn test_calculate_rendering_contexts(
+        #[case] reference_start: usize, // 1-based
+        #[case] cigars: Vec<Cigar>,
+        #[case] seq: &[u8],
+        #[case] is_reverse: bool,
+        #[case] reference_sequence: Option<&Sequence>,
+        #[case] expected_rendering_contexts: Vec<RenderingContext>,
+    ) {
+        let mut record = Record::new();
+        record.set(
+            b"test",
+            Some(&CigarString(cigars)),
+            seq,
+            "i".repeat(seq.len()).as_bytes(),
+        );
+        let contexts = calculate_rendering_contexts(
+            reference_start,
+            &record.cigar(),
+            record.cigar().leading_softclips() as usize,
+            &record.seq(),
+            is_reverse,
+            reference_sequence,
+        )
+        .unwrap();
+
+        assert_eq!(contexts, expected_rendering_contexts)
     }
 }
