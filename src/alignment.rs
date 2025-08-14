@@ -3,7 +3,7 @@ use crate::region::Region;
 use crate::sequence::Sequence;
 use rust_htslib::bam::ext::BamRecordExtensions;
 use rust_htslib::bam::record::{Cigar, CigarStringView};
-use rust_htslib::bam::{Read, Record};
+use rust_htslib::bam::{record::Seq, Read, Record};
 use sqlx::query;
 use std::collections::{BTreeMap, HashMap};
 
@@ -117,26 +117,23 @@ fn get_cigar_index_with_arrow_annotation(cigars: &CigarStringView, is_reverse: b
 
 /// See: https://samtools.github.io/hts-specs/SAMv1.pdf
 fn calculate_rendering_contexts(
-    read: &Record,
+    reference_start: usize, // 1-based
+    cigars: &CigarStringView,
     leading_softclips: usize,
-    trailing_softclips: usize,
+    seq: &Seq,
+    is_reverse: bool,
     reference_sequence: Option<&Sequence>,
 ) -> Result<Vec<RenderingContext>, TGVError> {
     let mut output: Vec<RenderingContext> = Vec::new();
-
-    let mut reference_pivot: usize = read.reference_start() as usize + 1; // 1-based
-    let mut query_pivot: usize = 1; // 1-based. # bases on the sequence. Note that need to substract leading softclips to get aligned base coordinate.
-
-    let is_reverse = read.is_reverse();
-
-    let cigars = read.cigar();
-    let seq = read.seq();
-
     if cigars.len() == 0 {
         return Ok(output);
     }
 
+    let mut reference_pivot: usize = reference_start;
+    let mut query_pivot: usize = 1; // 1-based. # bases on the sequence. Note that need to substract leading softclips to get aligned base coordinate.
+
     let mut annotate_insertion_in_next_cigar = None;
+
     let cigar_index_with_arrow_annotation =
         get_cigar_index_with_arrow_annotation(&cigars, is_reverse);
 
@@ -160,22 +157,17 @@ fn calculate_rendering_contexts(
         match op {
             Cigar::SoftClip(l) => {
                 // S
-                // TODO:
-                // 1x zoom: display color
-                // 2x zoom: half-block rendering
-                // higher zoom: whole block color? half-block to the best ability? Think about this.
 
                 if query_pivot <= leading_softclips {
                     // leading softclips. base rendered at the left of reference pivot.
                     for i_soft_clip_base in 0..*l as usize {
-                        // Prevent cases when a soft clip is at the very starting of the reference genome:
-                        //    ----------- (ref)
-                        //  ssss======>   (read)
-                        //    ^           edge of screen
-                        //  ^^            these softcliped bases are not displayed
-
                         if reference_pivot + i_soft_clip_base <= leading_softclips + 1 {
-                            //base_coordinate <=1 (on the edge of screen)
+                            //base_coordinate <= 1 (on the edge of screen)
+                            // Prevent cases when a soft clip is at the very starting of the reference genome:
+                            //    ----------- (ref)
+                            //  ssss======>   (read)
+                            //    ^           edge of screen
+                            //  ^^            these softcliped bases are not displayed
                             continue;
                         }
 
@@ -192,12 +184,6 @@ fn calculate_rendering_contexts(
                 } else {
                     // right softclips. base rendered at the right of reference pivot.
                     for i_soft_clip_base in 0..*l as usize {
-                        // Prevent cases when a soft clip is at the very starting of the reference genome:
-                        //    ----------- (ref)
-                        //  ssss======>   (read)
-                        //    ^           edge of screen
-                        //  ^^            these softcliped bases are not displayed
-
                         let base_coordinate: usize = reference_pivot + i_soft_clip_base;
                         let base = seq[query_pivot + i_soft_clip_base + leading_softclips - 1];
                         new_contexts.push(RenderingContext {
@@ -211,8 +197,9 @@ fn calculate_rendering_contexts(
             }
 
             Cigar::Ins(l) => {
+                // The next loop catches on this flag and add an insertion modifier.
+                // Insertion is displayed at the next cigar segment.
                 annotate_insertion_in_next_cigar = Some(*l as usize);
-                // TODO: draw the insertion.
             }
 
             Cigar::Del(l) | Cigar::RefSkip(l) => {
@@ -229,11 +216,6 @@ fn calculate_rendering_contexts(
 
             Cigar::Diff(l) => {
                 // X
-                // TODO:
-                // 1x zoom: Display base letter + color
-                // 2x zoom: (?) Half-base rendering with mismatch color
-                //
-
                 new_contexts.push(RenderingContext {
                     start: reference_pivot,
                     end: next_reference_pivot - 1,
@@ -247,19 +229,6 @@ fn calculate_rendering_contexts(
                         })
                         .collect::<Vec<_>>(),
                 })
-
-                // if let Some((x, length)) = OnScreenCoordinate::onscreen_start_and_length(
-                //     &viewing_window.onscreen_x_coordinate(reference_pivot, area),
-                //     &viewing_window.onscreen_x_coordinate(next_reference_pivot, area),
-                //     area,
-                // ) {
-                //     new_contexts.push(RenderingContext {
-                //         x: x,
-                //         y: onscreen_y,
-                //         string: " ".repeat(length as usize),
-                //         style: Style::new().bg(pallete.MISMATCH_COLOR),
-                //     })
-                // }
             }
 
             Cigar::Equal(l) => new_contexts.push(RenderingContext {
@@ -312,7 +281,6 @@ fn calculate_rendering_contexts(
             Cigar::HardClip(l) | Cigar::Pad(l) => {
                 // P / H
                 // Don't need to do anything
-                //continue;
             }
         }
 
@@ -321,6 +289,7 @@ fn calculate_rendering_contexts(
         }
 
         if add_insertion {
+            // Insertion (detected in the previous loop) notated at the beginning of the first segment.
             new_contexts.first_mut().map(|context| {
                 context.add_modifier(RenderingContextModifier::Insertion(
                     annotate_insertion_in_next_cigar.unwrap(),
@@ -331,10 +300,12 @@ fn calculate_rendering_contexts(
 
         if i_op == cigar_index_with_arrow_annotation {
             if is_reverse {
+                // Arrow at the begining of the first segment.
                 new_contexts
                     .first_mut()
                     .map(|context| context.add_modifier(RenderingContextModifier::Reverse));
             } else {
+                // Arrow at the end of the last segment.
                 new_contexts
                     .last_mut()
                     .map(|context| context.add_modifier(RenderingContextModifier::Forward));
@@ -509,8 +480,9 @@ impl AlignmentBuilder {
     ) -> Result<&mut Self, TGVError> {
         let read_start = read.pos() as usize + 1;
         let read_end = read.reference_end() as usize;
-        let leading_softclips = read.cigar().leading_softclips() as usize;
-        let trailing_softclips = read.cigar().trailing_softclips() as usize;
+        let cigars = read.cigar();
+        let leading_softclips = cigars.leading_softclips() as usize;
+        let trailing_softclips = cigars.trailing_softclips() as usize;
         // read.pos() in htslib: 0-based, inclusive, excluding leading hardclips and softclips
         // read.reference_end() in htslib: 0-based, exclusive, excluding trailing hardclips and softclips
 
@@ -520,9 +492,11 @@ impl AlignmentBuilder {
         );
 
         let rendering_contexts = calculate_rendering_contexts(
-            &read,
+            read_start,
+            &cigars,
             leading_softclips,
-            trailing_softclips,
+            &read.seq(),
+            read.is_reverse(),
             reference_sequence,
         )?;
 
@@ -603,7 +577,7 @@ impl AlignmentBuilder {
         }
 
         Ok(Alignment {
-            reads: self.aligned_reads.clone(), // TODO: lookup on how to move this
+            reads: self.aligned_reads.clone(),
             contig_index: self.region.contig_index,
             coverage,
             data_complete_left_bound: self.region.start,
