@@ -97,7 +97,7 @@ impl AlignedRead {
 
 /// See: https://samtools.github.io/hts-specs/SAMv1.pdf
 fn calculate_rendering_contexts(
-    reference_start: usize, // 1-based
+    reference_start: usize, // 1-based. Alignment start, not softclip start
     cigars: &CigarStringView,
     leading_softclips: usize,
     seq: &Seq,
@@ -202,10 +202,7 @@ fn calculate_rendering_contexts(
                     kind: RenderingContextKind::Match,
                     modifiers: (query_pivot..next_query_pivot as usize)
                         .map(|coordinate| {
-                            RenderingContextModifier::Mismatch(
-                                coordinate,
-                                seq[coordinate - 1 + leading_softclips],
-                            )
+                            RenderingContextModifier::Mismatch(coordinate, seq[coordinate - 1])
                         })
                         .collect::<Vec<_>>(),
                 })
@@ -234,8 +231,8 @@ fn calculate_rendering_contexts(
                                 reference_sequence.base_at(reference_position)
                             // convert to 1-based
                             {
-                                let query_position = query_pivot + i as usize; // 1-based
-                                let query_base = seq[query_position - 1 + leading_softclips];
+                                let query_position = reference_pivot + i as usize;
+                                let query_base = seq[query_pivot + i as usize - 1];
                                 if query_base != reference_base {
                                     Some(RenderingContextModifier::Mismatch(
                                         query_position,
@@ -720,12 +717,39 @@ mod tests {
             modifiers:vec![RenderingContextModifier::Forward]
         }
     ])]
+    // Test soft clips
+    #[case(10, vec![Cigar::SoftClip(2), Cigar::Match(3), Cigar::SoftClip(1)], b"GGATTC", true, Some(Sequence::new(10, b"AATG".to_vec(), 0).unwrap()), vec![
+        RenderingContext{
+            start:8,
+            end:8,
+            kind: RenderingContextKind::SoftClip(b'G'),
+            modifiers:vec![RenderingContextModifier::Reverse]
+        },
+        RenderingContext{
+            start:9,
+            end:9,
+            kind: RenderingContextKind::SoftClip(b'G'),
+            modifiers:vec![]
+        },
+        RenderingContext{
+            start:10,
+            end:12,
+            kind: RenderingContextKind::Match,
+            modifiers:vec![RenderingContextModifier::Mismatch(11, b'T')]
+        },
+        RenderingContext{
+            start:13,
+            end:13,
+            kind: RenderingContextKind::SoftClip(b'C'),
+            modifiers:vec![]
+        }
+    ])]
     fn test_calculate_rendering_contexts(
         #[case] reference_start: usize, // 1-based
         #[case] cigars: Vec<Cigar>,
         #[case] seq: &[u8],
         #[case] is_reverse: bool,
-        #[case] reference_sequence: Option<&Sequence>,
+        #[case] reference_sequence: Option<Sequence>,
         #[case] expected_rendering_contexts: Vec<RenderingContext>,
     ) {
         let mut record = Record::new();
@@ -742,7 +766,7 @@ mod tests {
             record.cigar().leading_softclips() as usize,
             &record.seq(),
             is_reverse,
-            reference_sequence,
+            reference_sequence.as_ref(),
         )
         .unwrap();
 
