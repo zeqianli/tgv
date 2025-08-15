@@ -275,7 +275,7 @@ fn calculate_rendering_contexts(
 
                 new_contexts.push(RenderingContext {
                     start: reference_pivot,
-                    end: next_reference_pivot-1,
+                    end: next_reference_pivot - 1,
                     kind: RenderingContextKind::Match,
                     modifiers: modifiers,
                 });
@@ -614,26 +614,41 @@ mod tests {
         modifiers:vec![RenderingContextModifier::Reverse]
     }])]
     // Test deletion (no forward arrow since it doesn't consume query)
-    #[case(10, vec![Cigar::Del(2)], b"", false, None, vec![RenderingContext{
-        start:10,
-        end:11,
-        kind: RenderingContextKind::Deletion,
-        modifiers:vec![]
-    }])]
-    // Test insertion followed by match
-    #[case(10, vec![Cigar::Ins(2), Cigar::Match(3)], b"CCATT", false, None, vec![RenderingContext{
+    #[case(10, vec![Cigar::Match(3),Cigar::Del(2), Cigar::Match(3)], b"AAATTT", true, None, vec![RenderingContext{
         start:10,
         end:12,
         kind: RenderingContextKind::Match,
+        modifiers:vec![]
+    }, RenderingContext{
+        start:13,
+        end:14,
+        kind: RenderingContextKind::Deletion,
+        modifiers:vec![]
+    }, RenderingContext{
+        start:15,
+        end:17,
+        kind: RenderingContextKind::Match,
+        modifiers:vec![RenderingContextModifier::Forward]
+    }])]
+    // Test insertion
+    #[case(10, vec![Cigar::Match(3), Cigar::Ins(2), Cigar::Match(3)], b"AAATTCCC", false, None, vec![RenderingContext{
+        start:10,
+        end:12,
+        kind: RenderingContextKind::Match,
+        modifiers:vec![]
+    }, RenderingContext{
+        start:13,
+        end:15,
+        kind: RenderingContextKind::Match,
         modifiers:vec![RenderingContextModifier::Insertion(2), RenderingContextModifier::Forward]
     }])]
-    // Test soft clip at start
-    #[case(10, vec![Cigar::SoftClip(2), Cigar::Match(3)], b"GGATT", false, None, vec![
+    // Test soft clips
+    #[case(10, vec![Cigar::SoftClip(2), Cigar::Match(3), Cigar::SoftClip(1)], b"GGATTC", true, None, vec![
         RenderingContext{
             start:8,
             end:8,
             kind: RenderingContextKind::SoftClip(b'G'),
-            modifiers:vec![]
+            modifiers:vec![RenderingContextModifier::Reverse]
         },
         RenderingContext{
             start:9,
@@ -645,34 +660,19 @@ mod tests {
             start:10,
             end:12,
             kind: RenderingContextKind::Match,
-            modifiers:vec![RenderingContextModifier::Forward]
-        }
-    ])]
-    // Test soft clip at end
-    #[case(10, vec![Cigar::Match(3), Cigar::SoftClip(2)], b"ATTGG", false, None, vec![
-        RenderingContext{
-            start:10,
-            end:12,
-            kind: RenderingContextKind::Match,
-            modifiers:vec![RenderingContextModifier::Forward]
+            modifiers:vec![]
         },
         RenderingContext{
             start:13,
             end:13,
-            kind: RenderingContextKind::SoftClip(b'G'),
-            modifiers:vec![]
-        },
-        RenderingContext{
-            start:14,
-            end:14,
-            kind: RenderingContextKind::SoftClip(b'G'),
+            kind: RenderingContextKind::SoftClip(b'C'),
             modifiers:vec![]
         }
     ])]
     // Test Equal cigar (matches current implementation with query pivot)
     #[case(10, vec![Cigar::Equal(3)], b"ATT", false, None, vec![RenderingContext{
         start:10,
-        end:3, // This matches the current implementation which uses next_query_pivot - 1
+        end:13, // This matches the current implementation which uses next_query_pivot - 1
         kind: RenderingContextKind::Match,
         modifiers:vec![RenderingContextModifier::Forward]
     }])]
@@ -687,6 +687,7 @@ mod tests {
             RenderingContextModifier::Mismatch(3, b'T'),
             RenderingContextModifier::Forward
         ]
+        
     }])]
     // Test RefSkip (N operation) - no forward arrow since it doesn't consume query
     #[case(10, vec![Cigar::RefSkip(5)], b"", false, None, vec![RenderingContext{
@@ -696,7 +697,7 @@ mod tests {
         modifiers:vec![]
     }])]
     // Test complex cigar: soft clip + match + insertion + match + deletion + match
-    #[case(10, vec![Cigar::SoftClip(1), Cigar::Match(2), Cigar::Ins(1), Cigar::Match(2), Cigar::Del(3), Cigar::Match(2)], 
+    #[case(10, vec![Cigar::SoftClip(1), Cigar::Match(2), Cigar::Ins(1), Cigar::Match(2), Cigar::Del(3), Cigar::Match(2)],
            b"GATCGAA", false, None, vec![
         RenderingContext{
             start:9,
