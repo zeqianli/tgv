@@ -95,26 +95,6 @@ impl AlignedRead {
     }
 }
 
-fn get_cigar_index_with_arrow_annotation(cigars: &CigarStringView, is_reverse: bool) -> usize {
-    // Scan cigars 1st pass to find the cigar index with < / > annotation.
-    if is_reverse {
-        // last cigar segment
-        cigars.len()
-            - cigars
-                .iter()
-                .rev()
-                .position(|op| can_be_annotated_with_arrows(op))
-                .unwrap_or(0)
-            - 1
-    } else {
-        // first eligible cigar
-        cigars
-            .iter()
-            .position(|op| can_be_annotated_with_arrows(op))
-            .unwrap_or(0)
-    }
-}
-
 /// See: https://samtools.github.io/hts-specs/SAMv1.pdf
 fn calculate_rendering_contexts(
     reference_start: usize, // 1-based
@@ -134,8 +114,7 @@ fn calculate_rendering_contexts(
 
     let mut annotate_insertion_in_next_cigar = None;
 
-    let cigar_index_with_arrow_annotation =
-        get_cigar_index_with_arrow_annotation(&cigars, is_reverse);
+    let mut cigar_index_with_arrow_annotation = None;
 
     for (i_op, op) in cigars.iter().enumerate() {
         let next_reference_pivot = if consumes_reference(op) {
@@ -173,6 +152,7 @@ fn calculate_rendering_contexts(
 
                         let base_coordinate: usize =
                             reference_pivot - leading_softclips + i_soft_clip_base;
+
                         let base = seq[i_soft_clip_base + query_pivot - 1];
                         new_contexts.push(RenderingContext {
                             start: base_coordinate,
@@ -185,7 +165,7 @@ fn calculate_rendering_contexts(
                     // right softclips. base rendered at the right of reference pivot.
                     for i_soft_clip_base in 0..*l as usize {
                         let base_coordinate: usize = reference_pivot + i_soft_clip_base;
-                        let base = seq[query_pivot + i_soft_clip_base + leading_softclips - 1];
+                        let base = seq[query_pivot + i_soft_clip_base - 1];
                         new_contexts.push(RenderingContext {
                             start: base_coordinate,
                             end: base_coordinate,
@@ -234,7 +214,7 @@ fn calculate_rendering_contexts(
             Cigar::Equal(l) => new_contexts.push(RenderingContext {
                 // =
                 start: reference_pivot,
-                end: next_query_pivot - 1,
+                end: next_reference_pivot - 1,
                 kind: RenderingContextKind::Match,
                 modifiers: Vec::new(),
             }),
@@ -301,24 +281,30 @@ fn calculate_rendering_contexts(
         };
         annotate_insertion_in_next_cigar = None;
 
-        if i_op == cigar_index_with_arrow_annotation {
-            if is_reverse {
-                // Arrow at the begining of the first segment.
-                new_contexts
-                    .first_mut()
-                    .map(|context| context.add_modifier(RenderingContextModifier::Reverse));
-            } else {
-                // Arrow at the end of the last segment.
-                new_contexts
-                    .last_mut()
-                    .map(|context| context.add_modifier(RenderingContextModifier::Forward));
+        if is_reverse {
+            // reverse: first one
+            if cigar_index_with_arrow_annotation.is_none() {
+                cigar_index_with_arrow_annotation = Some(output.len());
+            }
+        } else {
+            // forward: last one
+            if can_be_annotated_with_arrows(op) {
+                cigar_index_with_arrow_annotation = Some(output.len() + new_contexts.len() - 1)
+                // first context
             }
         }
-
         output.extend(new_contexts);
 
         reference_pivot = next_reference_pivot;
         query_pivot = next_query_pivot;
+    }
+
+    if let Some(index) = cigar_index_with_arrow_annotation {
+        output[index].add_modifier(if is_reverse {
+            RenderingContextModifier::Reverse
+        } else {
+            RenderingContextModifier::Forward
+        })
     }
 
     Ok(output)
@@ -601,24 +587,24 @@ mod tests {
 
     #[rstest]
     #[case(10, vec![Cigar::Match(3)],  b"ATT", false,None, vec![RenderingContext{
-        start:10, 
+        start:10,
         end:12,
         kind: RenderingContextKind::Match,
         modifiers:vec![RenderingContextModifier::Forward]
     }])]
     // Test reverse strand
     #[case(10, vec![Cigar::Match(3)],  b"ATT", true, None, vec![RenderingContext{
-        start:10, 
+        start:10,
         end:12,
         kind: RenderingContextKind::Match,
         modifiers:vec![RenderingContextModifier::Reverse]
     }])]
-    // Test deletion (no forward arrow since it doesn't consume query)
+    // Test deletion
     #[case(10, vec![Cigar::Match(3),Cigar::Del(2), Cigar::Match(3)], b"AAATTT", true, None, vec![RenderingContext{
         start:10,
         end:12,
         kind: RenderingContextKind::Match,
-        modifiers:vec![]
+        modifiers:vec![RenderingContextModifier::Reverse]
     }, RenderingContext{
         start:13,
         end:14,
@@ -628,6 +614,18 @@ mod tests {
         start:15,
         end:17,
         kind: RenderingContextKind::Match,
+        modifiers:vec![]
+    }])]
+    // Test RefSkip
+    #[case(10, vec![Cigar::Match(3),Cigar::RefSkip(2)], b"AAA", false, None, vec![RenderingContext{
+        start:10,
+        end:12,
+        kind: RenderingContextKind::Match,
+        modifiers:vec![]
+    }, RenderingContext{
+        start:13,
+        end:14,
+        kind: RenderingContextKind::Deletion,
         modifiers:vec![RenderingContextModifier::Forward]
     }])]
     // Test insertion
@@ -672,7 +670,7 @@ mod tests {
     // Test Equal cigar (matches current implementation with query pivot)
     #[case(10, vec![Cigar::Equal(3)], b"ATT", false, None, vec![RenderingContext{
         start:10,
-        end:13, // This matches the current implementation which uses next_query_pivot - 1
+        end:12, // This matches the current implementation which uses next_query_pivot - 1
         kind: RenderingContextKind::Match,
         modifiers:vec![RenderingContextModifier::Forward]
     }])]
@@ -687,14 +685,6 @@ mod tests {
             RenderingContextModifier::Mismatch(3, b'T'),
             RenderingContextModifier::Forward
         ]
-        
-    }])]
-    // Test RefSkip (N operation) - no forward arrow since it doesn't consume query
-    #[case(10, vec![Cigar::RefSkip(5)], b"", false, None, vec![RenderingContext{
-        start:10,
-        end:14,
-        kind: RenderingContextKind::Deletion,
-        modifiers:vec![]
     }])]
     // Test complex cigar: soft clip + match + insertion + match + deletion + match
     #[case(10, vec![Cigar::SoftClip(1), Cigar::Match(2), Cigar::Ins(1), Cigar::Match(2), Cigar::Del(3), Cigar::Match(2)],
@@ -745,6 +735,7 @@ mod tests {
             seq,
             "i".repeat(seq.len()).as_bytes(),
         );
+
         let contexts = calculate_rendering_contexts(
             reference_start,
             &record.cigar(),
