@@ -74,7 +74,7 @@ fn get_read_rendering_info(
     };
 
     let start_onscreen_coordinate = viewing_window.onscreen_x_coordinate(context.start, area);
-    let end_onscreen_coordinate = viewing_window.onscreen_x_coordinate(context.start, area);
+    let end_onscreen_coordinate = viewing_window.onscreen_x_coordinate(context.end, area);
 
     let (onscreen_x, length) = match OnScreenCoordinate::onscreen_start_and_length(
         &start_onscreen_coordinate,
@@ -122,7 +122,7 @@ fn get_read_rendering_info(
                         x: x as u16,
                         y: onscreen_y,
                         string: "►".to_string(),
-                        style: output.last().unwrap().style.clone(),
+                        style: output.first().unwrap().style.clone(),
                     })
                 }
             }
@@ -158,7 +158,7 @@ fn get_read_rendering_info(
                         y: onscreen_y,
                         string: String::from_utf8(vec![*base])?,
                         style: output
-                            .last()
+                            .first()
                             .unwrap()
                             .style
                             .clone()
