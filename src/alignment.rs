@@ -233,7 +233,7 @@ fn calculate_rendering_contexts(
                             {
                                 let query_position = reference_pivot + i as usize;
                                 let query_base = seq[query_pivot + i as usize - 1];
-                                if query_base != reference_base {
+                                if !matches_base(query_base, reference_base) {
                                     Some(RenderingContextModifier::Mismatch(
                                         query_position,
                                         query_base,
@@ -305,6 +305,24 @@ fn calculate_rendering_contexts(
     }
 
     Ok(output)
+}
+
+fn matches_base(base1: u8, base2: u8) -> bool {
+    if base1 == base2 {
+        return true;
+    }
+
+    match (base1, base2) {
+        (b'A', b'a')
+        | (b'a', b'A')
+        | (b'C', b'c')
+        | (b'c', b'C')
+        | (b'G', b'g')
+        | (b'g', b'G')
+        | (b'T', b't')
+        | (b't', b'T') => true,
+        _ => false,
+    }
 }
 
 /// Whether the cigar operation consumes reference.

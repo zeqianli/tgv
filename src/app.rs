@@ -79,6 +79,8 @@ impl App {
                 let _ = terminal.clear();
             }
 
+            self.state.area = terminal.get_frame().area();
+
             // Render
 
             terminal
