@@ -1,4 +1,8 @@
-use crate::{display_mode::DisplayMode, error::TGVError, message::StateMessage, states::State};
+use std::str::FromStr;
+
+use crate::{
+    display_mode::DisplayMode, error::TGVError, message::StateMessage, register, states::State,
+};
 use crossterm::event::{KeyCode, KeyEvent};
 
 use strum::Display;
@@ -163,44 +167,18 @@ impl NormalModeRegister {
     const SMALL_HORIZONTAL_STEP: usize = 1;
     const LARGE_HORIZONTAL_STEP: usize = 30;
     const SMALL_VERTICAL_STEP: usize = 1;
+    const LARGE_VERTICAL_STEP: usize = 30;
 
     const ZOOM_STEP: usize = 2;
 
-    const VALID_MOVEMENT_SUFFIXES: [&str; 18] = [
-        "ge", // previous exon end
-        "gE", // previous exon start,g1
-        "w",  // next exon start
-        "b",  // previous exon start
-        "e",  // next exon end
-        "W",  // next gene start
-        "B",  // previous gene start
-        "E",  // next gene end
-        "h",  // left
-        "l",  // right
-        "j",  // down
-        "k",  // up
-        "y",  // large left
-        "p",  // large right
-        "z",  // zoom out
-        "o",  // zoom in
-        "{",  // previous contig
-        "}",  // next contig
-    ];
-
     /// Translate key input to a state message. This does not mute states. States are muted downstream by handling state messages.
     pub fn update_by_char(&mut self, char: char) -> Result<Vec<StateMessage>, TGVError> {
-        // TODO: clear logic is not right here.
         // Add to registers
-        let messages = match char {
+        match char {
             '1' | '2' | '3' | '4' | '5' | '6' | '7' | '8' | '9' => {
                 if self.input.is_empty() || self.input.parse::<usize>().is_ok() {
                     self.add_char(char);
                     return Ok(vec![]); // Don't clear the register
-                } else {
-                    return Err(TGVError::RegisterError(format!(
-                        "Invalid input: {}",
-                        self.input
-                    )));
                 }
             }
             '0' => match self.input.len() {
@@ -209,11 +187,6 @@ impl NormalModeRegister {
                     if self.input.parse::<usize>().is_ok() {
                         self.add_char('0');
                         return Ok(vec![]); // Don't clear the register
-                    } else {
-                        return Err(TGVError::RegisterError(format!(
-                            "Invalid input: {}",
-                            self.input
-                        )));
                     }
                 }
             },
@@ -223,96 +196,84 @@ impl NormalModeRegister {
                     self.add_char('g');
                     return Ok(vec![]); // Don't clear the register
                 } else {
-                    return Err(TGVError::RegisterError(format!(
-                        "Invalid input: {}",
-                        self.input
-                    )));
+                    self.add_char('g');
                 }
             }
-
-            c => {
-                let string = self.input.clone() + &c.to_string();
-
-                let mut suffix: Option<String> = None;
-
-                for suf in NormalModeRegister::VALID_MOVEMENT_SUFFIXES.iter() {
-                    if string.ends_with(suf) {
-                        suffix = Some(suf.to_string());
-                        break;
-                    }
-                }
-
-                if suffix.is_none() {
-                    return Err(TGVError::RegisterError(format!(
-                        "Invalid normal mode input: {}",
-                        string
-                    )));
-                }
-
-                let suffix = suffix.unwrap();
-
-                let n_movements: usize;
-
-                if suffix.len() == string.len() {
-                    n_movements = 1;
-                } else {
-                    match string[0..string.len() - suffix.len()].parse::<usize>() {
-                        Ok(n) => n_movements = n,
-                        Err(_) => {
-                            return Err(TGVError::RegisterError(format!(
-                                "Invalid normal mode input: {}",
-                                string
-                            )))
-                        }
-                    }
-                }
-
-                match suffix.as_str() {
-                    "ge" => vec![StateMessage::GotoPreviousExonsEnd(n_movements)],
-                    "gE" => vec![StateMessage::GotoPreviousGenesEnd(n_movements)],
-                    "w" => vec![StateMessage::GotoNextExonsStart(n_movements)],
-                    "b" => vec![StateMessage::GotoPreviousExonsStart(n_movements)],
-                    "e" => vec![StateMessage::GotoNextExonsEnd(n_movements)],
-                    "W" => vec![StateMessage::GotoNextGenesStart(n_movements)],
-                    "B" => vec![StateMessage::GotoPreviousGenesStart(n_movements)],
-                    "E" => vec![StateMessage::GotoNextGenesEnd(n_movements)],
-                    "h" => vec![StateMessage::MoveLeft(
-                        n_movements * Self::SMALL_HORIZONTAL_STEP,
-                    )],
-                    "l" => vec![StateMessage::MoveRight(
-                        n_movements * Self::SMALL_HORIZONTAL_STEP,
-                    )],
-                    "j" => vec![StateMessage::MoveDown(
-                        n_movements * Self::SMALL_VERTICAL_STEP,
-                    )],
-                    "k" => vec![StateMessage::MoveUp(
-                        n_movements * Self::SMALL_VERTICAL_STEP,
-                    )],
-
-                    "y" => vec![StateMessage::MoveLeft(
-                        Self::LARGE_HORIZONTAL_STEP * n_movements,
-                    )],
-                    "p" => vec![StateMessage::MoveRight(
-                        Self::LARGE_HORIZONTAL_STEP * n_movements,
-                    )],
-
-                    "z" => vec![StateMessage::ZoomIn(Self::ZOOM_STEP * n_movements)],
-                    "o" => vec![StateMessage::ZoomOut(Self::ZOOM_STEP * n_movements)],
-                    "{" => vec![StateMessage::GotoPreviousContig(n_movements)],
-                    "}" => vec![StateMessage::GotoNextContig(n_movements)],
-                    _ => {
-                        return Err(TGVError::RegisterError(format!(
-                            "Invalid normal mode input: {}",
-                            string
-                        )))
-                    }
-                }
+            _ => {
+                self.add_char(char); // proceed to interpretation
             }
         };
 
-        // If reaches here, clear the register
+        let input = self.input.clone();
+
         self.clear();
-        Ok(messages)
+        Self::parse_input(input)
+    }
+
+    fn parse_input(input: String) -> Result<Vec<StateMessage>, TGVError> {
+        let mut n_movement_chars = "".to_string();
+        for char in input.chars() {
+            match char {
+                '0' | '1' | '2' | '3' | '4' | '5' | '6' | '7' | '8' | '9' => {
+                    n_movement_chars += &char.to_string();
+                }
+                _ => {
+                    break;
+                }
+            }
+        }
+
+        let suffix: String = input.chars().skip(n_movement_chars.len()).collect();
+
+        let n_movements = if n_movement_chars.len() == 0 {
+            1
+        } else {
+            n_movement_chars.parse::<usize>()?
+        };
+
+        match suffix.as_str() {
+            "ge" => Ok(vec![StateMessage::GotoPreviousExonsEnd(n_movements)]),
+            "gE" => Ok(vec![StateMessage::GotoPreviousGenesEnd(n_movements)]),
+            "gg" => Ok(vec![StateMessage::GotoY(0)]),
+            "w" => Ok(vec![StateMessage::GotoNextExonsStart(n_movements)]),
+            "b" => Ok(vec![StateMessage::GotoPreviousExonsStart(n_movements)]),
+            "e" => Ok(vec![StateMessage::GotoNextExonsEnd(n_movements)]),
+            "W" => Ok(vec![StateMessage::GotoNextGenesStart(n_movements)]),
+            "B" => Ok(vec![StateMessage::GotoPreviousGenesStart(n_movements)]),
+            "E" => Ok(vec![StateMessage::GotoNextGenesEnd(n_movements)]),
+            "h" => Ok(vec![StateMessage::MoveLeft(
+                n_movements * Self::SMALL_HORIZONTAL_STEP,
+            )]),
+            "l" => Ok(vec![StateMessage::MoveRight(
+                n_movements * Self::SMALL_HORIZONTAL_STEP,
+            )]),
+            "j" => Ok(vec![StateMessage::MoveDown(
+                n_movements * Self::SMALL_VERTICAL_STEP,
+            )]),
+            "k" => Ok(vec![StateMessage::MoveUp(
+                n_movements * Self::SMALL_VERTICAL_STEP,
+            )]),
+
+            "y" => Ok(vec![StateMessage::MoveLeft(
+                Self::LARGE_HORIZONTAL_STEP * n_movements,
+            )]),
+            "p" => Ok(vec![StateMessage::MoveRight(
+                Self::LARGE_HORIZONTAL_STEP * n_movements,
+            )]),
+
+            "z" => Ok(vec![StateMessage::ZoomIn(Self::ZOOM_STEP * n_movements)]),
+            "o" => Ok(vec![StateMessage::ZoomOut(Self::ZOOM_STEP * n_movements)]),
+            "{" => Ok(vec![StateMessage::MoveUp(
+                Self::LARGE_VERTICAL_STEP * n_movements,
+            )]),
+            "}" => Ok(vec![StateMessage::MoveDown(
+                Self::LARGE_VERTICAL_STEP * n_movements,
+            )]),
+            _ => Err(TGVError::RegisterError(format!(
+                "Invalid normal mode input: {}",
+                input
+            ))),
+        }
     }
 }
 

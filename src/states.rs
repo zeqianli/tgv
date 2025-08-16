@@ -259,6 +259,8 @@ impl StateHandler {
                 )?
             }
 
+            StateMessage::GotoY(y) => StateHandler::go_to_y(state, y)?,
+
             // Zoom handling
             StateMessage::ZoomOut(r) => StateHandler::handle_zoom_out(state, r)?,
             StateMessage::ZoomIn(r) => StateHandler::handle_zoom_in(state, r)?,
@@ -523,6 +525,11 @@ impl StateHandler {
             .set_middle(&state.area, n, state.contig_length()?);
         state.window.set_top(0);
 
+        Ok(())
+    }
+
+    fn go_to_y(state: &mut State, y: usize) -> Result<(), TGVError> {
+        state.window.set_top(y);
         Ok(())
     }
 

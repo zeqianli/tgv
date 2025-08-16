@@ -12,6 +12,8 @@ pub enum StateMessage {
     GotoContigName(String), // Here is string because it can be an alias. The handler will look up the string from the contig collection.
     GotoContigNameCoordinate(String, usize), // Here is string because it can be an alias. The handler will look up the string from the contig collection.
 
+    GotoY(usize),
+
     GotoNextExonsStart(usize),
     GotoNextExonsEnd(usize),
     GotoPreviousExonsStart(usize),
