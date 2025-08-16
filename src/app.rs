@@ -107,17 +107,17 @@ impl App {
                 }
 
                 Ok(Event::Mouse(mouse_event)) => {
-                    let ui_message = self
+                    let state_messages = self
                         .mouse_register
-                        .handle_mouse_event(&self.state.layout.root, mouse_event)?;
-                    let area = self.state.area;
-                    if let Some(ui_message) = ui_message {
-                        self.mouse_register.handle_ui_message(
-                            &mut self.state.layout,
-                            area,
-                            ui_message,
-                        )?;
-                    }
+                        .handle_mouse_event(&self.state, mouse_event)?;
+
+                    StateHandler::handle(
+                        &mut self.state,
+                        &self.repository,
+                        &self.settings,
+                        state_messages,
+                    )
+                    .await?;
                 }
 
                 Ok(Event::Resize(_width, _height)) => {

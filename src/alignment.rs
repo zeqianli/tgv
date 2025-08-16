@@ -1,4 +1,5 @@
 use crate::error::TGVError;
+use crate::intervals::GenomeInterval;
 use crate::region::Region;
 use crate::sequence::Sequence;
 use rust_htslib::bam::ext::BamRecordExtensions;
@@ -92,6 +93,61 @@ impl AlignedRead {
 
     fn stacking_end(&self) -> usize {
         self.end.saturating_add(self.trailing_softclips)
+    }
+
+    /// Read details
+    pub fn describe(&self) -> Result<String, TGVError> {
+        // Example IGV display:
+        // Read name = HISEQ1:29:HA2WPADXX:1:1216:5183:9385
+        // Read length = 148bp
+        // Flags = 147
+        // ----------------------
+        // Mapping = Primary @ MAPQ 70
+        // Reference span = chr20:78,203-78,350 (-) = 148bp
+        // Cigar = 148M
+        // Clipping = None
+        // ----------------------
+        // Mate is mapped = yes
+        // Mate start = chr20:77619 (+)
+        // Insert size = -731
+        // Second in pair
+        // Pair orientation = F1R2
+        // ----------------------
+        // PG = novoalign
+        // AM = 70
+        // NM = 0
+        // SM = 70
+        // PQ = 5
+        // UQ = 0
+        // AS = 0
+        // Hidden tags: MDLocation = chr20:78,249
+        // Base = C @ QV 30
+        Ok(format!(
+            "{}\tflag={}\tstart={}\tmapq={}\tcigar={}",
+            String::from_utf8(self.read.qname().to_vec())?,
+            self.read.flags(),
+            self.start,
+            self.read.mapq(),
+            self.read.cigar().take()
+        ))
+    }
+
+    /// Whether the alignment segment (excluding softclips) covers a x_coordinate (1-based).
+    pub fn covers(&self, x_coordinate: usize) -> bool {
+        self.start <= x_coordinate && self.end >= x_coordinate
+    }
+    /// Whether the alignment segment (including softclips) covers a x_coordinate (1-based).
+    pub fn full_read_covers(&self, x_coordinate: usize) -> bool {
+        self.stacking_start() <= x_coordinate && self.stacking_end() >= x_coordinate
+    }
+
+    /// Whether the alignment segment (excluding softclips) covers a x_coordinate (1-based).
+    pub fn overlaps(&self, x_left_coordinate: usize, x_right_coordinate: usize) -> bool {
+        self.start <= x_right_coordinate && self.end >= x_left_coordinate
+    }
+    /// Whether the alignment segment (including softclips) covers a x_coordinate (1-based).
+    pub fn full_read_overlaps(&self, x_left_coordinate: usize, x_right_coordinate: usize) -> bool {
+        self.stacking_start() <= x_right_coordinate && self.stacking_end() >= x_left_coordinate
     }
 }
 
@@ -390,6 +446,9 @@ pub struct Alignment {
     data_complete_right_bound: usize,
 
     depth: usize,
+
+    /// y -> read indexes at y location
+    index: Vec<Vec<usize>>,
 }
 
 /// Data loading
@@ -440,6 +499,37 @@ impl Alignment {
             .map(|(_, coverage)| coverage)
             .sum::<usize>()
             / (right - left + 1))
+    }
+
+    /// Return the read at x_coordinate, yth track
+    pub fn read_at(&self, x_coordinate: usize, y: usize) -> Option<&AlignedRead> {
+        if y >= self.depth {
+            return None;
+        }
+
+        self.index[y]
+            .iter()
+            .find(|i_read| self.reads[**i_read].full_read_covers(x_coordinate))
+            .map(|index| &self.reads[*index])
+    }
+
+    /// Return the read at x_coordinate, yth track
+    pub fn read_overlapping(
+        &self,
+        x_left_coordinate: usize,
+        x_right_coordinate: usize,
+        y: usize,
+    ) -> Option<&AlignedRead> {
+        if y >= self.depth {
+            return None;
+        }
+
+        self.index[y]
+            .iter()
+            .find(|i_read| {
+                self.reads[**i_read].full_read_overlaps(x_left_coordinate, x_right_coordinate)
+            })
+            .map(|index| &self.reads[*index])
     }
 }
 
@@ -570,7 +660,7 @@ impl AlignmentBuilder {
         self.track_left_bounds.len()
     }
 
-    pub fn build(&self) -> Result<Alignment, TGVError> {
+    pub fn build(self) -> Result<Alignment, TGVError> {
         let mut coverage: BTreeMap<usize, usize> = BTreeMap::new();
 
         // Convert hashmap to BTreeMap
@@ -578,14 +668,23 @@ impl AlignmentBuilder {
             *coverage.entry(*k).or_insert(*v) += v;
         }
 
+        let mut index = vec![Vec::new(); self.track_left_bounds.len()];
+        let _ = self
+            .aligned_reads
+            .iter()
+            .enumerate()
+            .map(|(i, read)| index[read.y].push(i))
+            .collect::<()>();
+
         Ok(Alignment {
-            reads: self.aligned_reads.clone(),
+            reads: self.aligned_reads,
             contig_index: self.region.contig_index,
             coverage,
             data_complete_left_bound: self.region.start,
             data_complete_right_bound: self.region.end,
 
             depth: self.track_left_bounds.len(),
+            index: index,
         })
     }
 }

@@ -48,4 +48,7 @@ pub enum TGVError {
 
     #[error("UTF-8 decoding error: {0}")]
     Utf8DecodingError(#[from] std::string::FromUtf8Error),
+
+    #[error("an Interval must have a Range with a positive width")]
+    InvalidRange,
 }

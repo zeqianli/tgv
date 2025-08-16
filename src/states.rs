@@ -13,6 +13,7 @@ use crate::{
     message::{DataMessage, StateMessage},
     reference::Reference,
     region::Region,
+    rendering::layout::resize_node,
     rendering::MainLayout,
     sequence::{Sequence, SequenceCache, SequenceRepository},
     track::Track,
@@ -308,6 +309,26 @@ impl StateHandler {
 
             StateMessage::SetDisplayMode(display_mode) => {
                 state.display_mode = display_mode;
+            }
+
+            StateMessage::ResizeTrack {
+                mouse_down_x,
+                mouse_down_y,
+                mouse_released_x,
+                mouse_released_y,
+            } => {
+                let mut new_node = state.layout.root.clone();
+
+                resize_node(
+                    &mut new_node,
+                    state.area,
+                    mouse_down_x,
+                    mouse_down_y,
+                    mouse_released_x,
+                    mouse_released_y,
+                )?;
+
+                state.layout.root = new_node;
             }
 
             _ => {

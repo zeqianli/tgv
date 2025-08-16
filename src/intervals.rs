@@ -50,7 +50,6 @@ pub struct SortedIntervalCollection<T: GenomeInterval> {
 /// TODO:
 /// This is now O(1) for overlapping lookup.
 /// Use interval tree to get O(log n) lookup. Options:
-/// - https://github.com/BurntSushi/rust-interval-tree
 /// - https://github.com/dcjones/coitrees
 /// - https://github.com/sstadick/rust-lapper
 /// - https://crates.io/crates/intervaltree
