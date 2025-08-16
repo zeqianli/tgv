@@ -73,9 +73,12 @@ fn get_read_rendering_info(
         _ => return Ok(None),
     };
 
+    let start_onscreen_coordinate = viewing_window.onscreen_x_coordinate(context.start, area);
+    let end_onscreen_coordinate = viewing_window.onscreen_x_coordinate(context.start, area);
+
     let (onscreen_x, length) = match OnScreenCoordinate::onscreen_start_and_length(
-        &viewing_window.onscreen_x_coordinate(context.start, area),
-        &viewing_window.onscreen_x_coordinate(context.end, area), // Some area for improvements
+        &start_onscreen_coordinate,
+        &end_onscreen_coordinate,
         area,
     ) {
         Some((onscreen_x, length)) => (onscreen_x, length),
@@ -113,26 +116,38 @@ fn get_read_rendering_info(
 
     for modifier in context.modifiers.iter() {
         match modifier {
-            RenderingContextModifier::Forward => output.push(OnScreenRenderingContext {
-                x: onscreen_x + length - 1,
-                y: onscreen_y,
-                string: "►".to_string(),
-                style: output.last().unwrap().style.clone(),
-            }),
+            RenderingContextModifier::Forward => {
+                if let OnScreenCoordinate::OnScreen(x) = end_onscreen_coordinate {
+                    output.push(OnScreenRenderingContext {
+                        x: x as u16,
+                        y: onscreen_y,
+                        string: "►".to_string(),
+                        style: output.last().unwrap().style.clone(),
+                    })
+                }
+            }
 
-            RenderingContextModifier::Reverse => output.push(OnScreenRenderingContext {
-                x: onscreen_x,
-                y: onscreen_y,
-                string: "◄".to_string(),
-                style: output.first().unwrap().style.clone(),
-            }),
+            RenderingContextModifier::Reverse => {
+                if let OnScreenCoordinate::OnScreen(x) = start_onscreen_coordinate {
+                    output.push(OnScreenRenderingContext {
+                        x: x as u16,
+                        y: onscreen_y,
+                        string: "◄".to_string(),
+                        style: output.first().unwrap().style.clone(),
+                    })
+                }
+            }
 
-            RenderingContextModifier::Insertion(l) => output.push(OnScreenRenderingContext {
-                x: onscreen_x,
-                y: onscreen_y,
-                string: "▌".to_string(),
-                style: Style::default().fg(pallete.INSERTION_COLOR),
-            }),
+            RenderingContextModifier::Insertion(l) => {
+                if let OnScreenCoordinate::OnScreen(x) = start_onscreen_coordinate {
+                    output.push(OnScreenRenderingContext {
+                        x: x as u16,
+                        y: onscreen_y,
+                        string: "▌".to_string(),
+                        style: Style::default().fg(pallete.INSERTION_COLOR),
+                    })
+                }
+            }
 
             RenderingContextModifier::Mismatch(coordinate, base) => {
                 if let OnScreenCoordinate::OnScreen(modifier_onscreen_x) =
