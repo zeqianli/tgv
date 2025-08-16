@@ -207,7 +207,7 @@ impl ViewingWindow {
         left <= self.right(area) && right >= self.left()
     }
 
-    /// Returns the onscreen x coordinate in the area. Example
+    /// Returns the onscreen x coordinate in the area. Example:
     /// Bases displayed in the window: 1 2 | 3 4 5 6 7 8 | 9 10
     /// Zoom = 2, window has 3 pixels
     /// 1/2 -> Left(0)
@@ -228,6 +228,26 @@ impl ViewingWindow {
         } else {
             OnScreenCoordinate::OnScreen((x - self_left) / self.zoom)
         }
+    }
+
+    /// Given an onscreen x position, return the genome coordinate range (1-based, inclusive) at that x location.
+    pub fn coordinates_of_onscreen_x(&self, x: u16, area: &Rect) -> Option<(usize, usize)> {
+        if x < area.left() || x >= area.right() {
+            return None;
+        }
+
+        let left = self.left + (x - area.left()) as usize * self.zoom;
+
+        Some((left, left + self.zoom - 1))
+    }
+
+    /// Given an onscreen x position, return the genome coordinate range (1-based, inclusive) at that x location.
+    pub fn coordinate_of_onscreen_y(&self, y: u16, area: &Rect) -> Option<usize> {
+        if y < area.top() || y >= area.bottom() {
+            return None;
+        }
+
+        Some(self.top + (y - area.top()) as usize)
     }
 }
 

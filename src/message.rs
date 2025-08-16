@@ -36,6 +36,14 @@ pub enum StateMessage {
 
     SetDisplayMode(DisplayMode),
 
+    ResizeTrack {
+        mouse_down_x: u16,
+        mouse_down_y: u16,
+
+        mouse_released_x: u16,
+        mouse_released_y: u16,
+    },
+
     Quit,
 }
 
@@ -66,14 +74,4 @@ pub enum DataMessage {
     RequiresCompleteSequences(Region),
 
     RequiresCytobands(usize),
-}
-
-pub enum UIMessage {
-    ResizeTrack {
-        mouse_down_x: u16,
-        mouse_down_y: u16,
-
-        mouse_released_x: u16,
-        mouse_released_y: u16,
-    },
 }

@@ -1,6 +1,7 @@
 use std::path::Path;
 
-use crate::message::UIMessage;
+use crate::alignment;
+use crate::message::{self, StateMessage};
 pub use crate::rendering::colors::Palette;
 pub use crate::rendering::{
     render_alignment, render_bed, render_console, render_coordinates, render_coverage,
@@ -18,6 +19,7 @@ use ratatui::{
     layout::{Constraint, Direction, Layout, Rect},
     style::{Color, Style},
 };
+use reqwest::header::X_CONTENT_TYPE_OPTIONS;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum AreaType {
@@ -139,6 +141,48 @@ impl LayoutNode {
             }
         }
         Ok(())
+    }
+
+    /// Return the area node at a screen position.
+    /// Used to handle mouse event.
+    pub fn get_area_type_at_position(
+        &self,
+        x: u16,
+        y: u16,
+        area: Rect,
+    ) -> Option<(Rect, AreaType)> {
+        match self {
+            LayoutNode::Split {
+                direction,
+                constraint,
+                children,
+            } => {
+                let child_areas = Layout::default()
+                    .direction(*direction)
+                    .constraints(children.iter().map(|child| child.constraint()))
+                    .split(area);
+
+                for (child, &child_area) in children.iter().zip(child_areas.iter()) {
+                    if let Some((area, area_type)) =
+                        child.get_area_type_at_position(x, y, child_area)
+                    {
+                        return Some((area, area_type));
+                    }
+                }
+                None
+            }
+
+            LayoutNode::Area {
+                constraint,
+                area_type,
+            } => {
+                if x >= area.x && x < area.right() && y >= area.y && y < area.bottom() {
+                    Some((area, area_type.clone()))
+                } else {
+                    None
+                }
+            }
+        }
     }
 }
 
@@ -324,7 +368,7 @@ impl MainLayout {
     }
 }
 
-fn resize_node(
+pub fn resize_node(
     node: &mut LayoutNode,
     area: Rect,
     mouse_down_x: u16,
@@ -545,60 +589,60 @@ impl MouseRegister {
 
     pub fn handle_mouse_event(
         &mut self,
-        root: &LayoutNode,
+        state: &State,
         event: event::MouseEvent,
-    ) -> Result<Option<UIMessage>, TGVError> {
+    ) -> Result<Vec<StateMessage>, TGVError> {
+        let mut messages = Vec::new();
         match event.kind {
             event::MouseEventKind::Down(_) => {
                 self.mouse_down_x = event.column;
                 self.mouse_down_y = event.row;
-                self.root = root.clone();
-                Ok(None)
+                self.root = state.layout.root.clone();
             }
 
             event::MouseEventKind::Drag(_) => {
-                if (event.row == self.mouse_down_y) && (event.column == self.mouse_down_x) {
-                    return Ok(None);
+                if (event.row != self.mouse_down_y) || (event.column != self.mouse_down_x) {
+                    messages.push(StateMessage::ResizeTrack {
+                        mouse_down_x: self.mouse_down_x,
+                        mouse_down_y: self.mouse_down_y,
+                        mouse_released_x: event.column,
+                        mouse_released_y: event.row,
+                    });
                 }
-                Ok(Some(UIMessage::ResizeTrack {
-                    mouse_down_x: self.mouse_down_x,
-                    mouse_down_y: self.mouse_down_y,
-                    mouse_released_x: event.column,
-                    mouse_released_y: event.row,
-                }))
             }
 
-            _ => Ok(None),
-        }
-    }
+            event::MouseEventKind::Moved => {
+                // Display read information
+                if let Some((area, area_type)) = state.layout.root.get_area_type_at_position(
+                    event.column,
+                    event.row,
+                    state.area.clone(),
+                ) {
+                    match area_type {
+                        AreaType::Alignment => {
+                            if let (Some((left_coordinate, right_coordinate)), Some(y_coordinate)) = (
+                                &state.window.coordinates_of_onscreen_x(event.column, &area),
+                                &state.window.coordinate_of_onscreen_y(event.row, &area),
+                            ) {
+                                if let Some(alignment) = &state.alignment {
+                                    if let Some(read) = alignment.read_overlapping(
+                                        *left_coordinate,
+                                        *right_coordinate,
+                                        *y_coordinate,
+                                    ) {
+                                        messages.push(StateMessage::Message(read.describe()?))
+                                    }
+                                }
+                            }
+                        }
 
-    pub fn handle_ui_message(
-        &self,
-        main_layout: &mut MainLayout,
-        area: Rect,
-        message: UIMessage,
-    ) -> Result<(), TGVError> {
-        match message {
-            UIMessage::ResizeTrack {
-                mouse_down_x,
-                mouse_down_y,
-                mouse_released_x,
-                mouse_released_y,
-            } => {
-                let mut new_node = self.root.clone();
-
-                resize_node(
-                    &mut new_node,
-                    area,
-                    mouse_down_x,
-                    mouse_down_y,
-                    mouse_released_x,
-                    mouse_released_y,
-                )?;
-
-                main_layout.root = new_node;
+                        _ => {}
+                    }
+                }
             }
+            _ => {}
         }
-        Ok(())
+
+        Ok(messages)
     }
 }
