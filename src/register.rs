@@ -55,11 +55,6 @@ impl Registers {
     }
 }
 
-// pub enum RegisterEnum {
-//     Normal(NormalModeRegister),
-//     Command(CommandModeRegister),
-// }
-
 impl Register for Registers {
     fn update_key_event(
         &mut self,
@@ -329,6 +324,11 @@ impl Register for NormalModeRegister {
     ) -> Result<Vec<StateMessage>, TGVError> {
         match key_event.code {
             KeyCode::Char(char) => self.update_by_char(char),
+            KeyCode::Left => self.update_by_char('h'),
+            KeyCode::Up => self.update_by_char('k'),
+            KeyCode::Down => self.update_by_char('j'),
+            KeyCode::Right => self.update_by_char('l'),
+
             _ => {
                 self.clear();
                 Err(TGVError::RegisterError(format!(
