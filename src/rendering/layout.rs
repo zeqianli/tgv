@@ -640,6 +640,11 @@ impl MouseRegister {
                     }
                 }
             }
+
+            event::MouseEventKind::ScrollDown => messages.push(StateMessage::MoveDown(1)),
+
+            event::MouseEventKind::ScrollUp => messages.push(StateMessage::MoveUp(1)),
+
             _ => {}
         }
 
