@@ -1,11 +1,11 @@
+use crate::contig_header::ContigHeader;
 use crate::error::TGVError;
 use crate::intervals::{GenomeInterval, SortedIntervalCollection};
-use crate::contig::Contig;
 use rust_htslib::bcf::{Read, Reader, Record};
 use std::collections::{BTreeMap, HashMap};
 pub struct Variant {
-    /// Contig name. This is not stored in the record.
-    pub contig: Contig,
+    /// Contig id name. This is not stored in the record.
+    pub contig_index: usize,
 
     pub index: usize,
 
@@ -14,26 +14,31 @@ pub struct Variant {
 }
 
 impl Variant {
-    pub fn new(record: Record, index: usize) -> Result<Self, TGVError> {
+    pub fn new(
+        record: Record,
+        index: usize,
+        contig_header: &ContigHeader,
+    ) -> Result<Self, TGVError> {
         let contig_u8 = record
             .header()
             .rid2name(record.rid().ok_or(TGVError::ValueError(
                 "VCF record {:?} doesn't have a valid contig.".to_string(),
             ))?)?;
-        let contig = Contig::new(std::str::from_utf8(contig_u8).map_err(|_| {
-            TGVError::ValueError("VCF record {:?} doesn't have a valid contig. ".to_string())
-        })?);
+        let contig_index =
+            contig_header.get_index_by_str(&std::str::from_utf8(contig_u8).map_err(|_| {
+                TGVError::ValueError("VCF record {:?} doesn't have a valid contig.".to_string())
+            })?)?;
         Ok(Self {
             index,
-            contig,
+            contig_index,
             record,
         })
     }
 }
 
 impl GenomeInterval for Variant {
-    fn contig(&self) -> &Contig {
-        &self.contig
+    fn contig_index(&self) -> usize {
+        self.contig_index
     }
 
     fn start(&self) -> usize {
@@ -51,23 +56,23 @@ pub struct VariantRepository {
 }
 
 impl VariantRepository {
-    pub fn from_vcf(path: &str) -> Result<Self, TGVError> {
+    pub fn from_vcf(path: &str, contig_header: &ContigHeader) -> Result<Self, TGVError> {
         let mut bcf = Reader::from_path(path)?;
 
         let variants: Result<Vec<Variant>, _> = bcf
             .records()
             .enumerate()
-            .map(|(index, record)| Variant::new(record?, index))
+            .map(|(index, record)| Variant::new(record?, index, contig_header))
             .collect();
         let variants = variants?;
 
         // lookup
 
-        let mut variant_lookup: HashMap<String, BTreeMap<usize, Vec<usize>>> = HashMap::new();
+        let mut variant_lookup: HashMap<usize, BTreeMap<usize, Vec<usize>>> = HashMap::new();
 
         for (i, variant) in variants.iter().enumerate() {
             variant_lookup
-                .entry(variant.contig().name.clone())
+                .entry(variant.contig_index)
                 .and_modify(|vs| {
                     vs.entry(variant.start())
                         .and_modify(|vvs| vvs.push(i))

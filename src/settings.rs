@@ -1,4 +1,5 @@
 use crate::error::TGVError;
+use crate::rendering::{Palette, DARK_THEME};
 use crate::ucsc::UcscHost;
 use crate::{message::StateMessage, reference::Reference};
 use clap::{Parser, Subcommand, ValueEnum};
@@ -138,6 +139,8 @@ pub struct Settings {
     pub ucsc_host: UcscHost,
 
     pub cache_dir: String,
+
+    pub palette: Palette,
 }
 
 /// Settings to browse alignments
@@ -188,8 +191,7 @@ impl Settings {
         };
 
         // Initial messages
-        let initial_state_messages =
-            Self::translate_initial_state_messages(cli.region, reference.as_ref())?;
+        let initial_state_messages = Self::translate_initial_state_messages(cli.region)?;
 
         // Backend
         let backend = match (cli.offline, cli.online) {
@@ -239,6 +241,7 @@ impl Settings {
             test_mode: false,
             debug: cli.debug,
             cache_dir,
+            palette: DARK_THEME,
         })
     }
 
@@ -249,7 +252,6 @@ impl Settings {
 
     fn translate_initial_state_messages(
         region_string: Option<String>,
-        _reference: Option<&Reference>,
     ) -> Result<Vec<StateMessage>, TGVError> {
         let region_string = match region_string {
             Some(region_string) => region_string,
@@ -269,7 +271,7 @@ impl Settings {
         if split.len() == 2 {
             match split[1].parse::<usize>() {
                 Ok(n) => {
-                    return Ok(vec![StateMessage::GotoContigCoordinate(
+                    return Ok(vec![StateMessage::GotoContigNameCoordinate(
                         split[0].to_string(),
                         n,
                     )]);
@@ -310,6 +312,7 @@ mod tests {
             debug: false,
             ucsc_host: UcscHost::Us,
             cache_dir: shellexpand::tilde("~/.tgv").to_string(),
+            palette: DARK_THEME,
         }
     }
 
@@ -345,7 +348,7 @@ mod tests {
     }))]
     #[case("tgv input.bam -r chr1:12345", Ok(Settings {
         bam_path: Some("input.bam".to_string()),
-        initial_state_messages: vec![StateMessage::GotoContigCoordinate(
+        initial_state_messages: vec![StateMessage::GotoContigNameCoordinate(
             "chr1".to_string(),
             12345,
         )],
@@ -373,7 +376,7 @@ mod tests {
     #[case("tgv input.bam -r 1:12345 --no-reference", Ok(Settings {
         bam_path: Some("input.bam".to_string()),
         reference: None,
-        initial_state_messages: vec![StateMessage::GotoContigCoordinate(
+        initial_state_messages: vec![StateMessage::GotoContigNameCoordinate(
             "1".to_string(),
             12345,
         )],

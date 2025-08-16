@@ -1,4 +1,4 @@
-use crate::{contig::Contig, intervals::GenomeInterval, strand::Strand};
+use crate::{intervals::GenomeInterval, strand::Strand};
 
 // A feature is a interval on a contig.
 
@@ -12,7 +12,7 @@ pub enum SubGeneFeatureType {
 
 #[derive(Debug, Clone)]
 pub struct SubGeneFeature {
-    pub contig: Contig,
+    pub contig_index: usize,
     pub start: usize,
     pub end: usize,
     pub feature_type: SubGeneFeatureType,
@@ -27,11 +27,44 @@ impl GenomeInterval for SubGeneFeature {
         self.end
     }
 
-    fn contig(&self) -> &Contig {
-        &self.contig
+    fn contig_index(&self) -> usize {
+        self.contig_index
     }
 }
 
+/*  UCSC has different formats for track features. I don't fully understand them yet.
+
+The current schema is taken from hg38/hg19 ncbiRefSeqSelected. But for other genomes, there are API responses like this:
+
+(GCF_028858775.2:NC_072398.2)
+
+{
+"chrom": "NC_072398.2",
+"chromStart": 130929426,
+"chromEnd": 130985030,
+"name": "NM_001142759.1",
+"score": 0,
+"strand": "+",
+"thickStart": 130929440,
+"thickEnd": 130982945,
+"reserved": "0",
+"blockCount": 13,
+"blockSizes": "65,124,76,182,122,217,167,126,78,192,72,556,374,",
+"chromStarts": "0,8926,14265,18877,31037,33561,34781,36127,39014,43150,43484,53351,55230,",
+"name2": "DBT",
+"cdsStartStat": "cmpl",
+"cdsEndStat": "cmpl",
+"exonFrames": "0,0,1,2,1,0,1,0,0,0,0,0,-1,",
+"type": "",
+"geneName": "NM_001142759.1",
+"geneName2": "DBT",
+"geneType": ""
+}
+
+If someone has experience in this, please help.
+For now, I don't interprete sub-gene features for API responses with this format.
+
+*/
 #[derive(Debug, Clone)]
 pub struct Gene {
     pub id: String,
@@ -39,7 +72,7 @@ pub struct Gene {
     pub name: String,
 
     pub strand: Strand,
-    pub contig: Contig,
+    pub contig_index: usize,
     pub transcription_start: usize,
     pub transcription_end: usize,
 
@@ -51,39 +84,6 @@ pub struct Gene {
 
     pub exon_ends: Vec<usize>,
 
-    /*  UCSC has different formats for track features. I don't fully understand them yet.
-
-    The current schema is taken from hg38/hg19 ncbiRefSeqSelected. But for other genomes, there are API responses like this:
-
-    (GCF_028858775.2:NC_072398.2)
-
-    {
-    "chrom": "NC_072398.2",
-    "chromStart": 130929426,
-    "chromEnd": 130985030,
-    "name": "NM_001142759.1",
-    "score": 0,
-    "strand": "+",
-    "thickStart": 130929440,
-    "thickEnd": 130982945,
-    "reserved": "0",
-    "blockCount": 13,
-    "blockSizes": "65,124,76,182,122,217,167,126,78,192,72,556,374,",
-    "chromStarts": "0,8926,14265,18877,31037,33561,34781,36127,39014,43150,43484,53351,55230,",
-    "name2": "DBT",
-    "cdsStartStat": "cmpl",
-    "cdsEndStat": "cmpl",
-    "exonFrames": "0,0,1,2,1,0,1,0,0,0,0,0,-1,",
-    "type": "",
-    "geneName": "NM_001142759.1",
-    "geneName2": "DBT",
-    "geneType": ""
-    }
-
-    If someone has experience in this, please help.
-    For now, I don't interprete sub-gene features for API responses with this format.
-
-    */
     pub has_exons: bool,
 }
 
@@ -96,8 +96,8 @@ impl GenomeInterval for Gene {
         self.transcription_end
     }
 
-    fn contig(&self) -> &Contig {
-        &self.contig
+    fn contig_index(&self) -> usize {
+        self.contig_index
     }
 }
 
@@ -116,7 +116,7 @@ impl Gene {
         }
 
         Some(SubGeneFeature {
-            contig: self.contig.clone(),
+            contig_index: self.contig_index,
             start: self.exon_starts[idx],
             end: self.exon_ends[idx],
             feature_type: SubGeneFeatureType::Exon,

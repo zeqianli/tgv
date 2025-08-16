@@ -26,15 +26,31 @@ pub struct App {
 
 // initialization
 impl App {
-    pub async fn new(settings: Settings) -> Result<Self, TGVError> {
-        let mut state = State::new(&settings)?;
-        let (repository, sequence_cache) = Repository::new(&settings).await?;
-        if let Some(sequence_cache) = sequence_cache {
-            // This is needed in local mode.
-            // sequence_cache holds the 2bit IO buffers and is mutable.
-            // But repository is immutable at runtime. So, the cache needs to be assigned to state.
-            state.sequence_cache = sequence_cache;
-        }
+    pub async fn new<B: Backend>(
+        settings: Settings,
+        terminal: &mut Terminal<B>,
+    ) -> Result<Self, TGVError> {
+        // Gather resources before initializing the state.
+
+        let (repository, sequence_cache, track_cache, contig_header) =
+            Repository::new(&settings).await?;
+
+        let mut state = State::new(
+            &settings,
+            terminal.get_frame().area(),
+            sequence_cache,
+            track_cache,
+            contig_header,
+        )?;
+
+        // Find the initial window
+        StateHandler::handle_initial_messages(
+            &mut state,
+            &repository,
+            &settings,
+            settings.initial_state_messages.clone(),
+        )
+        .await?;
 
         let mouse_register = MouseRegister::new(&state.layout.root);
 
@@ -50,18 +66,10 @@ impl App {
     }
 }
 
-// event handling
 impl App {
     /// Main loop
     pub async fn run<B: Backend>(&mut self, terminal: &mut Terminal<B>) -> Result<(), TGVError> {
         while !self.state.exit {
-            let frame_area = terminal.get_frame().area();
-            self.state.update_frame_area(frame_area);
-
-            if !self.state.initialized() {
-                StateHandler::initialize(&mut self.state, &self.repository, &self.settings).await?;
-            }
-
             self.registers.update_state(&self.state)?;
 
             // Prepare rendering
@@ -100,11 +108,11 @@ impl App {
                     let ui_message = self
                         .mouse_register
                         .handle_mouse_event(&self.state.layout.root, mouse_event)?;
-                    let frame_area = *self.state.current_frame_area()?;
+                    let area = self.state.area;
                     if let Some(ui_message) = ui_message {
                         self.mouse_register.handle_ui_message(
                             &mut self.state.layout,
-                            frame_area,
+                            area,
                             ui_message,
                         )?;
                     }
@@ -122,10 +130,7 @@ impl App {
 
     /// Draw the app
     pub fn draw(&self, frame: &mut Frame) {
-        if !self.state.initialized() {
-            panic!("The initial window is not initialized");
-        }
-        frame.render_widget(self, frame.area());
+        frame.render_widget(self, self.state.area);
     }
 
     /// close connections
@@ -139,7 +144,14 @@ const MIN_AREA_HEIGHT: u16 = 6;
 impl Widget for &App {
     fn render(self, area: Rect, buf: &mut Buffer) {
         self.rendering_state
-            .render(area, buf, &self.state, &self.registers, &self.repository)
+            .render(
+                area,
+                buf,
+                &self.state,
+                &self.registers,
+                &self.repository,
+                &self.settings.palette,
+            )
             .unwrap()
     }
 }

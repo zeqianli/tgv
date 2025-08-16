@@ -15,11 +15,8 @@ pub fn render_coordinates(area: &Rect, buf: &mut Buffer, state: &State) -> Resul
         return Ok(());
     }
 
-    let viewing_window = state.viewing_window()?;
-    let contig_length = state.contig_length()?;
-
     let (coordinate_texts, coordinate_texts_xs, markers_onscreen_x) =
-        calculate_coordinates(viewing_window, area, contig_length);
+        calculate_coordinates(&state.window, area, state.contig_length()?);
 
     for (text, text_x, marker_x) in izip!(
         coordinate_texts.iter(),

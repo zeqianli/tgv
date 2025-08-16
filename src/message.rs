@@ -9,8 +9,8 @@ pub enum StateMessage {
     MoveDown(usize),
 
     GotoCoordinate(usize),
-    GotoContig(String), // Here is string because it can be an alias. The handler will look up the string from the contig collection.
-    GotoContigCoordinate(String, usize), // Here is string because it can be an alias. The handler will look up the string from the contig collection.
+    GotoContigName(String), // Here is string because it can be an alias. The handler will look up the string from the contig collection.
+    GotoContigNameCoordinate(String, usize), // Here is string because it can be an alias. The handler will look up the string from the contig collection.
 
     GotoNextExonsStart(usize),
     GotoNextExonsEnd(usize),
@@ -65,7 +65,7 @@ pub enum DataMessage {
     RequiresCompleteFeatures(Region),
     RequiresCompleteSequences(Region),
 
-    RequiresCytobands(String), // Here is string because it can be an alias. The handler will look up the string from the contig collection.
+    RequiresCytobands(usize),
 }
 
 pub enum UIMessage {

@@ -1,8 +1,7 @@
 mod alignment;
 mod app;
 mod bed;
-mod contig;
-mod contig_collection;
+mod contig_header;
 mod cytoband;
 mod display_mode;
 mod error;
@@ -30,9 +29,7 @@ mod tracks;
 use crate::reference::Reference;
 use crate::tracks::{UCSCDownloader, UcscDbTrackService};
 use crossterm::{
-    event::{
-        DisableMouseCapture, EnableMouseCapture,
-    },
+    event::{DisableMouseCapture, EnableMouseCapture},
     execute,
 };
 use settings::{Cli, Commands, Settings};
@@ -68,12 +65,19 @@ async fn main() -> Result<(), TGVError> {
     let settings: Settings = Settings::new(cli)?;
 
     let mut terminal = ratatui::init();
+
+    set_panic_hook();
+
     execute!(stdout(), EnableMouseCapture)?;
 
-    let mut app = match App::new(settings).await {
+    // Gather resources before starting the app.
+    let mut app = match App::new(settings, &mut terminal).await {
         Ok(app) => app,
         Err(e) => {
             ratatui::restore();
+            if let Err(err) = execute!(stdout(), DisableMouseCapture) {
+                eprintln!("Error disabling mouse capture: {err}");
+            }
             return Err(e);
         }
     };
@@ -106,14 +110,16 @@ async fn print_ucsc_assemblies() -> Result<usize, TGVError> {
     Ok(assemblies.len())
 }
 
-// async fn print_ucsc_accessions(n: usize, offset: usize) -> Result<(), TGVError> {
-//     let accessions = UcscDbTrackService::list_accessions(n, 0).await?;
-
-//     for (name, common_name) in accessions {
-//         println!("{} (Organism: {})", name, common_name);
-//     }
-//     Ok(())
-// }
+/// Add to ratatui's panic hook: disable mouse capture.
+fn set_panic_hook() {
+    let hook = std::panic::take_hook();
+    std::panic::set_hook(Box::new(move |info| {
+        hook(info);
+        if let Err(err) = execute!(stdout(), DisableMouseCapture) {
+            eprintln!("Error disabling mouse capture: {err}");
+        }
+    }));
+}
 
 #[cfg(test)]
 mod tests {
@@ -170,7 +176,7 @@ mod tests {
 
         let mut terminal = Terminal::new(TestBackend::new(50, 20)).unwrap();
 
-        let mut app = App::new(settings).await.unwrap();
+        let mut app = App::new(settings, &mut terminal).await.unwrap();
         app.run(&mut terminal).await.unwrap();
         app.close().await.unwrap();
 

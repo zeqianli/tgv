@@ -1,4 +1,4 @@
-use crate::contig_collection::ContigDatum;
+use crate::contig_header::Contig;
 use crate::error::TGVError;
 use crate::register::Registers;
 use crate::states::State;
@@ -10,7 +10,7 @@ use ratatui::{
 };
 
 use crate::helpers::get_abbreviated_length_string;
-use crate::rendering::colors;
+use crate::rendering::colors::Palette;
 const MIN_CONTIG_NAME_SPACING: u16 = 10;
 const MIN_CONTIG_LENGTH_SPACING: u16 = 10;
 
@@ -19,6 +19,7 @@ pub fn render_contig_list(
     buf: &mut Buffer,
     state: &State,
     registers: &Registers,
+    pallete: &Palette,
 ) -> Result<(), TGVError> {
     if area.height <= 1 {
         return Ok(());
@@ -38,16 +39,16 @@ pub fn render_contig_list(
         let cell = buf.cell_mut(Position::new(x, area.y + selection_row));
         if let Some(cell) = cell {
             cell.set_char(' ');
-            cell.set_bg(colors::HIGHLIGHT_COLOR);
+            cell.set_bg(pallete.HIGHLIGHT_COLOR);
         }
     }
 
     // Left label: contig name
     let max_contig_name_length = state
+        .contig_header
         .contigs
-        .all_data()
         .iter()
-        .map(|c| c.contig.name.len())
+        .map(|c| c.name.len())
         .max()
         .unwrap_or(0) as u16;
 
@@ -59,7 +60,7 @@ pub fn render_contig_list(
 
     // Right label: contig length
     let mut max_contig_length: Option<usize> = None;
-    for contig in state.contigs.all_data() {
+    for contig in state.contig_header.contigs.iter() {
         if let Some(length) = contig.length {
             if let Some(max_length) = max_contig_length {
                 max_contig_length = Some(max_length.max(length));
@@ -76,16 +77,19 @@ pub fn render_contig_list(
     // Middle: contig bars
     let selected_index = registers.contig_list.cursor_position;
 
-    for (y, contig_index) in
-        get_indexes(area.height, state.contigs.all_data().len(), selected_index)
-    {
+    for (y, contig_index) in get_indexes(
+        area.height,
+        state.contig_header.contigs.len(),
+        selected_index,
+    ) {
         render_contig_at_y(
             area,
             buf,
-            &state.contigs.all_data()[contig_index],
+            &state.contig_header.contigs[contig_index],
             contig_name_spacing,
             max_contig_length,
             y,
+            pallete,
         )?;
     }
 
@@ -116,13 +120,14 @@ fn get_indexes(height: u16, n_contigs: usize, selected_index: usize) -> Vec<(u16
 fn render_contig_at_y(
     area: Rect,
     buf: &mut Buffer,
-    contig_datum: &ContigDatum,
+    contig: &Contig,
     left_spacing: u16,
     max_contig_length: Option<usize>,
     y: u16,
+    pallete: &Palette,
 ) -> Result<(), TGVError> {
-    let contig_name = contig_datum.contig.name.clone();
-    let contig_length = contig_datum.length;
+    let contig_name = contig.name.clone();
+    let contig_length = contig.length;
 
     buf.set_string(area.x, area.y + y, contig_name, Style::default());
 

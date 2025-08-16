@@ -1,4 +1,4 @@
-use crate::rendering::colors;
+use crate::rendering::colors::Palette;
 use crate::states::State;
 use crate::{error::TGVError, region::Region, sequence::Sequence};
 use ratatui::{buffer::Buffer, layout::Rect, style::Style};
@@ -6,13 +6,18 @@ use ratatui::{buffer::Buffer, layout::Rect, style::Style};
 const MIN_AREA_WIDTH: u16 = 2;
 const MIN_AREA_HEIGHT: u16 = 1;
 
-pub fn render_sequence(area: &Rect, buf: &mut Buffer, state: &State) -> Result<(), TGVError> {
-    let region = &state.viewing_region()?;
+pub fn render_sequence(
+    area: &Rect,
+    buf: &mut Buffer,
+    state: &State,
+    pallete: &Palette,
+) -> Result<(), TGVError> {
+    let region = &state.viewing_region();
 
     if let Some(sequence) = &state.sequence {
-        match state.viewing_window()?.zoom() {
-            1 => render_sequence_at_1x(area, buf, region, sequence),
-            2 => render_sequence_at_2x(area, buf, region, sequence),
+        match state.window.zoom() {
+            1 => render_sequence_at_1x(area, buf, region, sequence, pallete),
+            2 => render_sequence_at_2x(area, buf, region, sequence, pallete),
             _ => Ok(()),
         }
     } else {
@@ -25,32 +30,26 @@ fn render_sequence_at_1x(
     buf: &mut Buffer,
     region: &Region,
     sequence: &Sequence,
+    pallete: &Palette,
 ) -> Result<(), TGVError> {
     if area.width < MIN_AREA_WIDTH || area.height < MIN_AREA_HEIGHT {
         return Ok(());
     }
 
-    let sequence_string = sequence
-        .get_sequence(region)
-        .ok_or(TGVError::StateError("Sequence not found".to_string()))?;
+    let sequence_string = String::from_utf8(
+        sequence
+            .get_sequence(region)
+            .ok_or(TGVError::StateError("Sequence not found".to_string()))?,
+    )?;
 
-    for i in 0..sequence_string.len() {
-        let base = sequence_string.chars().nth(i).unwrap();
-        let color = match base {
-            'A' | 'a' => colors::BASE_A,
-            'C' | 'c' => colors::BASE_C,
-            'G' | 'g' => colors::BASE_G,
-            'T' | 't' => colors::BASE_T,
-            _ => colors::BASE_N,
-        };
-
+    for (i, base) in sequence_string.chars().enumerate() {
         buf.set_string(
             area.x + i as u16,
             area.y,
             base.to_string(),
             Style::default()
-                .fg(colors::SEQUENCE_FOREGROUND_COLOR)
-                .bg(color),
+                .fg(pallete.SEQUENCE_FOREGROUND_COLOR)
+                .bg(pallete.base_color(base as u8)),
         );
     }
 
@@ -66,37 +65,26 @@ fn render_sequence_at_2x(
     buf: &mut Buffer,
     region: &Region,
     sequence: &Sequence,
+    palette: &Palette,
 ) -> Result<(), TGVError> {
-    let sequence_string = sequence
-        .get_sequence(region)
-        .ok_or(TGVError::StateError("Sequence not found".to_string()))?;
+    if area.width < MIN_AREA_WIDTH || area.height < MIN_AREA_HEIGHT {
+        return Ok(());
+    }
 
-    for i in 0..sequence_string.len() / 2 {
-        let base_1 = sequence_string.chars().nth(i * 2).unwrap();
-        let base_2 = sequence_string.chars().nth(i * 2 + 1).unwrap();
+    if let Some(sequence) = sequence.get_sequence(region) {
+        for i in 0..sequence.len() / 2 {
+            let base1 = sequence[i * 2];
+            let base2 = sequence[i * 2 + 1];
 
-        let color_character = match base_1 {
-            'A' | 'a' => colors::BASE_A,
-            'C' | 'c' => colors::BASE_C,
-            'G' | 'g' => colors::BASE_G,
-            'T' | 't' => colors::BASE_T,
-            _ => colors::BASE_N,
-        };
-
-        let color_background = match base_2 {
-            'A' | 'a' => colors::BASE_A,
-            'C' | 'c' => colors::BASE_C,
-            'G' | 'g' => colors::BASE_G,
-            'T' | 't' => colors::BASE_T,
-            _ => colors::BASE_N,
-        };
-
-        buf.set_string(
-            area.x + i as u16,
-            area.y,
-            "▌",
-            Style::default().fg(color_character).bg(color_background),
-        );
+            buf.set_string(
+                area.x + i as u16,
+                area.y,
+                "▌",
+                Style::default()
+                    .fg(palette.base_color(base1))
+                    .bg(palette.base_color(base2)),
+            );
+        }
     }
 
     Ok(())

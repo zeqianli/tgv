@@ -2,22 +2,20 @@ use crate::error::TGVError;
 
 use crate::bed::BEDIntervals;
 use crate::{
-    rendering::{self, intervals::render_simple_intervals},
+    rendering::{colors::Palette, intervals::render_simple_intervals},
     states::State,
 };
-use ratatui::{
-    buffer::Buffer,
-    layout::Rect,
-};
+use ratatui::{buffer::Buffer, layout::Rect};
 
 pub fn render_bed(
     area: &Rect,
     buf: &mut Buffer,
     bed: &BEDIntervals,
     state: &State,
+    pallete: &Palette,
 ) -> Result<(), TGVError> {
     //panic!("{:?}", bed);
-    let intervals = bed.intervals.overlapping(&state.viewing_region()?)?;
+    let intervals = bed.intervals.overlapping(&state.viewing_region())?;
     if !intervals.is_empty() {
         let first_color_index = intervals[0].index % 2;
         render_simple_intervals(
@@ -25,7 +23,7 @@ pub fn render_bed(
             buf,
             intervals,
             state,
-            vec![rendering::colors::BED1, rendering::colors::BED2],
+            vec![pallete.BED1, pallete.BED2],
             first_color_index,
         )?;
     }

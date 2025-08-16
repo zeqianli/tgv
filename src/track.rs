@@ -1,19 +1,19 @@
 use crate::{
-    contig::Contig,
+    contig_header::ContigHeader,
     error::TGVError,
     feature::{Gene, SubGeneFeature},
     intervals::GenomeInterval,
     region::Region,
 };
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashMap};
 use std::ops::Bound::{Excluded, Included};
 
 // A track is a collections of features on a single contig.
 #[derive(Debug)]
 pub struct Track<T: GenomeInterval> {
     pub features: Vec<T>, // TODO: what about hierarchy in features? e.g. exons of a gene?
-    pub contig: Contig,
+    pub contig_index: usize,
 
     features_by_start: BTreeMap<usize, usize>, // start -> index in features
     features_by_end: BTreeMap<usize, usize>,   // end -> index in features
@@ -30,12 +30,15 @@ pub struct Track<T: GenomeInterval> {
     /// (i, j) -> exon [self.genes[i].exon_starts[j], self.genes[i].exon_ends[j]]
     exons_by_start: Option<BTreeMap<usize, (usize, usize)>>,
     exons_by_end: Option<BTreeMap<usize, (usize, usize)>>,
+
+    /// feature name -> index in features
+    feature_lookup: HashMap<String, usize>,
 }
 
 impl<T: GenomeInterval> Track<T> {
     /// Create a track from a list of features.
     /// Assumes no feature overlapping.
-    pub fn from_features(features: Vec<T>, contig: Contig) -> Result<Self, TGVError> {
+    pub fn from_features(features: Vec<T>, contig_index: usize) -> Result<Self, TGVError> {
         let mut features = features;
         features.sort_by_key(|feature| feature.start());
 
@@ -59,7 +62,7 @@ impl<T: GenomeInterval> Track<T> {
 
         Ok(Self {
             features,
-            contig,
+            contig_index,
             features_by_start,
             features_by_end,
             // data_complete_left_bound: data_complete_left_bound,
@@ -68,6 +71,7 @@ impl<T: GenomeInterval> Track<T> {
             most_right_bound,
             exons_by_start: None,
             exons_by_end: None,
+            feature_lookup: HashMap::new(),
         })
     }
 
@@ -93,8 +97,8 @@ impl<T: GenomeInterval> GenomeInterval for Track<T> {
         self.most_right_bound
     }
 
-    fn contig(&self) -> &Contig {
-        &self.contig
+    fn contig_index(&self) -> usize {
+        self.contig_index
     }
 }
 
@@ -238,7 +242,14 @@ impl Track<Gene> {
         &self.features
     }
 
-    pub fn from_genes(genes: Vec<Gene>, contig: Contig) -> Result<Self, TGVError> {
+    pub fn gene_by_name(&self, gene_name: &str) -> Option<&Gene> {
+        match self.feature_lookup.get(gene_name) {
+            None => None,
+            Some(index) => self.features.get(*index),
+        }
+    }
+
+    pub fn from_genes(genes: Vec<Gene>, contig_index: usize) -> Result<Self, TGVError> {
         let mut genes = genes;
         genes.sort_by_key(|gene| gene.start());
 
@@ -269,13 +280,14 @@ impl Track<Gene> {
 
         Ok(Self {
             features: genes,
-            contig,
+            contig_index,
             features_by_start,
             features_by_end,
             most_left_bound,
             most_right_bound,
             exons_by_start: Some(exons_by_start),
             exons_by_end: Some(exons_by_end),
+            feature_lookup: HashMap::new(),
         })
     }
 
@@ -454,7 +466,7 @@ mod tests {
                 id: "gene1".to_string(),
                 name: "gene1".to_string(),
                 strand: Strand::Forward,
-                contig: Contig::new("chr1"),
+                contig_index: 0,
                 transcription_start: 2,
                 transcription_end: 10,
                 cds_start: 2,
@@ -467,7 +479,7 @@ mod tests {
                 id: "gene_no_exon".to_string(),
                 name: "gene_no_exon".to_string(),
                 strand: Strand::Forward,
-                contig: Contig::new("chr1"),
+                contig_index: 0,
                 transcription_start: 21,
                 transcription_end: 30,
                 cds_start: 25,
@@ -480,7 +492,7 @@ mod tests {
                 id: "gene2".to_string(),
                 name: "gene2".to_string(),
                 strand: Strand::Forward,
-                contig: Contig::new("chr1"),
+                contig_index: 0,
                 transcription_start: 41,
                 transcription_end: 50,
                 cds_start: 45,
@@ -491,7 +503,7 @@ mod tests {
             },
         ];
 
-        Track::from_genes(genes, Contig::new("chr1")).unwrap()
+        Track::from_genes(genes, 0).unwrap()
     }
 
     use super::*;

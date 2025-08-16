@@ -1,10 +1,9 @@
-use crate::contig::Contig;
 use crate::error::TGVError;
 use ratatui::layout::Rect;
 
 #[derive(Clone)]
 pub struct ViewingWindow {
-    pub contig: Contig,
+    pub contig_index: usize,
 
     /// Left most genome coordinate displayed on the screen.
     /// 1-based, inclusive.
@@ -18,19 +17,30 @@ pub struct ViewingWindow {
     zoom: usize,
 }
 
-impl ViewingWindow {
-    pub fn new_basewise_window(contig: Contig, left: usize, top: usize) -> Self {
+impl Default for ViewingWindow {
+    fn default() -> Self {
         Self {
-            contig,
+            contig_index: 0,
+            left: 0,
+            top: 0,
+            zoom: 1,
+        }
+    }
+}
+
+impl ViewingWindow {
+    pub fn new_basewise_window(contig: usize, left: usize, top: usize) -> Self {
+        Self {
+            contig_index: contig,
             left,
             top,
             zoom: 1,
         }
     }
 
-    pub fn new_zoom_out_window(contig: Contig, left: usize, top: usize, zoom: usize) -> Self {
+    pub fn new_zoom_out_window(contig: usize, left: usize, top: usize, zoom: usize) -> Self {
         Self {
-            contig,
+            contig_index: contig,
             left,
             top,
             zoom,
@@ -92,15 +102,15 @@ impl OnScreenCoordinate {
         left: &OnScreenCoordinate,  // inclusive
         right: &OnScreenCoordinate, // inclusive
         area: &Rect,
-    ) -> Option<(usize, usize)> {
+    ) -> Option<(u16, u16)> {
         match (left, right) {
             (OnScreenCoordinate::Left(_a), OnScreenCoordinate::Left(_b)) => None,
 
-            (OnScreenCoordinate::Left(_a), OnScreenCoordinate::OnScreen(b)) => Some((0, b + 1)),
-
-            (OnScreenCoordinate::Left(_a), OnScreenCoordinate::Right(_b)) => {
-                Some((0, area.width as usize))
+            (OnScreenCoordinate::Left(_a), OnScreenCoordinate::OnScreen(b)) => {
+                Some((0, (b + 1) as u16))
             }
+
+            (OnScreenCoordinate::Left(_a), OnScreenCoordinate::Right(_b)) => Some((0, area.width)),
 
             (OnScreenCoordinate::OnScreen(_a), OnScreenCoordinate::Left(_b)) => None,
 
@@ -108,11 +118,11 @@ impl OnScreenCoordinate {
                 if a > b {
                     return None;
                 }
-                Some((*a, b - a + 1))
+                Some((*a as u16, (b - a + 1) as u16))
             }
 
             (OnScreenCoordinate::OnScreen(a), OnScreenCoordinate::Right(_b)) => {
-                Some((*a, area.width as usize - a))
+                Some((*a as u16, (area.width - *a as u16)))
             }
             (OnScreenCoordinate::Right(_a), OnScreenCoordinate::Left(_b)) => None,
 

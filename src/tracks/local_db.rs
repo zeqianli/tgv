@@ -1,6 +1,6 @@
 use crate::tracks::{TrackCache, TrackService, TRACK_PREFERENCES};
 use crate::{
-    contig::Contig,
+    contig_header::{Contig, ContigHeader},
     cytoband::{Cytoband, CytobandSegment, Stain},
     error::TGVError,
     feature::{Gene, SubGeneFeature},
@@ -9,6 +9,7 @@ use crate::{
     region::Region,
     strand::Strand,
     track::Track,
+    tracks::schema::*,
 };
 use async_trait::async_trait;
 use sqlx::{
@@ -66,64 +67,20 @@ impl LocalDbTrackService {
             .collect()
     }
 
-    fn parse_gene_rows(&self, rows: Vec<SqliteRow>) -> Result<Vec<Gene>, TGVError> {
-        let mut genes = Vec::new();
-        for row in rows {
-            let name: String = row.try_get("name")?;
-            let chrom: String = row.try_get("chrom")?;
-            let strand_str: String = row.try_get("strand")?;
-            let tx_start: i64 = row.try_get("txStart")?;
-            let tx_end: i64 = row.try_get("txEnd")?;
-            let cds_start: i64 = row.try_get("cdsStart")?;
-            let cds_end: i64 = row.try_get("cdsEnd")?;
-
-            let name2: String = match row.try_get("name2") {
-                Ok(name2) => name2,
-                Err(_) => name.clone(),
-            };
-            let exon_starts_blob: Vec<u8> = row.try_get("exonStarts")?;
-            let exon_ends_blob: Vec<u8> = row.try_get("exonEnds")?;
-
-            // USCS coordinates are 0-based, half-open
-            // https://genome-blog.gi.ucsc.edu/blog/2016/12/12/the-ucsc-genome-browser-coordinate-counting-systems/
-
-            genes.push(Gene {
-                id: name,
-                name: name2,
-                strand: Strand::from_str(strand_str).unwrap(),
-                contig: Contig::new(&chrom),
-                transcription_start: tx_start as usize + 1,
-                transcription_end: tx_end as usize,
-                cds_start: cds_start as usize + 1,
-                cds_end: cds_end as usize,
-                exon_starts: Self::parse_blob_to_coords(&exon_starts_blob)
-                    .iter()
-                    .map(|v| v + 1)
-                    .collect(),
-                exon_ends: Self::parse_blob_to_coords(&exon_ends_blob),
-                has_exons: true,
-            });
-        }
-
-        Ok(genes)
-    }
-
     async fn get_preferred_track_name_with_cache(
         &self,
         reference: &Reference,
         cache: &mut TrackCache,
     ) -> Result<String, TGVError> {
-        if cache.get_preferred_track_name().is_none() {
-            let preferred_track = self.get_preferred_track_name(reference, cache).await?;
-            cache.set_preferred_track_name(preferred_track);
+        match &cache.preferred_track_name {
+            None => {
+                let preferred_track = self.get_preferred_track_name(reference, cache).await?;
+                cache.set_preferred_track_name(preferred_track.clone());
+                preferred_track
+            }
+            Some(track) => track.clone(),
         }
-
-        let preferred_track = match cache.get_preferred_track_name().unwrap() {
-            Some(track) => track,
-            None => return Err(TGVError::IOError("No preferred track found".to_string())),
-        };
-
-        Ok(preferred_track)
+        .ok_or(TGVError::IOError("No preferred track found".to_string()))
     }
 
     /// chrom name -> 2bit file name.
@@ -131,12 +88,15 @@ impl LocalDbTrackService {
     pub async fn get_contig_2bit_file_lookup(
         &self,
         reference: &Reference,
-    ) -> Result<HashMap<String, Option<String>>, TGVError> {
-        let rows_with_alias = sqlx::query("SELECT chrom, fileName FROM chromInfo")
-            .fetch_all(&*self.pool)
-            .await?;
+        contig_header: &ContigHeader,
+    ) -> Result<HashMap<usize, Option<String>>, TGVError> {
+        let rows_with_alias = sqlx::query(
+            "SELECT chrom, fileName FROM chromInfo WHERE chrom NOT LIKE 'chr%\\_%' ESCAPE '\\'",
+        )
+        .fetch_all(&*self.pool)
+        .await?;
 
-        let mut filename_hashmap: HashMap<String, Option<String>> = HashMap::new();
+        let mut filename_hashmap: HashMap<usize, Option<String>> = HashMap::new();
         for row in rows_with_alias {
             let chrom: String = row.try_get("chrom")?;
             let file_name: String = row.try_get("fileName")?;
@@ -154,7 +114,8 @@ impl LocalDbTrackService {
                         .to_string(),
                 )
             };
-            filename_hashmap.insert(chrom, basename);
+
+            filename_hashmap.insert(contig_header.get_index_by_str(&chrom)?, basename);
         }
 
         Ok(filename_hashmap)
@@ -172,122 +133,78 @@ impl TrackService for LocalDbTrackService {
         &self,
         reference: &Reference,
         cache: &mut TrackCache,
-    ) -> Result<Vec<(Contig, usize)>, TGVError> {
-        if let Ok(rows_with_alias) = sqlx::query(
-            "SELECT chromInfo.chrom as chrom, chromInfo.size as size, chromAlias.alias as alias
-             FROM chromInfo 
-             LEFT JOIN chromAlias ON chromAlias.chrom = chromInfo.chrom
-             WHERE chromInfo.chrom NOT LIKE 'chr%\\_%'
-             ORDER BY chromInfo.chrom",
+    ) -> Result<Vec<Contig>, TGVError> {
+        let contigs: Vec<ContigRow> = sqlx::query_as(
+            "SELECT 
+                chromInfo.chrom as chrom, 
+                chromInfo.size as size,
+                GROUP_CONCAT(chromAlias.alias, ',') as aliases
+            FROM chromInfo 
+            LEFT JOIN chromAlias ON chromAlias.chrom = chromInfo.chrom
+            WHERE chromInfo.chrom NOT LIKE 'chr%\\_%' ESCAPE '\\' 
+            GROUP BY chromInfo.chrom
+            ORDER BY chromInfo.chrom;
+            ",
         )
         .fetch_all(&*self.pool)
         .await
-        {
-            let mut contigs_hashmap: HashMap<String, (Contig, usize)> = HashMap::new();
-            for row in rows_with_alias {
-                let chrom: String = row.try_get("chrom")?;
-                let size: i64 = row.try_get("size")?;
-                let alias: String = row.try_get("alias")?;
-
-                match contigs_hashmap.get_mut(&chrom) {
-                    Some((ref mut contig, _)) => {
-                        contig.alias(&alias);
-                    }
-                    None => {
-                        let mut contig = Contig::new(&chrom);
-                        contig.alias(&alias);
-                        contigs_hashmap.insert(chrom.clone(), (contig, size as usize));
-                    }
-                }
-            }
-            let mut contigs = contigs_hashmap
-                .values()
-                .cloned()
-                .collect::<Vec<(Contig, usize)>>();
-            contigs.sort_by(|(a, length_a), (b, length_b)| {
-                if a.name.starts_with("chr") || b.name.starts_with("chr") {
-                    Contig::contigs_compare(a, b)
-                } else {
-                    length_b.cmp(length_a) // Sort by length in descending order
-                }
-            });
-
-            return Ok(contigs);
-        } else {
-            let rows = sqlx::query(
-                "SELECT chromInfo.chrom as chrom, chromInfo.size as size
-                 FROM chromInfo
-                 WHERE chromInfo.chrom NOT LIKE 'chr%\\_%'
-                 ORDER BY chromInfo.chrom",
+        .unwrap_or({
+            sqlx::query_as(
+                "SELECT 
+                    chromInfo.chrom as chrom, 
+                    chromInfo.size as size
+                FROM chromInfo 
+                WHERE chromInfo.chrom NOT LIKE 'chr%\\_%' ESCAPE '\\'
+                ORDER BY chromInfo.chrom",
             )
             .fetch_all(&*self.pool)
-            .await?;
+            .await?
+        });
 
-            let mut contigs = rows
-                .into_iter()
-                .map(|row| {
-                    let chrom: String = row.try_get("chrom")?;
-                    let size: i64 = row.try_get("size")?;
-                    Ok((Contig::new(&chrom), size as usize))
-                })
-                .collect::<Result<Vec<(Contig, usize)>, TGVError>>()?;
+        let mut contigs = contigs
+            .into_iter()
+            .map(|row| row.to_contig())
+            .collect::<Result<Vec<Contig>, TGVError>>()?;
 
-            contigs.sort_by(|(a, length_a), (b, length_b)| {
-                if a.name.starts_with("chr") || b.name.starts_with("chr") {
-                    Contig::contigs_compare(a, b)
-                } else {
-                    length_b.cmp(length_a) // Sort by length in descending order
-                }
-            });
+        contigs.sort_by(|a, b| {
+            if a.name.starts_with("chr") || b.name.starts_with("chr") {
+                Contig::contigs_compare(&a, &b)
+            } else {
+                b.length().cmp(&a.length()) // Sort by length in descending order
+            }
+        });
 
-            return Ok(contigs);
-        }
+        Ok(contigs)
     }
 
     async fn get_cytoband(
         &self,
         reference: &Reference,
-        contig: &Contig,
+        contig_index: usize,
         cache: &mut TrackCache,
+        contig_header: &ContigHeader,
     ) -> Result<Option<Cytoband>, TGVError> {
-        if let Ok(rows) = sqlx::query(
+        let contig_name = contig_header.get_name(contig_index)?;
+        let cytoband_segment_rows: Vec<CytobandSegmentRow> = sqlx::query_as(
             "SELECT chrom, chromStart, chromEnd, name, gieStain FROM cytoBandIdeo WHERE chrom = ?",
         )
-        .bind(contig.name.clone())
+        .bind(contig_name)
         .fetch_all(&*self.pool)
-        .await
-        {
-            if rows.is_empty() {
-                return Ok(None);
-            }
+        .await?;
 
-            let mut segments = Vec::with_capacity(rows.len());
-            for row in rows {
-                let chrom_start: i64 = row.try_get("chromStart")?;
-                let chrom_end: i64 = row.try_get("chromEnd")?;
-                let name: String = row.try_get("name")?;
-                let gie_stain_str: String = row.try_get("gieStain")?;
-
-                let stain = Stain::from(&gie_stain_str)?;
-
-                segments.push(CytobandSegment {
-                    contig: contig.clone(),
-                    start: chrom_start as usize + 1, // 0-based to 1-based
-                    end: chrom_end as usize,
-                    name,
-                    stain,
-                });
-            }
-
-            return Ok(Some(Cytoband {
-                reference: Some(reference.clone()),
-                contig: contig.clone(),
-                segments,
-            }));
-        } else {
-            /// Cytoband table is not available.
+        if cytoband_segment_rows.is_empty() {
             return Ok(None);
         }
+
+        // Cytoband table is not available.
+        Ok(Some(Cytoband {
+            reference: Some(reference.clone()),
+            contig_index: contig_index,
+            segments: cytoband_segment_rows
+                .into_iter()
+                .map(|segment| segment.to_cytoband_segment(contig_index))
+                .collect::<Result<Vec<CytobandSegment>, TGVError>>()?,
+        }))
     }
 
     async fn get_preferred_track_name(
@@ -310,9 +227,13 @@ impl TrackService for LocalDbTrackService {
             .map(|row| row.try_get::<String, &str>("name"))
             .collect::<Result<Vec<String>, sqlx::Error>>()?;
 
-        let preferred_track = get_preferred_track_name_from_vec(&available_gene_tracks)?;
+        for pref in TRACK_PREFERENCES {
+            if available_gene_tracks.contains(&pref.to_string()) {
+                return Ok(Some(pref.to_string()));
+            }
+        }
 
-        Ok(preferred_track)
+        Ok(None)
     }
 
     async fn query_genes_overlapping(
@@ -320,8 +241,10 @@ impl TrackService for LocalDbTrackService {
         reference: &Reference,
         region: &Region,
         cache: &mut TrackCache,
+        contig_header: &ContigHeader,
     ) -> Result<Vec<Gene>, TGVError> {
-        let rows = sqlx::query(
+        let contig_name = contig_header.get_name(region.contig_index())?;
+        let rows: Vec<UcscGeneRow> = sqlx::query_as(
             format!(
                 "SELECT * FROM {} 
              WHERE chrom = ? AND (txStart <= ?) AND (txEnd >= ?)",
@@ -330,23 +253,27 @@ impl TrackService for LocalDbTrackService {
             )
             .as_str(),
         )
-        .bind(region.contig.name.clone())
+        .bind(contig_name)
         .bind(region.end as i64) // end is 1-based inclusive, UCSC is 0-based exclusive
         .bind(region.start.saturating_sub(1) as i64) // start is 1-based inclusive, UCSC is 0-based inclusive
         .fetch_all(&*self.pool)
         .await?;
 
-        self.parse_gene_rows(rows)
+        rows.into_iter()
+            .map(|row| row.to_gene(contig_header))
+            .collect::<Result<Vec<Gene>, TGVError>>()
     }
 
     async fn query_gene_covering(
         &self,
         reference: &Reference,
-        contig: &Contig,
+        contig_index: usize,
         coord: usize,
         cache: &mut TrackCache,
+        contig_header: &ContigHeader,
     ) -> Result<Option<Gene>, TGVError> {
-        let row = sqlx::query(
+        let contig_name = contig_header.get_name(contig_index)?;
+        let gene_row: Option<UcscGeneRow> = sqlx::query_as(
             format!(
                 "SELECT *
              FROM {} 
@@ -356,26 +283,23 @@ impl TrackService for LocalDbTrackService {
             )
             .as_str(),
         )
-        .bind(contig.name.clone())
+        .bind(contig_name)
         .bind(coord.saturating_sub(1) as i64) // coord is 1-based inclusive, UCSC is 0-based inclusive
         .bind(coord as i64) // coord is 1-based inclusive, UCSC is 0-based exclusive
         .fetch_optional(&*self.pool)
         .await?;
 
-        if let Some(row) = row {
-            Ok(self.parse_gene_rows(vec![row])?.first().cloned())
-        } else {
-            Ok(None)
-        }
+        gene_row.map(|row| row.to_gene(contig_header)).transpose()
     }
 
     async fn query_gene_name(
         &self,
         reference: &Reference,
-        gene_id: &String,
+        gene_name: &String,
         cache: &mut TrackCache,
+        contig_header: &ContigHeader,
     ) -> Result<Gene, TGVError> {
-        let row = sqlx::query(
+        let gene_row: Option<UcscGeneRow> = sqlx::query_as(
             format!(
                 "SELECT *
             FROM {} 
@@ -385,39 +309,33 @@ impl TrackService for LocalDbTrackService {
             )
             .as_str(),
         )
-        .bind(gene_id)
+        .bind(gene_name)
         .fetch_optional(&*self.pool)
         .await?;
 
-        if let Some(row) = row {
-            self.parse_gene_rows(vec![row])?
-                .first()
-                .cloned()
-                .ok_or(TGVError::IOError(format!(
-                    "Failed to query gene: {}",
-                    gene_id
-                )))
-        } else {
-            Err(TGVError::IOError(format!(
+        gene_row
+            .ok_or(TGVError::IOError(format!(
                 "Failed to query gene: {}",
-                gene_id
-            )))
-        }
+                gene_name
+            )))?
+            .to_gene(contig_header)
     }
 
     async fn query_k_genes_after(
         &self,
         reference: &Reference,
-        contig: &Contig,
+        contig_index: usize,
         coord: usize,
         k: usize,
         cache: &mut TrackCache,
+        contig_header: &ContigHeader,
     ) -> Result<Gene, TGVError> {
+        let contig_name = contig_header.get_name(contig_index)?;
         if k == 0 {
             return Err(TGVError::ValueError("k cannot be 0".to_string()));
         }
 
-        let rows = sqlx::query(
+        let gene_rows: Vec<UcscGeneRow> = sqlx::query_as(
             format!(
                 "SELECT *
              FROM {} 
@@ -428,17 +346,13 @@ impl TrackService for LocalDbTrackService {
             )
             .as_str(),
         )
-        .bind(contig.name.clone())
+        .bind(contig_name)
         .bind(coord as i64) // coord is 1-based inclusive, UCSC is 0-based exclusive
         .bind((k + 1) as i64)
         .fetch_all(&*self.pool)
         .await?;
 
-        if rows.is_empty() {
-            return Err(TGVError::IOError("No genes found".to_string()));
-        }
-
-        Track::from_genes(self.parse_gene_rows(rows)?, contig.clone())?
+        Track::from_gene_rows(gene_rows, contig_index, contig_header)?
             .get_saturating_k_genes_after(coord, k)
             .cloned()
             .ok_or(TGVError::IOError("No genes found".to_string()))
@@ -447,16 +361,18 @@ impl TrackService for LocalDbTrackService {
     async fn query_k_genes_before(
         &self,
         reference: &Reference,
-        contig: &Contig,
+        contig_index: usize,
         coord: usize,
         k: usize,
         cache: &mut TrackCache,
+        contig_header: &ContigHeader,
     ) -> Result<Gene, TGVError> {
+        let contig_name = contig_header.get_name(contig_index)?;
         if k == 0 {
             return Err(TGVError::ValueError("k cannot be 0".to_string()));
         }
 
-        let rows = sqlx::query(
+        let gene_rows: Vec<UcscGeneRow> = sqlx::query_as(
             format!(
                 "SELECT *
              FROM {} 
@@ -467,17 +383,13 @@ impl TrackService for LocalDbTrackService {
             )
             .as_str(),
         )
-        .bind(contig.name.clone())
+        .bind(contig_name)
         .bind(coord.saturating_sub(1) as i64) // coord is 1-based inclusive, UCSC is 0-based inclusive
         .bind((k + 1) as i64)
         .fetch_all(&*self.pool)
         .await?;
 
-        if rows.is_empty() {
-            return Err(TGVError::IOError("No genes found".to_string()));
-        }
-
-        Track::from_genes(self.parse_gene_rows(rows)?, contig.clone())?
+        Track::from_gene_rows(gene_rows, contig_index, contig_header)?
             .get_saturating_k_genes_before(coord, k)
             .cloned()
             .ok_or(TGVError::IOError("No genes found".to_string()))
@@ -486,16 +398,18 @@ impl TrackService for LocalDbTrackService {
     async fn query_k_exons_after(
         &self,
         reference: &Reference,
-        contig: &Contig,
+        contig_index: usize,
         coord: usize,
         k: usize,
         cache: &mut TrackCache,
+        contig_header: &ContigHeader,
     ) -> Result<SubGeneFeature, TGVError> {
+        let contig_name = contig_header.get_name(contig_index)?;
         if k == 0 {
             return Err(TGVError::ValueError("k cannot be 0".to_string()));
         }
 
-        let rows = sqlx::query(
+        let gene_rows: Vec<UcscGeneRow> = sqlx::query_as(
             format!(
                 "SELECT *
              FROM {} 
@@ -506,17 +420,13 @@ impl TrackService for LocalDbTrackService {
             )
             .as_str(),
         )
-        .bind(contig.name.clone())
+        .bind(contig_name)
         .bind(coord as i64) // coord is 1-based inclusive, UCSC is 0-based exclusive
         .bind((k + 1) as i64)
         .fetch_all(&*self.pool)
         .await?;
 
-        let genes = self.parse_gene_rows(rows)?;
-
-        let track = Track::from_genes(genes, contig.clone())?;
-
-        track
+        Track::from_gene_rows(gene_rows, contig_index, contig_header)?
             .get_saturating_k_exons_after(coord, k)
             .ok_or(TGVError::IOError("No exons found".to_string()))
     }
@@ -524,16 +434,18 @@ impl TrackService for LocalDbTrackService {
     async fn query_k_exons_before(
         &self,
         reference: &Reference,
-        contig: &Contig,
+        contig_index: usize,
         coord: usize,
         k: usize,
         cache: &mut TrackCache,
+        contig_header: &ContigHeader,
     ) -> Result<SubGeneFeature, TGVError> {
+        let contig_name = contig_header.get_name(contig_index)?;
         if k == 0 {
             return Err(TGVError::ValueError("k cannot be 0".to_string()));
         }
 
-        let rows = sqlx::query(
+        let gene_rows: Vec<UcscGeneRow> = sqlx::query_as(
             format!(
                 "SELECT *
              FROM {} 
@@ -544,26 +456,14 @@ impl TrackService for LocalDbTrackService {
             )
             .as_str(),
         )
-        .bind(contig.name.clone())
+        .bind(contig_name)
         .bind(coord.saturating_sub(1) as i64) // coord is 1-based inclusive, UCSC is 0-based inclusive
         .bind((k + 1) as i64)
         .fetch_all(&*self.pool)
         .await?;
 
-        let genes = self.parse_gene_rows(rows)?;
-
-        Track::from_genes(genes, contig.clone())?
+        Track::from_gene_rows(gene_rows, contig_index, contig_header)?
             .get_saturating_k_exons_before(coord, k)
             .ok_or(TGVError::IOError("No exons found".to_string()))
     }
-}
-
-fn get_preferred_track_name_from_vec(names: &Vec<String>) -> Result<Option<String>, TGVError> {
-    for pref in TRACK_PREFERENCES {
-        if names.contains(&pref.to_string()) {
-            return Ok(Some(pref.to_string()));
-        }
-    }
-
-    Ok(None)
 }
