@@ -123,7 +123,7 @@ impl AlignedRead {
         // Hidden tags: MDLocation = chr20:78,249
         // Base = C @ QV 30
         Ok(format!(
-            "{}\tflag={}\tstart={}\tmapq={}\tcigar={}",
+            "{}  Flags={}  Start={}  MAPQ={}  Cigar={}",
             String::from_utf8(self.read.qname().to_vec())?,
             self.read.flags(),
             self.start,
