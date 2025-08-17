@@ -27,7 +27,7 @@ pub fn render_status_bar(area: &Rect, buf: &mut Buffer, state: &State) -> Result
         if depth == 0 {
             "".to_string()
         } else {
-            let y = state.window.top();
+            let y = state.window.top() + 1; // Change to 1-base
             let percent = y * 100 / depth;
             format!("{}% ({} / {})", percent, y, depth)
         }

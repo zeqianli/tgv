@@ -268,6 +268,9 @@ impl StateHandler {
             }
 
             StateMessage::GotoY(y) => StateHandler::go_to_y(state, y)?,
+            StateMessage::GotoYBottom => {
+                StateHandler::go_to_y(state, state.alignment_depth().unwrap_or(0))?
+            }
 
             // Zoom handling
             StateMessage::ZoomOut(r) => StateHandler::handle_zoom_out(state, r)?,
@@ -339,13 +342,6 @@ impl StateHandler {
                 )?;
 
                 state.layout.root = new_node;
-            }
-
-            _ => {
-                return Err(TGVError::StateError(format!(
-                    "Unhandled state message: {:?}",
-                    message
-                )));
             }
         };
 
@@ -509,11 +505,19 @@ impl StateHandler {
         Ok(())
     }
     fn move_up(state: &mut State, n: usize) -> Result<(), TGVError> {
-        state.window.set_top(state.window.top().saturating_sub(n));
+        state.window.set_top(
+            state.window.top().saturating_sub(n),
+            &state.area,
+            state.alignment_depth(),
+        );
         Ok(())
     }
     fn move_down(state: &mut State, n: usize) -> Result<(), TGVError> {
-        state.window.set_top(state.window.top().saturating_add(n));
+        state.window.set_top(
+            state.window.top().saturating_add(n),
+            &state.area,
+            state.alignment_depth(),
+        );
         Ok(())
     }
     fn go_to_coordinate(state: &mut State, n: usize) -> Result<(), TGVError> {
@@ -531,13 +535,18 @@ impl StateHandler {
         state
             .window
             .set_middle(&state.area, n, state.contig_length()?);
-        state.window.set_top(0);
+        state
+            .window
+            .set_top(0, &state.area, state.alignment_depth());
 
         Ok(())
     }
 
     fn go_to_y(state: &mut State, y: usize) -> Result<(), TGVError> {
-        state.window.set_top(y);
+        state
+            .window
+            .set_top(y, &state.area, state.alignment_depth());
+
         Ok(())
     }
 

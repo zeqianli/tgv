@@ -235,6 +235,7 @@ impl NormalModeRegister {
             "ge" => Ok(vec![StateMessage::GotoPreviousExonsEnd(n_movements)]),
             "gE" => Ok(vec![StateMessage::GotoPreviousGenesEnd(n_movements)]),
             "gg" => Ok(vec![StateMessage::GotoY(0)]),
+            "G" => Ok(vec![StateMessage::GotoYBottom]),
             "w" => Ok(vec![StateMessage::GotoNextExonsStart(n_movements)]),
             "b" => Ok(vec![StateMessage::GotoPreviousExonsStart(n_movements)]),
             "e" => Ok(vec![StateMessage::GotoNextExonsEnd(n_movements)]),
@@ -536,7 +537,8 @@ mod tests {
 
     #[rstest]
     #[case("",'g', Ok(vec![]))]
-    #[case("g",'g', Err(TGVError::RegisterError("Invalid input: g".to_string())))]
+    #[case("g",'g', Ok(vec![StateMessage::GotoY(0)]))]
+    #[case("",'G', Ok(vec![StateMessage::GotoYBottom]))]
     #[case("",'1', Ok(vec![]))]
     #[case("g",'1', Err(TGVError::RegisterError("Invalid input: g".to_string())))]
     #[case("", 'w', Ok(vec![StateMessage::GotoNextExonsStart(1)]))]
@@ -548,8 +550,8 @@ mod tests {
     #[case("", 'k', Ok(vec![StateMessage::MoveUp(1)]))]
     #[case("", 'z', Ok(vec![StateMessage::ZoomIn(2)]))]
     #[case("", 'o', Ok(vec![StateMessage::ZoomOut(2)]))]
-    #[case("", '{', Ok(vec![StateMessage::GotoPreviousContig(1)]))]
-    #[case("", '}', Ok(vec![StateMessage::GotoNextContig(1)]))]
+    #[case("", '{', Ok(vec![StateMessage::MoveUp(30)]))]
+    #[case("", '}', Ok(vec![StateMessage::MoveDown(30)]))]
     #[case("g", 'e', Ok(vec![StateMessage::GotoPreviousExonsEnd(1)]))]
     #[case("g", 'E', Ok(vec![StateMessage::GotoPreviousGenesEnd(1)]))]
     #[case("3", 'w', Ok(vec![StateMessage::GotoNextExonsStart(3)]))]
