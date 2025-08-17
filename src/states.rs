@@ -36,7 +36,7 @@ pub struct State {
     ///pub settings: Settings,
 
     /// Error messages for display.
-    pub errors: Vec<String>,
+    pub messages: Vec<String>,
 
     /// Alignment segments.
     pub alignment: Option<Alignment>,
@@ -76,7 +76,7 @@ impl State {
             reference: settings.reference.clone(),
 
             // /settings: settings.clone(),
-            errors: Vec::new(),
+            messages: Vec::new(),
 
             alignment: None,
             track: None,
@@ -120,12 +120,20 @@ impl State {
         self.window.contig_index
     }
 
+    pub fn contig_name(&self) -> Result<String, TGVError> {
+        self.contig_header.get_name(self.contig_index()).cloned()
+    }
+
     pub fn current_cytoband(&self) -> Option<&Cytoband> {
         self.contig_header.cytoband(self.contig_index())
     }
 
+    pub fn alignment_depth(&self) -> Option<usize> {
+        self.alignment.as_ref().map(|alignment| alignment.depth())
+    }
+
     pub fn add_error_message(&mut self, error: String) {
-        self.errors.push(error);
+        self.messages.push(error);
     }
 
     /// Maximum length of the contig.
@@ -358,12 +366,12 @@ impl StateHandler {
     }
 
     fn add_message(state: &mut State, message: String) -> Result<(), TGVError> {
-        state.errors.push(message);
+        state.messages.push(message);
         Ok(())
     }
 
     fn clear_messages(state: &mut State) -> Result<(), TGVError> {
-        state.errors.clear();
+        state.messages.clear();
         Ok(())
     }
 
