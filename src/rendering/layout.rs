@@ -702,6 +702,10 @@ impl MouseRegister {
 
             event::MouseEventKind::ScrollUp => messages.push(StateMessage::MoveUp(1)),
 
+            event::MouseEventKind::ScrollLeft => messages.push(StateMessage::MoveLeft(1)),
+
+            event::MouseEventKind::ScrollRight => messages.push(StateMessage::MoveRight(1)),
+
             _ => {}
         }
 
