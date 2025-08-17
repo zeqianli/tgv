@@ -170,12 +170,26 @@ impl ViewingWindow {
         }
     }
 
-    //
+    pub fn self_correct_y(&mut self, area: &Rect, depth: Option<usize>) {
+        // TODO: prevent scrolling past the bottom alignment. But this needs to store the alignment area.
+        self.top = if let Some(depth) = depth {
+            if depth == 0 {
+                0
+            } else {
+                usize::min(self.top, depth - 1)
+            }
+        } else {
+            0
+        }
+    }
 
     /// Set the top track # of the viewing window.
     /// 0-based.
-    pub fn set_top(&mut self, top: usize) {
+    pub fn set_top(&mut self, top: usize, area: &Rect, depth: Option<usize>) {
+        // TODO: prevent scrolling past the bottom alignment. But this needs to store the alignment area.
+
         self.top = top;
+        self.self_correct_y(area, depth);
     }
 
     /// Right genome coordinate of the viewing window.

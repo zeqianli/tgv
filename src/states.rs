@@ -36,7 +36,7 @@ pub struct State {
     ///pub settings: Settings,
 
     /// Error messages for display.
-    pub errors: Vec<String>,
+    pub messages: Vec<String>,
 
     /// Alignment segments.
     pub alignment: Option<Alignment>,
@@ -76,7 +76,7 @@ impl State {
             reference: settings.reference.clone(),
 
             // /settings: settings.clone(),
-            errors: Vec::new(),
+            messages: Vec::new(),
 
             alignment: None,
             track: None,
@@ -120,12 +120,20 @@ impl State {
         self.window.contig_index
     }
 
+    pub fn contig_name(&self) -> Result<String, TGVError> {
+        self.contig_header.get_name(self.contig_index()).cloned()
+    }
+
     pub fn current_cytoband(&self) -> Option<&Cytoband> {
         self.contig_header.cytoband(self.contig_index())
     }
 
+    pub fn alignment_depth(&self) -> Option<usize> {
+        self.alignment.as_ref().map(|alignment| alignment.depth())
+    }
+
     pub fn add_error_message(&mut self, error: String) {
-        self.errors.push(error);
+        self.messages.push(error);
     }
 
     /// Maximum length of the contig.
@@ -259,6 +267,11 @@ impl StateHandler {
                 )?
             }
 
+            StateMessage::GotoY(y) => StateHandler::go_to_y(state, y)?,
+            StateMessage::GotoYBottom => {
+                StateHandler::go_to_y(state, state.alignment_depth().unwrap_or(0))?
+            }
+
             // Zoom handling
             StateMessage::ZoomOut(r) => StateHandler::handle_zoom_out(state, r)?,
             StateMessage::ZoomIn(r) => StateHandler::handle_zoom_in(state, r)?,
@@ -330,13 +343,6 @@ impl StateHandler {
 
                 state.layout.root = new_node;
             }
-
-            _ => {
-                return Err(TGVError::StateError(format!(
-                    "Unhandled state message: {:?}",
-                    message
-                )));
-            }
         };
 
         Self::get_data_requirements(state, settings)
@@ -356,12 +362,12 @@ impl StateHandler {
     }
 
     fn add_message(state: &mut State, message: String) -> Result<(), TGVError> {
-        state.errors.push(message);
+        state.messages.push(message);
         Ok(())
     }
 
     fn clear_messages(state: &mut State) -> Result<(), TGVError> {
-        state.errors.clear();
+        state.messages.clear();
         Ok(())
     }
 
@@ -499,11 +505,19 @@ impl StateHandler {
         Ok(())
     }
     fn move_up(state: &mut State, n: usize) -> Result<(), TGVError> {
-        state.window.set_top(state.window.top().saturating_sub(n));
+        state.window.set_top(
+            state.window.top().saturating_sub(n),
+            &state.area,
+            state.alignment_depth(),
+        );
         Ok(())
     }
     fn move_down(state: &mut State, n: usize) -> Result<(), TGVError> {
-        state.window.set_top(state.window.top().saturating_add(n));
+        state.window.set_top(
+            state.window.top().saturating_add(n),
+            &state.area,
+            state.alignment_depth(),
+        );
         Ok(())
     }
     fn go_to_coordinate(state: &mut State, n: usize) -> Result<(), TGVError> {
@@ -521,7 +535,17 @@ impl StateHandler {
         state
             .window
             .set_middle(&state.area, n, state.contig_length()?);
-        state.window.set_top(0);
+        state
+            .window
+            .set_top(0, &state.area, state.alignment_depth());
+
+        Ok(())
+    }
+
+    fn go_to_y(state: &mut State, y: usize) -> Result<(), TGVError> {
+        state
+            .window
+            .set_top(y, &state.area, state.alignment_depth());
 
         Ok(())
     }

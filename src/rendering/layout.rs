@@ -5,7 +5,7 @@ use crate::message::{self, StateMessage};
 pub use crate::rendering::colors::Palette;
 pub use crate::rendering::{
     render_alignment, render_bed, render_console, render_coordinates, render_coverage,
-    render_cytobands, render_error, render_sequence, render_track, render_variants,
+    render_cytobands, render_sequence, render_status_bar, render_track, render_variants,
 };
 
 use crate::error::TGVError;
@@ -351,7 +351,7 @@ impl MainLayout {
                 }
             }
             AreaType::Error => {
-                render_error(rect, buf, &state.errors)?;
+                render_status_bar(rect, buf, state)?;
             }
             AreaType::Variant => {
                 if let Some(variants) = repository.variant_repository.as_ref() {
@@ -640,6 +640,11 @@ impl MouseRegister {
                     }
                 }
             }
+
+            event::MouseEventKind::ScrollDown => messages.push(StateMessage::MoveDown(1)),
+
+            event::MouseEventKind::ScrollUp => messages.push(StateMessage::MoveUp(1)),
+
             _ => {}
         }
 

@@ -21,8 +21,10 @@ pub fn render_alignment(
     background_color: &Color,
     pallete: &Palette,
 ) -> Result<(), TGVError> {
-    // This iterates through all cached reads and re-calculates coordinates for each movement.
-    // Consider improvement.
+    if area.height < 1 {
+        return Ok(());
+    }
+
     if let Some(alignment) = &state.alignment {
         for read in alignment.reads.iter() {
             for context in read.rendering_contexts.iter() {
