@@ -48,17 +48,20 @@ pub fn render_coverage(
     );
 
     // stacked bar plot by rendering multiple sparklines. Start with the bottom.
+    // TODO
+    // For now, use just two colors like IGV.
+    // Add more functions in the future?
 
     // Softclip
-    let data = binned_coverage
-        .iter()
-        .map(|coverage| coverage.ATCGN_softclip as u64)
-        .collect::<Vec<u64>>();
-    Sparkline::default()
-        .data(&data)
-        .max(y_max as u64)
-        .style(Style::default().fg(palette.COVERAGE_SOFTCLIP))
-        .render(*area, buf);
+    // let data = binned_coverage
+    //     .iter()
+    //     .map(|coverage| coverage.ATCGN_softclip as u64)
+    //     .collect::<Vec<u64>>();
+    // Sparkline::default()
+    //     .data(&data)
+    //     .max(y_max as u64)
+    //     .style(Style::default().fg(palette.COVERAGE_SOFTCLIP))
+    //     .render(*area, buf);
 
     // N
     let data = binned_coverage
@@ -72,48 +75,48 @@ pub fn render_coverage(
         .render(*area, buf);
 
     // G
-    let data = binned_coverage
-        .iter()
-        .map(|coverage| coverage.ATCG as u64)
-        .collect::<Vec<u64>>();
-    Sparkline::default()
-        .data(&data)
-        .max(y_max as u64)
-        .style(Style::default().fg(palette.COVERAGE_G))
-        .render(*area, buf);
+    // let data = binned_coverage
+    //     .iter()
+    //     .map(|coverage| coverage.ATCG as u64)
+    //     .collect::<Vec<u64>>();
+    // Sparkline::default()
+    //     .data(&data)
+    //     .max(y_max as u64)
+    //     .style(Style::default().fg(palette.COVERAGE_G))
+    //     .render(*area, buf);
 
     // C
-    let data = binned_coverage
-        .iter()
-        .map(|coverage| coverage.ATC as u64)
-        .collect::<Vec<u64>>();
-    Sparkline::default()
-        .data(&data)
-        .max(y_max as u64)
-        .style(Style::default().fg(palette.COVERAGE_C))
-        .render(*area, buf);
+    // let data = binned_coverage
+    //     .iter()
+    //     .map(|coverage| coverage.ATC as u64)
+    //     .collect::<Vec<u64>>();
+    // Sparkline::default()
+    //     .data(&data)
+    //     .max(y_max as u64)
+    //     .style(Style::default().fg(palette.COVERAGE_C))
+    //     .render(*area, buf);
 
-    // T
-    let data = binned_coverage
-        .iter()
-        .map(|coverage| coverage.AT as u64)
-        .collect::<Vec<u64>>();
-    Sparkline::default()
-        .data(&data)
-        .max(y_max as u64)
-        .style(Style::default().fg(palette.COVERAGE_T))
-        .render(*area, buf);
+    // // T
+    // let data = binned_coverage
+    //     .iter()
+    //     .map(|coverage| coverage.AT as u64)
+    //     .collect::<Vec<u64>>();
+    // Sparkline::default()
+    //     .data(&data)
+    //     .max(y_max as u64)
+    //     .style(Style::default().fg(palette.COVERAGE_T))
+    //     .render(*area, buf);
 
-    // A
-    let data = binned_coverage
-        .iter()
-        .map(|coverage| coverage.A as u64)
-        .collect::<Vec<u64>>();
-    Sparkline::default()
-        .data(&data)
-        .max(y_max as u64)
-        .style(Style::default().fg(palette.COVERAGE_A))
-        .render(*area, buf);
+    // // A
+    // let data = binned_coverage
+    //     .iter()
+    //     .map(|coverage| coverage.A as u64)
+    //     .collect::<Vec<u64>>();
+    // Sparkline::default()
+    //     .data(&data)
+    //     .max(y_max as u64)
+    //     .style(Style::default().fg(palette.COVERAGE_A))
+    //     .render(*area, buf);
 
     buf.set_string(area.x, area.y, format!("[0-{}]", y_max,), Style::default());
 

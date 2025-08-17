@@ -436,7 +436,7 @@ fn calculate_basewise_coverage(
                     output
                         .entry(reference_pivot + i)
                         .or_default()
-                        .update(seq[query_pivot + i])
+                        .update(seq[query_pivot + i - 1])
                 })
                 .collect(),
 
