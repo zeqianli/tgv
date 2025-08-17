@@ -327,7 +327,7 @@ impl MainLayout {
             AreaType::Coordinate => render_coordinates(rect, buf, state)?,
             AreaType::Coverage => {
                 if state.alignment_renderable() {
-                    render_coverage(rect, buf, state)?;
+                    render_coverage(rect, buf, state, pallete)?;
                 }
             }
             AreaType::Alignment => {

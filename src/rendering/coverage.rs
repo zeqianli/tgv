@@ -5,15 +5,23 @@ use ratatui::{
     widgets::{Sparkline, Widget},
 };
 
-use crate::alignment::Alignment;
-use crate::error::TGVError;
-use crate::states::State;
+use crate::{
+    alignment::{Alignment, BaseCoverage},
+    error::TGVError,
+    rendering::Palette,
+    states::State,
+};
 
 const MIN_AREA_WIDTH: u16 = 2;
 const MIN_AREA_HEIGHT: u16 = 1;
 
 /// Render the coverage barplot.
-pub fn render_coverage(area: &Rect, buf: &mut Buffer, state: &State) -> Result<(), TGVError> {
+pub fn render_coverage(
+    area: &Rect,
+    buf: &mut Buffer,
+    state: &State,
+    palette: &Palette,
+) -> Result<(), TGVError> {
     if area.width < MIN_AREA_WIDTH || area.height < MIN_AREA_HEIGHT {
         return Ok(());
     }
@@ -31,11 +39,81 @@ pub fn render_coverage(area: &Rect, buf: &mut Buffer, state: &State) -> Result<(
         area.width as usize,
     )?;
 
-    let y_max = round_up_max_coverage(*binned_coverage.iter().max().unwrap_or(&0));
+    let y_max: usize = round_up_max_coverage(
+        binned_coverage
+            .iter()
+            .max_by_key(|x| x.ATCGN_softclip)
+            .map(|coverage| coverage.ATCGN_softclip)
+            .unwrap_or(0),
+    );
 
-    let sparkline = Sparkline::default().data(&binned_coverage).max(y_max);
+    // stacked bar plot by rendering multiple sparklines. Start with the bottom.
 
-    sparkline.render(*area, buf);
+    // Softclip
+    let data = binned_coverage
+        .iter()
+        .map(|coverage| coverage.ATCGN_softclip as u64)
+        .collect::<Vec<u64>>();
+    Sparkline::default()
+        .data(&data)
+        .max(y_max as u64)
+        .style(Style::default().fg(palette.COVERAGE_SOFTCLIP))
+        .render(*area, buf);
+
+    // N
+    let data = binned_coverage
+        .iter()
+        .map(|coverage| coverage.ATCGN as u64)
+        .collect::<Vec<u64>>();
+    Sparkline::default()
+        .data(&data)
+        .max(y_max as u64)
+        .style(Style::default().fg(palette.COVERAGE_TOTAL))
+        .render(*area, buf);
+
+    // G
+    let data = binned_coverage
+        .iter()
+        .map(|coverage| coverage.ATCG as u64)
+        .collect::<Vec<u64>>();
+    Sparkline::default()
+        .data(&data)
+        .max(y_max as u64)
+        .style(Style::default().fg(palette.COVERAGE_G))
+        .render(*area, buf);
+
+    // C
+    let data = binned_coverage
+        .iter()
+        .map(|coverage| coverage.ATC as u64)
+        .collect::<Vec<u64>>();
+    Sparkline::default()
+        .data(&data)
+        .max(y_max as u64)
+        .style(Style::default().fg(palette.COVERAGE_C))
+        .render(*area, buf);
+
+    // T
+    let data = binned_coverage
+        .iter()
+        .map(|coverage| coverage.AT as u64)
+        .collect::<Vec<u64>>();
+    Sparkline::default()
+        .data(&data)
+        .max(y_max as u64)
+        .style(Style::default().fg(palette.COVERAGE_T))
+        .render(*area, buf);
+
+    // A
+    let data = binned_coverage
+        .iter()
+        .map(|coverage| coverage.A as u64)
+        .collect::<Vec<u64>>();
+    Sparkline::default()
+        .data(&data)
+        .max(y_max as u64)
+        .style(Style::default().fg(palette.COVERAGE_A))
+        .render(*area, buf);
 
     buf.set_string(area.x, area.y, format!("[0-{}]", y_max,), Style::default());
 
@@ -43,7 +121,7 @@ pub fn render_coverage(area: &Rect, buf: &mut Buffer, state: &State) -> Result<(
 }
 
 /// Round up the maximum coverage to two significant digits.
-fn round_up_max_coverage(x: u64) -> u64 {
+fn round_up_max_coverage(x: usize) -> usize {
     if x < 10 {
         return 10;
     }
@@ -110,6 +188,46 @@ fn get_linear_space(
     Ok(bins)
 }
 
+/// Cumulative count data to make the stacked-bar plot
+#[derive(Debug, Clone, Default)]
+#[allow(non_snake_case)]
+struct CoverageHistogramData {
+    A: usize,
+    AT: usize,
+    ATC: usize,
+    ATCG: usize,
+    ATCGN: usize,
+    ATCGN_softclip: usize,
+}
+
+#[allow(non_snake_case)]
+impl CoverageHistogramData {
+    fn from(value: &BaseCoverage) -> Self {
+        let A = value.A;
+        let AT = A + value.T;
+        let ATC = AT + value.C;
+        let ATCG = ATC + value.G;
+        let ATCGN = ATCG + value.N;
+
+        CoverageHistogramData {
+            A: A,
+            AT: AT,
+            ATC: ATC,
+            ATCG: ATCG,
+            ATCGN: ATCGN,
+            ATCGN_softclip: ATCGN + value.softclip,
+        }
+    }
+
+    fn add(&mut self, data: &CoverageHistogramData) {
+        self.A += data.A;
+        self.AT += data.AT;
+        self.ATC += data.ATC;
+        self.ATCG += data.ATCG;
+        self.ATCGN += data.ATCGN;
+        self.ATCGN_softclip += data.ATCGN_softclip;
+    }
+}
 /// Calculate the binned coverage in [left_bound, right_bound].
 /// 1-based, inclusive.
 fn calculate_binned_coverage(
@@ -117,7 +235,7 @@ fn calculate_binned_coverage(
     left: usize,
     right: usize,
     n_bins: usize,
-) -> Result<Vec<u64>, TGVError> {
+) -> Result<Vec<CoverageHistogramData>, TGVError> {
     if right < left {
         return Err(TGVError::ValueError("Right is less than left".to_string()));
     }
@@ -126,37 +244,27 @@ fn calculate_binned_coverage(
         return Err(TGVError::ValueError("n_bins is 0".to_string()));
     }
 
-    match (right - left + 1).cmp(&n_bins) {
-        std::cmp::Ordering::Less => {
-            return Err(TGVError::ValueError(
-                "n_bins is greater than the number of bases in the region".to_string(),
-            ))
-        }
-        std::cmp::Ordering::Equal => {
-            return Ok((left..right + 1)
-                .map(|x| alignment.coverage_at(x) as u64)
-                .collect());
-        }
-        std::cmp::Ordering::Greater => {}
+    if (right - left + 1 == n_bins) {
+        // 1x zoom. Not need to calulate binned coverage.
+        return Ok((left..right + 1)
+            .map(|x| CoverageHistogramData::from(alignment.coverage_at(x)))
+            .collect());
     }
 
     let linear_space: Vec<(usize, usize)> = get_linear_space(left, right, n_bins)?;
 
-    let binned_coverage: Result<Vec<u64>, TGVError> = linear_space
-        .iter()
+    let binned_coverage: Vec<CoverageHistogramData> = linear_space
+        .into_iter()
         .map(|(bin_left, bin_right)| {
-            if bin_left > bin_right {
-                return Err(TGVError::ValueError(
-                    "bin_left is greater than bin_right".to_string(),
-                ));
-            }
-            Ok(alignment
-                .mean_basewise_coverage_in(*bin_left, *bin_right)
-                .unwrap() as u64)
+            let mut data = CoverageHistogramData::default();
+            (bin_left..bin_right + 1)
+                .map(|x| data.add(&CoverageHistogramData::from(alignment.coverage_at(x))))
+                .collect::<()>();
+            data
         })
         .collect();
 
-    binned_coverage
+    Ok(binned_coverage)
 }
 
 #[cfg(test)]
@@ -175,7 +283,7 @@ mod tests {
     #[case(1000, 1000)]
     #[case(1001, 1100)]
     #[case(10001, 11000)]
-    fn test_round_up_max_coverage(#[case] input: u64, #[case] expected: u64) {
+    fn test_round_up_max_coverage(#[case] input: usize, #[case] expected: usize) {
         assert_eq!(round_up_max_coverage(input), expected);
     }
 

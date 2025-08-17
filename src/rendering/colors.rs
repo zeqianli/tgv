@@ -7,6 +7,7 @@ use ratatui::style::Color;
 
 // Background
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[allow(non_snake_case)]
 pub struct Palette {
     /// Track alternating colors
     pub background_1: Color,
@@ -28,6 +29,15 @@ pub struct Palette {
     pub MISMATCH_G: Color,
     pub MISMATCH_T: Color,
     pub MISMATCH_N: Color,
+
+    // Coverage
+    pub COVERAGE_A: Color,
+    pub COVERAGE_T: Color,
+    pub COVERAGE_C: Color,
+    pub COVERAGE_G: Color,
+    pub COVERAGE_N: Color,
+    pub COVERAGE_TOTAL: Color,
+    pub COVERAGE_SOFTCLIP: Color,
 
     // Cytoband
     pub HIGHLIGHT_COLOR: Color,
@@ -120,6 +130,14 @@ pub const DARK_THEME: Palette = Palette {
     MISMATCH_G: Color::LightBlue,
     MISMATCH_T: Color::LightYellow,
     MISMATCH_N: Color::LightMagenta,
+
+    COVERAGE_A: Color::LightRed,
+    COVERAGE_T: Color::LightYellow,
+    COVERAGE_C: Color::LightGreen,
+    COVERAGE_G: Color::LightBlue,
+    COVERAGE_N: Color::LightMagenta,
+    COVERAGE_TOTAL: Color::Gray,
+    COVERAGE_SOFTCLIP: Color::Cyan, // TODO
 
     // Cytoband
     HIGHLIGHT_COLOR: tailwind::RED.c800,

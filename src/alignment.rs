@@ -6,7 +6,7 @@ use rust_htslib::bam::ext::BamRecordExtensions;
 use rust_htslib::bam::record::{Cigar, CigarStringView};
 use rust_htslib::bam::{record::Seq, Read, Record};
 use sqlx::query;
-use std::collections::{BTreeMap, HashMap};
+use std::collections::{hash_map::Entry, BTreeMap, HashMap};
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum RenderingContextModifier {
@@ -363,6 +363,95 @@ fn calculate_rendering_contexts(
     Ok(output)
 }
 
+/// See: https://samtools.github.io/hts-specs/SAMv1.pdf
+fn calculate_basewise_coverage(
+    reference_start: usize, // 1-based. Alignment start, not softclip start
+    cigars: &CigarStringView,
+    leading_softclips: usize,
+    seq: &Seq,
+) -> Result<HashMap<usize, BaseCoverage>, TGVError> {
+    let mut output: HashMap<usize, BaseCoverage> = HashMap::new();
+    if cigars.len() == 0 {
+        return Ok(output);
+    }
+
+    let mut reference_pivot: usize = reference_start;
+    let mut query_pivot: usize = 1; // 1-based. # bases on the sequence. Note that need to substract leading softclips to get aligned base coordinate.
+
+    for (i_op, op) in cigars.iter().enumerate() {
+        let next_reference_pivot = if consumes_reference(op) {
+            reference_pivot + op.len() as usize
+        } else {
+            reference_pivot
+        };
+
+        let next_query_pivot = if consumes_query(op) {
+            query_pivot + op.len() as usize
+        } else {
+            query_pivot
+        };
+
+        match op {
+            Cigar::SoftClip(l) => {
+                // S
+                if query_pivot <= leading_softclips {
+                    // leading softclips. base rendered at the left of reference pivot.
+                    for i_soft_clip_base in 0..*l as usize {
+                        if reference_pivot + i_soft_clip_base <= leading_softclips + 1 {
+                            //base_coordinate <= 1 (on the edge of screen)
+                            // Prevent cases when a soft clip is at the very starting of the reference genome:
+                            //    ----------- (ref)
+                            //  ssss======>   (read)
+                            //    ^           edge of screen
+                            //  ^^            these softcliped bases are not displayed
+                            continue;
+                        }
+
+                        let base_coordinate: usize =
+                            reference_pivot - leading_softclips + i_soft_clip_base;
+                        let base = seq[i_soft_clip_base];
+
+                        output
+                            .entry(base_coordinate)
+                            .or_default()
+                            .update_softclip(base)
+                    }
+                } else {
+                    // right softclips. base rendered at the right of reference pivot.
+                    for i_soft_clip_base in 0..*l as usize {
+                        let base_coordinate: usize = reference_pivot + i_soft_clip_base;
+                        let base = seq[query_pivot + i_soft_clip_base - 1];
+                        output
+                            .entry(base_coordinate)
+                            .or_default()
+                            .update_softclip(base);
+                    }
+                }
+            }
+
+            Cigar::Ins(l) => {}
+
+            Cigar::Del(l) | Cigar::RefSkip(l) => {}
+
+            Cigar::Diff(l) | Cigar::Equal(l) | Cigar::Match(l) => (0..*l as usize)
+                .map(|i| {
+                    output
+                        .entry(reference_pivot + i)
+                        .or_default()
+                        .update(seq[query_pivot + i])
+                })
+                .collect(),
+
+            Cigar::HardClip(l) | Cigar::Pad(l) => {}
+        }
+
+        query_pivot = next_query_pivot;
+        reference_pivot = next_reference_pivot;
+    }
+
+    Ok(output)
+}
+
 fn matches_base(base1: u8, base2: u8) -> bool {
     if base1 == base2 {
         return true;
@@ -427,7 +516,60 @@ fn can_be_annotated_with_arrows(op: &Cigar) -> bool {
         Cigar::HardClip(_l) | Cigar::Pad(_l) | Cigar::Ins(_l) => false,
     }
 }
+#[derive(Clone, Debug, Default)]
+#[allow(non_snake_case)]
+pub struct BaseCoverage {
+    pub A: usize,
+    pub T: usize,
+    pub C: usize,
+    pub G: usize,
 
+    pub N: usize,
+
+    // total coverage, exluding softclips
+    pub total: usize,
+
+    // Softclip count
+    pub softclip: usize,
+}
+
+impl BaseCoverage {
+    pub fn update(&mut self, base: u8) {
+        match base {
+            b'A' | b'a' => self.A += 1,
+            b'T' | b't' => self.T += 1,
+            b'C' | b'c' => self.C += 1,
+            b'G' | b'g' => self.G += 1,
+
+            _ => self.N += 1,
+        }
+
+        self.total += 1;
+    }
+
+    pub fn update_softclip(&mut self, base: u8) {
+        self.softclip += 1
+    }
+
+    pub fn add(&mut self, other: BaseCoverage) {
+        self.A += other.A;
+        self.T += other.T;
+        self.C += other.C;
+        self.G += other.G;
+        self.total += other.total;
+        self.softclip += other.softclip;
+    }
+}
+
+static DEFAULT_COVERAGE: BaseCoverage = BaseCoverage {
+    A: 0,
+    T: 0,
+    C: 0,
+    G: 0,
+    N: 0,
+    total: 0,
+    softclip: 0,
+};
 /// A alignment region on a contig.
 pub struct Alignment {
     pub reads: Vec<AlignedRead>,
@@ -435,7 +577,7 @@ pub struct Alignment {
     pub contig_index: usize,
 
     /// Coverage at each position. Keys are 1-based, inclusive.
-    coverage: BTreeMap<usize, usize>,
+    coverage: BTreeMap<usize, BaseCoverage>,
 
     /// The left bound of region with complete data.
     /// 1-based, inclusive.
@@ -468,37 +610,11 @@ impl Alignment {
 
     /// Basewise coverage at position.
     /// 1-based, inclusive.
-    pub fn coverage_at(&self, pos: usize) -> usize {
-        if pos < self.data_complete_left_bound || pos > self.data_complete_right_bound {
-            return 0;
-        }
+    pub fn coverage_at(&self, pos: usize) -> &BaseCoverage {
         match self.coverage.get(&pos) {
-            Some(coverage) => *coverage,
-            None => 0,
+            Some(coverage) => coverage,
+            None => &DEFAULT_COVERAGE,
         }
-    }
-
-    /// Mean basewise coverage in [left, right].
-    /// 1-based, inclusive.
-    pub fn mean_basewise_coverage_in(&self, left: usize, right: usize) -> Result<usize, TGVError> {
-        if right < left {
-            return Err(TGVError::ValueError("Right is less than left".to_string()));
-        }
-
-        if right < self.data_complete_left_bound || left > self.data_complete_right_bound {
-            return Ok(0);
-        }
-
-        if right == left {
-            return Ok(self.coverage_at(left));
-        }
-
-        Ok(self
-            .coverage
-            .range(left..right + 1)
-            .map(|(_, coverage)| coverage)
-            .sum::<usize>()
-            / (right - left + 1))
     }
 
     /// Return the read at x_coordinate, yth track
@@ -535,7 +651,7 @@ impl Alignment {
 
 pub struct AlignmentBuilder {
     aligned_reads: Vec<AlignedRead>,
-    coverage_hashmap: HashMap<usize, usize>,
+    coverage_hashmap: HashMap<usize, BaseCoverage>,
 
     track_left_bounds: Vec<usize>,
     track_right_bounds: Vec<usize>,
@@ -627,9 +743,19 @@ impl AlignmentBuilder {
         }
 
         // update coverge hashmap
-        for i in aligned_read.range() {
-            // TODO: check exclusivity here
-            *self.coverage_hashmap.entry(i).or_insert(1) += 1;
+        let read_coverage = calculate_basewise_coverage(
+            read_start,
+            &cigars,
+            leading_softclips,
+            &aligned_read.read.seq(),
+        )?; // TODO: seq() is called twice. Optimize this in the future.
+        for (i, coverage) in read_coverage.into_iter() {
+            match self.coverage_hashmap.entry(i) {
+                Entry::Occupied(mut oe) => oe.get_mut().add(coverage),
+                Entry::Vacant(ve) => {
+                    ve.insert(coverage);
+                }
+            }
         }
 
         // Add to reads
@@ -661,11 +787,11 @@ impl AlignmentBuilder {
     }
 
     pub fn build(self) -> Result<Alignment, TGVError> {
-        let mut coverage: BTreeMap<usize, usize> = BTreeMap::new();
+        let mut coverage: BTreeMap<usize, BaseCoverage> = BTreeMap::new();
 
         // Convert hashmap to BTreeMap
-        for (k, v) in &self.coverage_hashmap {
-            *coverage.entry(*k).or_insert(*v) += v;
+        for (k, v) in self.coverage_hashmap.into_iter() {
+            coverage.insert(k, v);
         }
 
         let mut index = vec![Vec::new(); self.track_left_bounds.len()];
