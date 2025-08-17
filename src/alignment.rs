@@ -1,11 +1,9 @@
 use crate::error::TGVError;
-use crate::intervals::GenomeInterval;
 use crate::region::Region;
 use crate::sequence::Sequence;
 use rust_htslib::bam::ext::BamRecordExtensions;
 use rust_htslib::bam::record::{Cigar, CigarStringView};
 use rust_htslib::bam::{record::Seq, Read, Record};
-use sqlx::query;
 use std::collections::{hash_map::Entry, BTreeMap, HashMap};
 
 #[derive(Clone, Debug, PartialEq, Eq)]
