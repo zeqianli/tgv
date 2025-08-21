@@ -367,6 +367,7 @@ fn calculate_basewise_coverage(
     cigars: &CigarStringView,
     leading_softclips: usize,
     seq: &Seq,
+    reference_sequence: Option<&Sequence>,
 ) -> Result<HashMap<usize, BaseCoverage>, TGVError> {
     let mut output: HashMap<usize, BaseCoverage> = HashMap::new();
     if cigars.len() == 0 {
@@ -411,7 +412,15 @@ fn calculate_basewise_coverage(
 
                         output
                             .entry(base_coordinate)
-                            .or_default()
+                            .or_insert(BaseCoverage::new(match reference_sequence {
+                                Some(sequence) => sequence.base_at(base_coordinate).ok_or(
+                                    TGVError::ValueError(format!(
+                                        "Sequence not loaded for {}",
+                                        base_coordinate
+                                    )),
+                                )?,
+                                None => b'N',
+                            }))
                             .update_softclip(base)
                     }
                 } else {
@@ -421,7 +430,15 @@ fn calculate_basewise_coverage(
                         let base = seq[query_pivot + i_soft_clip_base - 1];
                         output
                             .entry(base_coordinate)
-                            .or_default()
+                            .or_insert(BaseCoverage::new(match reference_sequence {
+                                Some(sequence) => sequence.base_at(base_coordinate).ok_or(
+                                    TGVError::ValueError(format!(
+                                        "Sequence not loaded for {}",
+                                        base_coordinate
+                                    )),
+                                )?,
+                                None => b'N',
+                            }))
                             .update_softclip(base);
                     }
                 }
@@ -431,15 +448,25 @@ fn calculate_basewise_coverage(
 
             Cigar::Del(l) | Cigar::RefSkip(l) => {}
 
-            Cigar::Diff(l) | Cigar::Equal(l) | Cigar::Match(l) => (0..*l as usize)
-                .map(|i| {
+            Cigar::Diff(l) | Cigar::Equal(l) | Cigar::Match(l) => {
+                for i in 0..*l as usize {
+                    let base_coordinate = reference_pivot + i;
                     output
-                        .entry(reference_pivot + i)
-                        .or_default()
+                        .entry(base_coordinate)
+                        .or_insert(BaseCoverage::new(match reference_sequence {
+                            Some(sequence) => {
+                                sequence
+                                    .base_at(base_coordinate)
+                                    .ok_or(TGVError::ValueError(format!(
+                                        "Sequence not loaded for {}",
+                                        base_coordinate
+                                    )))?
+                            }
+                            None => b'N',
+                        }))
                         .update(seq[query_pivot + i - 1])
-                })
-                .collect(),
-
+                }
+            }
             Cigar::HardClip(l) | Cigar::Pad(l) => {}
         }
 
@@ -514,7 +541,7 @@ fn can_be_annotated_with_arrows(op: &Cigar) -> bool {
         Cigar::HardClip(_l) | Cigar::Pad(_l) | Cigar::Ins(_l) => false,
     }
 }
-#[derive(Clone, Debug, Default)]
+#[derive(Clone, Debug)]
 #[allow(non_snake_case)]
 pub struct BaseCoverage {
     pub A: usize,
@@ -529,9 +556,25 @@ pub struct BaseCoverage {
 
     // Softclip count
     pub softclip: usize,
+
+    // reference_base
+    pub reference_base: u8,
 }
 
 impl BaseCoverage {
+    pub fn new(reference_base: u8) -> Self {
+        return Self {
+            A: 0,
+            T: 0,
+            C: 0,
+            G: 0,
+            N: 0,
+            total: 0,
+            softclip: 0,
+            reference_base: reference_base,
+        };
+    }
+
     pub fn update(&mut self, base: u8) {
         match base {
             b'A' | b'a' => self.A += 1,
@@ -557,6 +600,16 @@ impl BaseCoverage {
         self.total += other.total;
         self.softclip += other.softclip;
     }
+
+    pub fn max_alt_ref_depth(&self) -> Option<(usize, usize)> {
+        match self.reference_base {
+            b'A' | b'a' => Some((usize::max(usize::max(self.C, self.T), self.G), self.A)),
+            b'T' | b't' => Some((usize::max(usize::max(self.A, self.C), self.G), self.T)),
+            b'C' | b'c' => Some((usize::max(usize::max(self.A, self.T), self.G), self.C)),
+            b'G' | b'g' => Some((usize::max(usize::max(self.C, self.T), self.A), self.G)),
+            _ => None,
+        }
+    }
 }
 
 static DEFAULT_COVERAGE: BaseCoverage = BaseCoverage {
@@ -567,6 +620,7 @@ static DEFAULT_COVERAGE: BaseCoverage = BaseCoverage {
     N: 0,
     total: 0,
     softclip: 0,
+    reference_base: b'N',
 };
 /// A alignment region on a contig.
 pub struct Alignment {
@@ -746,6 +800,7 @@ impl AlignmentBuilder {
             &cigars,
             leading_softclips,
             &aligned_read.read.seq(),
+            reference_sequence,
         )?; // TODO: seq() is called twice. Optimize this in the future.
         for (i, coverage) in read_coverage.into_iter() {
             match self.coverage_hashmap.entry(i) {
