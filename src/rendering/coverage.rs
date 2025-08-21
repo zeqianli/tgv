@@ -1,9 +1,13 @@
+use std::usize;
+
 use ratatui::{
     buffer::Buffer,
     layout::Rect,
-    style::Style,
+    style::{Color, Style},
     widgets::{Sparkline, Widget},
 };
+
+use ratatui::symbols::bar::{Set, NINE_LEVELS};
 
 use crate::{
     alignment::{Alignment, BaseCoverage},
@@ -191,46 +195,6 @@ fn get_linear_space(
     Ok(bins)
 }
 
-/// Cumulative count data to make the stacked-bar plot
-#[derive(Debug, Clone, Default)]
-#[allow(non_snake_case)]
-struct CoverageHistogramData {
-    A: usize,
-    AT: usize,
-    ATC: usize,
-    ATCG: usize,
-    ATCGN: usize,
-    ATCGN_softclip: usize,
-}
-
-#[allow(non_snake_case)]
-impl CoverageHistogramData {
-    fn from(value: &BaseCoverage) -> Self {
-        let A = value.A;
-        let AT = A + value.T;
-        let ATC = AT + value.C;
-        let ATCG = ATC + value.G;
-        let ATCGN = ATCG + value.N;
-
-        CoverageHistogramData {
-            A: A,
-            AT: AT,
-            ATC: ATC,
-            ATCG: ATCG,
-            ATCGN: ATCGN,
-            ATCGN_softclip: ATCGN + value.softclip,
-        }
-    }
-
-    fn add(&mut self, data: &CoverageHistogramData) {
-        self.A += data.A;
-        self.AT += data.AT;
-        self.ATC += data.ATC;
-        self.ATCG += data.ATCG;
-        self.ATCGN += data.ATCGN;
-        self.ATCGN_softclip += data.ATCGN_softclip;
-    }
-}
 /// Calculate the binned coverage in [left_bound, right_bound].
 /// 1-based, inclusive.
 fn calculate_binned_coverage(
@@ -238,7 +202,7 @@ fn calculate_binned_coverage(
     left: usize,
     right: usize,
     n_bins: usize,
-) -> Result<Vec<CoverageHistogramData>, TGVError> {
+) -> Result<Vec<(usize, usize)>, TGVError> {
     if right < left {
         return Err(TGVError::ValueError("Right is less than left".to_string()));
     }
@@ -268,6 +232,122 @@ fn calculate_binned_coverage(
         .collect();
 
     Ok(binned_coverage)
+}
+
+struct StackedSparkline {
+    max: usize,
+
+    data: Vec<Vec<usize>>, // bottom, top
+    color: Vec<Color>,     // bottom color, top color
+
+    bar_set: Set,
+}
+
+impl StackedSparkline {
+    pub fn new(data: Vec<Vec<usize>>, max: usize, color: Vec<Color>) -> Self {
+        Self {
+            max: max,
+            data: data,
+            color: color,
+
+            bar_set: NINE_LEVELS,
+        }
+    }
+}
+
+impl StackedSparkline {
+    const fn symbol_for_height(&self, height: usize) -> &str {
+        match height {
+            0 => self.bar_set.empty,
+            1 => self.bar_set.one_eighth,
+            2 => self.bar_set.one_quarter,
+            3 => self.bar_set.three_eighths,
+            4 => self.bar_set.half,
+            5 => self.bar_set.five_eighths,
+            6 => self.bar_set.three_quarters,
+            7 => self.bar_set.seven_eighths,
+            _ => self.bar_set.full,
+        }
+    }
+}
+
+impl Widget for StackedSparkline {
+    fn render(self, area: Rect, buf: &mut Buffer) {
+        // Shout out Ratatui's Sparkline implementation - very elegent!
+        // This is very similar.
+
+        if area.is_empty() {
+            return;
+        }
+
+        // determine the maximum index to render
+        let max_index = usize::min(area.width as usize, self.data.len());
+
+        // render each item in the data
+        for (i, items) in self.data.iter().take(max_index).enumerate() {
+            let mut heights = items
+                .iter()
+                .map(|value| *value * usize::from(area.height) * 8 / self.max)
+                .collect::<Vec<usize>>();
+
+            let x = area.left() + i as u16;
+            // render from bottom to top (loop is top to bottom)
+
+            let stack_pivot = 0;
+
+            for j in (0..area.height).rev() {
+                let height = heights[stack_pivot];
+                let color = self.color[stack_pivot]; // TODO: ensure that color and data have the  same number of entries
+
+                if height > 0 {
+                    // render the current stack
+
+                    let symbol: &str = self.symbol_for_height(height);
+                    let style = if height > 8 {
+                        height -= 8;
+                        Style::default().fg(color)
+                    } else {
+                        // move stack_pivot until the blank is filled
+                        let mut blank_height = 8 - height;
+                        heights[stack_pivot] = 0;
+
+
+                        for new_pivot in stack_pivot+1 .. heights.len() {
+                            if blank_height < 
+                            
+                            
+                        }
+
+                        if height_2 >= blank_height {
+                            // background: height_2
+
+                            height_2 -= blank_height;
+                            Style::default().fg(self.color.0).bg(self.color.1)
+                        } else {
+                            // if height_2 is not enough to fill the background, don't render.
+                            height_2 = 0;
+                            Style::default().fg(self.color.0)
+                        }
+                    };
+
+                    buf[(x, area.top() + j)].set_symbol(symbol).set_style(style);
+                } else if height_2 > 0 {
+                    let symbol = self.symbol_for_height(height_2);
+                    if height_2 > 8 {
+                        height_2 -= 8;
+                    } else {
+                        height_2 = 0;
+                    }
+
+                    buf[(x, area.top() + j)]
+                        .set_symbol(symbol)
+                        .set_style(Style::default().fg(self.color.1));
+                } else {
+                    break;
+                }
+            }
+        }
+    }
 }
 
 #[cfg(test)]
