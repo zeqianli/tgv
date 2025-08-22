@@ -46,81 +46,24 @@ pub fn render_coverage(
     let y_max: usize = round_up_max_coverage(
         binned_coverage
             .iter()
-            .max_by_key(|x| x.ATCGN_softclip)
-            .map(|coverage| coverage.ATCGN_softclip)
+            .max_by_key(|x| x.iter().sum::<usize>())
+            .map(|coverage| coverage.iter().sum())
             .unwrap_or(0),
     );
 
-    // stacked bar plot by rendering multiple sparklines. Start with the bottom.
-    // TODO
-    // For now, use just two colors like IGV.
-    // Add more functions in the future?
-
-    // Softclip
-    // let data = binned_coverage
-    //     .iter()
-    //     .map(|coverage| coverage.ATCGN_softclip as u64)
-    //     .collect::<Vec<u64>>();
-    // Sparkline::default()
-    //     .data(&data)
-    //     .max(y_max as u64)
-    //     .style(Style::default().fg(palette.COVERAGE_SOFTCLIP))
-    //     .render(*area, buf);
-
-    // N
-    let data = binned_coverage
-        .iter()
-        .map(|coverage| coverage.ATCGN as u64)
-        .collect::<Vec<u64>>();
-    Sparkline::default()
-        .data(&data)
-        .max(y_max as u64)
-        .style(Style::default().fg(palette.COVERAGE_TOTAL))
-        .render(*area, buf);
-
-    // G
-    // let data = binned_coverage
-    //     .iter()
-    //     .map(|coverage| coverage.ATCG as u64)
-    //     .collect::<Vec<u64>>();
-    // Sparkline::default()
-    //     .data(&data)
-    //     .max(y_max as u64)
-    //     .style(Style::default().fg(palette.COVERAGE_G))
-    //     .render(*area, buf);
-
-    // C
-    // let data = binned_coverage
-    //     .iter()
-    //     .map(|coverage| coverage.ATC as u64)
-    //     .collect::<Vec<u64>>();
-    // Sparkline::default()
-    //     .data(&data)
-    //     .max(y_max as u64)
-    //     .style(Style::default().fg(palette.COVERAGE_C))
-    //     .render(*area, buf);
-
-    // // T
-    // let data = binned_coverage
-    //     .iter()
-    //     .map(|coverage| coverage.AT as u64)
-    //     .collect::<Vec<u64>>();
-    // Sparkline::default()
-    //     .data(&data)
-    //     .max(y_max as u64)
-    //     .style(Style::default().fg(palette.COVERAGE_T))
-    //     .render(*area, buf);
-
-    // // A
-    // let data = binned_coverage
-    //     .iter()
-    //     .map(|coverage| coverage.A as u64)
-    //     .collect::<Vec<u64>>();
-    // Sparkline::default()
-    //     .data(&data)
-    //     .max(y_max as u64)
-    //     .style(Style::default().fg(palette.COVERAGE_A))
-    //     .render(*area, buf);
+    StackedSparkline::new(
+        binned_coverage,
+        y_max,
+        vec![
+            palette.COVERAGE_A,
+            palette.COVERAGE_T,
+            palette.COVERAGE_C,
+            palette.COVERAGE_G,
+            palette.COVERAGE_N,
+            palette.COVERAGE_SOFTCLIP,
+        ],
+    )
+    .render(*area, buf);
 
     buf.set_string(area.x, area.y, format!("[0-{}]", y_max,), Style::default());
 
@@ -202,7 +145,7 @@ fn calculate_binned_coverage(
     left: usize,
     right: usize,
     n_bins: usize,
-) -> Result<Vec<(usize, usize)>, TGVError> {
+) -> Result<Vec<Vec<usize>>, TGVError> {
     if right < left {
         return Err(TGVError::ValueError("Right is less than left".to_string()));
     }
@@ -214,18 +157,36 @@ fn calculate_binned_coverage(
     if (right - left + 1 == n_bins) {
         // 1x zoom. Not need to calulate binned coverage.
         return Ok((left..right + 1)
-            .map(|x| CoverageHistogramData::from(alignment.coverage_at(x)))
-            .collect());
+            .map(|x| {
+                let coverage = alignment.coverage_at(x);
+                vec![
+                    coverage.A,
+                    coverage.T,
+                    coverage.C,
+                    coverage.G,
+                    coverage.N,
+                    coverage.softclip,
+                ]
+            })
+            .collect::<Vec<Vec<usize>>>());
     }
 
     let linear_space: Vec<(usize, usize)> = get_linear_space(left, right, n_bins)?;
 
-    let binned_coverage: Vec<CoverageHistogramData> = linear_space
+    let binned_coverage: Vec<Vec<usize>> = linear_space
         .into_iter()
         .map(|(bin_left, bin_right)| {
-            let mut data = CoverageHistogramData::default();
+            let mut data = vec![0, 0, 0, 0, 0, 0];
             (bin_left..bin_right + 1)
-                .map(|x| data.add(&CoverageHistogramData::from(alignment.coverage_at(x))))
+                .map(|x| {
+                    let coverage = alignment.coverage_at(x);
+                    data[0] += coverage.A;
+                    data[1] += coverage.T;
+                    data[2] += coverage.C;
+                    data[3] += coverage.G;
+                    data[4] += coverage.N;
+                    data[5] += coverage.softclip;
+                })
                 .collect::<()>();
             data
         })
@@ -283,67 +244,93 @@ impl Widget for StackedSparkline {
         // determine the maximum index to render
         let max_index = usize::min(area.width as usize, self.data.len());
 
+        let pixel_height = self.max / area.height as usize;
+
         // render each item in the data
         for (i, items) in self.data.iter().take(max_index).enumerate() {
-            let mut heights = items
-                .iter()
-                .map(|value| *value * usize::from(area.height) * 8 / self.max)
-                .collect::<Vec<usize>>();
-
             let x = area.left() + i as u16;
             // render from bottom to top (loop is top to bottom)
 
-            let stack_pivot = 0;
+            if items.is_empty() {
+                continue;
+            }
+
+            let mut stack_pivot = 0;
+            let mut accumulator = items[0]; // accumate un-plotted heights
 
             for j in (0..area.height).rev() {
-                let height = heights[stack_pivot];
-                let color = self.color[stack_pivot]; // TODO: ensure that color and data have the  same number of entries
+                if accumulator >= pixel_height {
+                    // render a whole pixel
+                    buf[(x, area.top() + j)]
+                        .set_symbol(self.bar_set.full)
+                        .set_style(Style::default().fg(self.color[stack_pivot]));
 
-                if height > 0 {
-                    // render the current stack
+                    accumulator -= pixel_height
+                } else {
+                    // add accumulator until a whole character is filled
 
-                    let symbol: &str = self.symbol_for_height(height);
-                    let style = if height > 8 {
-                        height -= 8;
-                        Style::default().fg(color)
-                    } else {
-                        // move stack_pivot until the blank is filled
-                        let mut blank_height = 8 - height;
-                        heights[stack_pivot] = 0;
+                    let fg_height = accumulator;
+                    let mut rendered = false;
 
+                    let mut top_two_indexes: (usize, usize) = (stack_pivot, 0);
+                    let mut top_two_indexes_accumulators: (usize, usize) = (0, 0);
 
-                        for new_pivot in stack_pivot+1 .. heights.len() {
-                            if blank_height < 
-                            
-                            
+                    for k in stack_pivot + 1..items.len() {
+                        accumulator += items[k];
+
+                        let item = items[k];
+
+                        if item > top_two_indexes.0 {
+                            top_two_indexes = (item, top_two_indexes.0);
+                            top_two_indexes_accumulators =
+                                (accumulator, top_two_indexes_accumulators.0);
+                        } else if item > top_two_indexes.1 {
+                            top_two_indexes = (top_two_indexes.0, item);
+                            top_two_indexes_accumulators = (top_two_indexes_accumulators.0, item);
+                        };
+
+                        if accumulator >= pixel_height {
+                            // render
+
+                            let (fg_height, fg_color, bg_color) =
+                                if (top_two_indexes.0 > top_two_indexes.1) {
+                                    // use 1
+                                    (
+                                        top_two_indexes_accumulators.1 * 8 / pixel_height,
+                                        self.color[top_two_indexes.1],
+                                        self.color[top_two_indexes.0],
+                                    )
+                                } else {
+                                    (
+                                        (top_two_indexes_accumulators.1
+                                            - top_two_indexes_accumulators.0)
+                                            * 8
+                                            / pixel_height,
+                                        self.color[top_two_indexes.0],
+                                        self.color[top_two_indexes.1],
+                                    )
+                                };
+
+                            buf[(x, area.top() + j)]
+                                .set_symbol(self.symbol_for_height(fg_height))
+                                .set_style(Style::default().fg(fg_color).bg(bg_color));
+
+                            accumulator -= pixel_height;
+                            stack_pivot = k;
+                            rendered = true;
+                            break;
                         }
-
-                        if height_2 >= blank_height {
-                            // background: height_2
-
-                            height_2 -= blank_height;
-                            Style::default().fg(self.color.0).bg(self.color.1)
-                        } else {
-                            // if height_2 is not enough to fill the background, don't render.
-                            height_2 = 0;
-                            Style::default().fg(self.color.0)
-                        }
-                    };
-
-                    buf[(x, area.top() + j)].set_symbol(symbol).set_style(style);
-                } else if height_2 > 0 {
-                    let symbol = self.symbol_for_height(height_2);
-                    if height_2 > 8 {
-                        height_2 -= 8;
-                    } else {
-                        height_2 = 0;
                     }
 
-                    buf[(x, area.top() + j)]
-                        .set_symbol(symbol)
-                        .set_style(Style::default().fg(self.color.1));
-                } else {
-                    break;
+                    if !rendered {
+                        // end of data. render the top accumulator
+                        buf[(x, area.top() + j)]
+                            .set_symbol(self.symbol_for_height(
+                                top_two_indexes_accumulators.0 * 8 / pixel_height,
+                            ))
+                            .set_style(Style::default().fg(self.color[top_two_indexes.0]));
+                        break;
+                    }
                 }
             }
         }
