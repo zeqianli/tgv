@@ -177,7 +177,7 @@ fn calculate_binned_coverage(
         .into_iter()
         .map(|(bin_left, bin_right)| {
             let mut data = vec![0, 0, 0, 0, 0, 0];
-            (bin_left..bin_right + 1)
+            let _ = (bin_left..bin_right + 1)
                 .map(|x| {
                     let coverage = alignment.coverage_at(x);
                     data[0] += coverage.A;
@@ -281,12 +281,13 @@ impl Widget for StackedSparkline {
                         let item = items[k];
 
                         if item > top_two_indexes.0 {
-                            top_two_indexes = (item, top_two_indexes.0);
+                            top_two_indexes = (k, top_two_indexes.0);
                             top_two_indexes_accumulators =
                                 (accumulator, top_two_indexes_accumulators.0);
                         } else if item > top_two_indexes.1 {
-                            top_two_indexes = (top_two_indexes.0, item);
-                            top_two_indexes_accumulators = (top_two_indexes_accumulators.0, item);
+                            top_two_indexes = (top_two_indexes.0, k);
+                            top_two_indexes_accumulators =
+                                (top_two_indexes_accumulators.0, accumulator);
                         };
 
                         if accumulator >= pixel_height {

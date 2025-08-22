@@ -437,7 +437,7 @@ impl StateHandler {
         })
     }
 
-    const SEQUENCE_CACHE_RATIO: usize = 3;
+    const SEQUENCE_CACHE_RATIO: usize = 6;
 
     fn sequence_cache_region(state: &State, region: &Region) -> Result<Region, TGVError> {
         let left = region
