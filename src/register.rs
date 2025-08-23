@@ -1,7 +1,6 @@
-use std::str::FromStr;
 
 use crate::{
-    display_mode::DisplayMode, error::TGVError, message::StateMessage, register, states::State,
+    display_mode::DisplayMode, error::TGVError, message::StateMessage, states::State,
 };
 use crossterm::event::{KeyCode, KeyEvent};
 
@@ -225,7 +224,7 @@ impl NormalModeRegister {
 
         let suffix: String = input.chars().skip(n_movement_chars.len()).collect();
 
-        let n_movements = if n_movement_chars.len() == 0 {
+        let n_movements = if n_movement_chars.is_empty() {
             1
         } else {
             n_movement_chars.parse::<usize>()?

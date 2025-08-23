@@ -1,7 +1,5 @@
-use std::path::Path;
 
-use crate::alignment;
-use crate::message::{self, StateMessage};
+use crate::message::{StateMessage};
 pub use crate::rendering::colors::Palette;
 pub use crate::rendering::{
     render_alignment, render_bed, render_console, render_coordinates, render_coverage,
@@ -17,9 +15,8 @@ use crossterm::event;
 use ratatui::{
     buffer::Buffer,
     layout::{Constraint, Direction, Layout, Rect},
-    style::{Color, Style},
+    style::Color,
 };
-use reqwest::header::X_CONTENT_TYPE_OPTIONS;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum AreaType {
@@ -177,7 +174,7 @@ impl LayoutNode {
                 area_type,
             } => {
                 if x >= area.x && x < area.right() && y >= area.y && y < area.bottom() {
-                    Some((area, area_type.clone()))
+                    Some((area, *area_type))
                 } else {
                     None
                 }
@@ -620,7 +617,7 @@ impl MouseRegister {
                 if let Some((area, area_type)) = state.layout.root.get_area_type_at_position(
                     event.column,
                     event.row,
-                    state.area.clone(),
+                    state.area,
                 ) {
                     if event.column == area.left()
                         || event.column + 1 == area.right()
@@ -676,27 +673,23 @@ impl MouseRegister {
                 if let Some((area, area_type)) = state.layout.root.get_area_type_at_position(
                     event.column,
                     event.row,
-                    state.area.clone(),
+                    state.area,
                 ) {
-                    match area_type {
-                        AreaType::Alignment => {
-                            if let (Some((left_coordinate, right_coordinate)), Some(y_coordinate)) = (
-                                &state.window.coordinates_of_onscreen_x(event.column, &area),
-                                &state.window.coordinate_of_onscreen_y(event.row, &area),
-                            ) {
-                                if let Some(alignment) = &state.alignment {
-                                    if let Some(read) = alignment.read_overlapping(
-                                        *left_coordinate,
-                                        *right_coordinate,
-                                        *y_coordinate,
-                                    ) {
-                                        messages.push(StateMessage::Message(read.describe()?))
-                                    }
+                    if area_type == AreaType::Alignment {
+                        if let (Some((left_coordinate, right_coordinate)), Some(y_coordinate)) = (
+                            &state.window.coordinates_of_onscreen_x(event.column, &area),
+                            &state.window.coordinate_of_onscreen_y(event.row, &area),
+                        ) {
+                            if let Some(alignment) = &state.alignment {
+                                if let Some(read) = alignment.read_overlapping(
+                                    *left_coordinate,
+                                    *right_coordinate,
+                                    *y_coordinate,
+                                ) {
+                                    messages.push(StateMessage::Message(read.describe()?))
                                 }
                             }
                         }
-
-                        _ => {}
                     }
                 }
             }

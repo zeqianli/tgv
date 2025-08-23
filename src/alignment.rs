@@ -308,7 +308,7 @@ fn calculate_rendering_contexts(
                     start: reference_pivot,
                     end: next_reference_pivot - 1,
                     kind: RenderingContextKind::Match,
-                    modifiers: modifiers,
+                    modifiers,
                 });
             }
 
@@ -324,11 +324,9 @@ fn calculate_rendering_contexts(
 
         if add_insertion {
             // Insertion (detected in the previous loop) notated at the beginning of the first segment.
-            new_contexts.first_mut().map(|context| {
-                context.add_modifier(RenderingContextModifier::Insertion(
+            if let Some(context) = new_contexts.first_mut() { context.add_modifier(RenderingContextModifier::Insertion(
                     annotate_insertion_in_next_cigar.unwrap(),
-                ))
-            });
+                )) }
         };
         annotate_insertion_in_next_cigar = None;
 
@@ -564,7 +562,7 @@ pub struct BaseCoverage {
 impl BaseCoverage {
     pub const MAX_DISPLAY_ALLELE_FREQUENCY_RECIPROCOL: usize = 100;
     pub fn new(reference_base: u8) -> Self {
-        return Self {
+        Self {
             A: 0,
             T: 0,
             C: 0,
@@ -572,8 +570,8 @@ impl BaseCoverage {
             N: 0,
             total: 0,
             softclip: 0,
-            reference_base: reference_base,
-        };
+            reference_base,
+        }
     }
 
     pub fn update(&mut self, base: u8) {
@@ -849,7 +847,7 @@ impl AlignmentBuilder {
         }
 
         let mut index = vec![Vec::new(); self.track_left_bounds.len()];
-        let _ = self
+        self
             .aligned_reads
             .iter()
             .enumerate()
@@ -864,7 +862,7 @@ impl AlignmentBuilder {
             data_complete_right_bound: self.region.end,
 
             depth: self.track_left_bounds.len(),
-            index: index,
+            index,
         })
     }
 }
@@ -874,10 +872,7 @@ mod tests {
 
     use super::*;
     use rstest::rstest;
-    use rust_htslib::bam::{
-        record::{Cigar, CigarString},
-        Read,
-    };
+    use rust_htslib::bam::record::{Cigar, CigarString};
 
     #[rstest]
     #[case(10, vec![Cigar::Match(3)],  b"ATT", false,None, vec![RenderingContext{

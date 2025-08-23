@@ -1,6 +1,6 @@
 use crate::{
     alignment::{
-        AlignedRead, Alignment, RenderingContext, RenderingContextKind, RenderingContextModifier,
+        RenderingContext, RenderingContextKind, RenderingContextModifier,
     },
     error::TGVError,
     rendering::colors::Palette,
@@ -124,7 +124,7 @@ fn get_read_rendering_info(
                         x: x as u16,
                         y: onscreen_y,
                         string: "►".to_string(),
-                        style: output.first().unwrap().style.clone(),
+                        style: output.first().unwrap().style,
                     })
                 }
             }
@@ -135,7 +135,7 @@ fn get_read_rendering_info(
                         x: x as u16,
                         y: onscreen_y,
                         string: "◄".to_string(),
-                        style: output.first().unwrap().style.clone(),
+                        style: output.first().unwrap().style,
                     })
                 }
             }
@@ -163,7 +163,6 @@ fn get_read_rendering_info(
                             .first()
                             .unwrap()
                             .style
-                            .clone()
                             .fg(pallete.mismatch_color(*base)),
                     })
                 }

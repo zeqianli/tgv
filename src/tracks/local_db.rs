@@ -1,19 +1,18 @@
 use crate::tracks::{TrackCache, TrackService, TRACK_PREFERENCES};
 use crate::{
     contig_header::{Contig, ContigHeader},
-    cytoband::{Cytoband, CytobandSegment, Stain},
+    cytoband::{Cytoband, CytobandSegment},
     error::TGVError,
     feature::{Gene, SubGeneFeature},
     intervals::GenomeInterval,
     reference::Reference,
     region::Region,
-    strand::Strand,
     track::Track,
     tracks::schema::*,
 };
 use async_trait::async_trait;
 use sqlx::{
-    sqlite::{SqliteConnectOptions, SqlitePool, SqlitePoolOptions, SqliteRow},
+    sqlite::{SqliteConnectOptions, SqlitePool, SqlitePoolOptions},
     Column, Row,
 };
 use std::collections::HashMap;
@@ -168,7 +167,7 @@ impl TrackService for LocalDbTrackService {
 
         contigs.sort_by(|a, b| {
             if a.name.starts_with("chr") || b.name.starts_with("chr") {
-                Contig::contigs_compare(&a, &b)
+                Contig::contigs_compare(a, b)
             } else {
                 b.length().cmp(&a.length()) // Sort by length in descending order
             }
@@ -199,7 +198,7 @@ impl TrackService for LocalDbTrackService {
         // Cytoband table is not available.
         Ok(Some(Cytoband {
             reference: Some(reference.clone()),
-            contig_index: contig_index,
+            contig_index,
             segments: cytoband_segment_rows
                 .into_iter()
                 .map(|segment| segment.to_cytoband_segment(contig_index))

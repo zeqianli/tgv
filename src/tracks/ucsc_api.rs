@@ -1,8 +1,7 @@
-use crate::cytoband;
 use crate::tracks::{TrackCache, TrackService, TRACK_PREFERENCES};
 use crate::{
     contig_header::{Contig, ContigHeader},
-    cytoband::{Cytoband, CytobandSegment},
+    cytoband::Cytoband,
     error::TGVError,
     feature::{Gene, SubGeneFeature},
     intervals::GenomeInterval,

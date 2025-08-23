@@ -1,7 +1,7 @@
 use crate::error::TGVError;
 use crate::intervals::GenomeInterval;
 use crate::repository::Repository;
-use crate::repository::{AlignmentRepository, AlignmentRepositoryEnum};
+use crate::repository::AlignmentRepository;
 use crate::settings::Settings;
 use crate::tracks::{TrackCache, TrackService};
 use crate::{

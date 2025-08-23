@@ -294,11 +294,11 @@ impl TwoBitSequenceRepository {
 
             match file_name_to_buffer_index.get(file_name) {
                 Some(i_buffer) => {
-                    contig_to_buffer_index.insert(contig.clone(), *i_buffer);
+                    contig_to_buffer_index.insert(*contig, *i_buffer);
                 }
                 None => {
                     file_name_to_buffer_index.insert(file_name.clone(), i_buffer);
-                    contig_to_buffer_index.insert(contig.clone(), i_buffer);
+                    contig_to_buffer_index.insert(*contig, i_buffer);
 
                     // add a new buffer
                     let file_path = format!("{}/{}/{}", &cache_dir, reference, file_name);
@@ -339,7 +339,7 @@ impl SequenceRepository for TwoBitSequenceRepository {
         let contig_name = contig_header.get_name(region.contig_index)?;
         let buffer = &mut cache.buffers[cache.contig_to_buffer_index[&region.contig_index]];
         let sequence_str = buffer.read_sequence(
-            &contig_name,
+            contig_name,
             (region.start - 1)..region.end, // Convert to 0-based range
         )?;
 

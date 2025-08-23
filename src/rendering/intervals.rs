@@ -1,7 +1,6 @@
 use crate::error::TGVError;
 
 use crate::intervals::GenomeInterval;
-use crate::rendering::colors::Palette;
 use crate::{states::State, window::OnScreenCoordinate};
 
 use ratatui::{buffer::Buffer, layout::Rect, style::Color, style::Style};
@@ -27,7 +26,7 @@ pub fn render_simple_intervals<T: GenomeInterval>(
             OnScreenCoordinate::onscreen_start_and_length(&onscreen_x, &onscreen_y, area)
         {
             buf.set_string(
-                area.x + x as u16,
+                area.x + x,
                 area.y,
                 " ".repeat(length as usize),
                 Style::default().bg(colors[i_color]),

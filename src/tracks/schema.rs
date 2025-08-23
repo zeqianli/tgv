@@ -2,7 +2,7 @@ use crate::{
     contig_header::{Contig, ContigHeader},
     cytoband::{Cytoband, CytobandSegment, Stain},
     error::TGVError,
-    feature::{Gene, SubGeneFeature},
+    feature::Gene,
     reference::Reference,
     strand::Strand,
     track::Track,
@@ -152,7 +152,7 @@ impl FromRow<'_, MySqlRow> for CytobandSegmentRow {
 impl CytobandSegmentRow {
     pub fn to_cytoband_segment(self, contig_index: usize) -> Result<CytobandSegment, TGVError> {
         Ok(CytobandSegment {
-            contig_index: contig_index,
+            contig_index,
             start: self.chromStart as usize + 1,
             end: self.chromEnd as usize,
             name: self.name,
@@ -275,7 +275,7 @@ impl UcscGeneResponse {
                 id: name.clone(),
                 name: name2.unwrap_or(name.clone()),
                 strand: Strand::from_str(strand)?,
-                contig_index: contig_index,
+                contig_index,
                 transcription_start: txStart,
                 transcription_end: txEnd,
                 cds_start: cdsStart,
@@ -294,9 +294,9 @@ impl UcscGeneResponse {
                 thickEnd,
             } => Ok(Gene {
                 id: name.clone(),
-                name: name,
+                name,
                 strand: Strand::from_str(strand)?,
-                contig_index: contig_index,
+                contig_index,
                 transcription_start: chromStart,
                 transcription_end: chromEnd,
                 cds_start: thickStart,
@@ -419,17 +419,11 @@ pub struct UcscListChromosomeResponse {
 //       "gieStain": "gpos100"
 //     },
 #[derive(Debug, Deserialize)]
+#[derive(Default)]
 pub struct UcscApiCytobandResponse {
     cytoBandIdeo: Vec<CytobandSegmentRow>,
 }
 
-impl Default for UcscApiCytobandResponse {
-    fn default() -> Self {
-        UcscApiCytobandResponse {
-            cytoBandIdeo: vec![],
-        }
-    }
-}
 
 impl UcscApiCytobandResponse {
     pub fn to_cytoband(
@@ -442,7 +436,7 @@ impl UcscApiCytobandResponse {
         } else {
             Ok(Some(Cytoband {
                 reference: Some(reference.clone()),
-                contig_index: contig_index,
+                contig_index,
                 segments: self
                     .cytoBandIdeo
                     .into_iter()

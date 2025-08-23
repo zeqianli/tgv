@@ -1,7 +1,7 @@
 use crate::{
     alignment::{Alignment, AlignmentBuilder},
     bed::BEDIntervals,
-    contig_header::{self, ContigHeader},
+    contig_header::{ContigHeader},
     error::TGVError,
     helpers::is_url,
     reference::Reference,
@@ -86,9 +86,7 @@ impl Repository {
 
                 ts.get_all_contigs(reference, &mut track_cache)
                     .await?
-                    .into_iter()
-                    .map(|contig| contig_header.update_or_add_contig(contig))
-                    .collect::<Result<(), _>>()?;
+                    .into_iter().try_for_each(|contig| contig_header.update_or_add_contig(contig))?;
 
                 let use_ucsc_api_sequence =
                     matches!(ts, TrackServiceEnum::Api(_) | TrackServiceEnum::Db(_));

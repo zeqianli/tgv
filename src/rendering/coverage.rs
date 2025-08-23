@@ -4,7 +4,7 @@ use ratatui::{
     buffer::Buffer,
     layout::Rect,
     style::{Color, Style},
-    widgets::{Sparkline, Widget},
+    widgets::Widget,
 };
 
 use ratatui::symbols::bar::{Set, NINE_LEVELS};
@@ -45,7 +45,6 @@ pub fn render_coverage(
 
     let y_max: usize = round_up_max_coverage(
         (0..binned_coverage[0].len())
-            .into_iter()
             .map(|i| binned_coverage[0][i] + binned_coverage[1][i])
             .max()
             .unwrap_or(0),
@@ -145,14 +144,13 @@ fn calculate_binned_coverage(
         return Err(TGVError::ValueError("n_bins is 0".to_string()));
     }
 
-    if (right - left + 1 == n_bins) {
+    if right - left + 1 == n_bins {
         // 1x zoom. Not need to calulate binned coverage.
 
         // Stack 0: alt allele if above a threshold
         // Stack 1: non-alt alleles
         let mut output = vec![vec![0; n_bins]; 2];
-        let _ = (left..right + 1)
-            .into_iter()
+        (left..right + 1)
             .enumerate()
             .map(|(i, x)| {
                 let coverage = alignment.coverage_at(x);
@@ -175,7 +173,7 @@ fn calculate_binned_coverage(
     let linear_space: Vec<(usize, usize)> = get_linear_space(left, right, n_bins)?;
 
     let mut output = vec![vec![0; linear_space.len()]; 2];
-    let _ = linear_space
+    linear_space
         .into_iter()
         .enumerate()
         .map(|(i, (bin_left, bin_right))| {
@@ -287,7 +285,7 @@ impl Widget for StackedSparkline {
                     // render a whole cell
                     buf[(x, area.top() + j)]
                         .set_symbol(self.bar_set.full)
-                        .set_style(Style::default().fg(self.get_color(pivot).clone()));
+                        .set_style(Style::default().fg(*self.get_color(pivot)));
 
                     accumulator -= cell_height
                 } else {
@@ -318,7 +316,7 @@ impl Widget for StackedSparkline {
 
                             // Note to maintain the order of these two colors
                             let (fg_height, fg_color, bg_color) =
-                                if (top_two_indexes.0 > top_two_indexes.1) {
+                                if top_two_indexes.0 > top_two_indexes.1 {
                                     // 1 is the bottom stack
                                     // 1's accumulator is smaller than 0, so the foreground height is 1's accumulator
                                     (
@@ -340,7 +338,7 @@ impl Widget for StackedSparkline {
                             buf[(x, area.top() + j)]
                                 .set_symbol(self.symbol_for_height(fg_height))
                                 .set_style(
-                                    Style::default().fg(fg_color.clone()).bg(bg_color.clone()),
+                                    Style::default().fg(*fg_color).bg(*bg_color),
                                 );
 
                             accumulator -= cell_height;
