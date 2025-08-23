@@ -10,7 +10,7 @@ use crate::{
 use ratatui::{
     buffer::Buffer,
     layout::Rect,
-    style::{palette::tailwind, Color, Style},
+    style::Style,
 };
 
 const MIN_AREA_WIDTH: u16 = 5;
@@ -181,8 +181,8 @@ fn get_rendering_info(
 
         introns_info
             .into_iter()
-            .chain(non_cds_exons_info.into_iter())
-            .chain(exons_info.into_iter())
+            .chain(non_cds_exons_info)
+            .chain(exons_info)
             .collect()
     }
 }

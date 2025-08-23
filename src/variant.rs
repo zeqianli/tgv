@@ -25,7 +25,7 @@ impl Variant {
                 "VCF record {:?} doesn't have a valid contig.".to_string(),
             ))?)?;
         let contig_index =
-            contig_header.get_index_by_str(&std::str::from_utf8(contig_u8).map_err(|_| {
+            contig_header.get_index_by_str(std::str::from_utf8(contig_u8).map_err(|_| {
                 TGVError::ValueError("VCF record {:?} doesn't have a valid contig.".to_string())
             })?)?;
         Ok(Self {

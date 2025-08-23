@@ -2,7 +2,7 @@ use crate::error::TGVError;
 
 use crate::variant::VariantRepository;
 use crate::{
-    rendering::{self, colors::Palette, intervals::render_simple_intervals},
+    rendering::{colors::Palette, intervals::render_simple_intervals},
     states::State,
 };
 use ratatui::{buffer::Buffer, layout::Rect};

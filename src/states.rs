@@ -1,7 +1,7 @@
 use crate::error::TGVError;
 use crate::intervals::GenomeInterval;
 use crate::repository::Repository;
-use crate::repository::{AlignmentRepository, AlignmentRepositoryEnum};
+use crate::repository::AlignmentRepository;
 use crate::settings::Settings;
 use crate::tracks::{TrackCache, TrackService};
 use crate::{
@@ -437,7 +437,7 @@ impl StateHandler {
         })
     }
 
-    const SEQUENCE_CACHE_RATIO: usize = 3;
+    const SEQUENCE_CACHE_RATIO: usize = 6;
 
     fn sequence_cache_region(state: &State, region: &Region) -> Result<Region, TGVError> {
         let left = region

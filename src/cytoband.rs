@@ -89,9 +89,9 @@ impl Cytoband {
     ) -> Self {
         Self {
             reference: Some(reference.clone()),
-            contig_index: contig_index,
+            contig_index,
             segments: vec![CytobandSegment {
-                contig_index: contig_index,
+                contig_index,
                 start: 1,
                 end: contig_length,
                 name: contig_name.to_string(),

@@ -1,7 +1,5 @@
-use std::path::Path;
 
-use crate::alignment;
-use crate::message::{self, StateMessage};
+use crate::message::{StateMessage};
 pub use crate::rendering::colors::Palette;
 pub use crate::rendering::{
     render_alignment, render_bed, render_console, render_coordinates, render_coverage,
@@ -17,9 +15,8 @@ use crossterm::event;
 use ratatui::{
     buffer::Buffer,
     layout::{Constraint, Direction, Layout, Rect},
-    style::{Color, Style},
+    style::Color,
 };
-use reqwest::header::X_CONTENT_TYPE_OPTIONS;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum AreaType {
@@ -177,13 +174,21 @@ impl LayoutNode {
                 area_type,
             } => {
                 if x >= area.x && x < area.right() && y >= area.y && y < area.bottom() {
-                    Some((area, area_type.clone()))
+                    Some((area, *area_type))
                 } else {
                     None
                 }
             }
         }
     }
+}
+
+enum MousePosition {
+    Top,
+    Left,
+    Bottom,
+    Right,
+    Center,
 }
 
 /// Main page layout
@@ -327,7 +332,7 @@ impl MainLayout {
             AreaType::Coordinate => render_coordinates(rect, buf, state)?,
             AreaType::Coverage => {
                 if state.alignment_renderable() {
-                    render_coverage(rect, buf, state)?;
+                    render_coverage(rect, buf, state, pallete)?;
                 }
             }
             AreaType::Alignment => {
@@ -573,6 +578,12 @@ pub struct MouseRegister {
     /// Resize event handling
     pub mouse_down_x: u16,
     pub mouse_down_y: u16,
+    pub mouse_down_area_type: AreaType,
+    pub resizing: bool,
+
+    // Track mouse dragging
+    pub mouse_drag_x: u16,
+    pub mouse_drag_y: u16,
 
     /// root layout at mousedown.
     pub root: LayoutNode,
@@ -583,6 +594,10 @@ impl MouseRegister {
         Self {
             mouse_down_x: 0,
             mouse_down_y: 0,
+            mouse_down_area_type: AreaType::Error,
+            resizing: false,
+            mouse_drag_x: 0,
+            mouse_drag_y: 0,
             root: root.clone(),
         }
     }
@@ -598,17 +613,59 @@ impl MouseRegister {
                 self.mouse_down_x = event.column;
                 self.mouse_down_y = event.row;
                 self.root = state.layout.root.clone();
+
+                if let Some((area, area_type)) = state.layout.root.get_area_type_at_position(
+                    event.column,
+                    event.row,
+                    state.area,
+                ) {
+                    if event.column == area.left()
+                        || event.column + 1 == area.right()
+                        || event.row == area.top()
+                        || event.row + 1 == area.bottom()
+                    {
+                        self.resizing = true;
+                    }
+                    self.mouse_down_area_type = area_type
+                }
             }
 
             event::MouseEventKind::Drag(_) => {
-                if (event.row != self.mouse_down_y) || (event.column != self.mouse_down_x) {
-                    messages.push(StateMessage::ResizeTrack {
-                        mouse_down_x: self.mouse_down_x,
-                        mouse_down_y: self.mouse_down_y,
-                        mouse_released_x: event.column,
-                        mouse_released_y: event.row,
-                    });
+                if self.resizing {
+                    if (event.row != self.mouse_down_y) || (event.column != self.mouse_down_x) {
+                        messages.push(StateMessage::ResizeTrack {
+                            mouse_down_x: self.mouse_down_x,
+                            mouse_down_y: self.mouse_down_y,
+                            mouse_released_x: event.column,
+                            mouse_released_y: event.row,
+                        });
+                    }
+                } else {
+                    // move alignment
+                    match self.mouse_down_area_type {
+                        AreaType::Alignment | AreaType::Coverage => {
+                            if event.column < self.mouse_drag_x {
+                                messages.push(StateMessage::MoveRight(1))
+                            } else if event.column > self.mouse_drag_x {
+                                messages.push(StateMessage::MoveLeft(1))
+                            }
+
+                            if event.row > self.mouse_down_y {
+                                messages.push(StateMessage::MoveUp(1))
+                            } else if event.row < self.mouse_down_y {
+                                messages.push(StateMessage::MoveDown(1))
+                            }
+                        }
+                        _ => {}
+                    }
+
+                    self.mouse_drag_x = event.column;
+                    self.mouse_drag_y = event.row;
                 }
+            }
+
+            event::MouseEventKind::Up(_) => {
+                self.resizing = false;
             }
 
             event::MouseEventKind::Moved => {
@@ -616,27 +673,23 @@ impl MouseRegister {
                 if let Some((area, area_type)) = state.layout.root.get_area_type_at_position(
                     event.column,
                     event.row,
-                    state.area.clone(),
+                    state.area,
                 ) {
-                    match area_type {
-                        AreaType::Alignment => {
-                            if let (Some((left_coordinate, right_coordinate)), Some(y_coordinate)) = (
-                                &state.window.coordinates_of_onscreen_x(event.column, &area),
-                                &state.window.coordinate_of_onscreen_y(event.row, &area),
-                            ) {
-                                if let Some(alignment) = &state.alignment {
-                                    if let Some(read) = alignment.read_overlapping(
-                                        *left_coordinate,
-                                        *right_coordinate,
-                                        *y_coordinate,
-                                    ) {
-                                        messages.push(StateMessage::Message(read.describe()?))
-                                    }
+                    if area_type == AreaType::Alignment {
+                        if let (Some((left_coordinate, right_coordinate)), Some(y_coordinate)) = (
+                            &state.window.coordinates_of_onscreen_x(event.column, &area),
+                            &state.window.coordinate_of_onscreen_y(event.row, &area),
+                        ) {
+                            if let Some(alignment) = &state.alignment {
+                                if let Some(read) = alignment.read_overlapping(
+                                    *left_coordinate,
+                                    *right_coordinate,
+                                    *y_coordinate,
+                                ) {
+                                    messages.push(StateMessage::Message(read.describe()?))
                                 }
                             }
                         }
-
-                        _ => {}
                     }
                 }
             }
@@ -644,6 +697,10 @@ impl MouseRegister {
             event::MouseEventKind::ScrollDown => messages.push(StateMessage::MoveDown(1)),
 
             event::MouseEventKind::ScrollUp => messages.push(StateMessage::MoveUp(1)),
+
+            event::MouseEventKind::ScrollLeft => messages.push(StateMessage::MoveLeft(1)),
+
+            event::MouseEventKind::ScrollRight => messages.push(StateMessage::MoveRight(1)),
 
             _ => {}
         }
