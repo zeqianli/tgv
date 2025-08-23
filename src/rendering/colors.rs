@@ -31,6 +31,7 @@ pub struct Palette {
     pub MISMATCH_N: Color,
 
     // Coverage
+    pub COVERAGE_ALT: Color,
     pub COVERAGE_A: Color,
     pub COVERAGE_T: Color,
     pub COVERAGE_C: Color,
@@ -131,6 +132,7 @@ pub const DARK_THEME: Palette = Palette {
     MISMATCH_T: Color::LightYellow,
     MISMATCH_N: Color::LightMagenta,
 
+    COVERAGE_ALT: Color::Red,
     COVERAGE_A: Color::LightRed,
     COVERAGE_T: Color::LightYellow,
     COVERAGE_C: Color::LightGreen,

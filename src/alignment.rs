@@ -562,6 +562,7 @@ pub struct BaseCoverage {
 }
 
 impl BaseCoverage {
+    pub const MAX_DISPLAY_ALLELE_FREQUENCY_RECIPROCOL: usize = 100;
     pub fn new(reference_base: u8) -> Self {
         return Self {
             A: 0,
@@ -601,12 +602,12 @@ impl BaseCoverage {
         self.softclip += other.softclip;
     }
 
-    pub fn max_alt_ref_depth(&self) -> Option<(usize, usize)> {
+    pub fn max_alt_depth(&self) -> Option<usize> {
         match self.reference_base {
-            b'A' | b'a' => Some((usize::max(usize::max(self.C, self.T), self.G), self.A)),
-            b'T' | b't' => Some((usize::max(usize::max(self.A, self.C), self.G), self.T)),
-            b'C' | b'c' => Some((usize::max(usize::max(self.A, self.T), self.G), self.C)),
-            b'G' | b'g' => Some((usize::max(usize::max(self.C, self.T), self.A), self.G)),
+            b'A' | b'a' => Some(usize::max(self.C, self.T)),
+            b'T' | b't' => Some(usize::max(self.A, self.C)),
+            b'C' | b'c' => Some(usize::max(self.A, self.T)),
+            b'G' | b'g' => Some(usize::max(self.C, self.T)),
             _ => None,
         }
     }
