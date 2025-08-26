@@ -1,4 +1,13 @@
 use crate::{display_mode::DisplayMode, region::Region, strand::Strand};
+use nom::{
+    branch::alt,
+    bytes::complete::{tag, tag_no_case},
+    character::complete::{char, digit1, multispace0, usize},
+    combinator::{map, opt, value},
+    multi::{self, separated_list0},
+    sequence::{delimited, pair, preceded, terminated},
+    IResult, Parser,
+};
 use strum::Display;
 /// State messages
 #[derive(Debug, Clone, Eq, PartialEq, Display)]
@@ -187,10 +196,16 @@ pub enum AlignmentSort {
     /// Start
     Start,
 
+    /// Stand of reads at the current location
+    StrandAtCurrentBase,
+
     /// Stand of reads covering a location
     StrandAt(usize),
 
-    /// Base of reads covering a location
+    /// Base of reads at the current location
+    BaseAtCurrentBase,
+
+    /// Stand of reads covering a location
     BaseAt(usize),
 
     /// MAPQ, reversed order
@@ -252,3 +267,198 @@ impl AlignmentSort {
         }
     }
 }
+
+fn parse_optional_parenthesis(input: &str) -> IResult<&str, Option<Option<usize>>> {
+    opt(delimited(tag("("), opt(usize), tag(")"))).parse(input)
+}
+
+// Parse STRAND with optional number in parentheses
+fn strand_sort_unit(input: &str) -> IResult<&str, AlignmentSort> {
+    let (input, _) = tag_no_case("STRAND")(input)?;
+    let (input, digit) = parse_optional_parenthesis(input)?;
+
+    match digit {
+        Some(Some(position)) => Ok((input, AlignmentSort::StrandAt(position))),
+        _ => Ok((input, AlignmentSort::StrandAtCurrentBase)),
+    }
+}
+
+// Parse STRAND with optional number in parentheses
+fn base_sort_unit(input: &str) -> IResult<&str, AlignmentSort> {
+    let (input, _) = tag_no_case("BASE")(input)?;
+    let (input, digit) = parse_optional_parenthesis(input)?;
+
+    match digit {
+        Some(Some(position)) => Ok((input, AlignmentSort::StrandAt(position))),
+        _ => Ok((input, AlignmentSort::StrandAtCurrentBase)),
+    }
+}
+
+// Parse basic sort options
+fn sort_unit(input: &str) -> IResult<&str, AlignmentSort> {
+    use nom::Parser;
+
+    alt((
+        base_sort_unit,
+        strand_sort_unit,
+        value(AlignmentSort::Start, tag_no_case("START")),
+        value(AlignmentSort::MappingQuality, tag_no_case("MAPQ")),
+        value(AlignmentSort::Sample, tag_no_case("SAMPLE")),
+        value(AlignmentSort::ReadGroup, tag_no_case("READGROUP")),
+        value(AlignmentSort::ReadOrder, tag_no_case("READORDER")),
+        value(AlignmentSort::ReadName, tag_no_case("READNAME")),
+        value(AlignmentSort::AlignedReadLength, tag_no_case("LENGTH")),
+        value(AlignmentSort::InsertSize, tag_no_case("INSERTSIZE")),
+        value(AlignmentSort::ChromosomeOfMate, tag_no_case("MATECONTIG")),
+        value(AlignmentSort::Tag, tag_no_case("TAG")),
+    ))
+    .parse(input)
+}
+
+// Parse a single sort term (basic sort + optional DESC/DEC)
+fn sort_and_direction(input: &str) -> IResult<&str, AlignmentSort> {
+    let (input, basic_sort) = terminated(sort_unit, multispace0).parse(input)?;
+    let (input, desc_opt) = opt(alt((tag_no_case("DESC"), tag_no_case("ASCE")))).parse(input)?;
+
+    match desc_opt {
+        Some("DESC") => Ok((input, basic_sort.reverse())),
+        _ => Ok((input, basic_sort)),
+    }
+}
+
+// Parse the complete sort expression
+fn parse_sort_expression(input: &str) -> IResult<&str, AlignmentSort> {
+    let (input, sorts) = delimited(
+        multispace0,
+        separated_list0(
+            delimited(multispace0, char(','), multispace0),
+            sort_and_direction,
+        ),
+        multispace0,
+    )
+    .parse(input)?;
+
+    let result = sorts
+        .into_iter()
+        .reduce(|acc, sort| acc.then(sort))
+        .unwrap_or(AlignmentSort::Default);
+
+    Ok((input, result))
+}
+
+// #[cfg(test)]
+// mod tests {
+//     use super::*;
+
+//     #[test]
+//     fn test_parse_alignment_sort() {
+//         // Test empty string
+//         assert_eq!(parse_alignment_sort(""), AlignmentSort::Default);
+//         assert_eq!(parse_alignment_sort("   "), AlignmentSort::Default);
+
+//         // Test BASE without parentheses (current base)
+//         assert_eq!(
+//             parse_alignment_sort("BASE"),
+//             AlignmentSort::BaseAtCurrentBase
+//         );
+//         assert_eq!(
+//             parse_alignment_sort("base"),
+//             AlignmentSort::BaseAtCurrentBase
+//         );
+
+//         // Test BASE with empty parentheses (current base)
+//         assert_eq!(
+//             parse_alignment_sort("BASE()"),
+//             AlignmentSort::BaseAtCurrentBase
+//         );
+//         assert_eq!(
+//             parse_alignment_sort("base()"),
+//             AlignmentSort::BaseAtCurrentBase
+//         );
+
+//         // Test BASE with specific position
+//         assert_eq!(parse_alignment_sort("BASE(2)"), AlignmentSort::BaseAt(2));
+//         assert_eq!(parse_alignment_sort("base(10)"), AlignmentSort::BaseAt(10));
+
+//         // Test STRAND without parentheses (current base)
+//         assert_eq!(
+//             parse_alignment_sort("STRAND"),
+//             AlignmentSort::StrandAtCurrentBase
+//         );
+//         assert_eq!(
+//             parse_alignment_sort("strand"),
+//             AlignmentSort::StrandAtCurrentBase
+//         );
+
+//         // Test STRAND with empty parentheses (current base)
+//         assert_eq!(
+//             parse_alignment_sort("STRAND()"),
+//             AlignmentSort::StrandAtCurrentBase
+//         );
+//         assert_eq!(
+//             parse_alignment_sort("strand()"),
+//             AlignmentSort::StrandAtCurrentBase
+//         );
+
+//         // Test STRAND with specific position
+//         assert_eq!(
+//             parse_alignment_sort("STRAND(5)"),
+//             AlignmentSort::StrandAt(5)
+//         );
+
+//         // Test simple keywords
+//         assert_eq!(parse_alignment_sort("START"), AlignmentSort::Start);
+//         assert_eq!(parse_alignment_sort("MAPQ"), AlignmentSort::MappingQuality);
+//         assert_eq!(parse_alignment_sort("readname"), AlignmentSort::ReadName);
+
+//         // Test with DESC/DEC
+//         assert_eq!(
+//             parse_alignment_sort("BASE(2) DESC"),
+//             AlignmentSort::Reverse(Box::new(AlignmentSort::BaseAt(2)))
+//         );
+//         assert_eq!(
+//             parse_alignment_sort("BASE() DEC"),
+//             AlignmentSort::Reverse(Box::new(AlignmentSort::BaseAtCurrentBase))
+//         );
+//         assert_eq!(
+//             parse_alignment_sort("STRAND desc"),
+//             AlignmentSort::Reverse(Box::new(AlignmentSort::StrandAtCurrentBase))
+//         );
+
+//         // Test comma-separated (Then)
+//         assert_eq!(
+//             parse_alignment_sort("BASE(2), START"),
+//             AlignmentSort::Then(
+//                 Box::new(AlignmentSort::BaseAt(2)),
+//                 Box::new(AlignmentSort::Start)
+//             )
+//         );
+
+//         // Test combination with current base
+//         assert_eq!(
+//             parse_alignment_sort("BASE, STRAND(3)"),
+//             AlignmentSort::Then(
+//                 Box::new(AlignmentSort::BaseAtCurrentBase),
+//                 Box::new(AlignmentSort::StrandAt(3))
+//             )
+//         );
+
+//         // Test complex combination
+//         assert_eq!(
+//             parse_alignment_sort("BASE(2) DESC, MAPQ"),
+//             AlignmentSort::Then(
+//                 Box::new(AlignmentSort::Reverse(Box::new(AlignmentSort::BaseAt(2)))),
+//                 Box::new(AlignmentSort::MappingQuality)
+//             )
+//         );
+
+//         // Test with extra whitespace
+//         assert_eq!(
+//             parse_alignment_sort("  BASE(2)  ,  START  "),
+//             AlignmentSort::Then(
+//                 Box::new(AlignmentSort::BaseAt(2)),
+//                 Box::new(AlignmentSort::Start)
+//             )
+//         );
+//     }
+// }
