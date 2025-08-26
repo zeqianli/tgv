@@ -14,4 +14,11 @@ impl Strand {
             _ => Err(TGVError::ValueError(format!("Invalid strand: {}", s))),
         }
     }
+
+    pub fn reverse(self) -> Self {
+        match self {
+            Strand::Forward => Strand::Reverse,
+            Strand::Reverse => Strand::Forward,
+        }
+    }
 }
