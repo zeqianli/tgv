@@ -32,6 +32,7 @@ shellexpand = "3.1"
 twobit = "0"
 bigtools = "0.5"
 noodles = { version = "0.99.0", features = ["bed"] }
+nom = "8.0.0"
 
 [dev-dependencies]
 rstest = "0.25.0"

@@ -1,7 +1,7 @@
 use crate::{
     alignment::{Alignment, AlignmentBuilder},
     bed::BEDIntervals,
-    contig_header::{ContigHeader},
+    contig_header::ContigHeader,
     error::TGVError,
     helpers::is_url,
     reference::Reference,
@@ -86,7 +86,8 @@ impl Repository {
 
                 ts.get_all_contigs(reference, &mut track_cache)
                     .await?
-                    .into_iter().try_for_each(|contig| contig_header.update_or_add_contig(contig))?;
+                    .into_iter()
+                    .try_for_each(|contig| contig_header.update_or_add_contig(contig))?;
 
                 let use_ucsc_api_sequence =
                     matches!(ts, TrackServiceEnum::Api(_) | TrackServiceEnum::Db(_));
@@ -296,8 +297,8 @@ impl AlignmentRepository for BamRepository {
 
         let mut alignment_builder = AlignmentBuilder::new(region)?;
 
-        for record in bam.records() {
-            alignment_builder.add_read(record?, sequence)?;
+        for (index, record) in bam.records().enumerate() {
+            alignment_builder.add_read(index, record?, sequence)?;
         }
 
         alignment_builder.build()
@@ -356,8 +357,8 @@ impl AlignmentRepository for RemoteBamRepository {
 
         let mut alignment_builder = AlignmentBuilder::new(region)?;
 
-        for record in bam.records() {
-            alignment_builder.add_read(record?, sequence)?;
+        for (index, record) in bam.records().enumerate() {
+            alignment_builder.add_read(index, record?, sequence)?;
         }
 
         alignment_builder.build()

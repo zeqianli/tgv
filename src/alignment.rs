@@ -1,4 +1,5 @@
 use crate::error::TGVError;
+use crate::message::{AlignmentFilter, AlignmentSort};
 use crate::region::Region;
 use crate::sequence::Sequence;
 use rust_htslib::bam::ext::BamRecordExtensions;
@@ -71,9 +72,8 @@ pub struct AlignedRead {
     /// Trailing softclips. Used for track stacking calculation.
     pub trailing_softclips: usize,
 
-    /// Y coordinate in the alignment view
-    /// 0-based.
-    pub y: usize,
+    /// index in the alignment read array.
+    index: usize,
 
     /// Base mismatches with the reference
     pub rendering_contexts: Vec<RenderingContext>,
@@ -324,9 +324,11 @@ fn calculate_rendering_contexts(
 
         if add_insertion {
             // Insertion (detected in the previous loop) notated at the beginning of the first segment.
-            if let Some(context) = new_contexts.first_mut() { context.add_modifier(RenderingContextModifier::Insertion(
+            if let Some(context) = new_contexts.first_mut() {
+                context.add_modifier(RenderingContextModifier::Insertion(
                     annotate_insertion_in_next_cigar.unwrap(),
-                )) }
+                ))
+            }
         };
         annotate_insertion_in_next_cigar = None;
 
@@ -638,10 +640,10 @@ pub struct Alignment {
     /// 1-based, inclusive.
     data_complete_right_bound: usize,
 
-    depth: usize,
-
+    // read index -> y locations
+    ys: Vec<usize>,
     /// y -> read indexes at y location
-    index: Vec<Vec<usize>>,
+    ys_index: Vec<Vec<usize>>,
 }
 
 /// Data loading
@@ -656,7 +658,7 @@ impl Alignment {
 
     /// Return the number of alignment tracks.
     pub fn depth(&self) -> usize {
-        self.depth
+        self.ys_index.len()
     }
 
     /// Basewise coverage at position.
@@ -670,11 +672,11 @@ impl Alignment {
 
     /// Return the read at x_coordinate, yth track
     pub fn read_at(&self, x_coordinate: usize, y: usize) -> Option<&AlignedRead> {
-        if y >= self.depth {
+        if y >= self.depth() {
             return None;
         }
 
-        self.index[y]
+        self.ys_index[y]
             .iter()
             .find(|i_read| self.reads[**i_read].full_read_covers(x_coordinate))
             .map(|index| &self.reads[*index])
@@ -687,16 +689,42 @@ impl Alignment {
         x_right_coordinate: usize,
         y: usize,
     ) -> Option<&AlignedRead> {
-        if y >= self.depth {
+        if y >= self.depth() {
             return None;
         }
 
-        self.index[y]
+        self.ys_index[y]
             .iter()
             .find(|i_read| {
                 self.reads[**i_read].full_read_overlaps(x_left_coordinate, x_right_coordinate)
             })
             .map(|index| &self.reads[*index])
+    }
+
+    pub fn y_of(&self, read: &AlignedRead) -> usize {
+        self.ys[read.index]
+    }
+}
+
+pub fn sort_alignment(alignment: &mut Alignment, option: AlignmentSort) -> Result<(), TGVError> {
+    todo!();
+}
+
+pub fn filter_alignment(
+    alignment: &mut Alignment,
+    option: AlignmentFilter,
+) -> Result<(), TGVError> {
+    todo!();
+}
+
+fn passes_filter(read: &AlignedRead, filter: &AlignmentFilter) -> bool {
+    match filter {
+        AlignmentFilter::Default => true,
+        AlignmentFilter::Base(position, base) => true,
+        AlignmentFilter::BaseAtCurrentPosition(base) => true,
+        AlignmentFilter::BaseSoftclip(position) => true,
+        AlignmentFilter::BaseAtCurrentPositionSoftClip => true,
+        _ => true, // TODO
     }
 }
 
@@ -709,6 +737,8 @@ pub struct AlignmentBuilder {
 
     track_most_left_bound: usize,
     track_most_right_bound: usize,
+
+    ys: Vec<usize>,
 
     region: Region,
 }
@@ -727,6 +757,8 @@ impl AlignmentBuilder {
             track_most_left_bound: usize::MAX,
             track_most_right_bound: 0,
 
+            ys: Vec::new(),
+
             region: region.clone(),
         })
     }
@@ -734,6 +766,7 @@ impl AlignmentBuilder {
     /// Add a read to the alignment. Note that this function does not update coverage.
     pub fn add_read(
         &mut self,
+        read_index: usize,
         read: Record,
         reference_sequence: Option<&Sequence>,
     ) -> Result<&mut Self, TGVError> {
@@ -765,23 +798,23 @@ impl AlignmentBuilder {
             end: read_end,
             leading_softclips,
             trailing_softclips,
-            y,
+            index: read_index,
 
             rendering_contexts,
         };
 
         // Track bounds + depth update
-        if self.aligned_reads.is_empty() || aligned_read.y >= self.track_left_bounds.len() {
+        if self.aligned_reads.is_empty() || y >= self.track_left_bounds.len() {
             // Add to a new track
             self.track_left_bounds.push(aligned_read.stacking_start());
             self.track_right_bounds.push(aligned_read.stacking_end());
         } else {
             // Add to an existing track
-            if aligned_read.stacking_start() < self.track_left_bounds[aligned_read.y] {
-                self.track_left_bounds[aligned_read.y] = aligned_read.stacking_start();
+            if aligned_read.stacking_start() < self.track_left_bounds[y] {
+                self.track_left_bounds[y] = aligned_read.stacking_start();
             }
-            if aligned_read.stacking_end() > self.track_right_bounds[aligned_read.y] {
-                self.track_right_bounds[aligned_read.y] = aligned_read.stacking_end();
+            if aligned_read.stacking_end() > self.track_right_bounds[y] {
+                self.track_right_bounds[y] = aligned_read.stacking_end();
             }
         }
 
@@ -812,6 +845,7 @@ impl AlignmentBuilder {
 
         // Add to reads
         self.aligned_reads.push(aligned_read);
+        self.ys.push(y);
 
         Ok(self)
     }
@@ -847,11 +881,10 @@ impl AlignmentBuilder {
         }
 
         let mut index = vec![Vec::new(); self.track_left_bounds.len()];
-        self
-            .aligned_reads
+        self.ys
             .iter()
             .enumerate()
-            .map(|(i, read)| index[read.y].push(i))
+            .map(|(i, y)| index[*y].push(i))
             .collect::<()>();
 
         Ok(Alignment {
@@ -861,8 +894,9 @@ impl AlignmentBuilder {
             data_complete_left_bound: self.region.start,
             data_complete_right_bound: self.region.end,
 
-            depth: self.track_left_bounds.len(),
-            index,
+            ys: self.ys,
+
+            ys_index: index,
         })
     }
 }
