@@ -2,10 +2,11 @@ use crate::{display_mode::DisplayMode, region::Region, strand::Strand};
 use nom::{
     branch::alt,
     bytes::complete::{tag, tag_no_case},
-    character::complete::{char, digit1, multispace0, usize},
+    character::complete::{alpha1, anychar, char, digit1, multispace0, usize},
     combinator::{map, opt, value},
+    error::ErrorKind,
     multi::{self, separated_list0},
-    sequence::{delimited, pair, preceded, terminated},
+    sequence::{delimited, pair, preceded, separated_pair, terminated},
     IResult, Parser,
 };
 use strum::Display;
@@ -124,8 +125,12 @@ pub enum AlignmentFilter {
     /// Base at position (1-based) equal to the character
     Base(usize, char),
 
+    BaseAtCurrentPosition(char),
+
     /// Base at position (1-based is softclip)
     BaseSoftclip(usize),
+
+    BaseAtCurrentPositionSoftClip,
 
     /// MAPQ greater or equal than
     MappingQualityGE(u16),
@@ -148,6 +153,45 @@ pub enum AlignmentFilter {
     Not(Box<AlignmentFilter>),
     And(Box<AlignmentFilter>, Box<AlignmentFilter>),
     Or(Box<AlignmentFilter>, Box<AlignmentFilter>),
+}
+
+fn node_base_filter(input: &str) -> IResult<&str, AlignmentFilter> {
+    let (input, (position, base)) = preceded(
+        tag_no_case("BASE"),
+        separated_pair(
+            parse_optional_parenthesis,
+            delimited(multispace0, tag("="), multispace0),
+            alt((alpha1, tag_no_case("SOFTCLIP"))),
+        ),
+    )
+    .parse(input)?;
+
+    let is_softclip = if base.to_lowercase() == "softclip" {
+        true
+    } else if base.len() != 1 {
+        return Err(nom::Err::Error(nom::error::Error::new(
+            input,
+            ErrorKind::Fail,
+        )));
+    } else {
+        false
+    };
+
+    let filter = match (position, is_softclip) {
+        (None, true) | (Some(None), true) => AlignmentFilter::BaseAtCurrentPositionSoftClip,
+        (Some(Some(position)), true) => AlignmentFilter::BaseSoftclip(position),
+        (None, false) | (Some(None), false) => {
+            AlignmentFilter::BaseAtCurrentPosition(base.chars().next().unwrap())
+        }
+        (Some(Some(position)), false) => {
+            AlignmentFilter::Base(position, base.chars().next().unwrap())
+        }
+    };
+
+    Ok((input, filter))
+}
+fn node_filter(input: &str) -> IResult<&str, AlignmentFilter> {
+    delimited(multispace0, alt((node_base_filter,)), multispace0).parse(input)
 }
 
 impl AlignmentFilter {
