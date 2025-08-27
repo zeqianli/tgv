@@ -1,7 +1,5 @@
 use crate::{
-    alignment::{
-        RenderingContext, RenderingContextKind, RenderingContextModifier,
-    },
+    alignment::{RenderingContext, RenderingContextKind, RenderingContextModifier},
     error::TGVError,
     rendering::colors::Palette,
     states::State,
@@ -30,7 +28,7 @@ pub fn render_alignment(
             for context in read.rendering_contexts.iter() {
                 if let Some(onscreen_contexts) = get_read_rendering_info(
                     context,
-                    read.y,
+                    alignment.y_of(read),
                     &state.window,
                     area,
                     background_color,

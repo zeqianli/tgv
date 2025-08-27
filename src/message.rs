@@ -1,15 +1,17 @@
-use crate::{display_mode::DisplayMode, region::Region, strand::Strand};
+use crate::{display_mode::DisplayMode, error::TGVError, region::Region, strand::Strand};
 use nom::{
     branch::alt,
     bytes::complete::{tag, tag_no_case},
     character::complete::{alpha1, anychar, char, digit1, multispace0, usize},
     combinator::{map, opt, value},
     error::ErrorKind,
-    multi::{self, separated_list0},
+    multi::{self, many0, separated_list0},
     sequence::{delimited, pair, preceded, separated_pair, terminated},
     IResult, Parser,
 };
+use std::str::FromStr;
 use strum::Display;
+
 /// State messages
 #[derive(Debug, Clone, Eq, PartialEq, Display)]
 pub enum StateMessage {
@@ -90,21 +92,41 @@ pub enum DataMessage {
 }
 
 #[derive(Debug, Clone)]
-pub struct AlignmentDisplayOption {
-    filter: AlignmentFilter,
+pub enum AlignmentDisplayOption {
+    Filter(AlignmentFilter),
 
-    sort: AlignmentSort,
+    Sort(AlignmentSort),
 }
 
-impl Default for AlignmentDisplayOption {
-    fn default() -> Self {
-        AlignmentDisplayOption {
-            filter: AlignmentFilter::Default,
-            sort: AlignmentSort::Default,
-        }
-    }
+fn parse_display_options(input: &str) -> IResult<&str, Vec<AlignmentDisplayOption>> {
+    many0(alt((parse_filter, parse_sort))).parse(input)
 }
 
+fn parse_filter(input: &str) -> IResult<&str, AlignmentDisplayOption> {
+    delimited(
+        preceded(
+            multispace0,
+            alt((tag_no_case("FILTER"), tag_no_case("WHERE"))),
+        ),
+        node_filter,
+        multispace0,
+    )
+    .parse(input)
+    .map(|(input, filter)| (input, AlignmentDisplayOption::Filter(filter)))
+}
+
+fn parse_sort(input: &str) -> IResult<&str, AlignmentDisplayOption> {
+    delimited(
+        preceded(
+            multispace0,
+            alt((tag_no_case("WHERE"), tag_no_case("ORDER BY"))),
+        ),
+        parse_sort_expression,
+        multispace0,
+    )
+    .parse(input)
+    .map(|(input, filter)| (input, AlignmentDisplayOption::Sort(filter)))
+}
 #[derive(Debug, Clone, Eq, PartialEq)]
 pub enum AlignmentFilter {
     Default,
