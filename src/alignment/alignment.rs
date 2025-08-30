@@ -127,7 +127,7 @@ impl Alignment {
 
     /// Build indexes, coverages after key assets are set: reads, show_read, ys
     pub fn build(&mut self, reference_sequence: Option<&Sequence>) -> Result<&mut Self, TGVError> {
-        let mut ys_index = vec![Vec::new(); *self.ys.iter().max().unwrap_or(&0)];
+        let mut ys_index = vec![Vec::new(); *self.ys.iter().max().unwrap_or(&0) + 1];
         self.ys
             .iter()
             .zip(self.show_read.iter())
@@ -167,6 +167,8 @@ impl Alignment {
         for (k, v) in coverage_hashmap.into_iter() {
             coverage.insert(k, v);
         }
+
+        self.coverage = coverage;
 
         Ok(self)
     }
