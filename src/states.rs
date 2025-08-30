@@ -1,7 +1,8 @@
 use crate::error::TGVError;
 use crate::intervals::GenomeInterval;
-use crate::repository::Repository;
+use crate::message::AlignmentDisplayOption;
 use crate::repository::AlignmentRepository;
+use crate::repository::Repository;
 use crate::settings::Settings;
 use crate::tracks::{TrackCache, TrackService};
 use crate::{
@@ -343,7 +344,26 @@ impl StateHandler {
 
                 state.layout.root = new_node;
             }
-        };
+
+            StateMessage::SetAlignmentChange(options) => {
+                if let Some(alignment) = state.alignment.as_mut() {
+                    for option in options {
+                        match option {
+                            AlignmentDisplayOption::Filter(filter) => {
+                                alignment.filter(
+                                    filter,
+                                    &state.window,
+                                    &state.area,
+                                    state.sequence.as_ref(),
+                                )?;
+                            }
+                            _ => {}
+                        }
+                    }
+                }
+            }
+            StateMessage::AddAlignmentChange(options) => {}
+        }
 
         Self::get_data_requirements(state, settings)
     }

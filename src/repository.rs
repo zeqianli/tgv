@@ -1,7 +1,7 @@
 use crate::{
-    alignment::{Alignment, AlignmentBuilder},
+    alignment::{AlignedRead, Alignment},
     bed::BEDIntervals,
-    contig_header::{ContigHeader},
+    contig_header::ContigHeader,
     error::TGVError,
     helpers::is_url,
     reference::Reference,
@@ -86,7 +86,8 @@ impl Repository {
 
                 ts.get_all_contigs(reference, &mut track_cache)
                     .await?
-                    .into_iter().try_for_each(|contig| contig_header.update_or_add_contig(contig))?;
+                    .into_iter()
+                    .try_for_each(|contig| contig_header.update_or_add_contig(contig))?;
 
                 let use_ucsc_api_sequence =
                     matches!(ts, TrackServiceEnum::Api(_) | TrackServiceEnum::Db(_));
@@ -294,13 +295,13 @@ impl AlignmentRepository for BamRepository {
         ))
         .map_err(|e| TGVError::IOError(e.to_string()))?;
 
-        let mut alignment_builder = AlignmentBuilder::new(region)?;
+        let reads = bam
+            .records()
+            .enumerate()
+            .map(|(i, record)| AlignedRead::from_bam_record(i, record?, sequence))
+            .collect::<Result<_, _>>()?;
 
-        for record in bam.records() {
-            alignment_builder.add_read(record?, sequence)?;
-        }
-
-        alignment_builder.build()
+        Alignment::from_aligned_reads(reads, region, sequence)
     }
 
     /// Read BAM headers and return contig namesa and lengths.
@@ -354,13 +355,13 @@ impl AlignmentRepository for RemoteBamRepository {
         ))
         .map_err(|e| TGVError::IOError(e.to_string()))?;
 
-        let mut alignment_builder = AlignmentBuilder::new(region)?;
+        let reads = bam
+            .records()
+            .enumerate()
+            .map(|(i, record)| AlignedRead::from_bam_record(i, record?, sequence))
+            .collect::<Result<_, _>>()?;
 
-        for record in bam.records() {
-            alignment_builder.add_read(record?, sequence)?;
-        }
-
-        alignment_builder.build()
+        Alignment::from_aligned_reads(reads, region, sequence)
     }
 
     fn read_header(&self) -> Result<Vec<(String, Option<usize>)>, TGVError> {

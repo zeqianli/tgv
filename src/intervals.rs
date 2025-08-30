@@ -47,13 +47,13 @@ pub struct SortedIntervalCollection<T: GenomeInterval> {
     contig_lookup: HashMap<usize, Vec<usize>>,
 }
 
-/// TODO:
-/// This is now O(1) for overlapping lookup.
-/// Use interval tree to get O(log n) lookup. Options:
+/// This is now O(N) for overlapping lookup.
+/// The interval tree data structure allows O(log n) lookup. Options:
 /// - https://github.com/dcjones/coitrees
 /// - https://github.com/sstadick/rust-lapper
 /// - https://crates.io/crates/intervaltree
 /// - https://github.com/rust-bio/rust-bio/blob/master/src/data_structures/interval_tree/avl_interval_tree.rs
+/// But, TGV probably doesn't work with large interval collections, so O(N) might be faster.
 impl<T> SortedIntervalCollection<T>
 where
     T: GenomeInterval,

@@ -1,6 +1,10 @@
 use crate::error::TGVError;
+use crate::message::{AlignmentFilter, AlignmentSort};
+use crate::reference;
 use crate::region::Region;
 use crate::sequence::Sequence;
+use crate::window::ViewingWindow;
+use ratatui::layout::Rect;
 use rust_htslib::bam::ext::BamRecordExtensions;
 use rust_htslib::bam::record::{Cigar, CigarStringView};
 use rust_htslib::bam::{record::Seq, Read, Record};
@@ -71,9 +75,10 @@ pub struct AlignedRead {
     /// Trailing softclips. Used for track stacking calculation.
     pub trailing_softclips: usize,
 
-    /// Y coordinate in the alignment view
-    /// 0-based.
-    pub y: usize,
+    pub cigar: CigarStringView,
+
+    /// index in the alignment read array.
+    pub index: usize,
 
     /// Base mismatches with the reference
     pub rendering_contexts: Vec<RenderingContext>,
@@ -85,11 +90,11 @@ impl AlignedRead {
         self.start..self.end + 1
     }
 
-    fn stacking_start(&self) -> usize {
+    pub fn stacking_start(&self) -> usize {
         usize::max(self.start.saturating_sub(self.leading_softclips), 1)
     }
 
-    fn stacking_end(&self) -> usize {
+    pub fn stacking_end(&self) -> usize {
         self.end.saturating_add(self.trailing_softclips)
     }
 
@@ -147,10 +152,193 @@ impl AlignedRead {
     pub fn full_read_overlaps(&self, x_left_coordinate: usize, x_right_coordinate: usize) -> bool {
         self.stacking_start() <= x_right_coordinate && self.stacking_end() >= x_left_coordinate
     }
+
+    /// Return the base at coordinate.
+    /// None: Not covered, deletion, softclip.
+    /// Insertion: the inserted sequences are not returned.
+    ///
+    /// coordinate: 1-based
+    pub fn base_at(&self, coordinate: usize) -> Option<u8> {
+        if coordinate < self.start || coordinate > self.end {
+            return None;
+        }
+
+        let cigars = self.read.cigar();
+        let mut reference_pivot: usize = self.start;
+        let mut query_pivot: usize = 1; // 1-based. # bases on the sequence. Note that need to substract leading softclips to get aligned base coordinate.
+
+        for op in cigars.iter() {
+            if reference_pivot > coordinate {
+                break;
+            }
+
+            let next_reference_pivot = if consumes_reference(op) {
+                reference_pivot + op.len() as usize
+            } else {
+                reference_pivot
+            };
+
+            let next_query_pivot = if consumes_query(op) {
+                query_pivot + op.len() as usize
+            } else {
+                query_pivot
+            };
+
+            if next_reference_pivot <= coordinate {
+                reference_pivot = next_reference_pivot;
+                query_pivot = next_query_pivot;
+                continue;
+            }
+
+            match op {
+                Cigar::SoftClip(l) | Cigar::Ins(l) | Cigar::HardClip(l) | Cigar::Pad(l) => {
+                    // This should never reach
+                    reference_pivot = next_reference_pivot;
+                    query_pivot = next_query_pivot;
+                }
+
+                Cigar::Del(l) | Cigar::RefSkip(l) => {
+                    return None;
+                }
+
+                Cigar::Diff(_) | Cigar::Equal(_) | Cigar::Match(_) => {
+                    return Some(self.read.seq()[query_pivot + coordinate - reference_pivot - 1]);
+                }
+            }
+        }
+        return None;
+    }
+
+    pub fn is_softclip_at(&self, coordinate: usize) -> bool {
+        if coordinate < self.start && coordinate + self.leading_softclips >= self.start {
+            return true;
+        }
+        if coordinate > self.end && coordinate <= self.end + self.trailing_softclips {
+            return true;
+        }
+        return false;
+    }
+
+    pub fn is_deletion_at(&self, coordinate: usize) -> bool {
+        if coordinate < self.start || coordinate > self.end {
+            return false;
+        }
+
+        let cigars = self.read.cigar();
+        let mut reference_pivot: usize = self.start;
+        let mut query_pivot: usize = 1; // 1-based. # bases on the sequence. Note that need to substract leading softclips to get aligned base coordinate.
+
+        for op in cigars.iter() {
+            if reference_pivot > coordinate {
+                break;
+            }
+
+            let next_reference_pivot = if consumes_reference(op) {
+                reference_pivot + op.len() as usize
+            } else {
+                reference_pivot
+            };
+
+            let next_query_pivot = if consumes_query(op) {
+                query_pivot + op.len() as usize
+            } else {
+                query_pivot
+            };
+
+            if next_reference_pivot <= coordinate {
+                reference_pivot = next_reference_pivot;
+                query_pivot = next_query_pivot;
+                continue;
+            }
+
+            match op {
+                Cigar::SoftClip(l) | Cigar::Ins(l) | Cigar::HardClip(l) | Cigar::Pad(l) => {
+                    // This should never reach
+                    reference_pivot = next_reference_pivot;
+                    query_pivot = next_query_pivot;
+                }
+
+                Cigar::Del(l) | Cigar::RefSkip(l) => {
+                    return true;
+                }
+
+                Cigar::Diff(_) | Cigar::Equal(_) | Cigar::Match(_) => {
+                    return false;
+                }
+            }
+        }
+        return false;
+    }
+
+    pub fn passes_filter(
+        &self,
+        filter: &AlignmentFilter,
+        window: &ViewingWindow,
+        area: &Rect,
+    ) -> bool {
+        match filter {
+            AlignmentFilter::Default => true,
+            AlignmentFilter::Base(position, base) => {
+                if let Some(base_u8) = self.base_at(*position) {
+                    *base as u8 == base_u8
+                } else {
+                    false
+                }
+            }
+            AlignmentFilter::BaseAtCurrentPosition(base) => {
+                if let Some(base_u8) = self.base_at(window.middle(area)) {
+                    *base as u8 == base_u8
+                } else {
+                    false
+                }
+            }
+            AlignmentFilter::BaseSoftclip(position) => self.is_softclip_at(*position),
+            AlignmentFilter::BaseAtCurrentPositionSoftClip => {
+                self.is_softclip_at(window.middle(area))
+            }
+
+            _ => true, // TODO
+        }
+    }
+
+    pub fn from_bam_record(
+        read_index: usize,
+        read: Record,
+        reference_sequence: Option<&Sequence>,
+    ) -> Result<Self, TGVError> {
+        let read_start = read.pos() as usize + 1;
+        let read_end = read.reference_end() as usize;
+        let cigars = read.cigar();
+        let leading_softclips = cigars.leading_softclips() as usize;
+        let trailing_softclips = cigars.trailing_softclips() as usize;
+        // read.pos() in htslib: 0-based, inclusive, excluding leading hardclips and softclips
+        // read.reference_end() in htslib: 0-based, exclusive, excluding trailing hardclips and softclips
+
+        let rendering_contexts = calculate_rendering_contexts(
+            read_start,
+            &cigars,
+            leading_softclips,
+            &read.seq(),
+            read.is_reverse(),
+            reference_sequence,
+        )?;
+
+        Ok(Self {
+            read,
+            start: read_start,
+            end: read_end,
+            cigar: cigars,
+            leading_softclips,
+            trailing_softclips,
+            index: read_index,
+
+            rendering_contexts,
+        })
+    }
 }
 
 /// See: https://samtools.github.io/hts-specs/SAMv1.pdf
-fn calculate_rendering_contexts(
+pub fn calculate_rendering_contexts(
     reference_start: usize, // 1-based. Alignment start, not softclip start
     cigars: &CigarStringView,
     leading_softclips: usize,
@@ -324,9 +512,11 @@ fn calculate_rendering_contexts(
 
         if add_insertion {
             // Insertion (detected in the previous loop) notated at the beginning of the first segment.
-            if let Some(context) = new_contexts.first_mut() { context.add_modifier(RenderingContextModifier::Insertion(
+            if let Some(context) = new_contexts.first_mut() {
+                context.add_modifier(RenderingContextModifier::Insertion(
                     annotate_insertion_in_next_cigar.unwrap(),
-                )) }
+                ))
+            }
         };
         annotate_insertion_in_next_cigar = None;
 
@@ -359,123 +549,7 @@ fn calculate_rendering_contexts(
     Ok(output)
 }
 
-/// See: https://samtools.github.io/hts-specs/SAMv1.pdf
-fn calculate_basewise_coverage(
-    reference_start: usize, // 1-based. Alignment start, not softclip start
-    cigars: &CigarStringView,
-    leading_softclips: usize,
-    seq: &Seq,
-    reference_sequence: Option<&Sequence>,
-) -> Result<HashMap<usize, BaseCoverage>, TGVError> {
-    let mut output: HashMap<usize, BaseCoverage> = HashMap::new();
-    if cigars.len() == 0 {
-        return Ok(output);
-    }
-
-    let mut reference_pivot: usize = reference_start;
-    let mut query_pivot: usize = 1; // 1-based. # bases on the sequence. Note that need to substract leading softclips to get aligned base coordinate.
-
-    for (i_op, op) in cigars.iter().enumerate() {
-        let next_reference_pivot = if consumes_reference(op) {
-            reference_pivot + op.len() as usize
-        } else {
-            reference_pivot
-        };
-
-        let next_query_pivot = if consumes_query(op) {
-            query_pivot + op.len() as usize
-        } else {
-            query_pivot
-        };
-
-        match op {
-            Cigar::SoftClip(l) => {
-                // S
-                if query_pivot <= leading_softclips {
-                    // leading softclips. base rendered at the left of reference pivot.
-                    for i_soft_clip_base in 0..*l as usize {
-                        if reference_pivot + i_soft_clip_base <= leading_softclips + 1 {
-                            //base_coordinate <= 1 (on the edge of screen)
-                            // Prevent cases when a soft clip is at the very starting of the reference genome:
-                            //    ----------- (ref)
-                            //  ssss======>   (read)
-                            //    ^           edge of screen
-                            //  ^^            these softcliped bases are not displayed
-                            continue;
-                        }
-
-                        let base_coordinate: usize =
-                            reference_pivot - leading_softclips + i_soft_clip_base;
-                        let base = seq[i_soft_clip_base];
-
-                        output
-                            .entry(base_coordinate)
-                            .or_insert(BaseCoverage::new(match reference_sequence {
-                                Some(sequence) => sequence.base_at(base_coordinate).ok_or(
-                                    TGVError::ValueError(format!(
-                                        "Sequence not loaded for {}",
-                                        base_coordinate
-                                    )),
-                                )?,
-                                None => b'N',
-                            }))
-                            .update_softclip(base)
-                    }
-                } else {
-                    // right softclips. base rendered at the right of reference pivot.
-                    for i_soft_clip_base in 0..*l as usize {
-                        let base_coordinate: usize = reference_pivot + i_soft_clip_base;
-                        let base = seq[query_pivot + i_soft_clip_base - 1];
-                        output
-                            .entry(base_coordinate)
-                            .or_insert(BaseCoverage::new(match reference_sequence {
-                                Some(sequence) => sequence.base_at(base_coordinate).ok_or(
-                                    TGVError::ValueError(format!(
-                                        "Sequence not loaded for {}",
-                                        base_coordinate
-                                    )),
-                                )?,
-                                None => b'N',
-                            }))
-                            .update_softclip(base);
-                    }
-                }
-            }
-
-            Cigar::Ins(l) => {}
-
-            Cigar::Del(l) | Cigar::RefSkip(l) => {}
-
-            Cigar::Diff(l) | Cigar::Equal(l) | Cigar::Match(l) => {
-                for i in 0..*l as usize {
-                    let base_coordinate = reference_pivot + i;
-                    output
-                        .entry(base_coordinate)
-                        .or_insert(BaseCoverage::new(match reference_sequence {
-                            Some(sequence) => {
-                                sequence
-                                    .base_at(base_coordinate)
-                                    .ok_or(TGVError::ValueError(format!(
-                                        "Sequence not loaded for {}",
-                                        base_coordinate
-                                    )))?
-                            }
-                            None => b'N',
-                        }))
-                        .update(seq[query_pivot + i - 1])
-                }
-            }
-            Cigar::HardClip(l) | Cigar::Pad(l) => {}
-        }
-
-        query_pivot = next_query_pivot;
-        reference_pivot = next_reference_pivot;
-    }
-
-    Ok(output)
-}
-
-fn matches_base(base1: u8, base2: u8) -> bool {
+pub fn matches_base(base1: u8, base2: u8) -> bool {
     if base1 == base2 {
         return true;
     }
@@ -497,7 +571,7 @@ fn matches_base(base1: u8, base2: u8) -> bool {
 /// Yes: M/D/N/=/X
 /// No: I/S/H/P
 /// See: https://samtools.github.io/hts-specs/SAMv1.pdf
-fn consumes_reference(op: &Cigar) -> bool {
+pub fn consumes_reference(op: &Cigar) -> bool {
     match op {
         Cigar::Match(_l)
         | Cigar::Del(_l)
@@ -512,7 +586,7 @@ fn consumes_reference(op: &Cigar) -> bool {
 /// Whether the cigar operation consumes query.
 /// Yes: M/I/S/=/X
 /// No: D/N/H/P
-fn consumes_query(op: &Cigar) -> bool {
+pub fn consumes_query(op: &Cigar) -> bool {
     match op {
         Cigar::Match(_l)
         | Cigar::Ins(_l)
@@ -537,333 +611,6 @@ fn can_be_annotated_with_arrows(op: &Cigar) -> bool {
         | Cigar::RefSkip(_l) => true,
 
         Cigar::HardClip(_l) | Cigar::Pad(_l) | Cigar::Ins(_l) => false,
-    }
-}
-#[derive(Clone, Debug)]
-#[allow(non_snake_case)]
-pub struct BaseCoverage {
-    pub A: usize,
-    pub T: usize,
-    pub C: usize,
-    pub G: usize,
-
-    pub N: usize,
-
-    // total coverage, exluding softclips
-    pub total: usize,
-
-    // Softclip count
-    pub softclip: usize,
-
-    // reference_base
-    pub reference_base: u8,
-}
-
-impl BaseCoverage {
-    pub const MAX_DISPLAY_ALLELE_FREQUENCY_RECIPROCOL: usize = 100;
-    pub fn new(reference_base: u8) -> Self {
-        Self {
-            A: 0,
-            T: 0,
-            C: 0,
-            G: 0,
-            N: 0,
-            total: 0,
-            softclip: 0,
-            reference_base,
-        }
-    }
-
-    pub fn update(&mut self, base: u8) {
-        match base {
-            b'A' | b'a' => self.A += 1,
-            b'T' | b't' => self.T += 1,
-            b'C' | b'c' => self.C += 1,
-            b'G' | b'g' => self.G += 1,
-
-            _ => self.N += 1,
-        }
-
-        self.total += 1;
-    }
-
-    pub fn update_softclip(&mut self, base: u8) {
-        self.softclip += 1
-    }
-
-    pub fn add(&mut self, other: BaseCoverage) {
-        self.A += other.A;
-        self.T += other.T;
-        self.C += other.C;
-        self.G += other.G;
-        self.total += other.total;
-        self.softclip += other.softclip;
-    }
-
-    pub fn max_alt_depth(&self) -> Option<usize> {
-        match self.reference_base {
-            b'A' | b'a' => Some(usize::max(self.C, self.T)),
-            b'T' | b't' => Some(usize::max(self.A, self.C)),
-            b'C' | b'c' => Some(usize::max(self.A, self.T)),
-            b'G' | b'g' => Some(usize::max(self.C, self.T)),
-            _ => None,
-        }
-    }
-}
-
-static DEFAULT_COVERAGE: BaseCoverage = BaseCoverage {
-    A: 0,
-    T: 0,
-    C: 0,
-    G: 0,
-    N: 0,
-    total: 0,
-    softclip: 0,
-    reference_base: b'N',
-};
-/// A alignment region on a contig.
-pub struct Alignment {
-    pub reads: Vec<AlignedRead>,
-
-    pub contig_index: usize,
-
-    /// Coverage at each position. Keys are 1-based, inclusive.
-    coverage: BTreeMap<usize, BaseCoverage>,
-
-    /// The left bound of region with complete data.
-    /// 1-based, inclusive.
-    data_complete_left_bound: usize,
-
-    /// The right bound of region with complete data.
-    /// 1-based, inclusive.
-    data_complete_right_bound: usize,
-
-    depth: usize,
-
-    /// y -> read indexes at y location
-    index: Vec<Vec<usize>>,
-}
-
-/// Data loading
-impl Alignment {
-    /// Check if data in [left, right] is all loaded.
-    /// 1-based, inclusive.
-    pub fn has_complete_data(&self, region: &Region) -> bool {
-        (region.contig_index == self.contig_index)
-            && (region.start >= self.data_complete_left_bound)
-            && (region.end <= self.data_complete_right_bound)
-    }
-
-    /// Return the number of alignment tracks.
-    pub fn depth(&self) -> usize {
-        self.depth
-    }
-
-    /// Basewise coverage at position.
-    /// 1-based, inclusive.
-    pub fn coverage_at(&self, pos: usize) -> &BaseCoverage {
-        match self.coverage.get(&pos) {
-            Some(coverage) => coverage,
-            None => &DEFAULT_COVERAGE,
-        }
-    }
-
-    /// Return the read at x_coordinate, yth track
-    pub fn read_at(&self, x_coordinate: usize, y: usize) -> Option<&AlignedRead> {
-        if y >= self.depth {
-            return None;
-        }
-
-        self.index[y]
-            .iter()
-            .find(|i_read| self.reads[**i_read].full_read_covers(x_coordinate))
-            .map(|index| &self.reads[*index])
-    }
-
-    /// Return the read at x_coordinate, yth track
-    pub fn read_overlapping(
-        &self,
-        x_left_coordinate: usize,
-        x_right_coordinate: usize,
-        y: usize,
-    ) -> Option<&AlignedRead> {
-        if y >= self.depth {
-            return None;
-        }
-
-        self.index[y]
-            .iter()
-            .find(|i_read| {
-                self.reads[**i_read].full_read_overlaps(x_left_coordinate, x_right_coordinate)
-            })
-            .map(|index| &self.reads[*index])
-    }
-}
-
-pub struct AlignmentBuilder {
-    aligned_reads: Vec<AlignedRead>,
-    coverage_hashmap: HashMap<usize, BaseCoverage>,
-
-    track_left_bounds: Vec<usize>,
-    track_right_bounds: Vec<usize>,
-
-    track_most_left_bound: usize,
-    track_most_right_bound: usize,
-
-    region: Region,
-}
-
-impl AlignmentBuilder {
-    pub fn new(
-        region: &Region,
-        // reference_sequence: Option<&'a Sequence>,
-    ) -> Result<Self, TGVError> {
-        Ok(Self {
-            aligned_reads: Vec::new(),
-            coverage_hashmap: HashMap::new(),
-            track_left_bounds: Vec::new(),
-            track_right_bounds: Vec::new(),
-
-            track_most_left_bound: usize::MAX,
-            track_most_right_bound: 0,
-
-            region: region.clone(),
-        })
-    }
-
-    /// Add a read to the alignment. Note that this function does not update coverage.
-    pub fn add_read(
-        &mut self,
-        read: Record,
-        reference_sequence: Option<&Sequence>,
-    ) -> Result<&mut Self, TGVError> {
-        let read_start = read.pos() as usize + 1;
-        let read_end = read.reference_end() as usize;
-        let cigars = read.cigar();
-        let leading_softclips = cigars.leading_softclips() as usize;
-        let trailing_softclips = cigars.trailing_softclips() as usize;
-        // read.pos() in htslib: 0-based, inclusive, excluding leading hardclips and softclips
-        // read.reference_end() in htslib: 0-based, exclusive, excluding trailing hardclips and softclips
-
-        let y = self.find_track(
-            read_start.saturating_sub(leading_softclips),
-            read_end.saturating_add(trailing_softclips),
-        );
-
-        let rendering_contexts = calculate_rendering_contexts(
-            read_start,
-            &cigars,
-            leading_softclips,
-            &read.seq(),
-            read.is_reverse(),
-            reference_sequence,
-        )?;
-
-        let aligned_read = AlignedRead {
-            read,
-            start: read_start,
-            end: read_end,
-            leading_softclips,
-            trailing_softclips,
-            y,
-
-            rendering_contexts,
-        };
-
-        // Track bounds + depth update
-        if self.aligned_reads.is_empty() || aligned_read.y >= self.track_left_bounds.len() {
-            // Add to a new track
-            self.track_left_bounds.push(aligned_read.stacking_start());
-            self.track_right_bounds.push(aligned_read.stacking_end());
-        } else {
-            // Add to an existing track
-            if aligned_read.stacking_start() < self.track_left_bounds[aligned_read.y] {
-                self.track_left_bounds[aligned_read.y] = aligned_read.stacking_start();
-            }
-            if aligned_read.stacking_end() > self.track_right_bounds[aligned_read.y] {
-                self.track_right_bounds[aligned_read.y] = aligned_read.stacking_end();
-            }
-        }
-
-        // Most left/right bound update
-        if aligned_read.stacking_start() < self.track_most_left_bound {
-            self.track_most_left_bound = aligned_read.stacking_start();
-        }
-        if aligned_read.stacking_end() > self.track_most_right_bound {
-            self.track_most_right_bound = aligned_read.stacking_end();
-        }
-
-        // update coverge hashmap
-        let read_coverage = calculate_basewise_coverage(
-            read_start,
-            &cigars,
-            leading_softclips,
-            &aligned_read.read.seq(),
-            reference_sequence,
-        )?; // TODO: seq() is called twice. Optimize this in the future.
-        for (i, coverage) in read_coverage.into_iter() {
-            match self.coverage_hashmap.entry(i) {
-                Entry::Occupied(mut oe) => oe.get_mut().add(coverage),
-                Entry::Vacant(ve) => {
-                    ve.insert(coverage);
-                }
-            }
-        }
-
-        // Add to reads
-        self.aligned_reads.push(aligned_read);
-
-        Ok(self)
-    }
-
-    const MIN_HORIZONTAL_GAP_BETWEEN_READS: usize = 3;
-
-    fn find_track(&mut self, read_start: usize, read_end: usize) -> usize {
-        if self.aligned_reads.is_empty() {
-            return 0;
-        }
-
-        for (y, left_bound) in self.track_left_bounds.iter().enumerate() {
-            if read_end + Self::MIN_HORIZONTAL_GAP_BETWEEN_READS < *left_bound {
-                return y;
-            }
-        }
-
-        for (y, right_bound) in self.track_right_bounds.iter().enumerate() {
-            if read_start > *right_bound + Self::MIN_HORIZONTAL_GAP_BETWEEN_READS {
-                return y;
-            }
-        }
-
-        self.track_left_bounds.len()
-    }
-
-    pub fn build(self) -> Result<Alignment, TGVError> {
-        let mut coverage: BTreeMap<usize, BaseCoverage> = BTreeMap::new();
-
-        // Convert hashmap to BTreeMap
-        for (k, v) in self.coverage_hashmap.into_iter() {
-            coverage.insert(k, v);
-        }
-
-        let mut index = vec![Vec::new(); self.track_left_bounds.len()];
-        self
-            .aligned_reads
-            .iter()
-            .enumerate()
-            .map(|(i, read)| index[read.y].push(i))
-            .collect::<()>();
-
-        Ok(Alignment {
-            reads: self.aligned_reads,
-            contig_index: self.region.contig_index,
-            coverage,
-            data_complete_left_bound: self.region.start,
-            data_complete_right_bound: self.region.end,
-
-            depth: self.track_left_bounds.len(),
-            index,
-        })
     }
 }
 

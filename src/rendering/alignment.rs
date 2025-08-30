@@ -1,7 +1,5 @@
 use crate::{
-    alignment::{
-        RenderingContext, RenderingContextKind, RenderingContextModifier,
-    },
+    alignment::{RenderingContext, RenderingContextKind, RenderingContextModifier},
     error::TGVError,
     rendering::colors::Palette,
     states::State,
@@ -26,23 +24,27 @@ pub fn render_alignment(
     }
 
     if let Some(alignment) = &state.alignment {
-        for read in alignment.reads.iter() {
-            for context in read.rendering_contexts.iter() {
-                if let Some(onscreen_contexts) = get_read_rendering_info(
-                    context,
-                    read.y,
-                    &state.window,
-                    area,
-                    background_color,
-                    pallete,
-                )? {
-                    for onscreen_context in onscreen_contexts {
-                        buf.set_string(
-                            area.x + onscreen_context.x,
-                            area.y + onscreen_context.y,
-                            onscreen_context.string,
-                            onscreen_context.style,
-                        )
+        for (y, read_indexes) in alignment.ys_index.iter().enumerate() {
+            for read_index in read_indexes {
+                let read = &alignment.reads[*read_index];
+
+                for context in read.rendering_contexts.iter() {
+                    if let Some(onscreen_contexts) = get_read_rendering_info(
+                        context,
+                        y,
+                        &state.window,
+                        area,
+                        background_color,
+                        pallete,
+                    )? {
+                        for onscreen_context in onscreen_contexts {
+                            buf.set_string(
+                                area.x + onscreen_context.x,
+                                area.y + onscreen_context.y,
+                                onscreen_context.string,
+                                onscreen_context.style,
+                            )
+                        }
                     }
                 }
             }
