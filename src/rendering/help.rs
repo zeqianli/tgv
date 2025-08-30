@@ -18,6 +18,8 @@ pub fn render_help(area: Rect, buf: &mut Buffer) -> Result<(), TGVError> {
         "
  Terminal Genome Viewer - version {}
  ------------------------------------------------------------------------------
+
+ See more at: https://github.com/zeqianli/tgv
  
  |:q|    Quit           |<ESC>|     Switch to normal mode / Close this window
  |:h|    Help           |:|         Switch to command mode

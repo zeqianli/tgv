@@ -4,14 +4,10 @@ use crate::alignment::{
 };
 use crate::error::TGVError;
 use crate::message::{AlignmentFilter, AlignmentSort};
-use crate::reference;
 use crate::region::Region;
 use crate::sequence::Sequence;
 use crate::window::ViewingWindow;
 use ratatui::layout::Rect;
-use rust_htslib::bam::ext::BamRecordExtensions;
-use rust_htslib::bam::record::{Cigar, CigarStringView};
-use rust_htslib::bam::{record::Seq, Read, Record};
 use std::collections::{hash_map::Entry, BTreeMap, HashMap};
 
 /// A alignment region on a contig.
@@ -121,12 +117,14 @@ impl Alignment {
             show_read: show_reads,
             ys_index: Vec::new(),
         };
-        alignment.build(reference_sequence)?;
+        alignment
+            .build_y_index()?
+            .build_coverage(reference_sequence)?;
         return Ok(alignment);
     }
 
     /// Build indexes, coverages after key assets are set: reads, show_read, ys
-    pub fn build(&mut self, reference_sequence: Option<&Sequence>) -> Result<&mut Self, TGVError> {
+    pub fn build_y_index(&mut self) -> Result<&mut Self, TGVError> {
         let mut ys_index = vec![Vec::new(); *self.ys.iter().max().unwrap_or(&0) + 1];
         self.ys
             .iter()
@@ -139,6 +137,13 @@ impl Alignment {
             });
         self.ys_index = ys_index;
 
+        Ok(self)
+    }
+
+    pub fn build_coverage(
+        &mut self,
+        reference_sequence: Option<&Sequence>,
+    ) -> Result<&mut Self, TGVError> {
         // coverage
 
         let mut coverage_hashmap: HashMap<usize, BaseCoverage> = HashMap::new();
@@ -185,7 +190,7 @@ impl Alignment {
         }
 
         self.ys = stack_tracks_for_reads(&self.reads, &self.show_read)?;
-        self.build(reference_sequence)
+        self.build_y_index()?.build_coverage(reference_sequence)
     }
 }
 
