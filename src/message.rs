@@ -50,7 +50,8 @@ pub enum StateMessage {
         mouse_released_y: u16,
     },
 
-    AlignmentChange(Vec<AlignmentDisplayOption>),
+    AddAlignmentChange(Vec<AlignmentDisplayOption>),
+    SetAlignmentChange(Vec<AlignmentDisplayOption>),
 
     Quit,
 }

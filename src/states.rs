@@ -345,7 +345,7 @@ impl StateHandler {
                 state.layout.root = new_node;
             }
 
-            StateMessage::AlignmentChange(options) => {
+            StateMessage::SetAlignmentChange(options) => {
                 if let Some(alignment) = state.alignment.as_mut() {
                     for option in options {
                         match option {
@@ -362,6 +362,7 @@ impl StateHandler {
                     }
                 }
             }
+            StateMessage::AddAlignmentChange(options) => {}
         }
 
         Self::get_data_requirements(state, settings)

@@ -123,9 +123,13 @@ impl CommandModeRegister {
             ));
         }
 
+        if let Ok((_, true)) = restore_default_options(&self.input) {
+            return Ok(vec![StateMessage::SetAlignmentChange(vec![])]);
+        }
+
         if let Ok((remaining, options)) = parse_display_options(&self.input) {
             if remaining.len() == 0 {
-                return Ok(vec![StateMessage::AlignmentChange(options)]);
+                return Ok(vec![StateMessage::SetAlignmentChange(options)]);
             }
         }
 
@@ -157,6 +161,17 @@ impl CommandModeRegister {
 /// Highest level parser
 fn parse_display_options(input: &str) -> IResult<&str, Vec<AlignmentDisplayOption>> {
     many0(alt((parse_filter, parse_sort))).parse(input)
+}
+
+fn restore_default_options(input: &str) -> IResult<&str, bool> {
+    let (input, parsed) = delimited(
+        multispace0,
+        alt((tag_no_case("clear"), tag_no_case("default"))),
+        multispace0,
+    )
+    .parse(input)?;
+
+    Ok((input, (input.len() == 0 && parsed.len() > 0)))
 }
 
 fn parse_optional_parenthesis(input: &str) -> IResult<&str, Option<Option<usize>>> {
@@ -260,7 +275,7 @@ fn parse_sort(input: &str) -> IResult<&str, AlignmentDisplayOption> {
     delimited(
         preceded(
             multispace0,
-            alt((tag_no_case("WHERE"), tag_no_case("ORDER BY"))),
+            alt((tag_no_case("SORT"), tag_no_case("ORDER BY"))),
         ),
         parse_sort_expression,
         multispace0,
@@ -270,7 +285,6 @@ fn parse_sort(input: &str) -> IResult<&str, AlignmentDisplayOption> {
 }
 
 fn node_base_filter(input: &str) -> IResult<&str, AlignmentFilter> {
-    use nom::error::ParseError;
     let (input, (position, base)) = preceded(
         tag_no_case("BASE"),
         separated_pair(
