@@ -1,5 +1,5 @@
 use crate::{
-    alignment::{Alignment, AlignmentBuilder},
+    alignment::{AlignedRead, Alignment},
     bed::BEDIntervals,
     contig_header::ContigHeader,
     error::TGVError,
@@ -295,13 +295,13 @@ impl AlignmentRepository for BamRepository {
         ))
         .map_err(|e| TGVError::IOError(e.to_string()))?;
 
-        let mut alignment_builder = AlignmentBuilder::new(region)?;
+        let reads = bam
+            .records()
+            .enumerate()
+            .map(|(i, record)| AlignedRead::from_bam_record(i, record?, sequence))
+            .collect::<Result<_, _>>()?;
 
-        for (index, record) in bam.records().enumerate() {
-            alignment_builder.add_read(index, record?, sequence)?;
-        }
-
-        alignment_builder.build()
+        Alignment::from_aligned_reads(reads, region, sequence)
     }
 
     /// Read BAM headers and return contig namesa and lengths.
@@ -355,13 +355,13 @@ impl AlignmentRepository for RemoteBamRepository {
         ))
         .map_err(|e| TGVError::IOError(e.to_string()))?;
 
-        let mut alignment_builder = AlignmentBuilder::new(region)?;
+        let reads = bam
+            .records()
+            .enumerate()
+            .map(|(i, record)| AlignedRead::from_bam_record(i, record?, sequence))
+            .collect::<Result<_, _>>()?;
 
-        for (index, record) in bam.records().enumerate() {
-            alignment_builder.add_read(index, record?, sequence)?;
-        }
-
-        alignment_builder.build()
+        Alignment::from_aligned_reads(reads, region, sequence)
     }
 
     fn read_header(&self) -> Result<Vec<(String, Option<usize>)>, TGVError> {
