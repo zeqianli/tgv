@@ -2,6 +2,7 @@ use crate::error::TGVError;
 use crate::message::{AlignmentFilter, AlignmentSort};
 use crate::region::Region;
 use crate::sequence::Sequence;
+use crate::window::ViewingWindow;
 use rust_htslib::bam::ext::BamRecordExtensions;
 use rust_htslib::bam::record::{Cigar, CigarStringView};
 use rust_htslib::bam::{record::Seq, Read, Record};
@@ -713,11 +714,12 @@ pub fn sort_alignment(alignment: &mut Alignment, option: AlignmentSort) -> Resul
 pub fn filter_alignment(
     alignment: &mut Alignment,
     option: AlignmentFilter,
+    window: &ViewingWindow,
 ) -> Result<(), TGVError> {
     todo!();
 }
 
-fn passes_filter(read: &AlignedRead, filter: &AlignmentFilter) -> bool {
+fn passes_filter(read: &AlignedRead, filter: &AlignmentFilter, window: &ViewingWindow) -> bool {
     match filter {
         AlignmentFilter::Default => true,
         AlignmentFilter::Base(position, base) => true,
