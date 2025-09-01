@@ -270,12 +270,7 @@ impl AlignedRead {
         return false;
     }
 
-    pub fn passes_filter(
-        &self,
-        filter: &AlignmentFilter,
-        window: &ViewingWindow,
-        area: &Rect,
-    ) -> bool {
+    pub fn passes_filter(&self, filter: &AlignmentFilter) -> bool {
         match filter {
             AlignmentFilter::Default => true,
             AlignmentFilter::Base(position, base) => {
@@ -285,17 +280,13 @@ impl AlignedRead {
                     false
                 }
             }
-            AlignmentFilter::BaseAtCurrentPosition(base) => {
-                if let Some(base_u8) = self.base_at(window.middle(area)) {
-                    *base as u8 == base_u8
-                } else {
-                    false
-                }
-            }
+
             AlignmentFilter::BaseSoftclip(position) => self.is_softclip_at(*position),
-            AlignmentFilter::BaseAtCurrentPositionSoftClip => {
-                self.is_softclip_at(window.middle(area))
-            }
+
+            // They should be not be passed here.
+            // They should be translated upstream.
+            AlignmentFilter::BaseAtCurrentPosition(_)
+            | AlignmentFilter::BaseAtCurrentPositionSoftClip => true,
 
             _ => true, // TODO
         }

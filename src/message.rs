@@ -1,6 +1,8 @@
 use crate::{display_mode::DisplayMode, error::TGVError, region::Region, strand::Strand};
 
-use std::str::FromStr;
+use std::fmt;
+use std::string::ToString;
+use strum;
 use strum::Display;
 
 /// State messages
@@ -85,14 +87,16 @@ pub enum DataMessage {
     RequiresCytobands(usize),
 }
 
-#[derive(Debug, Clone, Eq, PartialEq)]
+#[derive(Debug, Clone, Eq, PartialEq, Display)]
 pub enum AlignmentDisplayOption {
+    #[strum(to_string = "Filter: {0}")]
     Filter(AlignmentFilter),
 
+    #[strum(to_string = "Sort: {0}")]
     Sort(AlignmentSort),
 }
 
-#[derive(Debug, Clone, Eq, PartialEq)]
+#[derive(Debug, Clone, Eq, PartialEq, Display)]
 pub enum AlignmentFilter {
     Default,
 
@@ -100,21 +104,27 @@ pub enum AlignmentFilter {
     False,
 
     /// Start in a range (1-based, both-inclusive)
+    #[strum(to_string = "Starts in [{0},{1}]")]
     StartsIn(usize, usize),
     /// Ends in a range (1-based, both-inclusive)
+    #[strum(to_string = "Ends in [{0},{1}]")]
     EndsIn(usize, usize),
     /// Overlaps a range (1-based, both-inclusive)
+    #[strum(to_string = "Overlaps [{0},{1}]")]
     Overlaps(usize, usize),
 
     /// Strand
+    #[strum(to_string = "Strand={0}")]
     Strand(Strand),
 
     /// Base at position (1-based) equal to the character
+    #[strum(to_string = "Base({0})={1}")]
     Base(usize, char),
 
     BaseAtCurrentPosition(char),
 
     /// Base at position (1-based is softclip)
+    #[strum(to_string = "Base({0})=SOFTCLIP")]
     BaseSoftclip(usize),
 
     BaseAtCurrentPositionSoftClip,
@@ -137,8 +147,13 @@ pub enum AlignmentFilter {
     /// Tag equal to the value
     Tag(String, String),
 
+    #[strum(to_string = "NOT({0})")]
     Not(Box<AlignmentFilter>),
+
+    #[strum(to_string = "{0} AND {1}")]
     And(Box<AlignmentFilter>, Box<AlignmentFilter>),
+
+    #[strum(to_string = "{0} OR {1}")]
     Or(Box<AlignmentFilter>, Box<AlignmentFilter>),
 }
 
@@ -180,7 +195,7 @@ impl AlignmentFilter {
 /// Reference: https://github.com/igvteam/igv/blob/main/src/main/java/org/broad/igv/sam/SortOption.java
 ///
 
-#[derive(Debug, Clone, Eq, PartialEq)]
+#[derive(Debug, Clone, Eq, PartialEq, Display)]
 pub enum AlignmentSort {
     /// Default
     Default,
@@ -192,12 +207,14 @@ pub enum AlignmentSort {
     StrandAtCurrentBase,
 
     /// Stand of reads covering a location
+    #[strum(to_string = "Strand({0})")]
     StrandAt(usize),
 
     /// Base of reads at the current location
     BaseAtCurrentPosition,
 
     /// Stand of reads covering a location
+    #[strum(to_string = "Base({0})")]
     BaseAt(usize),
 
     /// MAPQ, reversed order
@@ -228,9 +245,11 @@ pub enum AlignmentSort {
     Tag,
 
     /// Sort by 0 first and then 1
+    #[strum(to_string = "{0}, {1}")]
     Then(Box<AlignmentSort>, Box<AlignmentSort>),
 
     /// Reverse ordering
+    #[strum(to_string = "{0} (DESC)")]
     Reverse(Box<AlignmentSort>),
 }
 

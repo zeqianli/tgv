@@ -1,6 +1,7 @@
 use crate::error::TGVError;
 use crate::intervals::GenomeInterval;
 use crate::message::AlignmentDisplayOption;
+use crate::message::AlignmentFilter;
 use crate::repository::AlignmentRepository;
 use crate::repository::Repository;
 use crate::settings::Settings;
@@ -20,6 +21,7 @@ use crate::{
     track::Track,
     window::ViewingWindow,
 };
+use itertools::Itertools;
 use ratatui::layout::Rect;
 
 /// Holds states of the application.
@@ -41,6 +43,7 @@ pub struct State {
 
     /// Alignment segments.
     pub alignment: Option<Alignment>,
+    pub alignment_options: Vec<AlignmentDisplayOption>,
 
     /// Tracks.
     pub track: Option<Track<Gene>>,
@@ -51,7 +54,7 @@ pub struct State {
     pub sequence_cache: SequenceCache,
 
     // TODO: in the first implementation, refresh all data when the viewing window is near the boundary.
-    /// Contigs in the BAM header
+    /// Consensus contig header from BAM and reference genomes
     pub contig_header: ContigHeader,
 
     /// Display mode
@@ -80,6 +83,7 @@ impl State {
             messages: Vec::new(),
 
             alignment: None,
+            alignment_options: Vec::new(),
             track: None,
             track_cache,
             sequence: None,
@@ -97,18 +101,6 @@ impl State {
             start: self.window.left(),
             end: self.window.right(&self.area),
         }
-    }
-
-    /// Start coordinate of bases displayed on the screen.
-    /// 1-based, inclusive.
-    pub fn start(&self) -> usize {
-        self.window.left()
-    }
-
-    /// End coordinate of bases displayed on the screen.
-    /// 1-based, inclusive.
-    pub fn end(&self) -> usize {
-        self.window.right(&self.area)
     }
 
     /// Middle coordinate of bases displayed on the screen.
@@ -131,10 +123,6 @@ impl State {
 
     pub fn alignment_depth(&self) -> Option<usize> {
         self.alignment.as_ref().map(|alignment| alignment.depth())
-    }
-
-    pub fn add_error_message(&mut self, error: String) {
-        self.messages.push(error);
     }
 
     /// Maximum length of the contig.
@@ -346,20 +334,31 @@ impl StateHandler {
             }
 
             StateMessage::SetAlignmentChange(options) => {
+                let middle = state.middle();
                 if let Some(alignment) = state.alignment.as_mut() {
-                    for option in options {
-                        match option {
-                            AlignmentDisplayOption::Filter(filter) => {
-                                alignment.filter(
-                                    filter,
-                                    &state.window,
-                                    &state.area,
-                                    state.sequence.as_ref(),
-                                )?;
+                    alignment.reset(state.sequence.as_ref())?;
+
+                    let options = options
+                        .into_iter()
+                        .map(|option| match option {
+                            AlignmentDisplayOption::Filter(
+                                AlignmentFilter::BaseAtCurrentPosition(base),
+                            ) => {
+                                AlignmentDisplayOption::Filter(AlignmentFilter::Base(middle, base))
                             }
-                            _ => {}
-                        }
-                    }
+
+                            AlignmentDisplayOption::Filter(
+                                AlignmentFilter::BaseAtCurrentPositionSoftClip,
+                            ) => AlignmentDisplayOption::Filter(AlignmentFilter::BaseSoftclip(
+                                middle,
+                            )),
+
+                            _ => option,
+                        })
+                        .collect_vec();
+                    state.alignment_options = options;
+                    let _ = alignment
+                        .apply_options(&state.alignment_options, state.sequence.as_ref())?;
                 }
             }
             StateMessage::AddAlignmentChange(options) => {}
@@ -941,8 +940,8 @@ impl StateHandler {
         match data_message {
             DataMessage::RequiresCompleteAlignments(region) => {
                 if !Self::has_complete_alignment(state, &region) {
-                    state.alignment = Some(
-                        repository
+                    state.alignment = Some({
+                        let mut alignment = repository
                             .alignment_repository
                             .as_ref()
                             .unwrap()
@@ -950,8 +949,16 @@ impl StateHandler {
                                 &region,
                                 state.sequence.as_ref(),
                                 &state.contig_header,
-                            )?,
-                    ); // TODO: unwrap is weird.
+                            )?;
+
+                        alignment
+                            .apply_options(&state.alignment_options, state.sequence.as_ref())?;
+
+                        alignment
+                    });
+
+                    // apply sorting and filtering
+
                     loaded_data = true;
                 }
             }

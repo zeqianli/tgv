@@ -1,12 +1,15 @@
-use crate::alignment::{
-    coverage::{calculate_basewise_coverage, BaseCoverage, DEFAULT_COVERAGE},
-    read::AlignedRead,
-};
 use crate::error::TGVError;
 use crate::message::{AlignmentFilter, AlignmentSort};
 use crate::region::Region;
 use crate::sequence::Sequence;
 use crate::window::ViewingWindow;
+use crate::{
+    alignment::{
+        coverage::{calculate_basewise_coverage, BaseCoverage, DEFAULT_COVERAGE},
+        read::AlignedRead,
+    },
+    message::AlignmentDisplayOption,
+};
 use ratatui::layout::Rect;
 use std::collections::{hash_map::Entry, BTreeMap, HashMap};
 
@@ -35,9 +38,11 @@ pub struct Alignment {
 
     /// y -> read indexes at y location
     pub ys_index: Vec<Vec<usize>>,
+
+    /// Default ys
+    default_ys: Vec<usize>,
 }
 
-/// Data loading
 impl Alignment {
     /// Check if data in [left, right] is all loaded.
     /// 1-based, inclusive.
@@ -113,7 +118,8 @@ impl Alignment {
             coverage: BTreeMap::new(),
             data_complete_left_bound: region.start,
             data_complete_right_bound: region.end,
-            ys: ys,
+            ys: ys.clone(),
+            default_ys: ys,
             show_read: show_reads,
             ys_index: Vec::new(),
         };
@@ -138,6 +144,31 @@ impl Alignment {
         self.ys_index = ys_index;
 
         Ok(self)
+    }
+
+    pub fn apply_options(
+        &mut self,
+        options: &Vec<AlignmentDisplayOption>,
+        reference_sequence: Option<&Sequence>,
+    ) -> Result<&mut Self, TGVError> {
+        for option in options {
+            match option {
+                AlignmentDisplayOption::Filter(filter) => {
+                    self.filter(filter, reference_sequence)?;
+                }
+                _ => {}
+            }
+        }
+
+        Ok(self)
+    }
+
+    /// Reset alignment options
+    pub fn reset(&mut self, reference_sequence: Option<&Sequence>) -> Result<&mut Self, TGVError> {
+        self.ys = self.default_ys.clone();
+        self.show_read = vec![true; self.reads.len()];
+
+        self.build_y_index()?.build_coverage(reference_sequence)
     }
 
     pub fn build_coverage(
@@ -180,13 +211,11 @@ impl Alignment {
 
     pub fn filter(
         &mut self,
-        filter: AlignmentFilter,
-        window: &ViewingWindow,
-        area: &Rect,
+        filter: &AlignmentFilter,
         reference_sequence: Option<&Sequence>,
     ) -> Result<&mut Self, TGVError> {
         for (i, read) in self.reads.iter().enumerate() {
-            self.show_read[i] = read.passes_filter(&filter, window, area)
+            self.show_read[i] = read.passes_filter(&filter)
         }
 
         self.ys = stack_tracks_for_reads(&self.reads, &self.show_read)?;

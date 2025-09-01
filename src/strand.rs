@@ -1,8 +1,12 @@
+use strum::Display;
+
 use crate::error::TGVError;
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Display)]
 pub enum Strand {
+    #[strum[to_string = "+"]]
     Forward,
+    #[strum[to_string = "-"]]
     Reverse,
 }
 

@@ -1,5 +1,6 @@
 use crate::{error::TGVError, states::State};
 
+use itertools::Itertools;
 use ratatui::{buffer::Buffer, layout::Rect, style::Style};
 
 pub fn render_status_bar(area: &Rect, buf: &mut Buffer, state: &State) -> Result<(), TGVError> {
@@ -23,7 +24,7 @@ pub fn render_status_bar(area: &Rect, buf: &mut Buffer, state: &State) -> Result
     // X and y coordinates
 
     let x_coordinate_string = format!("{}: {}", state.contig_name()?, state.window.middle(area));
-    let y_coordinate_string = if let Some(depth) = state.alignment_depth() {
+    let mut y_coordinate_string = if let Some(depth) = state.alignment_depth() {
         if depth == 0 {
             "".to_string()
         } else {
@@ -35,7 +36,17 @@ pub fn render_status_bar(area: &Rect, buf: &mut Buffer, state: &State) -> Result
         "".to_string()
     };
 
-    // println!("{}{}", x_coordinate_string, y_coordinate_string);
+    // Alignment options
+
+    if state.alignment_options.len() > 0 {
+        let alignment_option_string = state
+            .alignment_options
+            .iter()
+            .map(|option| format!("{}", option))
+            .join(",");
+
+        y_coordinate_string = y_coordinate_string + " (" + &alignment_option_string + ")";
+    }
 
     if area.height == 1 {
         let string = x_coordinate_string + "  " + &y_coordinate_string;
@@ -46,19 +57,19 @@ pub fn render_status_bar(area: &Rect, buf: &mut Buffer, state: &State) -> Result
             Style::default(),
         );
     } else if area.height > 1 {
-        // buf.set_string(
-        //     area.x + area.width.saturating_sub(x_coordinate_string.len() as u16),
-        //     area.y,
-        //     x_coordinate_string,
-        //     Style::default(),
-        // );
+        buf.set_string(
+            area.x + area.width.saturating_sub(x_coordinate_string.len() as u16),
+            area.y,
+            x_coordinate_string,
+            Style::default(),
+        );
 
-        // buf.set_string(
-        //     area.x + area.width.saturating_sub(y_coordinate_string.len() as u16),
-        //     area.y + 1,
-        //     y_coordinate_string,
-        //     Style::default(),
-        // );
+        buf.set_string(
+            area.x + area.width.saturating_sub(y_coordinate_string.len() as u16),
+            area.y + 1,
+            y_coordinate_string,
+            Style::default(),
+        );
     }
 
     Ok(())
