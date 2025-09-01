@@ -45,20 +45,20 @@ pub fn render_status_bar(area: &Rect, buf: &mut Buffer, state: &State) -> Result
             string,
             Style::default(),
         );
-    } else {
-        buf.set_string(
-            area.x + area.width.saturating_sub(x_coordinate_string.len() as u16),
-            area.y,
-            x_coordinate_string,
-            Style::default(),
-        );
+    } else if area.height > 1 {
+        // buf.set_string(
+        //     area.x + area.width.saturating_sub(x_coordinate_string.len() as u16),
+        //     area.y,
+        //     x_coordinate_string,
+        //     Style::default(),
+        // );
 
-        buf.set_string(
-            area.x + area.width.saturating_sub(y_coordinate_string.len() as u16),
-            area.y + 1,
-            y_coordinate_string,
-            Style::default(),
-        );
+        // buf.set_string(
+        //     area.x + area.width.saturating_sub(y_coordinate_string.len() as u16),
+        //     area.y + 1,
+        //     y_coordinate_string,
+        //     Style::default(),
+        // );
     }
 
     Ok(())
