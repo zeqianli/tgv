@@ -98,7 +98,9 @@ impl State {
     }
 
     pub fn set_area(&mut self, area: Rect) -> Result<(), TGVError> {
-        self.layout.set_area(area)
+        let _ = self.layout.set_area(area)?;
+
+        Ok(())
     }
 
     pub fn viewing_region(&self) -> Region {
