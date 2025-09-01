@@ -124,6 +124,7 @@ impl CommandModeRegister {
         }
 
         if let Ok((_, true)) = restore_default_options(&self.input) {
+            // TODO: this results in resetting twice now.
             return Ok(vec![StateMessage::SetAlignmentChange(vec![])]);
         }
 

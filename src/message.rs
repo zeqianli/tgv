@@ -1,6 +1,6 @@
 use crate::{display_mode::DisplayMode, error::TGVError, region::Region, strand::Strand};
 
-use std::str::FromStr;
+use std::fmt;
 use strum::Display;
 
 /// State messages
