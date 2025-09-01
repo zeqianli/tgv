@@ -42,7 +42,7 @@ pub fn render_status_bar(area: &Rect, buf: &mut Buffer, state: &State) -> Result
         let alignment_option_string = state
             .alignment_options
             .iter()
-            .map(|option| format!("{:?}", option))
+            .map(|option| format!("{}", option))
             .join(",");
 
         y_coordinate_string = y_coordinate_string + " (" + &alignment_option_string + ")";

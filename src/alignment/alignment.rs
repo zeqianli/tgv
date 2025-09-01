@@ -149,14 +149,12 @@ impl Alignment {
     pub fn apply_options(
         &mut self,
         options: &Vec<AlignmentDisplayOption>,
-        window: &ViewingWindow,
-        area: &Rect,
         reference_sequence: Option<&Sequence>,
     ) -> Result<&mut Self, TGVError> {
         for option in options {
             match option {
                 AlignmentDisplayOption::Filter(filter) => {
-                    self.filter(filter, window, area, reference_sequence)?;
+                    self.filter(filter, reference_sequence)?;
                 }
                 _ => {}
             }
@@ -214,12 +212,10 @@ impl Alignment {
     pub fn filter(
         &mut self,
         filter: &AlignmentFilter,
-        window: &ViewingWindow,
-        area: &Rect,
         reference_sequence: Option<&Sequence>,
     ) -> Result<&mut Self, TGVError> {
         for (i, read) in self.reads.iter().enumerate() {
-            self.show_read[i] = read.passes_filter(&filter, window, area)
+            self.show_read[i] = read.passes_filter(&filter)
         }
 
         self.ys = stack_tracks_for_reads(&self.reads, &self.show_read)?;

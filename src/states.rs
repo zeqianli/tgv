@@ -1,6 +1,7 @@
 use crate::error::TGVError;
 use crate::intervals::GenomeInterval;
 use crate::message::AlignmentDisplayOption;
+use crate::message::AlignmentFilter;
 use crate::repository::AlignmentRepository;
 use crate::repository::Repository;
 use crate::settings::Settings;
@@ -333,18 +334,32 @@ impl StateHandler {
             }
 
             StateMessage::SetAlignmentChange(options) => {
+                let middle = state.middle();
                 if let Some(alignment) = state.alignment.as_mut() {
                     alignment.reset(state.sequence.as_ref())?;
 
-                    alignment.apply_options(
-                        &options,
-                        &state.window,
-                        &state.area,
-                        state.sequence.as_ref(),
-                    )?;
-                }
+                    let options = options
+                        .into_iter()
+                        .map(|option| match option {
+                            AlignmentDisplayOption::Filter(
+                                AlignmentFilter::BaseAtCurrentPosition(base),
+                            ) => {
+                                AlignmentDisplayOption::Filter(AlignmentFilter::Base(middle, base))
+                            }
 
-                state.alignment_options = options
+                            AlignmentDisplayOption::Filter(
+                                AlignmentFilter::BaseAtCurrentPositionSoftClip,
+                            ) => AlignmentDisplayOption::Filter(AlignmentFilter::BaseSoftclip(
+                                middle,
+                            )),
+
+                            _ => option,
+                        })
+                        .collect_vec();
+                    state.alignment_options = options;
+                    let _ = alignment
+                        .apply_options(&state.alignment_options, state.sequence.as_ref())?;
+                }
             }
             StateMessage::AddAlignmentChange(options) => {}
         }
@@ -936,12 +951,8 @@ impl StateHandler {
                                 &state.contig_header,
                             )?;
 
-                        alignment.apply_options(
-                            &state.alignment_options,
-                            &state.window,
-                            &state.area,
-                            state.sequence.as_ref(),
-                        )?;
+                        alignment
+                            .apply_options(&state.alignment_options, state.sequence.as_ref())?;
 
                         alignment
                     });
