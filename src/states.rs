@@ -31,8 +31,7 @@ pub struct State {
 
     /// Viewing window.
     pub window: ViewingWindow,
-    pub area: Rect,
-
+    // pub area: Rect,
     pub reference: Option<Reference>,
 
     /// Settings
@@ -75,7 +74,6 @@ impl State {
         Ok(Self {
             window: ViewingWindow::default(),
             exit: false,
-            area: initial_area,
 
             reference: settings.reference.clone(),
 
@@ -91,22 +89,30 @@ impl State {
             contig_header: contigs,
 
             display_mode: DisplayMode::Main,
-            layout: MainLayout::initialize(settings)?,
+            layout: MainLayout::initialize(settings, initial_area)?,
         })
+    }
+
+    pub fn area(&self) -> &Rect {
+        &self.layout.main_area
+    }
+
+    pub fn set_area(&mut self, area: Rect) -> Result<(), TGVError> {
+        self.layout.set_area(area)
     }
 
     pub fn viewing_region(&self) -> Region {
         Region {
             contig_index: self.window.contig_index,
             start: self.window.left(),
-            end: self.window.right(&self.area),
+            end: self.window.right(self.area()),
         }
     }
 
     /// Middle coordinate of bases displayed on the screen.
     /// 1-based, inclusive.
     pub fn middle(&self) -> usize {
-        self.window.middle(&self.area)
+        self.window.middle(&self.area())
     }
 
     pub fn contig_index(&self) -> usize {
@@ -149,7 +155,8 @@ impl State {
 impl State {
     pub fn self_correct_viewing_window(&mut self) {
         let contig_length = self.contig_length().unwrap();
-        self.window.self_correct(&self.area, contig_length);
+        self.window
+            .self_correct(&self.layout.main_area, contig_length);
     }
 
     pub fn alignment_renderable(&self) -> bool {
@@ -323,7 +330,7 @@ impl StateHandler {
 
                 resize_node(
                     &mut new_node,
-                    state.area,
+                    state.area().clone(),
                     mouse_down_x,
                     mouse_down_y,
                     mouse_released_x,
@@ -505,10 +512,11 @@ impl StateHandler {
 impl StateHandler {
     fn move_left(state: &mut State, n: usize) -> Result<(), TGVError> {
         let contig_length = state.contig_length()?;
+        let area = &state.layout.main_area;
 
         state.window.set_left(
             state.window.left().saturating_sub(n * state.window.zoom()),
-            &state.area,
+            area,
             contig_length,
         );
         Ok(())
@@ -518,7 +526,7 @@ impl StateHandler {
 
         state.window.set_left(
             state.window.left().saturating_add(n * state.window.zoom()),
-            &state.area,
+            &state.layout.main_area,
             contig_length,
         );
         Ok(())
@@ -526,7 +534,7 @@ impl StateHandler {
     fn move_up(state: &mut State, n: usize) -> Result<(), TGVError> {
         state.window.set_top(
             state.window.top().saturating_sub(n),
-            &state.area,
+            &state.layout.main_area,
             state.alignment_depth(),
         );
         Ok(())
@@ -534,7 +542,7 @@ impl StateHandler {
     fn move_down(state: &mut State, n: usize) -> Result<(), TGVError> {
         state.window.set_top(
             state.window.top().saturating_add(n),
-            &state.area,
+            &state.layout.main_area,
             state.alignment_depth(),
         );
         Ok(())
@@ -542,7 +550,9 @@ impl StateHandler {
     fn go_to_coordinate(state: &mut State, n: usize) -> Result<(), TGVError> {
         let contig_length = state.contig_length()?;
 
-        state.window.set_middle(&state.area, n, contig_length);
+        state
+            .window
+            .set_middle(&state.layout.main_area, n, contig_length);
         Ok(())
     }
     fn go_to_contig_coordinate(
@@ -553,10 +563,10 @@ impl StateHandler {
         state.window.contig_index = contig_index;
         state
             .window
-            .set_middle(&state.area, n, state.contig_length()?);
+            .set_middle(&state.layout.main_area, n, state.contig_length()?);
         state
             .window
-            .set_top(0, &state.area, state.alignment_depth());
+            .set_top(0, &state.layout.main_area, state.alignment_depth());
 
         Ok(())
     }
@@ -564,7 +574,7 @@ impl StateHandler {
     fn go_to_y(state: &mut State, y: usize) -> Result<(), TGVError> {
         state
             .window
-            .set_top(y, &state.area, state.alignment_depth());
+            .set_top(y, &state.layout.main_area, state.alignment_depth());
 
         Ok(())
     }
@@ -572,7 +582,7 @@ impl StateHandler {
     fn handle_zoom_out(state: &mut State, r: usize) -> Result<(), TGVError> {
         state
             .window
-            .zoom_out(r, &state.area, state.contig_length()?)
+            .zoom_out(r, &state.layout.main_area, state.contig_length()?)
             .unwrap();
         Ok(())
     }
@@ -580,7 +590,7 @@ impl StateHandler {
     fn handle_zoom_in(state: &mut State, r: usize) -> Result<(), TGVError> {
         state
             .window
-            .zoom_in(r, &state.area, state.contig_length()?)
+            .zoom_in(r, &state.layout.main_area, state.contig_length()?)
             .unwrap();
         Ok(())
     }

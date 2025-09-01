@@ -15,7 +15,7 @@ const MIN_CONTIG_NAME_SPACING: u16 = 10;
 const MIN_CONTIG_LENGTH_SPACING: u16 = 10;
 
 pub fn render_contig_list(
-    area: Rect,
+    area: &Rect,
     buf: &mut Buffer,
     state: &State,
     registers: &Registers,
@@ -118,7 +118,7 @@ fn get_indexes(height: u16, n_contigs: usize, selected_index: usize) -> Vec<(u16
 }
 
 fn render_contig_at_y(
-    area: Rect,
+    area: &Rect,
     buf: &mut Buffer,
     contig: &Contig,
     left_spacing: u16,

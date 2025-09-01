@@ -84,7 +84,7 @@ impl App {
             terminal
                 .draw(|frame| {
                     let buffer = frame.buffer_mut();
-                    self.state.area = buffer.area.clone();
+                    self.state.set_area(buffer.area.clone());
                     self.rendering_state
                         .render(
                             buffer,

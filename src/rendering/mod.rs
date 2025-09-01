@@ -66,11 +66,11 @@ impl RenderingState {
     }
 
     pub fn update(&mut self, state: &State) -> Result<&mut Self, TGVError> {
-        if self.last_frame_area.width != state.area.width
-            || self.last_frame_area.height != state.area.height
+        if self.last_frame_area.width != state.area().width
+            || self.last_frame_area.height != state.area().height
         {
             self.refresh = true;
-            self.last_frame_area = state.area;
+            self.last_frame_area = state.area().clone();
         } else {
             self.refresh = false;
         }
@@ -96,10 +96,10 @@ impl RenderingState {
                     .render_all(buf, state, registers, repository, pallete)?;
             }
             DisplayMode::Help => {
-                render_help(state.area, buf)?;
+                render_help(state.area(), buf)?;
             }
             DisplayMode::ContigList => {
-                render_contig_list(state.area, buf, state, registers, pallete)?;
+                render_contig_list(state.area(), buf, state, registers, pallete)?;
             }
         }
         Ok(())
