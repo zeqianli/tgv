@@ -1053,7 +1053,6 @@ impl StateHandler {
     }
 
     pub fn has_complete_track(state: &State, region: &Region) -> bool {
-        // self.track_cache.get_track(region.contig()) == Some(None)
         state.track.is_some() && state.track.as_ref().unwrap().has_complete_data(region)
     }
 
