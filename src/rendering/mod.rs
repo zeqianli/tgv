@@ -80,7 +80,7 @@ impl RenderingState {
 
     pub fn render(
         &self,
-        area: Rect,
+
         buf: &mut Buffer,
         state: &State,
         registers: &Registers,
@@ -93,13 +93,13 @@ impl RenderingState {
                 // For now, fall back to existing layout
                 state
                     .layout
-                    .render_all(area, buf, state, registers, repository, pallete)?;
+                    .render_all(buf, state, registers, repository, pallete)?;
             }
             DisplayMode::Help => {
-                render_help(area, buf)?;
+                render_help(state.area, buf)?;
             }
             DisplayMode::ContigList => {
-                render_contig_list(area, buf, state, registers, pallete)?;
+                render_contig_list(state.area, buf, state, registers, pallete)?;
             }
         }
         Ok(())

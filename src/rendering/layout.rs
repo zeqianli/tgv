@@ -1,5 +1,4 @@
-
-use crate::message::{StateMessage};
+use crate::message::StateMessage;
 pub use crate::rendering::colors::Palette;
 pub use crate::rendering::{
     render_alignment, render_bed, render_console, render_coordinates, render_coverage,
@@ -278,7 +277,6 @@ impl MainLayout {
     /// Render all areas in the layout
     pub fn render_all(
         &self,
-        area: Rect,
         buf: &mut Buffer,
         state: &State,
         registers: &Registers,
@@ -286,11 +284,15 @@ impl MainLayout {
         pallete: &Palette,
     ) -> Result<(), TGVError> {
         let mut areas: Vec<(AreaType, Rect)> = Vec::new();
-        self.root.get_areas(area, &mut areas)?;
+        self.root.get_areas(state.area, &mut areas)?;
 
         // Render each area based on its type
         let mut alternate_background = 0;
         for (i, (area_type, rect)) in areas.iter().enumerate() {
+            if rect.y >= buf.area.height || rect.x >= buf.area.width {
+                // bound check
+                continue;
+            }
             let background_color = if area_type.alternate_background() {
                 alternate_background += 1;
                 match alternate_background % 2 {
@@ -614,11 +616,12 @@ impl MouseRegister {
                 self.mouse_down_y = event.row;
                 self.root = state.layout.root.clone();
 
-                if let Some((area, area_type)) = state.layout.root.get_area_type_at_position(
-                    event.column,
-                    event.row,
-                    state.area,
-                ) {
+                if let Some((area, area_type)) =
+                    state
+                        .layout
+                        .root
+                        .get_area_type_at_position(event.column, event.row, state.area)
+                {
                     if event.column == area.left()
                         || event.column + 1 == area.right()
                         || event.row == area.top()
@@ -670,11 +673,12 @@ impl MouseRegister {
 
             event::MouseEventKind::Moved => {
                 // Display read information
-                if let Some((area, area_type)) = state.layout.root.get_area_type_at_position(
-                    event.column,
-                    event.row,
-                    state.area,
-                ) {
+                if let Some((area, area_type)) =
+                    state
+                        .layout
+                        .root
+                        .get_area_type_at_position(event.column, event.row, state.area)
+                {
                     if area_type == AreaType::Alignment {
                         if let (Some((left_coordinate, right_coordinate)), Some(y_coordinate)) = (
                             &state.window.coordinates_of_onscreen_x(event.column, &area),

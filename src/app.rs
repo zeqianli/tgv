@@ -79,13 +79,21 @@ impl App {
                 let _ = terminal.clear();
             }
 
-            self.state.area = terminal.get_frame().area();
-
             // Render
 
             terminal
                 .draw(|frame| {
-                    self.draw(frame);
+                    let buffer = frame.buffer_mut();
+                    self.state.area = buffer.area.clone();
+                    self.rendering_state
+                        .render(
+                            buffer,
+                            &self.state,
+                            &self.registers,
+                            &self.repository,
+                            &self.settings.palette,
+                        )
+                        .unwrap()
                 })
                 .unwrap();
 
@@ -130,11 +138,6 @@ impl App {
         Ok(())
     }
 
-    /// Draw the app
-    pub fn draw(&self, frame: &mut Frame) {
-        frame.render_widget(self, self.state.area);
-    }
-
     /// close connections
     pub async fn close(&mut self) -> Result<(), TGVError> {
         self.repository.close().await?;
@@ -143,17 +146,3 @@ impl App {
 }
 const MIN_AREA_WIDTH: u16 = 10;
 const MIN_AREA_HEIGHT: u16 = 6;
-impl Widget for &App {
-    fn render(self, area: Rect, buf: &mut Buffer) {
-        self.rendering_state
-            .render(
-                area,
-                buf,
-                &self.state,
-                &self.registers,
-                &self.repository,
-                &self.settings.palette,
-            )
-            .unwrap()
-    }
-}
