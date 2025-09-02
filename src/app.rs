@@ -84,7 +84,7 @@ impl App {
             terminal
                 .draw(|frame| {
                     let buffer = frame.buffer_mut();
-                    self.state.set_area(buffer.area.clone());
+                    self.state.set_area(buffer.area.clone()).unwrap();
                     self.rendering_state
                         .render(
                             buffer,
@@ -144,5 +144,3 @@ impl App {
         Ok(())
     }
 }
-const MIN_AREA_WIDTH: u16 = 10;
-const MIN_AREA_HEIGHT: u16 = 6;
