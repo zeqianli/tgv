@@ -191,7 +191,7 @@ impl Alignment {
             )?; // TODO: seq() is called twice. Optimize this in the future.
             for (i, coverage) in read_coverage.into_iter() {
                 match coverage_hashmap.entry(i) {
-                    Entry::Occupied(mut oe) => oe.get_mut().add(coverage),
+                    Entry::Occupied(mut oe) => oe.get_mut().add(&coverage),
                     Entry::Vacant(ve) => {
                         ve.insert(coverage);
                     }

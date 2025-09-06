@@ -15,7 +15,7 @@ pub fn render_sequence(
     let region = &state.viewing_region();
 
     if let Some(sequence) = &state.sequence {
-        match state.window.zoom() {
+        match state.window.zoom {
             1 => render_sequence_at_1x(area, buf, region, sequence, pallete),
             2 => render_sequence_at_2x(area, buf, region, sequence, pallete),
             _ => Ok(()),

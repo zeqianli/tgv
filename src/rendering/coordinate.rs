@@ -53,7 +53,7 @@ fn calculate_coordinates(
     area: &Rect,
     contig_length: Option<usize>,
 ) -> (Vec<String>, Vec<u16>, Vec<u16>) {
-    let (intermarker_distance, power) = calculate_intermarker_distance(viewing_window.zoom());
+    let (intermarker_distance, power) = calculate_intermarker_distance(viewing_window.zoom);
 
     let mut pivot = (viewing_window.left() / intermarker_distance + 1) * intermarker_distance; // First marker
     let mut markers_onscreen_x: Vec<u16> = Vec::new();

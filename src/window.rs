@@ -14,7 +14,7 @@ pub struct ViewingWindow {
     top: usize,
 
     /// Horizontal zoom.
-    zoom: usize,
+    pub zoom: usize,
 }
 
 impl Default for ViewingWindow {
@@ -208,11 +208,6 @@ impl ViewingWindow {
     /// Width (in bases) of the viewing window.
     pub fn width(&self, area: &Rect) -> usize {
         area.width as usize * self.zoom
-    }
-
-    /// Horizontal zoom.
-    pub fn zoom(&self) -> usize {
-        self.zoom
     }
 
     /// Check if the viewing window overlaps with [left, right].

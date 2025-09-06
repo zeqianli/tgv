@@ -9,7 +9,7 @@ use ratatui::{
 const MIN_AREA_WIDTH: u16 = 2;
 const MIN_AREA_HEIGHT: u16 = 1;
 
-pub fn render_help(area: Rect, buf: &mut Buffer) -> Result<(), TGVError> {
+pub fn render_help(area: &Rect, buf: &mut Buffer) -> Result<(), TGVError> {
     if area.width < MIN_AREA_WIDTH || area.height < MIN_AREA_HEIGHT {
         return Ok(());
     }
@@ -50,6 +50,6 @@ pub fn render_help(area: Rect, buf: &mut Buffer) -> Result<(), TGVError> {
         help_text.lines().map(Line::from).collect::<Vec<Line>>(),
     ));
 
-    paragraph.render(area, buf);
+    paragraph.render(*area, buf);
     Ok(())
 }
