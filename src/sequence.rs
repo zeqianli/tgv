@@ -1,12 +1,12 @@
 use crate::contig_header::ContigHeader;
 use crate::error::TGVError;
-use crate::reference::Reference;
 use crate::intervals::Region;
+use crate::reference::Reference;
 use crate::tracks::schema::*;
 use reqwest::Client;
 use serde::Deserialize;
 use std::collections::HashMap;
-use twobit::TwoBitFile; // Add twobit crate to Cargo.toml
+use twobit::TwoBitFile;
 /// Sequences of a genome region.
 #[derive(Debug)]
 pub struct Sequence {

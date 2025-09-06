@@ -35,6 +35,7 @@ tgv -g cat
 - `:_chr_:_position_`: Go to a chromosome position (e.g. `:1:2345`)
 - `_number_` + `_movement_`: Repeat movements (e.g. `20B`: left by 20 genes)
 - `:ls`: Switch chromosomes.
+- Mouse is also supported
 
 [Full key bindings](https://github.com/zeqianli/tgv/wiki/Usage)
 
@@ -52,6 +53,9 @@ Browse alignments:
 ```bash
 # View BAM file aligned to the hg38 human reference genome
 tgv sorted.bam
+
+# VCF and BED file supports
+tgv sorted.bam -v variants.vcf -b intervals.bed
 
 # View a indexed remote BAM, starting at TP53, using the hg19 reference genome
 tgv s3://my-bucket/sorted.bam -r TP53 -g hg19

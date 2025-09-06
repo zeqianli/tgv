@@ -23,16 +23,14 @@ pub fn render_help(area: &Rect, buf: &mut Buffer) -> Result<(), TGVError> {
  
  |:q|    Quit           |<ESC>|     Switch to normal mode / Close this window
  |:h|    Help           |:|         Switch to command mode
- |:ls| or |:contigs|                Switch chromosomes
+ |:ls / :contigs|                   Switch chromosomes
  
  |h / j / k / l|   Move left / down / up / right
  |y / p|           Move left / right faster
- |w / b|           Beginning of the next / last exon
- |W / B|           Begining of the next / last gene
- |e / ge|          End of the next / last exon
- |E / gE|          End of the next / last gene
+ |w / b / W / B|   Beginning of the next exon / last exon / next gene / last gene
+ |e / ge / E / gE| End of the next exon / last exon / next gene / last gene
  |z / o|           Zoom in / out
- |{{ / }}|        Move to the next / previous contig
+ |{{ / }}|         Move up / down faster 
  
  |<num><key>|      Repeat movements. Examples:
      - 5h: Move right by 5 bases
@@ -42,6 +40,7 @@ pub fn render_help(area: &Rect, buf: &mut Buffer) -> Result<(), TGVError> {
  |:_pos_|          Go to position on same contig.       Example: :1000
  |:_contig_:_pos_| Go to position on a contig.          Example: 17:7572659
  |:_gene_|         Go to _gene_                         Example: :KRAS
+ |filter base(_pos_) = _base_|   Filter by base         Example: :filter base(123)=A
  ",
         env!("CARGO_PKG_VERSION")
     );
