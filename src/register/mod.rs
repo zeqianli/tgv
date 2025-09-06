@@ -1,6 +1,7 @@
 mod command;
 mod contig_list;
 mod help;
+mod mouse;
 mod normal;
 use crate::{display_mode::DisplayMode, error::TGVError, message::StateMessage, states::State};
 use crossterm::event::{KeyCode, KeyEvent};
@@ -9,7 +10,7 @@ use strum::Display;
 
 pub use crate::register::{
     command::CommandModeRegister, contig_list::ContigListModeRegister, help::HelpModeRegister,
-    normal::NormalModeRegister,
+    mouse::MouseRegister, normal::NormalModeRegister,
 };
 
 #[derive(Debug, Clone, Eq, PartialEq, Display)]

@@ -4,8 +4,7 @@ use crossterm::event::{self, Event, KeyEventKind};
 use ratatui::{buffer::Buffer, layout::Rect, prelude::Backend, widgets::Widget, Frame, Terminal};
 
 use crate::error::TGVError;
-use crate::register::{Register, Registers};
-use crate::rendering::layout::MouseRegister;
+use crate::register::{MouseRegister, Register, Registers};
 use crate::rendering::RenderingState;
 use crate::repository::Repository;
 use crate::settings::Settings;
