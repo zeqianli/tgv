@@ -1,7 +1,7 @@
 /// The main app object
 ///
 use crossterm::event::{self, Event, KeyEventKind};
-use ratatui::{buffer::Buffer, layout::Rect, prelude::Backend, widgets::Widget, Frame, Terminal};
+use ratatui::{prelude::Backend, widgets::Widget, Terminal};
 
 use crate::error::TGVError;
 use crate::register::{MouseRegister, Register, Registers};
@@ -83,7 +83,7 @@ impl App {
             terminal
                 .draw(|frame| {
                     let buffer = frame.buffer_mut();
-                    self.state.set_area(buffer.area.clone()).unwrap();
+                    self.state.set_area(buffer.area).unwrap();
                     self.rendering_state
                         .render(
                             buffer,

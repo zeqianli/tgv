@@ -2,7 +2,6 @@ use crate::error::TGVError;
 use crate::message::{AlignmentFilter, AlignmentSort};
 use crate::region::Region;
 use crate::sequence::Sequence;
-use crate::window::ViewingWindow;
 use crate::{
     alignment::{
         coverage::{calculate_basewise_coverage, BaseCoverage, DEFAULT_COVERAGE},
@@ -10,7 +9,6 @@ use crate::{
     },
     message::AlignmentDisplayOption,
 };
-use ratatui::layout::Rect;
 use std::collections::{hash_map::Entry, BTreeMap, HashMap};
 
 /// A alignment region on a contig.
@@ -113,7 +111,7 @@ impl Alignment {
         let show_reads = vec![true; reads.len()];
         let ys = stack_tracks_for_reads(&reads, &show_reads)?;
         let mut alignment = Self {
-            reads: reads,
+            reads,
             contig_index: region.contig_index,
             coverage: BTreeMap::new(),
             data_complete_left_bound: region.start,
@@ -126,7 +124,7 @@ impl Alignment {
         alignment
             .build_y_index()?
             .build_coverage(reference_sequence)?;
-        return Ok(alignment);
+        Ok(alignment)
     }
 
     /// Build indexes, coverages after key assets are set: reads, show_read, ys
@@ -152,11 +150,8 @@ impl Alignment {
         reference_sequence: Option<&Sequence>,
     ) -> Result<&mut Self, TGVError> {
         for option in options {
-            match option {
-                AlignmentDisplayOption::Filter(filter) => {
-                    self.filter(filter, reference_sequence)?;
-                }
-                _ => {}
+            if let AlignmentDisplayOption::Filter(filter) = option {
+                self.filter(filter, reference_sequence)?;
             }
         }
 
@@ -215,7 +210,7 @@ impl Alignment {
         reference_sequence: Option<&Sequence>,
     ) -> Result<&mut Self, TGVError> {
         for (i, read) in self.reads.iter().enumerate() {
-            self.show_read[i] = read.passes_filter(&filter)
+            self.show_read[i] = read.passes_filter(filter)
         }
 
         self.ys = stack_tracks_for_reads(&self.reads, &self.show_read)?;

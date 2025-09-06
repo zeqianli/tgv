@@ -1,15 +1,9 @@
-use crate::alignment::read::{consumes_query, consumes_reference, AlignedRead};
+use crate::alignment::read::{consumes_query, consumes_reference};
 use crate::error::TGVError;
-use crate::message::{AlignmentFilter, AlignmentSort};
-use crate::reference;
-use crate::region::Region;
 use crate::sequence::Sequence;
-use crate::window::ViewingWindow;
-use ratatui::layout::Rect;
-use rust_htslib::bam::ext::BamRecordExtensions;
 use rust_htslib::bam::record::{Cigar, CigarStringView};
-use rust_htslib::bam::{record::Seq, Read, Record};
-use std::collections::{hash_map::Entry, BTreeMap, HashMap};
+use rust_htslib::bam::record::Seq;
+use std::collections::HashMap;
 use std::default::Default;
 
 /// See: https://samtools.github.io/hts-specs/SAMv1.pdf
@@ -21,7 +15,7 @@ pub fn calculate_basewise_coverage(
     reference_sequence: Option<&Sequence>,
 ) -> Result<HashMap<usize, BaseCoverage>, TGVError> {
     let mut output: HashMap<usize, BaseCoverage> = HashMap::new();
-    if cigars.len() == 0 {
+    if cigars.is_empty() {
         return Ok(output);
     }
 

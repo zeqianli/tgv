@@ -70,7 +70,7 @@ impl RenderingState {
             || self.last_frame_area.height != state.area().height
         {
             self.refresh = true;
-            self.last_frame_area = state.area().clone();
+            self.last_frame_area = *state.area();
         } else {
             self.refresh = false;
         }

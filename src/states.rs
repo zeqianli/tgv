@@ -114,7 +114,7 @@ impl State {
     /// Middle coordinate of bases displayed on the screen.
     /// 1-based, inclusive.
     pub fn middle(&self) -> usize {
-        self.window.middle(&self.area())
+        self.window.middle(self.area())
     }
 
     pub fn contig_index(&self) -> usize {
@@ -331,7 +331,7 @@ impl StateHandler {
 
                 resize_node(
                     &mut new_node,
-                    state.area().clone(),
+                    *state.area(),
                     mouse_down_x,
                     mouse_down_y,
                     mouse_released_x,

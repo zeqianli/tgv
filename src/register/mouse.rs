@@ -1,4 +1,4 @@
-use crate::alignment::{self, BaseCoverage};
+use crate::alignment::{BaseCoverage};
 use crate::error::TGVError;
 use crate::message::StateMessage;
 use crate::rendering::layout::{AreaType, LayoutNode};
@@ -108,8 +108,8 @@ impl MouseRegister {
                     match area_type {
                         AreaType::Alignment => {
                             if let (Some((left_coordinate, right_coordinate)), Some(y_coordinate)) = (
-                                &state.window.coordinates_of_onscreen_x(event.column, &area),
-                                &state.window.coordinate_of_onscreen_y(event.row, &area),
+                                &state.window.coordinates_of_onscreen_x(event.column, area),
+                                &state.window.coordinate_of_onscreen_y(event.row, area),
                             ) {
                                 if let Some(alignment) = &state.alignment {
                                     if let Some(read) = alignment.read_overlapping(
@@ -125,7 +125,7 @@ impl MouseRegister {
 
                         AreaType::Sequence => {
                             if let Some((left_coordinate, right_coordinate)) =
-                                &state.window.coordinates_of_onscreen_x(event.column, &area)
+                                &state.window.coordinates_of_onscreen_x(event.column, area)
                             {
                                 if let Some(sequence) = state.sequence.as_ref() {
                                     let description: String = (*left_coordinate
@@ -144,7 +144,7 @@ impl MouseRegister {
 
                         AreaType::Coverage => {
                             if let Some((left_coordinate, right_coordinate)) =
-                                &state.window.coordinates_of_onscreen_x(event.column, &area)
+                                &state.window.coordinates_of_onscreen_x(event.column, area)
                             {
                                 if let Some(alignment) = state.alignment.as_ref() {
                                     let mut total_coverage: BaseCoverage = BaseCoverage::default();
