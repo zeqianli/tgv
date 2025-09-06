@@ -337,9 +337,7 @@ impl Widget for StackedSparkline {
 
                             buf[(x, area.top() + j)]
                                 .set_symbol(self.symbol_for_height(fg_height))
-                                .set_style(
-                                    Style::default().fg(*fg_color).bg(*bg_color),
-                                );
+                                .set_style(Style::default().fg(*fg_color).bg(*bg_color));
 
                             accumulator -= cell_height;
                             pivot = k;

@@ -7,11 +7,7 @@ use crate::{
     strand::Strand,
     window::{OnScreenCoordinate, ViewingWindow},
 };
-use ratatui::{
-    buffer::Buffer,
-    layout::Rect,
-    style::Style,
-};
+use ratatui::{buffer::Buffer, layout::Rect, style::Style};
 
 const MIN_AREA_WIDTH: u16 = 5;
 const MIN_AREA_HEIGHT: u16 = 2;
