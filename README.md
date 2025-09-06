@@ -12,7 +12,7 @@
 
 [Full instruction](https://github.com/zeqianli/tgv/wiki/Installation)
 
-- cargo (recommended): `cargo install tgv`
+- cargo (recommended): `cargo install tgv --locked`
 - brew: `brew install zeqianli/tgv/tgv`
 - bioconda: `conda install bioconda::tgv`
 - Pre-built binaries: [Github releases](https://github.com/zeqianli/tgv/releases/)

@@ -1,7 +1,6 @@
-use crate::error::TGVError;
-
-use crate::bed::BEDIntervals;
 use crate::{
+    bed::BEDIntervals,
+    error::TGVError,
     rendering::{colors::Palette, intervals::render_simple_intervals},
     states::State,
 };

@@ -1,9 +1,4 @@
-use ratatui::style::palette::tailwind;
-/// Colors profile
-///
-///
-///
-use ratatui::style::Color;
+use ratatui::style::{palette::tailwind, Color};
 
 // Background
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
