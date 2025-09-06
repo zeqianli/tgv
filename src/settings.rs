@@ -1,6 +1,6 @@
 use crate::error::TGVError;
 use crate::rendering::{Palette, DARK_THEME};
-use crate::ucsc::UcscHost;
+use crate::tracks::UcscHost;
 use crate::{message::StateMessage, reference::Reference};
 use clap::{Parser, Subcommand, ValueEnum};
 

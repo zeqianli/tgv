@@ -1,6 +1,6 @@
 use crate::error::TGVError;
 use crate::message::{AlignmentFilter, AlignmentSort};
-use crate::region::Region;
+use crate::intervals::Region;
 use crate::sequence::Sequence;
 use crate::{
     alignment::{

@@ -1,7 +1,7 @@
 use crate::contig_header::ContigHeader;
 use crate::error::TGVError;
 use crate::reference::Reference;
-use crate::region::Region;
+use crate::intervals::Region;
 use crate::tracks::schema::*;
 use reqwest::Client;
 use serde::Deserialize;

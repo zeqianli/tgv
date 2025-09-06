@@ -1,4 +1,4 @@
-use crate::{display_mode::DisplayMode, region::Region, strand::Strand};
+use crate::{intervals::Region, register::DisplayMode, strand::Strand};
 
 use strum::Display;
 

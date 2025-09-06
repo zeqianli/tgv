@@ -5,10 +5,10 @@ use crate::{
     feature::{Gene, SubGeneFeature},
     intervals::GenomeInterval,
     reference::Reference,
-    region::Region,
+    intervals::Region,
     track::Track,
     tracks::schema::*,
-    ucsc::UcscHost,
+    tracks::UcscHost,
 };
 use async_trait::async_trait;
 use sqlx::{mysql::MySqlPoolOptions, Column, MySqlPool, Row};

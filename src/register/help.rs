@@ -1,5 +1,5 @@
 use crate::{
-    display_mode::DisplayMode, error::TGVError, message::StateMessage, register::Register,
+    register::DisplayMode, error::TGVError, message::StateMessage, register::Register,
     states::State,
 };
 use crossterm::event::{KeyCode, KeyEvent};

@@ -6,7 +6,7 @@ use crate::{
     feature::{Gene, SubGeneFeature},
     intervals::GenomeInterval,
     reference::Reference,
-    region::Region,
+    intervals::Region,
     track::Track,
     tracks::schema::*,
 };
