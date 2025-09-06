@@ -162,20 +162,19 @@ impl State {
     }
 
     pub fn alignment_renderable(&self) -> bool {
-        self.alignment.is_some()
-            && self.window.zoom() <= StateHandler::MAX_ZOOM_TO_DISPLAY_ALIGNMENTS
+        self.alignment.is_some() && self.window.zoom <= StateHandler::MAX_ZOOM_TO_DISPLAY_ALIGNMENTS
     }
 
     pub fn sequence_renderable(&self) -> bool {
         self.reference.is_some()
             && self.sequence.is_some()
-            && self.window.zoom() <= StateHandler::MAX_ZOOM_TO_DISPLAY_SEQUENCES
+            && self.window.zoom <= StateHandler::MAX_ZOOM_TO_DISPLAY_SEQUENCES
     }
 
     pub fn track_renderable(&self) -> bool {
         self.reference.is_some()
             && self.track.is_some()
-            && self.window.zoom() <= StateHandler::MAX_ZOOM_TO_DISPLAY_FEATURES
+            && self.window.zoom <= StateHandler::MAX_ZOOM_TO_DISPLAY_FEATURES
     }
 
     pub fn cytoband_renderable(&self) -> bool {
@@ -411,7 +410,7 @@ impl StateHandler {
         // Alignment IO requires calculating mismatches with the reference sequence.
 
         if settings.needs_sequence()
-            && (state.window.zoom() <= Self::MAX_ZOOM_TO_DISPLAY_SEQUENCES)
+            && (state.window.zoom <= Self::MAX_ZOOM_TO_DISPLAY_SEQUENCES)
             && !Self::has_complete_sequence(state, &viewing_region)
         {
             let sequence_cache_region = Self::sequence_cache_region(state, &viewing_region)?;
@@ -420,7 +419,7 @@ impl StateHandler {
             ));
         }
         if settings.needs_alignment()
-            && state.window.zoom() <= Self::MAX_ZOOM_TO_DISPLAY_ALIGNMENTS
+            && state.window.zoom <= Self::MAX_ZOOM_TO_DISPLAY_ALIGNMENTS
             && !Self::has_complete_alignment(state, &viewing_region)
         {
             let alignment_cache_region = Self::alignment_cache_region(state, &viewing_region)?;
@@ -431,7 +430,7 @@ impl StateHandler {
 
         if settings.needs_track() {
             if !Self::has_complete_track(state, &viewing_region) {
-                // viewing_window.zoom() <= Self::MAX_ZOOM_TO_DISPLAY_FEATURES is always true
+                // viewing_window.zoom <= Self::MAX_ZOOM_TO_DISPLAY_FEATURES is always true
                 let track_cache_region = Self::track_cache_region(state, &viewing_region)?;
                 data_messages.push(DataMessage::RequiresCompleteFeatures(track_cache_region));
             }
@@ -517,7 +516,7 @@ impl StateHandler {
         let area = &state.layout.main_area;
 
         state.window.set_left(
-            state.window.left().saturating_sub(n * state.window.zoom()),
+            state.window.left().saturating_sub(n * state.window.zoom),
             area,
             contig_length,
         );
@@ -527,7 +526,7 @@ impl StateHandler {
         let contig_length: Option<usize> = state.contig_length()?;
 
         state.window.set_left(
-            state.window.left().saturating_add(n * state.window.zoom()),
+            state.window.left().saturating_add(n * state.window.zoom),
             &state.layout.main_area,
             contig_length,
         );

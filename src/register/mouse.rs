@@ -1,8 +1,10 @@
+use crate::alignment::{self, BaseCoverage};
 use crate::error::TGVError;
 use crate::message::StateMessage;
 use crate::rendering::layout::{AreaType, LayoutNode};
 use crate::states::State;
 use crossterm::event;
+use itertools::Itertools;
 pub struct MouseRegister {
     /// Resize event handling
     pub mouse_down_x: u16,
@@ -61,7 +63,7 @@ impl MouseRegister {
             event::MouseEventKind::Drag(_) => {
                 if self.resizing {
                     if (event.row != self.mouse_down_y) || (event.column != self.mouse_down_x) {
-                        // Disable temporarily
+                        // TODO: next release
                         // messages.push(StateMessage::ResizeTrack {
                         //     mouse_down_x: self.mouse_down_x,
                         //     mouse_down_y: self.mouse_down_y,
@@ -103,21 +105,73 @@ impl MouseRegister {
                     .layout
                     .get_area_type_at_position(event.column, event.row)
                 {
-                    if *area_type == AreaType::Alignment {
-                        if let (Some((left_coordinate, right_coordinate)), Some(y_coordinate)) = (
-                            &state.window.coordinates_of_onscreen_x(event.column, &area),
-                            &state.window.coordinate_of_onscreen_y(event.row, &area),
-                        ) {
-                            if let Some(alignment) = &state.alignment {
-                                if let Some(read) = alignment.read_overlapping(
-                                    *left_coordinate,
-                                    *right_coordinate,
-                                    *y_coordinate,
-                                ) {
-                                    messages.push(StateMessage::Message(read.describe()?))
+                    match area_type {
+                        AreaType::Alignment => {
+                            if let (Some((left_coordinate, right_coordinate)), Some(y_coordinate)) = (
+                                &state.window.coordinates_of_onscreen_x(event.column, &area),
+                                &state.window.coordinate_of_onscreen_y(event.row, &area),
+                            ) {
+                                if let Some(alignment) = &state.alignment {
+                                    if let Some(read) = alignment.read_overlapping(
+                                        *left_coordinate,
+                                        *right_coordinate,
+                                        *y_coordinate,
+                                    ) {
+                                        messages.push(StateMessage::Message(read.describe()?))
+                                    }
                                 }
                             }
                         }
+
+                        AreaType::Sequence => {
+                            if let Some((left_coordinate, right_coordinate)) =
+                                &state.window.coordinates_of_onscreen_x(event.column, &area)
+                            {
+                                if let Some(sequence) = state.sequence.as_ref() {
+                                    let description: String = (*left_coordinate
+                                        ..=*right_coordinate)
+                                        .filter_map(|coordinate| {
+                                            sequence.base_at(coordinate).map(|base_u8| {
+                                                format!("{}: {}", coordinate, base_u8 as char)
+                                            })
+                                        })
+                                        .join(", ");
+
+                                    messages.push(StateMessage::Message(description))
+                                }
+                            }
+                        }
+
+                        AreaType::Coverage => {
+                            if let Some((left_coordinate, right_coordinate)) =
+                                &state.window.coordinates_of_onscreen_x(event.column, &area)
+                            {
+                                if let Some(alignment) = state.alignment.as_ref() {
+                                    let mut total_coverage: BaseCoverage = BaseCoverage::default();
+                                    (*left_coordinate..=*right_coordinate).for_each(|coordinate| {
+                                        total_coverage.add(alignment.coverage_at(coordinate))
+                                    });
+
+                                    let message = if *left_coordinate == *right_coordinate {
+                                        format!(
+                                            "{}: {}",
+                                            *left_coordinate,
+                                            total_coverage.describe()
+                                        )
+                                    } else {
+                                        format!(
+                                            "{} - {}: {}",
+                                            *left_coordinate,
+                                            *right_coordinate,
+                                            total_coverage.describe()
+                                        )
+                                    };
+
+                                    messages.push(StateMessage::Message(message))
+                                }
+                            }
+                        }
+                        _ => {}
                     }
                 }
             }

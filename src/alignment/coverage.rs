@@ -10,6 +10,7 @@ use rust_htslib::bam::ext::BamRecordExtensions;
 use rust_htslib::bam::record::{Cigar, CigarStringView};
 use rust_htslib::bam::{record::Seq, Read, Record};
 use std::collections::{hash_map::Entry, BTreeMap, HashMap};
+use std::default::Default;
 
 /// See: https://samtools.github.io/hts-specs/SAMv1.pdf
 pub fn calculate_basewise_coverage(
@@ -179,7 +180,7 @@ impl BaseCoverage {
         self.softclip += 1
     }
 
-    pub fn add(&mut self, other: BaseCoverage) {
+    pub fn add(&mut self, other: &BaseCoverage) {
         self.A += other.A;
         self.T += other.T;
         self.C += other.C;
@@ -196,6 +197,19 @@ impl BaseCoverage {
             b'G' | b'g' => Some(usize::max(self.C, self.T)),
             _ => None,
         }
+    }
+
+    pub fn describe(&self) -> String {
+        format!(
+            "A:{}, T:{}, C:{}, G:{}, N:{}, total:{}",
+            self.A, self.T, self.C, self.G, self.N, self.total
+        )
+    }
+}
+
+impl Default for BaseCoverage {
+    fn default() -> Self {
+        DEFAULT_COVERAGE.clone()
     }
 }
 
