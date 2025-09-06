@@ -1,14 +1,19 @@
 [package]
 name = "tgv"
-version = "0.0.6"
+version = "0.1.0"
 edition = "2021"
 description = "Explore genomes in the terminal. Light, blazing fast 🚀, vim-motion."
 license = "MIT"
 rust-version = "1.81"
 include = [
     "src/*",
+    "!src/snapshots",
     "Cargo.toml",
     "./README.md"
+]
+
+exclude = [
+
 ]
 
 [dependencies]
