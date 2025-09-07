@@ -47,7 +47,7 @@ impl Variant {
         // FIXME: display more fields.
         // Note that other fields (filter, info, sample) requires the VCF header.
         format!(
-            "{}:{} {}>{} QUAL={}",
+            "Variant: {}:{} {}>{} QUAL={}",
             self.record.reference_sequence_name(),
             self.start,
             self.record.reference_bases(),
