@@ -2,7 +2,7 @@ use crate::{
     error::TGVError,
     feature::{Gene, SubGeneFeature},
     intervals::GenomeInterval,
-    region::Region,
+    intervals::Region,
 };
 
 use std::collections::{BTreeMap, HashMap};

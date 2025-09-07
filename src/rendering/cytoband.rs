@@ -60,9 +60,6 @@ pub fn render_cytobands(
     }
 
     // Cytoband
-
-    // panic!("Current cytoband: {:?}", state.current_cytoband());
-
     if let Some(cytoband) = state.current_cytoband() {
         for (x, string, style) in get_cytoband_xs_strings_and_styles(
             cytoband,

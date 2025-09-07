@@ -28,8 +28,8 @@ pub use status_bar::render_status_bar;
 pub use track::render_track;
 pub use variants::render_variants;
 
-use crate::display_mode::DisplayMode;
 use crate::error::TGVError;
+use crate::register::DisplayMode;
 use crate::register::Registers;
 use crate::repository::Repository;
 use crate::states::State;
@@ -70,7 +70,7 @@ impl RenderingState {
             || self.last_frame_area.height != state.area().height
         {
             self.refresh = true;
-            self.last_frame_area = state.area().clone();
+            self.last_frame_area = *state.area();
         } else {
             self.refresh = false;
         }

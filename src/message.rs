@@ -1,8 +1,5 @@
-use crate::{display_mode::DisplayMode, error::TGVError, region::Region, strand::Strand};
+use crate::{intervals::Region, register::DisplayMode, strand::Strand};
 
-use std::fmt;
-use std::string::ToString;
-use strum;
 use strum::Display;
 
 /// State messages
@@ -159,7 +156,7 @@ pub enum AlignmentFilter {
 
 impl AlignmentFilter {
     pub fn and(self, other: AlignmentFilter) -> Self {
-        if &self == &other {
+        if self == other {
             return self;
         }
 
@@ -172,7 +169,7 @@ impl AlignmentFilter {
     }
 
     pub fn or(self, other: AlignmentFilter) -> Self {
-        if &self == &other {
+        if self == other {
             return self;
         }
         match (self, other) {
@@ -261,7 +258,7 @@ impl Default for AlignmentSort {
 
 impl AlignmentSort {
     pub fn then(self, other: AlignmentSort) -> AlignmentSort {
-        if &self == &other {
+        if self == other {
             return self;
         }
         match (self, other) {

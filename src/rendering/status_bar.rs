@@ -38,7 +38,7 @@ pub fn render_status_bar(area: &Rect, buf: &mut Buffer, state: &State) -> Result
 
     // Alignment options
 
-    if state.alignment_options.len() > 0 {
+    if !state.alignment_options.is_empty() {
         let alignment_option_string = state
             .alignment_options
             .iter()

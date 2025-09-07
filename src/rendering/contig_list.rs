@@ -2,7 +2,6 @@ use crate::contig_header::Contig;
 use crate::error::TGVError;
 use crate::register::Registers;
 use crate::states::State;
-use crate::window::linear_scale;
 use ratatui::{
     buffer::Buffer,
     layout::{Position, Rect},
@@ -141,18 +140,21 @@ fn render_contig_at_y(
     }
 
     if let (Some(max_contig_length), Some(contig_length)) = (max_contig_length, contig_length) {
-        let contig_length_x = linear_scale(
-            contig_length,
-            max_contig_length,
-            area.x + left_spacing,
-            area.x + area.width - MIN_CONTIG_LENGTH_SPACING,
-        )?;
-        buf.set_string(
-            area.x + left_spacing,
-            area.y + y,
-            "▅".repeat(contig_length_x as usize),
-            Style::default(),
-        );
+        if area.width >= MIN_CONTIG_LENGTH_SPACING + left_spacing + 5 {
+            let contig_length_x = usize::max(
+                0,
+                (contig_length as f64 / (max_contig_length) as f64
+                    * (area.width - MIN_CONTIG_LENGTH_SPACING - left_spacing) as f64)
+                    as usize,
+            );
+
+            buf.set_string(
+                area.x + left_spacing,
+                area.y + y,
+                "▅".repeat(contig_length_x),
+                Style::default(),
+            );
+        }
     }
 
     Ok(())

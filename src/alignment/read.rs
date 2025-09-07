@@ -1,14 +1,9 @@
 use crate::error::TGVError;
-use crate::message::{AlignmentFilter, AlignmentSort};
-use crate::reference;
-use crate::region::Region;
+use crate::message::AlignmentFilter;
 use crate::sequence::Sequence;
-use crate::window::ViewingWindow;
-use ratatui::layout::Rect;
 use rust_htslib::bam::ext::BamRecordExtensions;
 use rust_htslib::bam::record::{Cigar, CigarStringView};
 use rust_htslib::bam::{record::Seq, Read, Record};
-use std::collections::{hash_map::Entry, BTreeMap, HashMap};
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum RenderingContextModifier {
@@ -206,7 +201,7 @@ impl AlignedRead {
                 }
             }
         }
-        return None;
+        None
     }
 
     pub fn is_softclip_at(&self, coordinate: usize) -> bool {
@@ -216,7 +211,7 @@ impl AlignedRead {
         if coordinate > self.end && coordinate <= self.end + self.trailing_softclips {
             return true;
         }
-        return false;
+        false
     }
 
     pub fn is_deletion_at(&self, coordinate: usize) -> bool {
@@ -267,7 +262,7 @@ impl AlignedRead {
                 }
             }
         }
-        return false;
+        false
     }
 
     pub fn passes_filter(&self, filter: &AlignmentFilter) -> bool {
@@ -338,7 +333,7 @@ pub fn calculate_rendering_contexts(
     reference_sequence: Option<&Sequence>,
 ) -> Result<Vec<RenderingContext>, TGVError> {
     let mut output: Vec<RenderingContext> = Vec::new();
-    if cigars.len() == 0 {
+    if cigars.is_empty() {
         return Ok(output);
     }
 

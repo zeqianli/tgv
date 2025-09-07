@@ -34,6 +34,8 @@ jobs:
             binary_name: tgv
             archive_name: tgv-aarch64-apple-darwin.tar.gz
             archive_cmd: tar czvf dist/tgv-aarch64-apple-darwin.tar.gz -C target/aarch64-apple-darwin/release tgv
+          # FIXME: x86 mac
+          # TODO: Max OS developer signature
 
     steps:
       - uses: actions/checkout@v4

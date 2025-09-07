@@ -4,17 +4,14 @@ use crate::{
     error::TGVError,
     feature::{Gene, SubGeneFeature},
     intervals::GenomeInterval,
+    intervals::Region,
     reference::Reference,
-    region::Region,
     track::Track,
     tracks::schema::*,
-    ucsc::UcscHost,
+    tracks::UcscHost,
 };
 use async_trait::async_trait;
-use sqlx::{
-    mysql::MySqlPoolOptions,
-    Column, MySqlPool, Row,
-};
+use sqlx::{mysql::MySqlPoolOptions, Column, MySqlPool, Row};
 use std::collections::HashMap;
 use std::sync::Arc;
 

@@ -1,5 +1,4 @@
 use crate::{
-    display_mode::DisplayMode,
     error::TGVError,
     message::StateMessage,
     message::{AlignmentDisplayOption, AlignmentFilter, AlignmentSort},
@@ -10,11 +9,10 @@ use crossterm::event::{KeyCode, KeyEvent};
 use nom::{
     branch::alt,
     bytes::complete::{tag, tag_no_case},
-    character::complete::{alpha1, anychar, char, digit1, multispace0, usize},
-    combinator::{map, opt, value},
-    error::ErrorKind,
-    multi::{self, many0, separated_list0},
-    sequence::{delimited, pair, preceded, separated_pair, terminated},
+    character::complete::{char, multispace0, usize},
+    combinator::{opt, value},
+    multi::{many0, separated_list0},
+    sequence::{delimited, preceded, separated_pair, terminated},
     IResult, Parser,
 };
 
@@ -129,7 +127,7 @@ impl CommandModeRegister {
         }
 
         if let Ok((remaining, options)) = parse_display_options(&self.input) {
-            if remaining.len() == 0 {
+            if remaining.is_empty() {
                 return Ok(vec![StateMessage::SetAlignmentChange(options)]);
             }
         }
@@ -172,7 +170,7 @@ fn restore_default_options(input: &str) -> IResult<&str, bool> {
     )
     .parse(input)?;
 
-    Ok((input, (input.len() == 0 && parsed.len() > 0)))
+    Ok((input, (input.is_empty() && !parsed.is_empty())))
 }
 
 fn parse_optional_parenthesis(input: &str) -> IResult<&str, Option<Option<usize>>> {
@@ -229,7 +227,7 @@ fn sort_and_direction(input: &str) -> IResult<&str, AlignmentSort> {
 
     match desc_opt {
         Some(desc) => {
-            if desc.to_ascii_lowercase() == String::from("desc") {
+            if desc.to_ascii_lowercase() == *"desc" {
                 Ok((input, basic_sort.reverse()))
             } else {
                 Ok((input, basic_sort))
@@ -303,11 +301,7 @@ fn node_base_filter(input: &str) -> IResult<&str, AlignmentFilter> {
     )
     .parse(input)?;
 
-    let is_softclip = if base.to_lowercase() == "softclip" {
-        true
-    } else {
-        false
-    };
+    let is_softclip = base.to_lowercase() == "softclip";
 
     let filter = match (position, is_softclip) {
         (None, true) | (Some(None), true) => AlignmentFilter::BaseAtCurrentPositionSoftClip,
@@ -393,7 +387,7 @@ mod tests {
     )]
     fn test_parse_alignment_sort(#[case] input: &str, #[case] expected: AlignmentSort) {
         let (remaining, sort) = parse_sort_expression(input).unwrap();
-        assert!(remaining.len() == 0);
+        assert!(remaining.is_empty());
         assert_eq!(sort, expected);
         // TODO: no remaining characters
     }
@@ -403,7 +397,7 @@ mod tests {
     fn test_parse_alignment_sort_errors(#[case] input: &str) {
         match parse_sort_expression(input) {
             Ok((input, sort)) => {
-                assert!(input.len() > 0)
+                assert!(!input.is_empty())
             }
             Err(_) => {
                 // Ok
@@ -420,7 +414,7 @@ mod tests {
     fn test_parse_alignment_filter(#[case] input: &str, #[case] expected: AlignmentFilter) {
         let (remaining, filter) = node_filter(input).unwrap();
 
-        assert!(remaining.len() == 0);
+        assert!(remaining.is_empty());
         assert_eq!(filter, expected);
     }
 
@@ -429,7 +423,7 @@ mod tests {
     fn test_parse_alignment_filter_error(#[case] input: &str) {
         match parse_sort_expression(input) {
             Ok((input, sort)) => {
-                assert!(input.len() > 0)
+                assert!(!input.is_empty())
             }
             Err(_) => {
                 // Ok

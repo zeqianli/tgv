@@ -35,9 +35,9 @@ impl Stain {
     }
 
     /// Returns the color associated with the stain type.
-    /// AI code.
-    /// TODO: move to colors.rs
     pub fn get_color(&self) -> Color {
+        // FIXME: This function is AI code. I haven't verified the correctness.
+        // FIXME: Mvoe to Pallete.
         match self {
             Stain::Gneg => Color::from_u32(0xffffff),
             Stain::Gpos(p) => {

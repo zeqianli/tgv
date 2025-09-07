@@ -5,8 +5,8 @@ use crate::{
     error::TGVError,
     feature::{Gene, SubGeneFeature},
     intervals::GenomeInterval,
+    intervals::Region,
     reference::Reference,
-    region::Region,
     track::Track,
     tracks::schema::*,
 };

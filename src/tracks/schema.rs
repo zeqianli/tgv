@@ -418,12 +418,10 @@ pub struct UcscListChromosomeResponse {
 //       "name": "qA1",
 //       "gieStain": "gpos100"
 //     },
-#[derive(Debug, Deserialize)]
-#[derive(Default)]
+#[derive(Debug, Deserialize, Default)]
 pub struct UcscApiCytobandResponse {
     cytoBandIdeo: Vec<CytobandSegmentRow>,
 }
-
 
 impl UcscApiCytobandResponse {
     pub fn to_cytoband(

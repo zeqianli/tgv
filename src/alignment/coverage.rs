@@ -1,15 +1,9 @@
-use crate::alignment::read::{consumes_query, consumes_reference, AlignedRead};
+use crate::alignment::read::{consumes_query, consumes_reference};
 use crate::error::TGVError;
-use crate::message::{AlignmentFilter, AlignmentSort};
-use crate::reference;
-use crate::region::Region;
 use crate::sequence::Sequence;
-use crate::window::ViewingWindow;
-use ratatui::layout::Rect;
-use rust_htslib::bam::ext::BamRecordExtensions;
+use rust_htslib::bam::record::Seq;
 use rust_htslib::bam::record::{Cigar, CigarStringView};
-use rust_htslib::bam::{record::Seq, Read, Record};
-use std::collections::{hash_map::Entry, BTreeMap, HashMap};
+use std::collections::HashMap;
 use std::default::Default;
 
 /// See: https://samtools.github.io/hts-specs/SAMv1.pdf
@@ -21,13 +15,15 @@ pub fn calculate_basewise_coverage(
     reference_sequence: Option<&Sequence>,
 ) -> Result<HashMap<usize, BaseCoverage>, TGVError> {
     let mut output: HashMap<usize, BaseCoverage> = HashMap::new();
-    if cigars.len() == 0 {
+    if cigars.is_empty() {
         return Ok(output);
     }
 
     let mut reference_pivot: usize = reference_start;
     let mut query_pivot: usize = 1; // 1-based. # bases on the sequence. Note that need to substract leading softclips to get aligned base coordinate.
 
+    // FIXME:
+    // Mismatches are re-calculated by comparing with the reference genome, but BAM has MM/ML tags for this.
     for (i_op, op) in cigars.iter().enumerate() {
         let next_reference_pivot = if consumes_reference(op) {
             reference_pivot + op.len() as usize
@@ -64,12 +60,8 @@ pub fn calculate_basewise_coverage(
                         output
                             .entry(base_coordinate)
                             .or_insert(BaseCoverage::new(match reference_sequence {
-                                Some(sequence) => sequence.base_at(base_coordinate).ok_or(
-                                    TGVError::ValueError(format!(
-                                        "Sequence not loaded for {}",
-                                        base_coordinate
-                                    )),
-                                )?,
+                                // FIXME: This can cause problems when sequence cache didn't catch up with alignment.
+                                Some(sequence) => sequence.base_at(base_coordinate).unwrap_or(b'N'),
                                 None => b'N',
                             }))
                             .update_softclip(base)
@@ -82,12 +74,8 @@ pub fn calculate_basewise_coverage(
                         output
                             .entry(base_coordinate)
                             .or_insert(BaseCoverage::new(match reference_sequence {
-                                Some(sequence) => sequence.base_at(base_coordinate).ok_or(
-                                    TGVError::ValueError(format!(
-                                        "Sequence not loaded for {}",
-                                        base_coordinate
-                                    )),
-                                )?,
+                                // FIXME: This can cause problems when sequence cache didn't catch up with alignment.
+                                Some(sequence) => sequence.base_at(base_coordinate).unwrap_or(b'N'),
                                 None => b'N',
                             }))
                             .update_softclip(base);
@@ -105,14 +93,8 @@ pub fn calculate_basewise_coverage(
                     output
                         .entry(base_coordinate)
                         .or_insert(BaseCoverage::new(match reference_sequence {
-                            Some(sequence) => {
-                                sequence
-                                    .base_at(base_coordinate)
-                                    .ok_or(TGVError::ValueError(format!(
-                                        "Sequence not loaded for {}",
-                                        base_coordinate
-                                    )))?
-                            }
+                            // FIXME: This can cause problems when sequence cache didn't catch up with alignment.
+                            Some(sequence) => sequence.base_at(base_coordinate).unwrap_or(b'N'),
                             None => b'N',
                         }))
                         .update(seq[query_pivot + i - 1])

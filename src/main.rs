@@ -3,14 +3,12 @@ mod app;
 mod bed;
 mod contig_header;
 mod cytoband;
-mod display_mode;
 mod error;
 mod feature;
 mod helpers;
 mod intervals;
 mod message;
 mod reference;
-mod region;
 mod register;
 mod rendering;
 mod repository;
@@ -19,7 +17,6 @@ mod settings;
 mod states;
 mod strand;
 mod track;
-mod ucsc;
 mod variant;
 mod window;
 use app::App;
@@ -140,6 +137,10 @@ mod tests {
     #[case(
         Some("ncbi.sorted.bam"),
         Some("-r chr22:33121120 --no-reference --offline")
+    )]
+    #[case(
+        Some("ncbi.sorted.bam"),
+        Some("-r chr22:33121120 -v tests/data/simple.vcf -b tests/data/simple.bed --no-reference --offline")
     )]
     #[case(
         Some("covid.sorted.bam"),

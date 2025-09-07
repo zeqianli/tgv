@@ -4,8 +4,8 @@ use crate::{
     contig_header::ContigHeader,
     error::TGVError,
     helpers::is_url,
+    intervals::Region,
     reference::Reference,
-    region::Region,
     sequence::{
         Sequence, SequenceCache, SequenceRepositoryEnum, TwoBitSequenceRepository,
         UCSCApiSequenceRepository,

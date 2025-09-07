@@ -312,7 +312,6 @@ impl Widget for StackedSparkline {
 
                         if accumulator >= cell_height {
                             // render
-                            //panic!("{:?}{:?}{:?}", top_two_indexes, top_two_accumulators, i);
 
                             // Note to maintain the order of these two colors
                             let (fg_height, fg_color, bg_color) =
@@ -337,9 +336,7 @@ impl Widget for StackedSparkline {
 
                             buf[(x, area.top() + j)]
                                 .set_symbol(self.symbol_for_height(fg_height))
-                                .set_style(
-                                    Style::default().fg(*fg_color).bg(*bg_color),
-                                );
+                                .set_style(Style::default().fg(*fg_color).bg(*bg_color));
 
                             accumulator -= cell_height;
                             pivot = k;

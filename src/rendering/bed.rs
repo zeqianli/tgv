@@ -1,7 +1,6 @@
-use crate::error::TGVError;
-
-use crate::bed::BEDIntervals;
 use crate::{
+    bed::BEDIntervals,
+    error::TGVError,
     rendering::{colors::Palette, intervals::render_simple_intervals},
     states::State,
 };
@@ -14,7 +13,6 @@ pub fn render_bed(
     state: &State,
     pallete: &Palette,
 ) -> Result<(), TGVError> {
-    //panic!("{:?}", bed);
     let intervals = bed.intervals.overlapping(&state.viewing_region())?;
     if !intervals.is_empty() {
         let first_color_index = intervals[0].index % 2;

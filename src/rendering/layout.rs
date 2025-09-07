@@ -1,4 +1,3 @@
-use crate::message::StateMessage;
 pub use crate::rendering::colors::Palette;
 pub use crate::rendering::{
     render_alignment, render_bed, render_console, render_coordinates, render_coverage,
@@ -10,7 +9,6 @@ use crate::register::{RegisterType, Registers};
 use crate::repository::Repository;
 use crate::settings::Settings;
 use crate::states::State;
-use crossterm::event;
 use ratatui::{
     buffer::Buffer,
     layout::{Constraint, Direction, Layout, Rect},
