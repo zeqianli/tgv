@@ -39,7 +39,7 @@ impl BEDInterval {
 
     pub fn describe(&self) -> String {
         format!(
-            "{}:{}-{}",
+            "BED interval: {}:{}-{}",
             self.record.reference_sequence_name(),
             self.start,
             self.end
