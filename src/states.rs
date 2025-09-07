@@ -1013,7 +1013,6 @@ impl StateHandler {
                     state.sequence = Some(sequence);
                     loaded_data = true;
                 }
-                //panic!("Sequence success");
             }
 
             DataMessage::RequiresCytobands(contig_index) => {

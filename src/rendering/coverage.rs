@@ -312,7 +312,6 @@ impl Widget for StackedSparkline {
 
                         if accumulator >= cell_height {
                             // render
-                            //panic!("{:?}{:?}{:?}", top_two_indexes, top_two_accumulators, i);
 
                             // Note to maintain the order of these two colors
                             let (fg_height, fg_color, bg_color) =

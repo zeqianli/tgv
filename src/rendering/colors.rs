@@ -105,6 +105,7 @@ impl Palette {
 }
 
 pub const DARK_THEME: Palette = Palette {
+    // FIXME: use standard ATCG colors, same as IGV
     background_1: Color::from_u32(0x1e1e1e),
     background_2: Color::from_u32(0x323232),
 

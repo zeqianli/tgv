@@ -13,7 +13,6 @@ pub fn render_bed(
     state: &State,
     pallete: &Palette,
 ) -> Result<(), TGVError> {
-    //panic!("{:?}", bed);
     let intervals = bed.intervals.overlapping(&state.viewing_region())?;
     if !intervals.is_empty() {
         let first_color_index = intervals[0].index % 2;

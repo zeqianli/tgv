@@ -12,10 +12,6 @@ include = [
     "./README.md"
 ]
 
-exclude = [
-
-]
-
 [dependencies]
 ratatui = "0.28.0"
 crossterm = "0.28.1"
