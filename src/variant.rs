@@ -34,10 +34,10 @@ impl Variant {
             .get();
 
         Ok(Self {
-            contig_index: contig_index,
-            start: start,
-            index: index,
-            record: record,
+            contig_index,
+            start,
+            index,
+            record,
         })
     }
 }
