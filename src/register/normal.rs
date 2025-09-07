@@ -1,7 +1,4 @@
-use crate::{
-    error::TGVError, message::StateMessage, register::Register,
-    states::State,
-};
+use crate::{error::TGVError, message::StateMessage, register::Register, states::State};
 use crossterm::event::{KeyCode, KeyEvent};
 
 #[derive(Clone)]

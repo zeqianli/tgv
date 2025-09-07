@@ -28,8 +28,8 @@ pub use status_bar::render_status_bar;
 pub use track::render_track;
 pub use variants::render_variants;
 
-use crate::register::DisplayMode;
 use crate::error::TGVError;
+use crate::register::DisplayMode;
 use crate::register::Registers;
 use crate::repository::Repository;
 use crate::states::State;

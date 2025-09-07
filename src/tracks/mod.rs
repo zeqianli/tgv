@@ -10,8 +10,8 @@ use crate::{
     error::TGVError,
     feature::{Gene, SubGeneFeature},
     intervals::GenomeInterval,
-    reference::Reference,
     intervals::Region,
+    reference::Reference,
     track::Track,
 };
 use async_trait::async_trait;
