@@ -47,13 +47,13 @@ pub struct SortedIntervalCollection<T: GenomeInterval> {
     contig_lookup: HashMap<usize, Vec<usize>>,
 }
 
-/// This is now O(N) for overlapping lookup.
-/// The interval tree data structure allows O(log n) lookup. Options:
+/// This is now O(N) for overlapping lookup. There are data structures for faster lookup, but TGV doesn't work with large interval collections.
+/// So O(N) might be ok or even faster.
+/// The interval tree data structure:
 /// - https://github.com/dcjones/coitrees
 /// - https://github.com/sstadick/rust-lapper
 /// - https://crates.io/crates/intervaltree
 /// - https://github.com/rust-bio/rust-bio/blob/master/src/data_structures/interval_tree/avl_interval_tree.rs
-/// But, TGV probably doesn't work with large interval collections, so O(N) might be faster.
 impl<T> SortedIntervalCollection<T>
 where
     T: GenomeInterval,
@@ -136,18 +136,6 @@ impl fmt::Display for Region {
 }
 
 impl Region {
-    pub fn new(contig_index: usize, start: usize, end: usize) -> Result<Self, ()> {
-        if start > end {
-            return Err(());
-        }
-
-        Ok(Self {
-            contig_index,
-            start,
-            end,
-        })
-    }
-
     /// Width of a genome region.
     pub fn width(&self) -> usize {
         self.length()

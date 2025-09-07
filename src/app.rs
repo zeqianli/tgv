@@ -10,20 +10,24 @@ use crate::repository::Repository;
 use crate::settings::Settings;
 use crate::states::{State, StateHandler};
 pub struct App {
-    pub state: State, // Holds all states and data
+    // App states and loaded data
+    pub state: State,
 
     pub settings: Settings,
 
-    pub repository: Repository, // Data CRUD interface
+    // Data CRUD interfaces
+    pub repository: Repository,
 
-    pub registers: Registers, // Controls key event translation to StateMessages. Uses the State pattern.
+    /// Key event parsers and handlers. Translate inputs to commands for the state handler.
+    pub registers: Registers,
 
+    /// Mouse event handler
     pub mouse_register: MouseRegister,
 
+    /// Main render. Uses the state pattern.
     pub rendering_state: RenderingState,
 }
 
-// initialization
 impl App {
     pub async fn new<B: Backend>(
         settings: Settings,
@@ -42,7 +46,6 @@ impl App {
             contig_header,
         )?;
 
-        // Find the initial window
         StateHandler::handle_initial_messages(
             &mut state,
             &repository,
@@ -56,7 +59,6 @@ impl App {
         Ok(Self {
             state,
             settings: settings.clone(),
-            //state_handler: StateHandler::new(&settings).await?,
             repository,
             registers: Registers::new()?,
             mouse_register,
@@ -79,6 +81,7 @@ impl App {
             }
 
             // Render
+            // FIXME: improve rendering performance. Not all sections need to be re-rendered at every loop.
 
             terminal
                 .draw(|frame| {

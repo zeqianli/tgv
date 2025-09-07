@@ -32,7 +32,11 @@ impl GenomeInterval for SubGeneFeature {
     }
 }
 
-/*  UCSC has different formats for track features. I don't fully understand them yet.
+/*
+
+FIXME
+
+UCSC has different formats for track features. I don't fully understand them yet.
 
 The current schema is taken from hg38/hg19 ncbiRefSeqSelected. But for other genomes, there are API responses like this:
 

@@ -1,6 +1,6 @@
 use crate::error::TGVError;
-use crate::message::{AlignmentFilter, AlignmentSort};
 use crate::intervals::Region;
+use crate::message::{AlignmentFilter, AlignmentSort};
 use crate::sequence::Sequence;
 use crate::{
     alignment::{
@@ -219,6 +219,7 @@ impl Alignment {
 }
 
 pub fn sort_alignment(alignment: &mut Alignment, option: AlignmentSort) -> Result<(), TGVError> {
+    // FIXME
     todo!();
 }
 

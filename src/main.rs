@@ -139,6 +139,10 @@ mod tests {
         Some("-r chr22:33121120 --no-reference --offline")
     )]
     #[case(
+        Some("ncbi.sorted.bam"),
+        Some("-r chr22:33121120 -v tests/data/simple.vcf -b tests/data/simple.bed --no-reference --offline")
+    )]
+    #[case(
         Some("covid.sorted.bam"),
         Some("-g covid --offline --cache-dir tests/data/cache")
     )]
