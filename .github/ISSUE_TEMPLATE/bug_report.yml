@@ -1,4 +1,4 @@
-name: 🐛 Bug Report
+name: Bug Report
 description: Report a bug or unexpected behavior
 title: "[BUG] "
 labels: ["bug", "triage"]
@@ -11,7 +11,7 @@ body:
   - type: checkboxes
     id: contribution
     attributes:
-      label: 🤝 Can you help fix this?
+      label: Can you help fix this?
       description: Let us know if you're able to contribute to the solution
       options:
         - label: I can help implement the fix
@@ -21,7 +21,7 @@ body:
   - type: textarea
     id: bug-description
     attributes:
-      label: 🐛 Bug Description
+      label: Bug Description
       description: A clear and concise description of what the bug is
       placeholder: "When I do X, Y happens instead of Z..."
     validations:
@@ -30,7 +30,7 @@ body:
   - type: textarea
     id: reproduction-steps
     attributes:
-      label: 🔄 Steps to Reproduce
+      label: Steps to Reproduce
       description: Detailed steps to reproduce the behavior
       placeholder: |
         1. Go to '...'
@@ -43,7 +43,7 @@ body:
   - type: textarea
     id: expected-behavior
     attributes:
-      label: ✅ Expected Behavior
+      label: Expected Behavior
       description: What should have happened instead?
       placeholder: "I expected..."
     validations:
@@ -52,7 +52,7 @@ body:
   - type: textarea
     id: actual-behavior
     attributes:
-      label: ❌ Actual Behavior
+      label: Actual Behavior
       description: What actually happened?
       placeholder: "Instead, what happened was..."
     validations:
@@ -61,14 +61,14 @@ body:
   - type: textarea
     id: screenshots
     attributes:
-      label: 📸 Screenshots/Videos
+      label: Screenshots/Videos
       description: If applicable, add screenshots or videos to help explain the problem
       placeholder: "Drag and drop images/videos here or paste URLs"
 
   - type: textarea
     id: environment
     attributes:
-      label: 🔧 Environment
+      label: Environment
       description: Please complete the following information
       placeholder: |
         - OS: [e.g. Windows 11, macOS 13, Ubuntu 22.04]
@@ -82,6 +82,6 @@ body:
   - type: textarea
     id: additional-context
     attributes:
-      label: 📝 Additional Context
+      label: Additional Context
       description: Add any other context about the problem here
       placeholder: "This might be related to..."
