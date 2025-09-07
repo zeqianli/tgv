@@ -2028,6 +2028,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "110e4a86fc1551a6480a47c7ff52176dc314b3f20355550bd542f05bce65ead2"
 dependencies = [
  "noodles-bed",
+ "noodles-vcf",
 ]
 
 [[package]]
@@ -2091,6 +2092,21 @@ dependencies = [
  "noodles-bgzf",
  "noodles-core",
  "noodles-csi",
+]
+
+[[package]]
+name = "noodles-vcf"
+version = "0.79.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "66a25338ccdeafd3b96071b7b11c3ad03b6a735eaacab6589f62879203a59dc9"
+dependencies = [
+ "indexmap",
+ "memchr",
+ "noodles-bgzf",
+ "noodles-core",
+ "noodles-csi",
+ "noodles-tabix",
+ "percent-encoding",
 ]
 
 [[package]]
@@ -3434,6 +3450,7 @@ dependencies = [
  "itertools 0.14.0",
  "nom 8.0.0",
  "noodles",
+ "noodles-vcf",
  "ratatui",
  "reqwest",
  "rstest",

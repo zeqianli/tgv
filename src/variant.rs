@@ -1,37 +1,41 @@
 use crate::contig_header::ContigHeader;
 use crate::error::TGVError;
 use crate::intervals::{GenomeInterval, SortedIntervalCollection};
-use rust_htslib::bcf::{Read, Reader, Record};
+use noodles_vcf as vcf;
 use std::collections::{BTreeMap, HashMap};
 pub struct Variant {
     /// Contig id name. This is not stored in the record.
     pub contig_index: usize,
 
+    /// Variant start. 1-based, inclusive.
+    start: usize,
+
+    /// Index in the VCF file
     pub index: usize,
 
     /// VCF record
-    pub record: Record,
+    pub record: vcf::Record,
 }
 
 impl Variant {
     pub fn new(
-        record: Record,
+        record: vcf::Record,
         index: usize,
         contig_header: &ContigHeader,
     ) -> Result<Self, TGVError> {
-        let contig_u8 = record
-            .header()
-            .rid2name(record.rid().ok_or(TGVError::ValueError(
-                "VCF record {:?} doesn't have a valid contig.".to_string(),
-            ))?)?;
-        let contig_index =
-            contig_header.get_index_by_str(std::str::from_utf8(contig_u8).map_err(|_| {
-                TGVError::ValueError("VCF record {:?} doesn't have a valid contig.".to_string())
-            })?)?;
+        let contig_str = record.reference_sequence_name();
+        let contig_index = contig_header.get_index_by_str(contig_str)?;
+
+        let start = record
+            .variant_start()
+            .ok_or(TGVError::ValueError("VCF record parsing error".to_string()))??
+            .get();
+
         Ok(Self {
-            index,
-            contig_index,
-            record,
+            contig_index: contig_index,
+            start: start,
+            index: index,
+            record: record,
         })
     }
 }
@@ -42,13 +46,11 @@ impl GenomeInterval for Variant {
     }
 
     fn start(&self) -> usize {
-        // rust_htslib record is 0-based
-        self.record.pos() as usize + 1
+        self.start
     }
 
     fn end(&self) -> usize {
-        // rust_htslib record end is 0-based
-        self.record.end() as usize + 1 // 1-based
+        self.start + self.record.reference_bases().len() - 1
     }
 }
 pub struct VariantRepository {
@@ -57,14 +59,14 @@ pub struct VariantRepository {
 
 impl VariantRepository {
     pub fn from_vcf(path: &str, contig_header: &ContigHeader) -> Result<Self, TGVError> {
-        let mut bcf = Reader::from_path(path)?;
+        let mut vcf = vcf::io::reader::Builder::default().build_from_path(path)?;
+        vcf.read_header()?;
 
-        let variants: Result<Vec<Variant>, _> = bcf
+        let variants: Vec<Variant> = vcf
             .records()
             .enumerate()
             .map(|(index, record)| Variant::new(record?, index, contig_header))
-            .collect();
-        let variants = variants?;
+            .collect::<Result<Vec<Variant>, _>>()?;
 
         // lookup
 
