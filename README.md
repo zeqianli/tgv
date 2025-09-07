@@ -2,7 +2,7 @@
 
 [![Discord Badge]][Discord Server] [![Crates version]](https://crates.io/crates/tgv) ![Conda Version](https://img.shields.io/conda/v/bioconda/tgv)
 
-<https://github.com/user-attachments/assets/4d5e38ee-d62e-4859-a790-96436d5fde6a>
+<https://github.com/user-attachments/assets/d811a987-cac2-4c01-b21e-d38efe7789f6>
 
 
 [**Installation**](https://github.com/zeqianli/tgv/wiki/Installation)
