@@ -31,7 +31,6 @@ body:
     id: reproduction-steps
     attributes:
       label: Steps to Reproduce
-      placeholder: |
     validations:
       required: true
 

@@ -19,39 +19,14 @@ body:
     attributes:
       label: Feature Summary
       description: A clear and concise description of the feature you'd like to see
-      placeholder: "I would like to..."
     validations:
       required: true
 
   - type: textarea
-    id: user-interaction
-    attributes:
-      label: User Interaction Design
-      description: How should users interact with this feature?
-      placeholder: |
-        Describe the user experience:
-        - Key bindings (e.g., Ctrl+N for new item)
-        - Mouse interactions (click, drag, hover)
-        - UI elements (buttons, menus, panels)
-        - Workflow steps
-        - Visual feedback
-    validations:
-      required: false
-
-  - type: textarea
     id: visual-design
     attributes:
-      label: How should this feature look?
+      label: How should this feature look and interact with the user?
       description:  You can use https://monodraw.helftone.com/ or https://asciiflow.com/ to make mockups.
-      placeholder: |
-        Describe the visual aspects:
-        - Layout and positioning
-        - UI components needed
-        - Color schemes or themes
-        - Icons or graphics
-        - Animations or transitions
-        
-        Feel free to attach images, sketches, or reference examples!
 
   - type: textarea
     id: additional-context
