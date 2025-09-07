@@ -1,7 +1,7 @@
 use crate::{
     contig_header::ContigHeader,
     error::TGVError,
-    intervals::{GenomeInterval, SortedIntervalCollection},
+    intervals::{GenomeInterval, Region, SortedIntervalCollection},
 };
 use noodles::bed::{self};
 
@@ -35,6 +35,15 @@ impl BEDInterval {
             },
             record,
         })
+    }
+
+    pub fn describe(&self) -> String {
+        format!(
+            "{}:{}-{}",
+            self.record.reference_sequence_name(),
+            self.start,
+            self.end
+        )
     }
 }
 
@@ -73,5 +82,9 @@ impl BEDIntervals {
         Ok(Self {
             intervals: SortedIntervalCollection::new(records)?,
         })
+    }
+
+    pub fn overlapping(&self, region: &Region) -> Result<Vec<&BEDInterval>, TGVError> {
+        self.intervals.overlapping(region)
     }
 }

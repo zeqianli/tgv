@@ -1,7 +1,9 @@
 use crate::contig_header::ContigHeader;
 use crate::error::TGVError;
-use crate::intervals::{GenomeInterval, SortedIntervalCollection};
+use crate::intervals::{GenomeInterval, Region, SortedIntervalCollection};
+use itertools::Itertools;
 use noodles_vcf as vcf;
+use noodles_vcf::variant::record::{AlternateBases, Filters};
 use std::collections::{BTreeMap, HashMap};
 pub struct Variant {
     /// Contig id name. This is not stored in the record.
@@ -40,6 +42,33 @@ impl Variant {
     }
 }
 
+impl Variant {
+    pub fn describe(&self) -> String {
+        // FIXME: display more fields.
+        // Note that other fields (filter, info, sample) requires the VCF header.
+        format!(
+            "{}:{} {}>{} QUAL={}",
+            self.record.reference_sequence_name(),
+            self.start,
+            self.record.reference_bases(),
+            self.record
+                .alternate_bases()
+                .iter()
+                .collect::<Result<Vec<&str>, _>>()
+                .unwrap_or(vec!["?"; 1])
+                .iter()
+                .join(","),
+            self.record
+                .quality_score()
+                .map(|score_result| match score_result {
+                    Ok(score) => format!("{}", score),
+                    _ => "?".to_string(),
+                })
+                .unwrap_or("?".to_string()),
+        )
+    }
+}
+
 impl GenomeInterval for Variant {
     fn contig_index(&self) -> usize {
         self.contig_index
@@ -55,6 +84,7 @@ impl GenomeInterval for Variant {
 }
 pub struct VariantRepository {
     pub variants: SortedIntervalCollection<Variant>,
+    // FIXME: save VCF header. This is needed for retrieving VCF FILTER, INFO, SAMPLE fields.
 }
 
 impl VariantRepository {
@@ -86,5 +116,9 @@ impl VariantRepository {
         Ok(VariantRepository {
             variants: SortedIntervalCollection::new(variants)?,
         })
+    }
+
+    pub fn overlapping(&self, region: &Region) -> Result<Vec<&Variant>, TGVError> {
+        self.variants.overlapping(region)
     }
 }

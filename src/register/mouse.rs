@@ -1,7 +1,9 @@
-use crate::alignment::{BaseCoverage};
+use crate::alignment::BaseCoverage;
 use crate::error::TGVError;
+use crate::intervals::Region;
 use crate::message::StateMessage;
 use crate::rendering::layout::{AreaType, LayoutNode};
+use crate::repository::Repository;
 use crate::states::State;
 use crossterm::event;
 use itertools::Itertools;
@@ -36,6 +38,7 @@ impl MouseRegister {
     pub fn handle_mouse_event(
         &mut self,
         state: &State,
+        repository: &Repository,
         event: event::MouseEvent,
     ) -> Result<Vec<StateMessage>, TGVError> {
         let mut messages = Vec::new();
@@ -168,6 +171,45 @@ impl MouseRegister {
                                     };
 
                                     messages.push(StateMessage::Message(message))
+                                }
+                            }
+                        }
+                        AreaType::Variant => {
+                            if let Some((left_coordinate, right_coordinate)) =
+                                &state.window.coordinates_of_onscreen_x(event.column, area)
+                            {
+                                if let Some(variants) = repository.variant_repository.as_ref() {
+                                    let region = Region {
+                                        contig_index: state.contig_index(),
+                                        start: *left_coordinate,
+                                        end: *right_coordinate,
+                                    };
+                                    variants.overlapping(&region)?.into_iter().for_each(
+                                        |variant| {
+                                            messages.push(StateMessage::Message(variant.describe()))
+                                        },
+                                    );
+                                }
+                            }
+                        }
+
+                        AreaType::Bed => {
+                            if let Some((left_coordinate, right_coordinate)) =
+                                &state.window.coordinates_of_onscreen_x(event.column, area)
+                            {
+                                if let Some(bed_intervals) = repository.bed_intervals.as_ref() {
+                                    let region = Region {
+                                        contig_index: state.contig_index(),
+                                        start: *left_coordinate,
+                                        end: *right_coordinate,
+                                    };
+                                    bed_intervals.overlapping(&region)?.into_iter().for_each(
+                                        |bed_interval| {
+                                            messages.push(StateMessage::Message(
+                                                bed_interval.describe(),
+                                            ))
+                                        },
+                                    );
                                 }
                             }
                         }

@@ -114,9 +114,11 @@ impl App {
                 }
 
                 Ok(Event::Mouse(mouse_event)) => {
-                    let state_messages = self
-                        .mouse_register
-                        .handle_mouse_event(&self.state, mouse_event)?;
+                    let state_messages = self.mouse_register.handle_mouse_event(
+                        &self.state,
+                        &self.repository,
+                        mouse_event,
+                    )?;
 
                     StateHandler::handle(
                         &mut self.state,
