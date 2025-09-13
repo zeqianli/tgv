@@ -12,6 +12,7 @@ pub struct Palette {
     pub MATCH_COLOR: Color,
     pub MISMATCH_COLOR: Color,
     pub DELETION_COLOR: Color,
+    pub PAIRGAP_COLOR: Color,
     pub REFSKIP_COLOR: Color,
     pub INSERTION_COLOR: Color,
     pub SOFTCLIP_A: Color,
@@ -113,6 +114,7 @@ pub const DARK_THEME: Palette = Palette {
     MATCH_COLOR: tailwind::GRAY.c500,
     MISMATCH_COLOR: Color::Rgb(251, 198, 207),
     DELETION_COLOR: Color::Red,
+    PAIRGAP_COLOR: Color::LightRed,
     REFSKIP_COLOR: Color::Red,
     INSERTION_COLOR: Color::Magenta,
 

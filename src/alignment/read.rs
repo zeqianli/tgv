@@ -6,7 +6,6 @@ use itertools::Itertools;
 use rust_htslib::bam::ext::BamRecordExtensions;
 use rust_htslib::bam::record::{Cigar, CigarStringView};
 use rust_htslib::bam::{record::Seq, Read, Record};
-use std::cmp::Ordering;
 use std::collections::HashMap;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -23,9 +22,6 @@ pub enum RenderingContextModifier {
     /// Mismatch at location with base
     Mismatch(usize, u8),
 
-    /// Pair overlaps and have matching RenderingContextKind
-    PairOverlap,
-
     /// Pair overlaps and have differnet RenderingContextKind
     /// (except Softclip + Match: softclip is displayed in this case (same as IGV))
     PairConflict(usize),
@@ -40,6 +36,9 @@ pub enum RenderingContextKind {
 
     /// Gap between a read pair
     PairGap,
+
+    /// Overlaps of a read pair
+    PairOverlap,
 }
 /// Information on how to display the read on screen. Each context represent a segment on screen.
 /// Parsed from the cigar string.
@@ -106,11 +105,11 @@ pub struct ReadPair {
     /// if none: Read not shown as paired
     pub read_2_index: Option<usize>,
 
-    /// 1-based start
-    pub start: usize,
+    /// 1-based start (including soft-clips)
+    pub stacking_start: usize,
 
-    /// 1-based end
-    pub end: usize,
+    /// 1-based end (including soft-clips)
+    pub stacking_end: usize,
 
     /// Index in the alignment
     pub index: usize,

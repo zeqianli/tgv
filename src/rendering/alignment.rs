@@ -114,6 +114,13 @@ fn get_read_rendering_info(
             string: String::from_utf8(vec![base])?,
             style: Style::default().bg(pallete.softclip_color(base)),
         }),
+
+        RenderingContextKind::PairGap => output.push(OnScreenRenderingContext {
+            x: onscreen_x,
+            y: onscreen_y,
+            string: "-".repeat(length as usize),
+            style: Style::new().bg(*background_color).fg(pallete.PAIRGAP_COLOR),
+        }),
     }
 
     // Modifers
@@ -169,6 +176,8 @@ fn get_read_rendering_info(
                     })
                 }
             }
+
+            RenderingContextModifier::PairConflict(coordinate) => {}
         }
     }
 
