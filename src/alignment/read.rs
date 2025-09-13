@@ -24,7 +24,7 @@ pub enum RenderingContextModifier {
     Mismatch(usize, u8),
 
     /// Pair overlaps and have matching RenderingContextKind
-    Pair,
+    PairOverlap,
 
     /// Pair overlaps and have differnet RenderingContextKind
     /// (except Softclip + Match: softclip is displayed in this case (same as IGV))
@@ -97,6 +97,28 @@ pub struct AlignedRead {
     pub rendering_contexts: Vec<RenderingContext>,
 }
 
+#[derive(Clone, Debug)]
+pub struct ReadPair {
+    /// Read 1 index in the alignment
+    pub read_1_index: usize,
+
+    /// If some: Read 2 index in the alignment
+    /// if none: Read not shown as paired
+    pub read_2_index: Option<usize>,
+
+    /// 1-based start
+    pub start: usize,
+
+    /// 1-based end
+    pub end: usize,
+
+    /// Index in the alignment
+    pub index: usize,
+
+    /// The paired rendering contexts
+    pub rendering_contexts: Vec<RenderingContext>,
+}
+
 impl AlignedRead {
     /// Return an 1-based range iterator that includes all bases of the alignment.
     pub fn range(&self) -> impl Iterator<Item = usize> {
@@ -164,6 +186,11 @@ impl AlignedRead {
     /// Whether the alignment segment (including softclips) covers a x_coordinate (1-based).
     pub fn full_read_overlaps(&self, x_left_coordinate: usize, x_right_coordinate: usize) -> bool {
         self.stacking_start() <= x_right_coordinate && self.stacking_end() >= x_left_coordinate
+    }
+
+    /// Whether show together with the mate in paired view
+    pub fn show_as_pair(&self) -> bool {
+        self.read.is_paired() && !self.read.is_supplementary() && !self.read.is_secondary()
     }
 
     /// Return the base at coordinate.
@@ -559,19 +586,19 @@ pub fn calculate_rendering_contexts(
 }
 
 /// Read 1 is the forward read, read 2 is the reverse read
-fn calculate_paired_context(
+pub fn calculate_paired_context(
     rendering_contexts_1: Vec<RenderingContext>,
     rendering_contexts_2: Vec<RenderingContext>,
-) -> Result<Vec<RenderingContext>, TGVError> {
+) -> Vec<RenderingContext> {
     match (
         rendering_contexts_1.is_empty(),
         rendering_contexts_2.is_empty(),
     ) {
         (true, _) => {
-            return Ok(rendering_contexts_2);
+            return rendering_contexts_2;
         }
         (false, true) => {
-            return Ok(rendering_contexts_1);
+            return rendering_contexts_1;
         }
         _ => {}
     };
@@ -593,18 +620,18 @@ fn calculate_paired_context(
             kind: RenderingContextKind::PairGap,
             modifiers: vec![],
         };
-        return Ok(rendering_contexts_1
+        return rendering_contexts_1
             .into_iter()
             .chain(vec![gap_context].into_iter())
             .chain(rendering_contexts_2.into_iter())
-            .collect::<Vec<_>>());
+            .collect::<Vec<_>>();
     }
 
     if rendering_end_1 + 1 == rendering_start_2 {
-        return Ok(rendering_contexts_1
+        return rendering_contexts_1
             .into_iter()
             .chain(rendering_contexts_2.into_iter())
-            .collect::<Vec<_>>());
+            .collect::<Vec<_>>();
     }
     if rendering_end_2 + 1 < rendering_start_1 {
         let gap_context = RenderingContext {
@@ -613,17 +640,17 @@ fn calculate_paired_context(
             kind: RenderingContextKind::PairGap,
             modifiers: vec![],
         };
-        return Ok(rendering_contexts_2
+        return rendering_contexts_2
             .into_iter()
             .chain(vec![gap_context].into_iter())
             .chain(rendering_contexts_1.into_iter())
-            .collect::<Vec<_>>());
+            .collect::<Vec<_>>();
     }
     if rendering_end_2 + 1 == rendering_start_1 {
-        return Ok(rendering_contexts_2
+        return rendering_contexts_2
             .into_iter()
             .chain(rendering_contexts_1.into_iter())
-            .collect::<Vec<_>>());
+            .collect::<Vec<_>>();
     }
 
     // Overlaps
@@ -748,7 +775,7 @@ fn calculate_paired_context(
         }
     }
 
-    Ok(contexts)
+    contexts
 }
 
 fn get_overlapped_pair_rendering_text(
@@ -772,7 +799,7 @@ fn get_overlapped_pair_rendering_text(
     }
 
     let mut base_modifier_lookup = HashMap::<usize, RenderingContextModifier>::new();
-    let mut modifiers = Vec::new();
+    let mut modifiers = vec![RenderingContextModifier::PairOverlap];
 
     modifiers_1.into_iter().for_each(|modifier| match modifier {
         RenderingContextModifier::Mismatch(pos, _) | RenderingContextModifier::Insertion(pos) => {

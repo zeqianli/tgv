@@ -91,6 +91,8 @@ pub enum AlignmentDisplayOption {
 
     #[strum(to_string = "Sort: {0}")]
     Sort(AlignmentSort),
+
+    ViewAsPairs,
 }
 
 #[derive(Debug, Clone, Eq, PartialEq, Display)]

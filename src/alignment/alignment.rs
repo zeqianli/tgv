@@ -5,7 +5,7 @@ use crate::sequence::Sequence;
 use crate::{
     alignment::{
         coverage::{calculate_basewise_coverage, BaseCoverage, DEFAULT_COVERAGE},
-        read::AlignedRead,
+        read::{calculate_paired_context, AlignedRead, ReadPair},
     },
     message::AlignmentDisplayOption,
 };
@@ -39,6 +39,11 @@ pub struct Alignment {
 
     /// Default ys
     default_ys: Vec<usize>,
+
+    /// read index -> mate read index (if present)
+    pub mate_map: Option<Vec<usize>>,
+
+    pub read_pairs: Option<Vec<ReadPair>>,
 }
 
 impl Alignment {
@@ -120,6 +125,8 @@ impl Alignment {
             default_ys: ys,
             show_read: show_reads,
             ys_index: Vec::new(),
+            mate_map: None,
+            read_pairs: None,
         };
         alignment
             .build_y_index()?
@@ -144,6 +151,57 @@ impl Alignment {
         Ok(self)
     }
 
+    /// Build mate index
+    pub fn build_mate_index(&mut self) -> Result<&mut Self, TGVError> {
+        self.mate_map = Some(calculate_mate_map(&self.reads)?);
+        Ok(self)
+    }
+
+    pub fn build_mate_rendering_contexts(&mut self) -> Result<&mut Self, TGVError> {
+        if self.mate_map.is_none() {
+            return Ok(self);
+        }
+
+        let mate_map = self.mate_map.as_ref().unwrap();
+        let MATE_NOT_FOUND_FLAG = mate_map.len();
+
+        let mut read_pairs = Vec::new();
+
+        let mut read_index_is_built = vec![false; self.reads.len()];
+
+        // FIXME
+        // Now, all these scenrios display a read alone with the same color:
+        // - Not paired
+        // - Paired but the mate is not loaded
+        // - Supplementary alignment
+        // - Secondary alignment
+        // Introduce some option (e.g. coloring) to seprate these scenarios.
+
+        for (i, read) in self.reads.iter().enumerate() {
+            if read_index_is_built[i] {
+                continue;
+            }
+            if read.show_as_pair() {
+                let mate_index = mate_map[i];
+                if mate_index == MATE_NOT_FOUND_FLAG {
+                    read_pairs.push(self.make_read_pair(read_pairs.len(), i, None));
+                    read_index_is_built[i] = true;
+                } else {
+                    read_pairs.push(self.make_read_pair(read_pairs.len(), i, Some(mate_index)));
+                    read_index_is_built[i] = true;
+                    read_index_is_built[mate_index] = true;
+                }
+            } else {
+                read_pairs.push(self.make_read_pair(read_pairs.len(), i, None));
+                read_index_is_built[i] = true;
+            };
+        }
+
+        self.read_pairs = Some(read_pairs);
+
+        Ok(self)
+    }
+
     pub fn apply_options(
         &mut self,
         options: &Vec<AlignmentDisplayOption>,
@@ -164,6 +222,46 @@ impl Alignment {
         self.show_read = vec![true; self.reads.len()];
 
         self.build_y_index()?.build_coverage(reference_sequence)
+    }
+
+    pub fn make_read_pair(
+        &self,
+        pair_index: usize,
+        read_index_1: usize,
+        read_index_2: Option<usize>,
+    ) -> ReadPair {
+        match read_index_2 {
+            Some(read_index_2) => {
+                let (read_1, read_2) = (&self.reads[read_index_1], &self.reads[read_index_2]);
+
+                let start = usize::min(read_1.start, read_2.start);
+                let end = usize::min(read_1.end, read_2.end);
+                let rendering_contexts = calculate_paired_context(
+                    read_1.rendering_contexts.clone(),
+                    read_2.rendering_contexts.clone(),
+                );
+
+                ReadPair {
+                    read_1_index: read_index_1,
+                    read_2_index: Some(read_index_2),
+                    start: start,
+                    end: end,
+                    index: pair_index,
+                    rendering_contexts: rendering_contexts,
+                }
+            }
+            None => {
+                let read = &self.reads[read_index_1];
+                ReadPair {
+                    read_1_index: read_index_1,
+                    read_2_index: None,
+                    start: read.start,
+                    end: read.end,
+                    index: pair_index,
+                    rendering_contexts: read.rendering_contexts.clone(),
+                }
+            }
+        }
     }
 
     pub fn build_coverage(
@@ -221,6 +319,29 @@ impl Alignment {
 pub fn sort_alignment(alignment: &mut Alignment, option: AlignmentSort) -> Result<(), TGVError> {
     // FIXME
     todo!();
+}
+
+fn calculate_mate_map(reads: &Vec<AlignedRead>) -> Result<Vec<usize>, TGVError> {
+    let mut read_id_map = HashMap::<Vec<u8>, usize>::new();
+
+    let mut output = vec![reads.len(); reads.len()];
+
+    for (i, read) in reads.iter().enumerate() {
+        if read.show_as_pair() {
+            let read_name = read.read.qname().to_vec();
+            match read_id_map.remove(&read_name) {
+                Some(mate_index) => {
+                    output[i] = mate_index;
+                    output[mate_index] = i;
+                }
+                _ => {
+                    read_id_map.insert(read_name, i);
+                }
+            }
+        }
+    }
+
+    Ok(output)
 }
 
 const MIN_HORIZONTAL_GAP_BETWEEN_READS: usize = 3;
