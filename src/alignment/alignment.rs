@@ -217,8 +217,7 @@ impl Alignment {
         reference_sequence: Option<&Sequence>,
     ) -> Result<&mut Self, TGVError> {
         options
-            .iter()
-            .map(|option| match option {
+            .iter().try_for_each(|option| match option {
                 AlignmentDisplayOption::Filter(filter) => {
                     self.filter(filter, reference_sequence).map(|_| ())
                 }
@@ -227,8 +226,7 @@ impl Alignment {
                     Ok(())
                 }
                 AlignmentDisplayOption::ViewAsPairs => view_as_pairs(self),
-            })
-            .collect::<Result<(), TGVError>>()?;
+            })?;
 
         Ok(self)
     }
@@ -261,10 +259,10 @@ impl Alignment {
                 ReadPair {
                     read_1_index: read_index_1,
                     read_2_index: Some(read_index_2),
-                    stacking_start: stacking_start,
-                    stacking_end: stacking_end,
+                    stacking_start,
+                    stacking_end,
                     index: pair_index,
-                    rendering_contexts: rendering_contexts,
+                    rendering_contexts,
                 }
             }
             None => {

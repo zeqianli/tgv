@@ -181,7 +181,7 @@ fn restore_default_options(input: &str) -> IResult<&str, bool> {
 
 fn view_as_pair(input: &str) -> IResult<&str, bool> {
     let (input, parsed) =
-        delimited(multispace0, (tag_no_case("paired")), multispace0).parse(input)?;
+        delimited(multispace0, tag_no_case("paired"), multispace0).parse(input)?;
 
     Ok((input, (input.is_empty() && !parsed.is_empty())))
 }

@@ -1,8 +1,6 @@
 use crate::error::TGVError;
 use crate::message::AlignmentFilter;
-use crate::rendering;
 use crate::sequence::Sequence;
-use itertools::Itertools;
 use rust_htslib::bam::ext::BamRecordExtensions;
 use rust_htslib::bam::record::{Cigar, CigarStringView};
 use rust_htslib::bam::{record::Seq, Read, Record};
@@ -621,15 +619,15 @@ pub fn calculate_paired_context(
         };
         return rendering_contexts_1
             .into_iter()
-            .chain(vec![gap_context].into_iter())
-            .chain(rendering_contexts_2.into_iter())
+            .chain(vec![gap_context])
+            .chain(rendering_contexts_2)
             .collect::<Vec<_>>();
     }
 
     if rendering_end_1 + 1 == rendering_start_2 {
         return rendering_contexts_1
             .into_iter()
-            .chain(rendering_contexts_2.into_iter())
+            .chain(rendering_contexts_2)
             .collect::<Vec<_>>();
     }
     if rendering_end_2 + 1 < rendering_start_1 {
@@ -641,14 +639,14 @@ pub fn calculate_paired_context(
         };
         return rendering_contexts_2
             .into_iter()
-            .chain(vec![gap_context].into_iter())
-            .chain(rendering_contexts_1.into_iter())
+            .chain(vec![gap_context])
+            .chain(rendering_contexts_1)
             .collect::<Vec<_>>();
     }
     if rendering_end_2 + 1 == rendering_start_1 {
         return rendering_contexts_2
             .into_iter()
-            .chain(rendering_contexts_1.into_iter())
+            .chain(rendering_contexts_1)
             .collect::<Vec<_>>();
     }
 
@@ -686,7 +684,7 @@ pub fn calculate_paired_context(
                 // Overlaps: chop up the contexts
 
                 // left overhang
-                let (start, next_start, kind, modifiers) = if (c1.start < c2.start) {
+                let (start, next_start, kind, modifiers) = if c1.start < c2.start {
                     (c1.start, c2.start, &c1.kind, &c1.modifiers)
                 } else {
                     (c2.start, c1.start, &c2.kind, &c2.modifiers)
@@ -695,7 +693,7 @@ pub fn calculate_paired_context(
                 if start < next_start && !left_overhang_resolved {
                     // Should only happens at the first iteration
                     contexts.push(RenderingContext {
-                        start: start,
+                        start,
                         end: next_start - 1,
                         kind: kind.clone(),
                         modifiers: modifiers
@@ -717,7 +715,7 @@ pub fn calculate_paired_context(
 
                 // overlapping region
                 let start = next_start;
-                let end = if (c1.end < c2.end) { c1.end } else { c2.end };
+                let end = if c1.end < c2.end { c1.end } else { c2.end };
 
                 contexts.push(get_overlapped_pair_rendering_text(
                     start,
@@ -730,7 +728,7 @@ pub fn calculate_paired_context(
 
                 // right overhang
                 let previous_end = end;
-                let (end, kind, modifiers) = if (c1.end < c2.end) {
+                let (end, kind, modifiers) = if c1.end < c2.end {
                     (c2.end, &c2.kind, &c2.modifiers)
                 } else {
                     (c1.end, &c1.kind, &c1.modifiers)
@@ -739,7 +737,7 @@ pub fn calculate_paired_context(
                 if previous_end != end {
                     contexts.push(RenderingContext {
                         start: previous_end + 1,
-                        end: end,
+                        end,
                         kind: kind.clone(),
                         modifiers: modifiers
                             .iter()
@@ -760,9 +758,9 @@ pub fn calculate_paired_context(
 
                 left_overhang_resolved = true;
 
-                if (c1.end < c2.end) {
+                if c1.end < c2.end {
                     context_1 = iter1.next();
-                } else if (c1.end > c2.end) {
+                } else if c1.end > c2.end {
                     context_2 = iter2.next();
                 } else {
                     context_1 = iter1.next();
@@ -796,12 +794,11 @@ pub fn get_overlapped_pair_rendering_text(
 ) -> RenderingContext {
     if *kind_1 != *kind_2 {
         return RenderingContext {
-            start: start,
-            end: end,
+            start,
+            end,
             kind: RenderingContextKind::PairOverlap,
             modifiers: (start..=end)
-                .into_iter()
-                .map(|pos| RenderingContextModifier::PairConflict(pos))
+                .map(RenderingContextModifier::PairConflict)
                 .collect::<Vec<_>>(),
         };
     }
@@ -809,14 +806,14 @@ pub fn get_overlapped_pair_rendering_text(
     let mut base_modifier_lookup = HashMap::<usize, RenderingContextModifier>::new();
     let mut modifiers = vec![];
 
-    modifiers_1.into_iter().for_each(|modifier| match modifier {
+    modifiers_1.iter().for_each(|modifier| match modifier {
         RenderingContextModifier::Mismatch(pos, _) | RenderingContextModifier::Insertion(pos) => {
             base_modifier_lookup.insert(*pos, modifier.clone());
         }
         _ => modifiers.push(modifier.clone()),
     });
 
-    modifiers_2.into_iter().for_each(|modifier| match modifier {
+    modifiers_2.iter().for_each(|modifier| match modifier {
         RenderingContextModifier::Mismatch(pos, _) | RenderingContextModifier::Insertion(pos) => {
             match base_modifier_lookup.remove(pos) {
                 Some(other_modifier) => {
@@ -839,10 +836,10 @@ pub fn get_overlapped_pair_rendering_text(
         .for_each(|modifier| modifiers.push(modifier));
 
     RenderingContext {
-        start: start,
-        end: end,
+        start,
+        end,
         kind: kind_1.clone(),
-        modifiers: modifiers,
+        modifiers,
     }
 }
 

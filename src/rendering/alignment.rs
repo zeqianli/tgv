@@ -41,14 +41,12 @@ pub fn render_alignment(
                 .as_ref()
                 .unwrap()
                 .iter()
-                .zip(alignment.show_pairs.as_ref().unwrap().iter())
-                .map(|(read_pair, show_pair)| {
+                .zip(alignment.show_pairs.as_ref().unwrap().iter()).try_for_each(|(read_pair, show_pair)| {
                     if *show_pair {
                         let y = alignment.ys[read_pair.read_1_index];
                         read_pair
                             .rendering_contexts
-                            .iter()
-                            .map(|context| {
+                            .iter().try_for_each(|context| {
                                 render_contexts(
                                     context,
                                     y,
@@ -59,25 +57,20 @@ pub fn render_alignment(
                                     pallete,
                                 )
                             })
-                            .collect::<Result<(), _>>()
                     } else {
                         Ok(())
                     }
-                })
-                .collect::<Result<(), _>>()?;
+                })?;
         } else {
             alignment
                 .ys_index
                 .iter()
-                .enumerate()
-                .map(|(y, read_indexes)| {
+                .enumerate().try_for_each(|(y, read_indexes)| {
                     read_indexes
-                        .iter()
-                        .map(|read_index| {
+                        .iter().try_for_each(|read_index| {
                             alignment.reads[*read_index]
                                 .rendering_contexts
-                                .iter()
-                                .map(|context| {
+                                .iter().try_for_each(|context| {
                                     render_contexts(
                                         context,
                                         y,
@@ -88,11 +81,8 @@ pub fn render_alignment(
                                         pallete,
                                     )
                                 })
-                                .collect::<Result<(), _>>()
                         })
-                        .collect::<Result<(), _>>()
-                })
-                .collect::<Result<(), _>>()?
+                })?
         };
     }
     Ok(())
