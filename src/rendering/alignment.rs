@@ -121,10 +121,18 @@ fn get_read_rendering_info(
             string: "-".repeat(length as usize),
             style: Style::new().bg(*background_color).fg(pallete.PAIRGAP_COLOR),
         }),
+
+        RenderingContextKind::PairOverlap => output.push(OnScreenRenderingContext {
+            x: onscreen_x,
+            y: onscreen_y,
+            string: "-".repeat(length as usize),
+            style: Style::new()
+                .bg(*background_color)
+                .fg(pallete.PAIR_OVERLAP_COLOR),
+        }),
     }
 
     // Modifers
-
     for modifier in context.modifiers.iter() {
         match modifier {
             RenderingContextModifier::Forward => {
@@ -177,7 +185,18 @@ fn get_read_rendering_info(
                 }
             }
 
-            RenderingContextModifier::PairConflict(coordinate) => {}
+            RenderingContextModifier::PairConflict(coordinate) => {
+                if let OnScreenCoordinate::OnScreen(modifier_onscreen_x) =
+                    viewing_window.onscreen_x_coordinate(*coordinate, area)
+                {
+                    output.push(OnScreenRenderingContext {
+                        x: modifier_onscreen_x as u16,
+                        y: onscreen_y,
+                        string: "?".to_string(),
+                        style: output.first().unwrap().style,
+                    })
+                }
+            }
         }
     }
 

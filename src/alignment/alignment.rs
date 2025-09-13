@@ -216,11 +216,19 @@ impl Alignment {
         options: &Vec<AlignmentDisplayOption>,
         reference_sequence: Option<&Sequence>,
     ) -> Result<&mut Self, TGVError> {
-        for option in options {
-            if let AlignmentDisplayOption::Filter(filter) = option {
-                self.filter(filter, reference_sequence)?;
-            }
-        }
+        options
+            .iter()
+            .map(|option| match option {
+                AlignmentDisplayOption::Filter(filter) => {
+                    self.filter(filter, reference_sequence).map(|_| ())
+                }
+                AlignmentDisplayOption::Sort(sort) => {
+                    // TODO
+                    Ok(())
+                }
+                AlignmentDisplayOption::ViewAsPairs => view_as_pairs(self),
+            })
+            .collect::<Result<(), TGVError>>()?;
 
         Ok(self)
     }

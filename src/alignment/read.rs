@@ -36,7 +36,6 @@ pub enum RenderingContextKind {
 
     /// Gap between a read pair
     PairGap,
-
     /// Overlaps of a read pair
     PairOverlap,
 }
@@ -134,6 +133,7 @@ impl AlignedRead {
 
     /// Read details
     pub fn describe(&self) -> Result<String, TGVError> {
+        // FIXME: improve display information
         // Example IGV display:
         // Read name = HISEQ1:29:HA2WPADXX:1:1216:5183:9385
         // Read length = 148bp
@@ -777,7 +777,7 @@ pub fn calculate_paired_context(
     contexts
 }
 
-fn get_overlapped_pair_rendering_text(
+pub fn get_overlapped_pair_rendering_text(
     start: usize,
     end: usize,
     kind_1: &RenderingContextKind,
@@ -789,7 +789,7 @@ fn get_overlapped_pair_rendering_text(
         return RenderingContext {
             start: start,
             end: end,
-            kind: RenderingContextKind::Match,
+            kind: RenderingContextKind::PairOverlap,
             modifiers: (start..=end)
                 .into_iter()
                 .map(|pos| RenderingContextModifier::PairConflict(pos))
@@ -798,7 +798,7 @@ fn get_overlapped_pair_rendering_text(
     }
 
     let mut base_modifier_lookup = HashMap::<usize, RenderingContextModifier>::new();
-    let mut modifiers = vec![RenderingContextModifier::PairOverlap];
+    let mut modifiers = vec![];
 
     modifiers_1.into_iter().for_each(|modifier| match modifier {
         RenderingContextModifier::Mismatch(pos, _) | RenderingContextModifier::Insertion(pos) => {
