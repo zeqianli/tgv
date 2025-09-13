@@ -759,6 +759,15 @@ pub fn calculate_paired_context(
                 }
 
                 left_overhang_resolved = true;
+
+                if (c1.end < c2.end) {
+                    context_1 = iter1.next();
+                } else if (c1.end > c2.end) {
+                    context_2 = iter2.next();
+                } else {
+                    context_1 = iter1.next();
+                    context_2 = iter2.next();
+                }
             }
             (true, false) => {
                 contexts.push(context_1.unwrap());
