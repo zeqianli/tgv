@@ -216,17 +216,16 @@ impl Alignment {
         options: &Vec<AlignmentDisplayOption>,
         reference_sequence: Option<&Sequence>,
     ) -> Result<&mut Self, TGVError> {
-        options
-            .iter().try_for_each(|option| match option {
-                AlignmentDisplayOption::Filter(filter) => {
-                    self.filter(filter, reference_sequence).map(|_| ())
-                }
-                AlignmentDisplayOption::Sort(sort) => {
-                    // TODO
-                    Ok(())
-                }
-                AlignmentDisplayOption::ViewAsPairs => view_as_pairs(self),
-            })?;
+        options.iter().try_for_each(|option| match option {
+            AlignmentDisplayOption::Filter(filter) => {
+                self.filter(filter, reference_sequence).map(|_| ())
+            }
+            AlignmentDisplayOption::Sort(sort) => {
+                // TODO
+                Ok(())
+            }
+            AlignmentDisplayOption::ViewAsPairs => view_as_pairs(self),
+        })?;
 
         Ok(self)
     }
@@ -384,7 +383,6 @@ fn calculate_mate_map(reads: &Vec<AlignedRead>) -> Result<Vec<usize>, TGVError> 
     Ok(output)
 }
 
-const MIN_HORIZONTAL_GAP_BETWEEN_READS: usize = 3;
 fn stack_tracks_for_reads(reads: &Vec<AlignedRead>, show_reads: &Vec<bool>) -> Vec<usize> {
     let mut track_left_bounds: Vec<usize> = Vec::new();
     let mut track_right_bounds: Vec<usize> = Vec::new();
@@ -399,6 +397,7 @@ fn stack_tracks_for_reads(reads: &Vec<AlignedRead>, show_reads: &Vec<bool>) -> V
                     read.stacking_end(),
                     &mut track_left_bounds,
                     &mut track_right_bounds,
+                    3,
                 )
             } else {
                 0
@@ -422,6 +421,7 @@ fn stack_tracks_for_paired_reads(reads: &Vec<ReadPair>, show_reads: &Vec<bool>) 
                     read.stacking_end,
                     &mut track_left_bounds,
                     &mut track_right_bounds,
+                    10, // larger gap to make viewing easier
                 )
             } else {
                 0
@@ -437,9 +437,10 @@ fn find_track(
     end: usize,
     track_left_bounds: &mut Vec<usize>,
     track_right_bounds: &mut Vec<usize>,
+    min_gap: usize,
 ) -> usize {
     for (y, left_bound) in track_left_bounds.iter_mut().enumerate() {
-        if end + MIN_HORIZONTAL_GAP_BETWEEN_READS < *left_bound {
+        if end + min_gap < *left_bound {
             *left_bound = start;
 
             return y;
@@ -447,7 +448,7 @@ fn find_track(
     }
 
     for (y, right_bound) in track_right_bounds.iter_mut().enumerate() {
-        if start > *right_bound + MIN_HORIZONTAL_GAP_BETWEEN_READS {
+        if start > *right_bound + min_gap {
             *right_bound = end;
             return y;
         }

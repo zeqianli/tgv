@@ -1010,9 +1010,9 @@ mod tests {
         end:12,
         kind: RenderingContextKind::Match,
         modifiers:vec![
-            RenderingContextModifier::Mismatch(1, b'A'),
-            RenderingContextModifier::Mismatch(2, b'T'),
-            RenderingContextModifier::Mismatch(3, b'T'),
+            RenderingContextModifier::Mismatch(10, b'A'),
+            RenderingContextModifier::Mismatch(11, b'T'),
+            RenderingContextModifier::Mismatch(12, b'T'),
             RenderingContextModifier::Forward
         ]
     }])]
