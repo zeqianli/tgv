@@ -126,6 +126,12 @@ impl CommandModeRegister {
             return Ok(vec![StateMessage::SetAlignmentChange(vec![])]);
         }
 
+        if let Ok((_, true)) = view_as_pair(&self.input) {
+            return Ok(vec![StateMessage::SetAlignmentChange(vec![
+                AlignmentDisplayOption::ViewAsPairs,
+            ])]);
+        }
+
         if let Ok((remaining, options)) = parse_display_options(&self.input) {
             if remaining.is_empty() {
                 return Ok(vec![StateMessage::SetAlignmentChange(options)]);
@@ -169,6 +175,13 @@ fn restore_default_options(input: &str) -> IResult<&str, bool> {
         multispace0,
     )
     .parse(input)?;
+
+    Ok((input, (input.is_empty() && !parsed.is_empty())))
+}
+
+fn view_as_pair(input: &str) -> IResult<&str, bool> {
+    let (input, parsed) =
+        delimited(multispace0, tag_no_case("paired"), multispace0).parse(input)?;
 
     Ok((input, (input.is_empty() && !parsed.is_empty())))
 }

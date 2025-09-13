@@ -4,6 +4,7 @@ use crate::sequence::Sequence;
 use rust_htslib::bam::ext::BamRecordExtensions;
 use rust_htslib::bam::record::{Cigar, CigarStringView};
 use rust_htslib::bam::{record::Seq, Read, Record};
+use std::collections::HashMap;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum RenderingContextModifier {
@@ -18,6 +19,10 @@ pub enum RenderingContextModifier {
 
     /// Mismatch at location with base
     Mismatch(usize, u8),
+
+    /// Pair overlaps and have differnet RenderingContextKind
+    /// (except Softclip + Match: softclip is displayed in this case (same as IGV))
+    PairConflict(usize),
 }
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum RenderingContextKind {
@@ -26,6 +31,11 @@ pub enum RenderingContextKind {
     Match, // Mismatches are annotated with modifiers
 
     Deletion,
+
+    /// Gap between a read pair
+    PairGap,
+    /// Overlaps of a read pair
+    PairOverlap,
 }
 /// Information on how to display the read on screen. Each context represent a segment on screen.
 /// Parsed from the cigar string.
@@ -47,6 +57,10 @@ pub struct RenderingContext {
 impl RenderingContext {
     fn add_modifier(&mut self, modifier: RenderingContextModifier) {
         self.modifiers.push(modifier)
+    }
+
+    fn len(&self) -> usize {
+        self.end - self.start + 1
     }
 }
 
@@ -79,6 +93,28 @@ pub struct AlignedRead {
     pub rendering_contexts: Vec<RenderingContext>,
 }
 
+#[derive(Clone, Debug)]
+pub struct ReadPair {
+    /// Read 1 index in the alignment
+    pub read_1_index: usize,
+
+    /// If some: Read 2 index in the alignment
+    /// if none: Read not shown as paired
+    pub read_2_index: Option<usize>,
+
+    /// 1-based start (including soft-clips)
+    pub stacking_start: usize,
+
+    /// 1-based end (including soft-clips)
+    pub stacking_end: usize,
+
+    /// Index in the alignment
+    pub index: usize,
+
+    /// The paired rendering contexts
+    pub rendering_contexts: Vec<RenderingContext>,
+}
+
 impl AlignedRead {
     /// Return an 1-based range iterator that includes all bases of the alignment.
     pub fn range(&self) -> impl Iterator<Item = usize> {
@@ -95,6 +131,7 @@ impl AlignedRead {
 
     /// Read details
     pub fn describe(&self) -> Result<String, TGVError> {
+        // FIXME: improve display information
         // Example IGV display:
         // Read name = HISEQ1:29:HA2WPADXX:1:1216:5183:9385
         // Read length = 148bp
@@ -146,6 +183,11 @@ impl AlignedRead {
     /// Whether the alignment segment (including softclips) covers a x_coordinate (1-based).
     pub fn full_read_overlaps(&self, x_left_coordinate: usize, x_right_coordinate: usize) -> bool {
         self.stacking_start() <= x_right_coordinate && self.stacking_end() >= x_left_coordinate
+    }
+
+    /// Whether show together with the mate in paired view
+    pub fn show_as_pair(&self) -> bool {
+        self.read.is_paired() && !self.read.is_supplementary() && !self.read.is_secondary()
     }
 
     /// Return the base at coordinate.
@@ -430,7 +472,12 @@ pub fn calculate_rendering_contexts(
                     kind: RenderingContextKind::Match,
                     modifiers: (query_pivot..next_query_pivot as usize)
                         .map(|coordinate| {
-                            RenderingContextModifier::Mismatch(coordinate, seq[coordinate - 1])
+                            let reference_coordinate = coordinate - query_pivot + reference_pivot;
+
+                            RenderingContextModifier::Mismatch(
+                                reference_coordinate,
+                                seq[coordinate - 1],
+                            )
                         })
                         .collect::<Vec<_>>(),
                 })
@@ -533,6 +580,267 @@ pub fn calculate_rendering_contexts(
     }
 
     Ok(output)
+}
+
+/// Read 1 is the forward read, read 2 is the reverse read
+pub fn calculate_paired_context(
+    rendering_contexts_1: Vec<RenderingContext>,
+    rendering_contexts_2: Vec<RenderingContext>,
+) -> Vec<RenderingContext> {
+    match (
+        rendering_contexts_1.is_empty(),
+        rendering_contexts_2.is_empty(),
+    ) {
+        (true, _) => {
+            return rendering_contexts_2;
+        }
+        (false, true) => {
+            return rendering_contexts_1;
+        }
+        _ => {}
+    };
+
+    let (rendering_start_1, rendering_end_1) = (
+        rendering_contexts_1.first().unwrap().start,
+        rendering_contexts_1.last().unwrap().end,
+    );
+    let (rendering_start_2, rendering_end_2) = (
+        rendering_contexts_2.first().unwrap().start,
+        rendering_contexts_2.last().unwrap().end,
+    );
+
+    // Gaps
+    if rendering_end_1 + 1 < rendering_start_2 {
+        let gap_context = RenderingContext {
+            start: rendering_end_1 + 1,
+            end: rendering_start_2 - 1,
+            kind: RenderingContextKind::PairGap,
+            modifiers: vec![],
+        };
+        return rendering_contexts_1
+            .into_iter()
+            .chain(vec![gap_context])
+            .chain(rendering_contexts_2)
+            .collect::<Vec<_>>();
+    }
+
+    if rendering_end_1 + 1 == rendering_start_2 {
+        return rendering_contexts_1
+            .into_iter()
+            .chain(rendering_contexts_2)
+            .collect::<Vec<_>>();
+    }
+    if rendering_end_2 + 1 < rendering_start_1 {
+        let gap_context = RenderingContext {
+            start: rendering_end_2 + 1,
+            end: rendering_start_1 - 1,
+            kind: RenderingContextKind::PairGap,
+            modifiers: vec![],
+        };
+        return rendering_contexts_2
+            .into_iter()
+            .chain(vec![gap_context])
+            .chain(rendering_contexts_1)
+            .collect::<Vec<_>>();
+    }
+    if rendering_end_2 + 1 == rendering_start_1 {
+        return rendering_contexts_2
+            .into_iter()
+            .chain(rendering_contexts_1)
+            .collect::<Vec<_>>();
+    }
+
+    // Overlaps
+
+    let mut iter1 = rendering_contexts_1.into_iter();
+    let mut iter2 = rendering_contexts_2.into_iter();
+
+    let mut context_1 = iter1.next();
+    let mut context_2 = iter2.next();
+    let mut contexts = Vec::new();
+
+    // Whether or not the next iteration should resolve the left overhang
+    let mut left_overhang_resolved = false;
+
+    loop {
+        match (context_1.is_some(), context_2.is_some()) {
+            (true, true) => {
+                let c1 = context_1.as_ref().unwrap();
+                let c2 = context_2.as_ref().unwrap();
+
+                // No overlaps
+                if c1.end < c2.start {
+                    contexts.push(context_1.unwrap());
+                    context_1 = iter1.next();
+                    continue;
+                }
+
+                if c2.end < c1.start {
+                    contexts.push(context_2.unwrap());
+                    context_2 = iter2.next();
+                    continue;
+                }
+
+                // Overlaps: chop up the contexts
+
+                // left overhang
+                let (start, next_start, kind, modifiers) = if c1.start < c2.start {
+                    (c1.start, c2.start, &c1.kind, &c1.modifiers)
+                } else {
+                    (c2.start, c1.start, &c2.kind, &c2.modifiers)
+                };
+
+                if start < next_start && !left_overhang_resolved {
+                    // Should only happens at the first iteration
+                    contexts.push(RenderingContext {
+                        start,
+                        end: next_start - 1,
+                        kind: kind.clone(),
+                        modifiers: modifiers
+                            .iter()
+                            .filter_map(|modifier| match modifier {
+                                RenderingContextModifier::Mismatch(pos, _)
+                                | RenderingContextModifier::Insertion(pos) => {
+                                    if *pos < next_start {
+                                        Some(modifier.clone())
+                                    } else {
+                                        None
+                                    }
+                                }
+                                _ => Some(modifier.clone()),
+                            })
+                            .collect::<Vec<_>>(),
+                    });
+                }
+
+                // overlapping region
+                let start = next_start;
+                let end = if c1.end < c2.end { c1.end } else { c2.end };
+
+                contexts.push(get_overlapped_pair_rendering_text(
+                    start,
+                    end,
+                    &c1.kind,
+                    &c2.kind,
+                    &c1.modifiers,
+                    &c2.modifiers,
+                ));
+
+                // right overhang
+                let previous_end = end;
+                let (end, kind, modifiers) = if c1.end < c2.end {
+                    (c2.end, &c2.kind, &c2.modifiers)
+                } else {
+                    (c1.end, &c1.kind, &c1.modifiers)
+                };
+
+                if previous_end != end {
+                    contexts.push(RenderingContext {
+                        start: previous_end + 1,
+                        end,
+                        kind: kind.clone(),
+                        modifiers: modifiers
+                            .iter()
+                            .filter_map(|modifier| match modifier {
+                                RenderingContextModifier::Mismatch(pos, _)
+                                | RenderingContextModifier::Insertion(pos) => {
+                                    if *pos > previous_end {
+                                        Some(modifier.clone())
+                                    } else {
+                                        None
+                                    }
+                                }
+                                _ => Some(modifier.clone()),
+                            })
+                            .collect::<Vec<_>>(),
+                    })
+                }
+
+                left_overhang_resolved = true;
+
+                if c1.end < c2.end {
+                    context_1 = iter1.next();
+                } else if c1.end > c2.end {
+                    context_2 = iter2.next();
+                } else {
+                    context_1 = iter1.next();
+                    context_2 = iter2.next();
+                }
+            }
+            (true, false) => {
+                contexts.push(context_1.unwrap());
+                context_1 = iter1.next();
+            }
+            (false, true) => {
+                contexts.push(context_2.unwrap());
+                context_2 = iter2.next();
+            }
+            (false, false) => {
+                break;
+            }
+        }
+    }
+
+    contexts
+}
+
+pub fn get_overlapped_pair_rendering_text(
+    start: usize,
+    end: usize,
+    kind_1: &RenderingContextKind,
+    kind_2: &RenderingContextKind,
+    modifiers_1: &Vec<RenderingContextModifier>,
+    modifiers_2: &Vec<RenderingContextModifier>,
+) -> RenderingContext {
+    if *kind_1 != *kind_2 {
+        return RenderingContext {
+            start,
+            end,
+            kind: RenderingContextKind::PairOverlap,
+            modifiers: (start..=end)
+                .map(RenderingContextModifier::PairConflict)
+                .collect::<Vec<_>>(),
+        };
+    }
+
+    let mut base_modifier_lookup = HashMap::<usize, RenderingContextModifier>::new();
+    let mut modifiers = vec![];
+
+    modifiers_1.iter().for_each(|modifier| match modifier {
+        RenderingContextModifier::Mismatch(pos, _) | RenderingContextModifier::Insertion(pos) => {
+            base_modifier_lookup.insert(*pos, modifier.clone());
+        }
+        _ => modifiers.push(modifier.clone()),
+    });
+
+    modifiers_2.iter().for_each(|modifier| match modifier {
+        RenderingContextModifier::Mismatch(pos, _) | RenderingContextModifier::Insertion(pos) => {
+            match base_modifier_lookup.remove(pos) {
+                Some(other_modifier) => {
+                    if *modifier == other_modifier {
+                        modifiers.push(other_modifier)
+                    } else {
+                        modifiers.push(RenderingContextModifier::PairConflict(*pos))
+                    }
+                }
+                None => {
+                    base_modifier_lookup.insert(*pos, modifier.clone());
+                }
+            }
+        }
+        _ => modifiers.push(modifier.clone()),
+    });
+
+    base_modifier_lookup
+        .into_values()
+        .for_each(|modifier| modifiers.push(modifier));
+
+    RenderingContext {
+        start,
+        end,
+        kind: kind_1.clone(),
+        modifiers,
+    }
 }
 
 pub fn matches_base(base1: u8, base2: u8) -> bool {
@@ -702,9 +1010,9 @@ mod tests {
         end:12,
         kind: RenderingContextKind::Match,
         modifiers:vec![
-            RenderingContextModifier::Mismatch(1, b'A'),
-            RenderingContextModifier::Mismatch(2, b'T'),
-            RenderingContextModifier::Mismatch(3, b'T'),
+            RenderingContextModifier::Mismatch(10, b'A'),
+            RenderingContextModifier::Mismatch(11, b'T'),
+            RenderingContextModifier::Mismatch(12, b'T'),
             RenderingContextModifier::Forward
         ]
     }])]
