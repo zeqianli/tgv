@@ -10,6 +10,8 @@ pub struct Palette {
 
     // Alignment
     pub MATCH_COLOR: Color,
+    pub MATCH_FG_COLOR: Color,
+
     pub MISMATCH_COLOR: Color,
     pub DELETION_COLOR: Color,
     pub PAIRGAP_COLOR: Color,
@@ -113,6 +115,7 @@ pub const DARK_THEME: Palette = Palette {
 
     // Alignment
     MATCH_COLOR: tailwind::GRAY.c500,
+    MATCH_FG_COLOR: tailwind::WHITE,
     MISMATCH_COLOR: Color::Rgb(251, 198, 207),
     DELETION_COLOR: Color::Red,
     PAIRGAP_COLOR: Color::LightRed,

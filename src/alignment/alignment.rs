@@ -29,7 +29,7 @@ pub struct Alignment {
     data_complete_right_bound: usize,
 
     // read index -> y locations
-    ys: Vec<usize>,
+    pub ys: Vec<usize>,
 
     // Whether to display the read
     show_read: Vec<bool>,
@@ -46,7 +46,7 @@ pub struct Alignment {
     pub read_pairs: Option<Vec<ReadPair>>,
 
     /// Whether to show the pair
-    show_pairs: Option<Vec<bool>>,
+    pub show_pairs: Option<Vec<bool>>,
 }
 
 impl Alignment {
@@ -252,7 +252,7 @@ impl Alignment {
                 let (read_1, read_2) = (&self.reads[read_index_1], &self.reads[read_index_2]);
 
                 let stacking_start = usize::min(read_1.stacking_start(), read_2.stacking_start());
-                let stacking_end = usize::min(read_1.stacking_end(), read_2.stacking_end());
+                let stacking_end = usize::max(read_1.stacking_end(), read_2.stacking_end());
                 let rendering_contexts = calculate_paired_context(
                     read_1.rendering_contexts.clone(),
                     read_2.rendering_contexts.clone(),
@@ -345,10 +345,19 @@ pub fn view_as_pairs(alignment: &mut Alignment) -> Result<(), TGVError> {
     alignment.build_mate_rendering_contexts()?;
 
     // build y index
-    alignment.ys = stack_tracks_for_paired_reads(
+    let paired_ys = stack_tracks_for_paired_reads(
         alignment.read_pairs.as_ref().unwrap(),
         alignment.show_pairs.as_ref().unwrap(),
     );
+
+    let mut ys = vec![0; alignment.reads.len()];
+    for (pair, y) in alignment.read_pairs.as_ref().unwrap().iter().zip(paired_ys) {
+        ys[pair.read_1_index] = y;
+        if let Some(read_2_index) = pair.read_2_index {
+            ys[read_2_index] = y;
+        }
+    }
+    alignment.ys = ys;
     alignment.build_y_index()?;
 
     Ok(())

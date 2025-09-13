@@ -1,6 +1,7 @@
 use crate::{
     alignment::{RenderingContext, RenderingContextKind, RenderingContextModifier},
     error::TGVError,
+    message::AlignmentDisplayOption,
     rendering::colors::Palette,
     states::State,
     window::{OnScreenCoordinate, ViewingWindow},
@@ -24,32 +25,101 @@ pub fn render_alignment(
     }
 
     if let Some(alignment) = &state.alignment {
-        for (y, read_indexes) in alignment.ys_index.iter().enumerate() {
-            for read_index in read_indexes {
-                let read = &alignment.reads[*read_index];
+        let display_as_pairs = state
+            .alignment_options
+            .iter()
+            .any(|option| *option == AlignmentDisplayOption::ViewAsPairs);
+        if display_as_pairs && alignment.read_pairs.is_none() {
+            return Err(TGVError::StateError(
+                "Read pairs are not calculated before rendering.".to_string(),
+            ));
+        }
 
-                for context in read.rendering_contexts.iter() {
-                    if let Some(onscreen_contexts) = get_read_rendering_info(
-                        context,
-                        y,
-                        &state.window,
-                        area,
-                        background_color,
-                        pallete,
-                    )? {
-                        for onscreen_context in onscreen_contexts {
-                            buf.set_string(
-                                area.x + onscreen_context.x,
-                                area.y + onscreen_context.y,
-                                onscreen_context.string,
-                                onscreen_context.style,
-                            )
-                        }
+        if display_as_pairs {
+            alignment
+                .read_pairs
+                .as_ref()
+                .unwrap()
+                .iter()
+                .zip(alignment.show_pairs.as_ref().unwrap().iter())
+                .map(|(read_pair, show_pair)| {
+                    if *show_pair {
+                        let y = alignment.ys[read_pair.read_1_index];
+                        read_pair
+                            .rendering_contexts
+                            .iter()
+                            .map(|context| {
+                                render_contexts(
+                                    context,
+                                    y,
+                                    buf,
+                                    state,
+                                    area,
+                                    background_color,
+                                    pallete,
+                                )
+                            })
+                            .collect::<Result<(), _>>()
+                    } else {
+                        Ok(())
                     }
-                }
-            }
+                })
+                .collect::<Result<(), _>>()?;
+        } else {
+            alignment
+                .ys_index
+                .iter()
+                .enumerate()
+                .map(|(y, read_indexes)| {
+                    read_indexes
+                        .iter()
+                        .map(|read_index| {
+                            alignment.reads[*read_index]
+                                .rendering_contexts
+                                .iter()
+                                .map(|context| {
+                                    render_contexts(
+                                        context,
+                                        y,
+                                        buf,
+                                        state,
+                                        area,
+                                        background_color,
+                                        pallete,
+                                    )
+                                })
+                                .collect::<Result<(), _>>()
+                        })
+                        .collect::<Result<(), _>>()
+                })
+                .collect::<Result<(), _>>()?
+        };
+    }
+    Ok(())
+}
+
+fn render_contexts(
+    context: &RenderingContext,
+    y: usize,
+    buf: &mut Buffer,
+    state: &State,
+    area: &Rect,
+    background_color: &Color,
+    pallete: &Palette,
+) -> Result<(), TGVError> {
+    if let Some(onscreen_contexts) =
+        get_read_rendering_info(context, y, &state.window, area, background_color, pallete)?
+    {
+        for onscreen_context in onscreen_contexts {
+            buf.set_string(
+                area.x + onscreen_context.x,
+                area.y + onscreen_context.y,
+                onscreen_context.string,
+                onscreen_context.style,
+            );
         }
     }
+
     Ok(())
 }
 
@@ -96,7 +166,9 @@ fn get_read_rendering_info(
             x: onscreen_x,
             y: onscreen_y,
             string: "-".repeat(length as usize),
-            style: Style::default().bg(pallete.MATCH_COLOR),
+            style: Style::default()
+                .bg(pallete.MATCH_COLOR)
+                .fg(pallete.MATCH_FG_COLOR),
         }),
 
         RenderingContextKind::Deletion => output.push(OnScreenRenderingContext {
