@@ -102,6 +102,7 @@ impl App {
             if self.settings.test_mode {
                 break;
             }
+            self.state.layout.divider_highlighted = false;
 
             // handle events
             match event::read() {

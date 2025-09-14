@@ -246,6 +246,7 @@ impl StateHandler {
         settings: &Settings,
         message: StateMessage,
     ) -> Result<Vec<DataMessage>, TGVError> {
+        state.layout.divider_highlighted = false;
         match message {
             // Swithching modes
             StateMessage::Quit => StateHandler::quit(state)?,
@@ -320,6 +321,8 @@ impl StateHandler {
             StateMessage::SetDisplayMode(display_mode) => {
                 state.display_mode = display_mode;
             }
+
+            StateMessage::Highlight(area_type) => state.layout.divider_highlighted = true,
 
             StateMessage::ResizeTrack {
                 mouse_down_x,

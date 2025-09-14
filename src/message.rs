@@ -1,4 +1,6 @@
-use crate::{intervals::Region, register::DisplayMode, strand::Strand};
+use crate::{
+    intervals::Region, register::DisplayMode, rendering::layout::AreaType, strand::Strand,
+};
 
 use strum::Display;
 
@@ -41,6 +43,7 @@ pub enum StateMessage {
 
     SetDisplayMode(DisplayMode),
 
+    Highlight(AreaType),
     ResizeTrack {
         mouse_down_x: u16,
         mouse_down_y: u16,
