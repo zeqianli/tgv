@@ -1,26 +1,45 @@
 use crate::{
-    contig_header::ContigHeader,
+    contig_header::{Contig, ContigHeader},
     error::TGVError,
     intervals::Region,
     sequence::{Sequence, SequenceCache, SequenceRepository},
 };
 use noodles_core::region::Region as noodlesRegion;
-use noodles_fasta::io::{
-    indexed_reader::{Builder, IndexedReader},
-    BufReader,
+use noodles_fasta::{
+    fai::{Index, Record},
+    io::{
+        indexed_reader::{Builder, IndexedReader},
+        BufReader,
+    },
 };
 use std::str::FromStr;
 
 #[derive(Debug)]
-pub struct IndexedFastaSequenceRepository {}
+pub struct IndexedFastaSequenceRepository {
+    index: Index,
+}
 
 impl IndexedFastaSequenceRepository {
     pub fn new(path: String) -> Result<(Self, SequenceCache), TGVError> {
         let reader = Builder::default().build_from_path(path)?;
+        let index = reader.index().clone();
         return Ok((
-            Self {},
+            Self { index },
             SequenceCache::IndexedFasta(IndexedFastaSequenceCache { reader }),
         ));
+    }
+
+    pub fn query_contigs(&self) -> Vec<Contig> {
+        self.index
+            .as_ref()
+            .iter()
+            .map(|record| {
+                Contig::new(
+                    record.name().to_string().as_ref(),
+                    Some(record.length() as usize),
+                )
+            })
+            .collect::<Vec<Contig>>()
     }
 }
 
@@ -65,6 +84,8 @@ impl SequenceRepository for IndexedFastaSequenceRepository {
         Ok(())
     }
 }
+
+// FIXME: I don't like this repository - cache setup. This is out of mutability concerns. Feels redundant.
 
 pub struct IndexedFastaSequenceCache {
     reader: IndexedReader<BufReader<std::fs::File>>,

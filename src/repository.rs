@@ -1,14 +1,14 @@
 use crate::{
     alignment::{AlignedRead, Alignment},
     bed::BEDIntervals,
-    contig_header::ContigHeader,
+    contig_header::{Contig, ContigHeader},
     error::TGVError,
     helpers::is_url,
     intervals::Region,
     reference::Reference,
     sequence::{
-        Sequence, SequenceCache, SequenceRepositoryEnum, TwoBitSequenceRepository,
-        UCSCApiSequenceRepository,
+        IndexedFastaSequenceRepository, Sequence, SequenceCache, SequenceRepositoryEnum,
+        TwoBitSequenceRepository, UCSCApiSequenceRepository,
     },
     settings::{BackendType, Settings},
     tracks::{
@@ -48,6 +48,15 @@ impl Repository {
             Option<SequenceRepositoryEnum>,
             SequenceCache,
         ) = match settings.reference.as_ref() {
+            Some(Reference::IndexFasta(path)) => {
+                let (sr, sc) = IndexedFastaSequenceRepository::new(path.clone())?;
+
+                sr.query_contigs()
+                    .into_iter()
+                    .try_for_each(|contig| contig_header.update_or_add_contig(contig))?;
+
+                (None, Some(SequenceRepositoryEnum::IndexedFasta(sr)), sc)
+            }
             Some(reference) => {
                 let ts = match (&settings.backend, reference) {
                     (BackendType::Ucsc, Reference::UcscAccession(_)) => {
@@ -76,6 +85,7 @@ impl Repository {
                             Err(e) => return Err(e),
                         }
                     }
+
                     _ => {
                         return Err(TGVError::ValueError(format!(
                             "Unsupported reference: {}",
