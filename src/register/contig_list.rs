@@ -36,3 +36,5 @@ impl Register for ContigListModeRegister {
         }
     }
 }
+
+// FEAT: command mode in listing contig to search reference genome
