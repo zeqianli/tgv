@@ -246,7 +246,6 @@ impl StateHandler {
         settings: &Settings,
         message: StateMessage,
     ) -> Result<Vec<DataMessage>, TGVError> {
-        state.layout.divider_highlighted = false;
         match message {
             // Swithching modes
             StateMessage::Quit => StateHandler::quit(state)?,
