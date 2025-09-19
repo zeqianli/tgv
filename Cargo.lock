@@ -2082,6 +2082,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "noodles-fasta"
+version = "0.54.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "5b181ca5d47c6df72e91fa559ae4920bf521a047a73e6fdab00df2d358e1b3ae"
+dependencies = [
+ "bstr",
+ "bytes",
+ "memchr",
+ "noodles-bgzf",
+ "noodles-core",
+]
+
+[[package]]
 name = "noodles-tabix"
 version = "0.55.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3450,6 +3463,8 @@ dependencies = [
  "itertools 0.14.0",
  "nom 8.0.0",
  "noodles",
+ "noodles-core",
+ "noodles-fasta",
  "noodles-vcf",
  "ratatui",
  "reqwest",

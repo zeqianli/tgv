@@ -1,4 +1,4 @@
-mod fa;
+mod fasta;
 mod twobit;
 mod ucsc_api;
 
@@ -6,6 +6,7 @@ use crate::contig_header::ContigHeader;
 use crate::error::TGVError;
 use crate::intervals::Region;
 pub use crate::sequence::{
+    fasta::{IndexedFastaSequenceCache, IndexedFastaSequenceRepository},
     twobit::{TwoBitSequenceCache, TwoBitSequenceRepository},
     ucsc_api::{UCSCApiSequenceRepository, UcscApiSequenceCache},
 };
@@ -93,7 +94,8 @@ impl Sequence {
 pub enum SequenceCache {
     UcscApi(UcscApiSequenceCache),
     TwoBit(TwoBitSequenceCache),
-    Fasta,
+    IndexedFasta(IndexedFastaSequenceCache),
+    NoReference,
 }
 
 pub trait SequenceRepository {

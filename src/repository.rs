@@ -93,12 +93,8 @@ impl Repository {
                     matches!(ts, TrackServiceEnum::Api(_) | TrackServiceEnum::Db(_));
 
                 let (ss, sc) = if use_ucsc_api_sequence {
-                    (
-                        SequenceRepositoryEnum::UCSCApi(UCSCApiSequenceRepository::new(
-                            reference.clone(),
-                        )?),
-                        SequenceCache::new(),
-                    )
+                    let (sr, sc) = UCSCApiSequenceRepository::new(reference.clone())?;
+                    (SequenceRepositoryEnum::UCSCApi(sr), sc)
                 } else {
                     // query the chromInfo table to get the 2bit file path
 
@@ -113,7 +109,7 @@ impl Repository {
                 };
                 (Some(ts), Some(ss), sc)
             }
-            None => (None, None, SequenceCache::new()),
+            None => (None, None, SequenceCache::NoReference),
         };
 
         let alignment_repository = match settings.bam_path {

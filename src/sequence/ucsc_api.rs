@@ -14,11 +14,14 @@ pub struct UCSCApiSequenceRepository {
 }
 
 impl UCSCApiSequenceRepository {
-    pub fn new(reference: Reference) -> Result<Self, TGVError> {
-        Ok(Self {
-            client: Client::new(),
-            reference,
-        })
+    pub fn new(reference: Reference) -> Result<(Self, SequenceCache), TGVError> {
+        Ok((
+            Self {
+                client: Client::new(),
+                reference,
+            },
+            SequenceCache::UcscApi(UcscApiSequenceCache { hub_url: None }),
+        ))
     }
 
     pub async fn close(&self) -> Result<(), TGVError> {
