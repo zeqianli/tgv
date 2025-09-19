@@ -37,12 +37,14 @@ impl UcscDbTrackService {
 
     pub fn get_mysql_url(reference: &Reference, ucsc_host: &UcscHost) -> Result<String, TGVError> {
         match reference {
-            Reference::Hg19 | Reference::Hg38 | Reference::UcscGenome(_) => {
-                Ok(format!("mysql://genome@{}/{}", ucsc_host.url(), reference))
-            }
+            Reference::Hg19 | Reference::Hg38 | Reference::UcscGenome(_) => Ok(format!(
+                "mysql://genome@{}/{}",
+                ucsc_host.url(),
+                reference.to_string()
+            )),
             _ => Err(TGVError::ValueError(format!(
                 "Unsupported reference: {}",
-                reference
+                reference.to_string()
             ))),
         }
     }
@@ -167,11 +169,11 @@ impl TrackService for UcscDbTrackService {
     ) -> Result<Vec<Contig>, TGVError> {
         // Some references have chromAlias table, some don't.
         let contigs: Vec<ContigRow> = sqlx::query_as(
-            "SELECT 
-                chromInfo.chrom as chrom, 
+            "SELECT
+                chromInfo.chrom as chrom,
                 chromInfo.size as size,
                 GROUP_CONCAT(chromAlias.alias SEPARATOR ',') as aliases
-            FROM chromInfo 
+            FROM chromInfo
             LEFT JOIN chromAlias ON chromAlias.chrom = chromInfo.chrom
             WHERE chromInfo.chrom NOT LIKE 'chr%\\_%'
             GROUP BY chromInfo.chrom
@@ -182,10 +184,10 @@ impl TrackService for UcscDbTrackService {
         .await
         .unwrap_or({
             sqlx::query_as(
-                "SELECT 
-                    chromInfo.chrom as chrom, 
+                "SELECT
+                    chromInfo.chrom as chrom,
                     chromInfo.size as size
-                FROM chromInfo 
+                FROM chromInfo
                 WHERE chromInfo.chrom NOT LIKE 'chr%\\_%'
                 ORDER BY chromInfo.chrom",
             )
@@ -275,7 +277,7 @@ impl TrackService for UcscDbTrackService {
         let contig_name = contig_header.get_name(region.contig_index())?;
         let gene_rows: Vec<UcscGeneRow> = sqlx::query_as(
             format!(
-                "SELECT * FROM {} 
+                "SELECT * FROM {}
              WHERE chrom = ? AND (txStart <= ?) AND (txEnd >= ?)",
                 self.get_preferred_track_name_with_cache(reference, cache)
                     .await?
@@ -306,7 +308,7 @@ impl TrackService for UcscDbTrackService {
         let gene_row: Option<UcscGeneRow> = sqlx::query_as(
             format!(
                 "SELECT *
-             FROM {} 
+             FROM {}
              WHERE chrom = ? AND txStart <= ? AND txEnd >= ?",
                 self.get_preferred_track_name_with_cache(reference, cache)
                     .await?,
@@ -332,7 +334,7 @@ impl TrackService for UcscDbTrackService {
         let gene_row: Option<UcscGeneRow> = sqlx::query_as(
             format!(
                 "SELECT *
-            FROM {} 
+            FROM {}
             WHERE name2 = ?",
                 self.get_preferred_track_name_with_cache(reference, cache)
                     .await?
@@ -368,8 +370,8 @@ impl TrackService for UcscDbTrackService {
         let gene_rows: Vec<UcscGeneRow> = sqlx::query_as(
             format!(
                 "SELECT *
-             FROM {} 
-             WHERE chrom = ? AND txEnd >= ? 
+             FROM {}
+             WHERE chrom = ? AND txEnd >= ?
              ORDER BY txEnd ASC LIMIT ?",
                 self.get_preferred_track_name_with_cache(reference, cache)
                     .await?,
@@ -405,8 +407,8 @@ impl TrackService for UcscDbTrackService {
         let gene_rows: Vec<UcscGeneRow> = sqlx::query_as(
             format!(
                 "SELECT *
-             FROM {} 
-             WHERE chrom = ? AND txStart <= ? 
+             FROM {}
+             WHERE chrom = ? AND txStart <= ?
              ORDER BY txStart DESC LIMIT ?",
                 self.get_preferred_track_name_with_cache(reference, cache)
                     .await?,
@@ -442,8 +444,8 @@ impl TrackService for UcscDbTrackService {
         let gene_rows: Vec<UcscGeneRow> = sqlx::query_as(
             format!(
                 "SELECT *
-             FROM {} 
-             WHERE chrom = ? AND txEnd >= ? 
+             FROM {}
+             WHERE chrom = ? AND txEnd >= ?
              ORDER BY txEnd ASC LIMIT ?",
                 self.get_preferred_track_name_with_cache(reference, cache)
                     .await?,
@@ -478,8 +480,8 @@ impl TrackService for UcscDbTrackService {
         let gene_rows: Vec<UcscGeneRow> = sqlx::query_as(
             format!(
                 "SELECT *
-             FROM {} 
-             WHERE chrom = ? AND txStart <= ? 
+             FROM {}
+             WHERE chrom = ? AND txStart <= ?
              ORDER BY txStart DESC LIMIT ?",
                 self.get_preferred_track_name_with_cache(reference, cache)
                     .await?,

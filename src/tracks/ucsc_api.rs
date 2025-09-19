@@ -83,6 +83,11 @@ impl UcscApiTrackService {
                     hub_url, genome, preferred_track, contig_name
                 )
             }
+            Reference::IndexFasta(_) => {
+                return Err(TGVError::StateError(
+                    "UcscApi cannot be used for a custom reference genome file.".to_string(),
+                ));
+            }
         };
 
         let mut response: serde_json::Value =
@@ -156,6 +161,11 @@ impl TrackService for UcscApiTrackService {
                     hub_url, genome
                 )
             }
+            Reference::IndexFasta(_) => {
+                return Err(TGVError::StateError(
+                    "UcscApi tracks cannot be used for a custom reference genome file.".to_string(),
+                ));
+            }
         };
 
         let response = self
@@ -207,6 +217,11 @@ impl TrackService for UcscApiTrackService {
                     hub_url, genome, contig_name
                 )
             }
+            Reference::IndexFasta(_) => {
+                return Err(TGVError::StateError(
+                    "UcscApi tracks cannot be used for a custom reference genome file.".to_string(),
+                ));
+            }
         };
 
         let response: UcscApiCytobandResponse = self
@@ -241,6 +256,11 @@ impl TrackService for UcscApiTrackService {
                     "https://api.genome.ucsc.edu/list/tracks?trackLeavesOnly=1;hubUrl={};genome={}",
                     hub_url, genome
                 )
+            }
+            Reference::IndexFasta(_) => {
+                return Err(TGVError::StateError(
+                    "UcscApi tracks cannot be used for a custom reference genome file.".to_string(),
+                ));
             }
         };
         match reference.clone() {

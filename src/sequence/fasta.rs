@@ -5,14 +5,13 @@ use crate::{
     sequence::{Sequence, SequenceCache, SequenceRepository},
 };
 use noodles_core::region::Region as noodlesRegion;
-use noodles_fasta::{
-    fai,
-    io::{
-        indexed_reader::{Builder, IndexedReader},
-        BufReader,
-    },
+use noodles_fasta::io::{
+    indexed_reader::{Builder, IndexedReader},
+    BufReader,
 };
 use std::str::FromStr;
+
+#[derive(Debug)]
 pub struct IndexedFastaSequenceRepository {}
 
 impl IndexedFastaSequenceRepository {

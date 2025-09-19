@@ -50,7 +50,8 @@ impl TwoBitSequenceRepository {
                     contig_to_buffer_index.insert(*contig, i_buffer);
 
                     // add a new buffer
-                    let file_path = format!("{}/{}/{}", &cache_dir, reference, file_name);
+                    let file_path =
+                        format!("{}/{}/{}", &cache_dir, reference.to_string(), file_name);
                     let tb: TwoBitFile<std::io::BufReader<std::fs::File>> =
                         twobit::TwoBitFile::open(&file_path).map_err(|e| {
                             TGVError::IOError(format!(

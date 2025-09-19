@@ -113,6 +113,7 @@ pub trait SequenceRepository {
 pub enum SequenceRepositoryEnum {
     UCSCApi(UCSCApiSequenceRepository),
     TwoBit(TwoBitSequenceRepository),
+    IndexedFasta(IndexedFastaSequenceRepository),
 }
 
 impl SequenceRepositoryEnum {
@@ -125,6 +126,7 @@ impl SequenceRepositoryEnum {
         match self {
             Self::UCSCApi(repo) => repo.query_sequence(region, cache, contig_header).await,
             Self::TwoBit(repo) => repo.query_sequence(region, cache, contig_header).await,
+            Self::IndexedFasta(repo) => repo.query_sequence(region, cache, contig_header).await,
         }
     }
 
@@ -132,6 +134,7 @@ impl SequenceRepositoryEnum {
         match self {
             Self::UCSCApi(repo) => repo.close().await,
             Self::TwoBit(repo) => repo.close().await,
+            Self::IndexedFasta(repo) => repo.close().await,
         }
     }
 }

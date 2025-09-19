@@ -79,7 +79,7 @@ impl Repository {
                     _ => {
                         return Err(TGVError::ValueError(format!(
                             "Unsupported reference: {}",
-                            reference
+                            reference.to_string()
                         )));
                     }
                 };
