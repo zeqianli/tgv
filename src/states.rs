@@ -894,7 +894,9 @@ impl StateHandler {
                 return Self::go_to_gene(state, repository, "TP53".to_string()).await;
             }
 
-            Some(Reference::UcscGenome { .. }) | Some(Reference::UcscAccession { .. }) => {
+            Some(Reference::UcscGenome(_))
+            | Some(Reference::UcscAccession(_))
+            | Some(Reference::IndexFasta(_)) => {
                 // Find the first gene on the first contig. If anything is not found, handle it later.
 
                 let first_contig = state.contig_header.first()?;

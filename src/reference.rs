@@ -10,6 +10,7 @@ pub enum Reference {
     Hg38,
     UcscGenome(String),
     UcscAccession(String),
+    IndexFasta(String),
 }
 
 impl Reference {
@@ -70,17 +71,7 @@ impl Reference {
             Self::Hg38 => Self::HG38.to_string(),
             Self::UcscGenome(s) => s.clone(),
             Self::UcscAccession(s) => s.clone(),
-        }
-    }
-}
-
-impl fmt::Display for Reference {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            Self::Hg19 => write!(f, "{}", Self::HG19),
-            Self::Hg38 => write!(f, "{}", Self::HG38),
-            Self::UcscGenome(s) => write!(f, "{}", s),
-            Self::UcscAccession(s) => write!(f, "{}", s),
+            Self::IndexFasta(s) => s.clone(),
         }
     }
 }

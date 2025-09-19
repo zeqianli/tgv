@@ -35,6 +35,8 @@ bigtools = "0.5"
 noodles = { version = "0.99.0", features = ["bed", "vcf"] }
 nom = "8.0.0"
 noodles-vcf = "0.79.0"
+noodles-fasta = "0.54.0"
+noodles-core = "0.17.0"
 
 [dev-dependencies]
 rstest = "0.25.0"

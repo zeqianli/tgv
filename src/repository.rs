@@ -1,14 +1,14 @@
 use crate::{
     alignment::{AlignedRead, Alignment},
     bed::BEDIntervals,
-    contig_header::ContigHeader,
+    contig_header::{Contig, ContigHeader},
     error::TGVError,
     helpers::is_url,
     intervals::Region,
     reference::Reference,
     sequence::{
-        Sequence, SequenceCache, SequenceRepositoryEnum, TwoBitSequenceRepository,
-        UCSCApiSequenceRepository,
+        IndexedFastaSequenceRepository, Sequence, SequenceCache, SequenceRepositoryEnum,
+        TwoBitSequenceRepository, UCSCApiSequenceRepository,
     },
     settings::{BackendType, Settings},
     tracks::{
@@ -48,6 +48,15 @@ impl Repository {
             Option<SequenceRepositoryEnum>,
             SequenceCache,
         ) = match settings.reference.as_ref() {
+            Some(Reference::IndexFasta(path)) => {
+                let (sr, sc) = IndexedFastaSequenceRepository::new(path.clone())?;
+
+                sr.query_contigs()
+                    .into_iter()
+                    .try_for_each(|contig| contig_header.update_or_add_contig(contig))?;
+
+                (None, Some(SequenceRepositoryEnum::IndexedFasta(sr)), sc)
+            }
             Some(reference) => {
                 let ts = match (&settings.backend, reference) {
                     (BackendType::Ucsc, Reference::UcscAccession(_)) => {
@@ -76,10 +85,11 @@ impl Repository {
                             Err(e) => return Err(e),
                         }
                     }
+
                     _ => {
                         return Err(TGVError::ValueError(format!(
                             "Unsupported reference: {}",
-                            reference
+                            reference.to_string()
                         )));
                     }
                 };
@@ -93,12 +103,8 @@ impl Repository {
                     matches!(ts, TrackServiceEnum::Api(_) | TrackServiceEnum::Db(_));
 
                 let (ss, sc) = if use_ucsc_api_sequence {
-                    (
-                        SequenceRepositoryEnum::UCSCApi(UCSCApiSequenceRepository::new(
-                            reference.clone(),
-                        )?),
-                        SequenceCache::new(),
-                    )
+                    let (sr, sc) = UCSCApiSequenceRepository::new(reference.clone())?;
+                    (SequenceRepositoryEnum::UCSCApi(sr), sc)
                 } else {
                     // query the chromInfo table to get the 2bit file path
 
@@ -113,7 +119,7 @@ impl Repository {
                 };
                 (Some(ts), Some(ss), sc)
             }
-            None => (None, None, SequenceCache::new()),
+            None => (None, None, SequenceCache::NoReference),
         };
 
         let alignment_repository = match settings.bam_path {

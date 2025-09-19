@@ -159,3 +159,5 @@ fn render_contig_at_y(
 
     Ok(())
 }
+
+// FEAT: command mode in listing contig to search reference genome
