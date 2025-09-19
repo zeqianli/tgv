@@ -213,6 +213,10 @@ impl MouseRegister {
                                 }
                             }
                         }
+
+                        AreaType::HorizontalDivider => {
+                            messages.push(StateMessage::Highlight(AreaType::HorizontalDivider))
+                        }
                         _ => {}
                     }
                 }

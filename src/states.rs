@@ -321,6 +321,8 @@ impl StateHandler {
                 state.display_mode = display_mode;
             }
 
+            StateMessage::Highlight(area_type) => state.layout.divider_highlighted = true,
+
             StateMessage::ResizeTrack {
                 mouse_down_x,
                 mouse_down_y,

@@ -9,6 +9,7 @@ use crate::register::{RegisterType, Registers};
 use crate::repository::Repository;
 use crate::settings::Settings;
 use crate::states::State;
+use ratatui::style;
 use ratatui::{
     buffer::Buffer,
     layout::{Constraint, Direction, Layout, Rect},
@@ -27,6 +28,8 @@ pub enum AreaType {
     Error,
     Variant,
     Bed,
+
+    HorizontalDivider,
 }
 
 impl AreaType {
@@ -153,6 +156,8 @@ pub struct MainLayout {
     pub main_area: Rect,
 
     pub areas: Vec<(AreaType, Rect)>,
+
+    pub divider_highlighted: bool,
 }
 
 impl MainLayout {
@@ -161,6 +166,7 @@ impl MainLayout {
             root,
             main_area: Rect::default(),
             areas: Vec::new(),
+            divider_highlighted: false,
         })
     }
 
@@ -184,7 +190,11 @@ impl MainLayout {
             children.push(LayoutNode::Area {
                 constraint: Constraint::Length(6),
                 area_type: AreaType::Coverage,
-            })
+            });
+            children.push(LayoutNode::Area {
+                constraint: Constraint::Length(1),
+                area_type: AreaType::HorizontalDivider,
+            });
         };
         if settings.needs_variants() {
             children.push(LayoutNode::Area {
@@ -347,6 +357,17 @@ impl MainLayout {
                 if let Some(bed) = repository.bed_intervals.as_ref() {
                     render_bed(rect, buf, bed, state, pallete)?
                 }
+            }
+            AreaType::HorizontalDivider => {
+                let style = if state.layout.divider_highlighted {
+                    style::Style::default()
+                        .fg(pallete.DIVIDER_FG)
+                        .bg(pallete.DIVIDER_HIGHLIGHT)
+                } else {
+                    style::Style::default().fg(pallete.DIVIDER_FG)
+                };
+
+                buf.set_string(rect.x, rect.y, "-".repeat(rect.width as usize), style)
             }
         };
         Ok(())
