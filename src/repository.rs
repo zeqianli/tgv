@@ -48,7 +48,7 @@ impl Repository {
             Option<SequenceRepositoryEnum>,
             SequenceCache,
         ) = match settings.reference.as_ref() {
-            Some(Reference::IndexFasta(path)) => {
+            Some(Reference::IndexedFasta(path)) => {
                 let (sr, sc) = IndexedFastaSequenceRepository::new(path.clone())?;
 
                 sr.query_contigs()

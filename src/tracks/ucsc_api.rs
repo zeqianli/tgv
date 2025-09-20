@@ -83,7 +83,7 @@ impl UcscApiTrackService {
                     hub_url, genome, preferred_track, contig_name
                 )
             }
-            Reference::IndexFasta(_) => {
+            Reference::IndexedFasta(_) => {
                 return Err(TGVError::StateError(
                     "UcscApi cannot be used for a custom reference genome file.".to_string(),
                 ));
@@ -161,7 +161,7 @@ impl TrackService for UcscApiTrackService {
                     hub_url, genome
                 )
             }
-            Reference::IndexFasta(_) => {
+            Reference::IndexedFasta(_) => {
                 return Err(TGVError::StateError(
                     "UcscApi tracks cannot be used for a custom reference genome file.".to_string(),
                 ));
@@ -217,7 +217,7 @@ impl TrackService for UcscApiTrackService {
                     hub_url, genome, contig_name
                 )
             }
-            Reference::IndexFasta(_) => {
+            Reference::IndexedFasta(_) => {
                 return Err(TGVError::StateError(
                     "UcscApi tracks cannot be used for a custom reference genome file.".to_string(),
                 ));
@@ -257,7 +257,7 @@ impl TrackService for UcscApiTrackService {
                     hub_url, genome
                 )
             }
-            Reference::IndexFasta(_) => {
+            Reference::IndexedFasta(_) => {
                 return Err(TGVError::StateError(
                     "UcscApi tracks cannot be used for a custom reference genome file.".to_string(),
                 ));

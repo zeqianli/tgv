@@ -150,7 +150,13 @@ impl Settings {
     }
 
     pub fn needs_track(&self) -> bool {
-        self.reference.is_some()
+        match self.reference.as_ref() {
+            Some(reference) => match reference {
+                Reference::IndexedFasta(_) => false,
+                _ => true,
+            },
+            None => false,
+        }
     }
 
     pub fn needs_sequence(&self) -> bool {

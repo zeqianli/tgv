@@ -60,7 +60,7 @@ impl SequenceRepository for IndexedFastaSequenceRepository {
         };
 
         let region_string = format!(
-            "{}{}-{}",
+            "{}:{}-{}",
             contig_header.get(region.contig_index)?.name,
             region.start,
             region.end

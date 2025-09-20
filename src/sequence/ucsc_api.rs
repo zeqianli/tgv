@@ -58,7 +58,7 @@ impl UCSCApiSequenceRepository {
                     hub_url, genome, contig_name, start - 1, end
                 ))
             }
-            Reference::IndexFasta(_) => Err(TGVError::StateError(
+            Reference::IndexedFasta(_) => Err(TGVError::StateError(
                 "UcscApi cannot be used for a custom reference genome file.".to_string(),
             )),
         }

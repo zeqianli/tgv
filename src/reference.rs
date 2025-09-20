@@ -10,7 +10,7 @@ pub enum Reference {
     Hg38,
     UcscGenome(String),
     UcscAccession(String),
-    IndexFasta(String),
+    IndexedFasta(String),
 }
 
 impl Reference {
@@ -42,6 +42,31 @@ impl Reference {
             return Ok(Self::UcscAccession(s.to_string()));
         }
 
+        // Reference fasta?
+
+        if s.ends_with(".fa")
+            || s.ends_with(".fasta")
+            || s.ends_with(".fa.gz")
+            || s.ends_with(".fasta.gz")
+        {
+            // check that index file exists
+            let s = shellexpand::tilde(s).to_string();
+            if !std::path::Path::new(&s).exists() {
+                return Err(TGVError::IOError(format!(
+                    "Reference genome file {} does not exist",
+                    s
+                )));
+            }
+            if !std::path::Path::new(&format!("{}.fai", s)).exists() {
+                return Err(TGVError::IOError(format!(
+                    ".fai index file is required for custom reference genome. \nYou can create index by\n   samtools faidx {}.\n(see https://www.htslib.org/doc/samtools-faidx.html)",
+                    s
+                )));
+            }
+
+            return Ok(Self::IndexedFasta(s));
+        }
+
         // Check for common names
 
         let s_standardized = standardize_common_genome_name(s)?;
@@ -71,7 +96,7 @@ impl Reference {
             Self::Hg38 => Self::HG38.to_string(),
             Self::UcscGenome(s) => s.clone(),
             Self::UcscAccession(s) => s.clone(),
-            Self::IndexFasta(s) => s.clone(),
+            Self::IndexedFasta(s) => s.split('/').last().unwrap().to_string(),
         }
     }
 }

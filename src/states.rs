@@ -894,9 +894,7 @@ impl StateHandler {
                 return Self::go_to_gene(state, repository, "TP53".to_string()).await;
             }
 
-            Some(Reference::UcscGenome(_))
-            | Some(Reference::UcscAccession(_))
-            | Some(Reference::IndexFasta(_)) => {
+            Some(Reference::UcscGenome(_)) | Some(Reference::UcscAccession(_)) => {
                 // Find the first gene on the first contig. If anything is not found, handle it later.
 
                 let first_contig = state.contig_header.first()?;
@@ -926,7 +924,8 @@ impl StateHandler {
                     Err(_) => {} // Gene not found. Handle later.
                 }
             }
-            None => {} // handle later
+
+            Some(Reference::IndexedFasta(_)) | None => {} // handle later
         };
 
         // If reaches here, go to the first contig:1
@@ -977,8 +976,8 @@ impl StateHandler {
             }
             DataMessage::RequiresCompleteFeatures(region) => {
                 let has_complete_track = Self::has_complete_track(state, &region);
-                if let (Some(ref reference), Some(track_service)) =
-                    (state.reference.clone(), repository.track_service.as_ref())
+                if let (Some(reference), Some(track_service)) =
+                    (state.reference.as_ref(), repository.track_service.as_ref())
                 {
                     if !has_complete_track {
                         if let Ok(track) = track_service
@@ -996,11 +995,18 @@ impl StateHandler {
                             // Do nothing (track not found). TODO: fix this shit properly.
                         }
                     }
-                } else if state.reference.is_none() {
+                } else if match state.reference.as_ref() {
+                    // FIXME: this is duplicate code as Settings.
+                    Some(reference) => match reference {
+                        Reference::IndexedFasta(_) => false,
+                        _ => true,
+                    },
+                    None => false,
+                } {
                     // No reference provided, cannot load features
                 } else {
                     return Err(TGVError::StateError(
-                        "Track service not initialized".to_string(),
+                        "Error at handling DataMessage::RequiresCompleteFeatures: Track service not initialized".to_string(),
                     ));
                 }
             }
