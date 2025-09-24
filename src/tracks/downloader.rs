@@ -92,7 +92,7 @@ impl UCSCDownloader {
                 self.download_for_ucsc_accession(&self.reference, &cache_dir, &sqlite_pool)
                     .await?
             }
-            Reference::IndexedFasta(_) => {
+            Reference::IndexedFasta(_) | Reference::NoReference => {
                 return Err(TGVError::StateError(
                     "UcscApi cannot be used for a custom reference genome file.".to_string(),
                 ));

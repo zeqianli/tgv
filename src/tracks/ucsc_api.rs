@@ -83,9 +83,9 @@ impl UcscApiTrackService {
                     hub_url, genome, preferred_track, contig_name
                 )
             }
-            Reference::IndexedFasta(_) => {
+            Reference::IndexedFasta(_) | Reference::NoReference => {
                 return Err(TGVError::StateError(
-                    "UcscApi cannot be used for a custom reference genome file.".to_string(),
+                    "UcscApi can only be used for UCSC reference genomes.".to_string(),
                 ));
             }
         };
@@ -161,9 +161,9 @@ impl TrackService for UcscApiTrackService {
                     hub_url, genome
                 )
             }
-            Reference::IndexedFasta(_) => {
+            Reference::IndexedFasta(_) | Reference::NoReference => {
                 return Err(TGVError::StateError(
-                    "UcscApi tracks cannot be used for a custom reference genome file.".to_string(),
+                    "UcscApi tracks can only be used for UCSC reference genomes.".to_string(),
                 ));
             }
         };
@@ -217,9 +217,9 @@ impl TrackService for UcscApiTrackService {
                     hub_url, genome, contig_name
                 )
             }
-            Reference::IndexedFasta(_) => {
+            Reference::IndexedFasta(_) | Reference::NoReference => {
                 return Err(TGVError::StateError(
-                    "UcscApi tracks cannot be used for a custom reference genome file.".to_string(),
+                    "UcscApi tracks can only be used for UCSC reference genomes.".to_string(),
                 ));
             }
         };
@@ -257,9 +257,9 @@ impl TrackService for UcscApiTrackService {
                     hub_url, genome
                 )
             }
-            Reference::IndexedFasta(_) => {
+            Reference::IndexedFasta(_) | Reference::NoReference => {
                 return Err(TGVError::StateError(
-                    "UcscApi tracks cannot be used for a custom reference genome file.".to_string(),
+                    "UcscApi tracks can only be used for UCSC reference genomes.".to_string(),
                 ));
             }
         };

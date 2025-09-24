@@ -1,5 +1,4 @@
 use crate::error::TGVError;
-use std::fmt;
 
 // Added: Embed the CSV content as static bytes
 const DEFAULT_DB_CSV: &[u8] = include_bytes!("resources/defaultDb.csv");

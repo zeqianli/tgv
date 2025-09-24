@@ -175,7 +175,7 @@ impl StateHandler {
     /// This has different error handling strategy (loud) vs handle(...), which suppresses errors.
     pub async fn handle_initial_messages(
         state: &mut State,
-        repository: &Repository,
+        repository: &mut Repository,
         settings: &Settings,
         messages: Vec<StateMessage>,
     ) -> Result<(), TGVError> {
@@ -198,7 +198,7 @@ impl StateHandler {
     /// Handle messages after initialization. This blocks any error messages instead of propagating them.
     pub async fn handle(
         state: &mut State,
-        repository: &Repository,
+        repository: &mut Repository,
         settings: &Settings,
         messages: Vec<StateMessage>,
     ) -> Result<(), TGVError> {
@@ -831,7 +831,7 @@ impl StateHandler {
         let gene = repository
             .track_service_checked()?
             .query_gene_name(
-                &state.reference_checked()?.clone(),
+                &state.reference,
                 &gene_name,
                 &mut state.track_cache,
                 &state.contig_header,
@@ -913,7 +913,7 @@ impl StateHandler {
     // TODO: async
     pub async fn handle_data_message(
         state: &mut State,
-        repository: &Repository,
+        repository: &mut Repository,
         data_message: DataMessage,
     ) -> Result<bool, TGVError> {
         let mut loaded_data = false;
@@ -926,7 +926,7 @@ impl StateHandler {
                             .alignment_repository
                             .as_ref()
                             .unwrap()
-                            .read_alignment(&region, state.sequence, &state.contig_header)?;
+                            .read_alignment(&region, &state.sequence, &state.contig_header)?;
 
                         alignment
                             .apply_options(&state.alignment_options, state.sequence.as_ref())?;

@@ -14,11 +14,12 @@ pub struct UCSCApiSequenceRepository {
 }
 
 impl UCSCApiSequenceRepository {
-    pub fn new(reference: Reference, hsot: &UcscHost) -> Result<(Self, SequenceCache), TGVError> {
+    pub fn new(reference: &Reference, host: &UcscHost) -> Result<(Self, SequenceCache), TGVError> {
+        // FIXME: decide API url based on host
         Ok((
             Self {
                 client: Client::new(),
-                reference,
+                reference: reference.clone(),
             },
             SequenceCache::UcscApi(UcscApiSequenceCache { hub_url: None }),
         ))
@@ -58,8 +59,8 @@ impl UCSCApiSequenceRepository {
                     hub_url, genome, contig_name, start - 1, end
                 ))
             }
-            Reference::IndexedFasta(_) => Err(TGVError::StateError(
-                "UcscApi cannot be used for a custom reference genome file.".to_string(),
+            Reference::IndexedFasta(_) | Reference::NoReference => Err(TGVError::StateError(
+                "UcscApi can only be used for UCSC reference genomes.".to_string(),
             )),
         }
     }

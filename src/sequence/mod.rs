@@ -13,6 +13,7 @@ use crate::{
     intervals::Region,
     reference::Reference,
     settings::{BackendType, Settings},
+    tracks::TrackServiceEnum,
 };
 use ::twobit::TwoBitFile;
 use std::collections::HashMap;
@@ -119,7 +120,27 @@ pub enum SequenceRepositoryEnum {
 }
 
 impl SequenceRepositoryEnum {
-    pub fn new(settings: &Settings) -> Result<Option<(Self, SequenceCache)>, TGVError> {
+    fn new_ucsc_api(settings: &Settings) -> Result<Option<(Self, SequenceCache)>, TGVError> {
+        Ok(Some({
+            let (sr, sc) =
+                UCSCApiSequenceRepository::new(&settings.reference, &settings.ucsc_host)?;
+            (Self::UCSCApi(sr), sc)
+        }))
+    }
+
+    fn new_local(
+        settings: &Settings,
+        track_service: Option<&TrackServiceEnum>,
+    ) -> Result<Option<(Self, SequenceCache)>, TGVError> {
+        Ok(Some({
+            let (sr, sc) = TwoBitSequenceRepository::new(&settings.reference, &settings.cache_dir);
+            (Self::TwoBit(sr), sc)
+        }))
+    }
+    pub fn new(
+        settings: &Settings,
+        track_service: Option<&TrackServiceEnum>,
+    ) -> Result<Option<(Self, SequenceCache)>, TGVError> {
         match (&settings.backend, &settings.reference) {
             (_, Reference::NoReference) => Ok(None),
             (_, Reference::IndexedFasta(path)) => Ok(Some({
@@ -127,17 +148,8 @@ impl SequenceRepositoryEnum {
                 (Self::IndexedFasta(sr), sc)
             })),
 
-            (BackendType::Ucsc, _) => Ok(Some({
-                let (sr, sc) =
-                    UCSCApiSequenceRepository::new(&settings.reference, &settings.ucsc_host)
-                        .await?;
-                (Self::UCSCApi(sr), sc)
-            })),
-            (BackendType::Local, _) => Ok(Some({
-                let (sr, sc) =
-                    TwoBitSequenceRepository::new(&settings.reference, &settings.cache_dir);
-                (Self::TwoBit(sr), sc)
-            })),
+            (BackendType::Ucsc, _) => Self::new_ucsc_api(settings),
+            (BackendType::Local, _) => Self::new_local(settings, track_service),
             (BackendType::Default, reference) => {
                 // If the local cache is available, use the local cache.
                 // Otherwise, use the UCSC DB / API.
