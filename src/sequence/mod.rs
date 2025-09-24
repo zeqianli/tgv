@@ -2,18 +2,22 @@ mod fasta;
 mod twobit;
 mod ucsc_api;
 
-use crate::contig_header::ContigHeader;
-use crate::error::TGVError;
-use crate::intervals::Region;
 pub use crate::sequence::{
     fasta::{IndexedFastaSequenceCache, IndexedFastaSequenceRepository},
     twobit::{TwoBitSequenceCache, TwoBitSequenceRepository},
     ucsc_api::{UCSCApiSequenceRepository, UcscApiSequenceCache},
 };
+use crate::{
+    contig_header::ContigHeader,
+    error::TGVError,
+    intervals::Region,
+    reference::Reference,
+    settings::{BackendType, Settings},
+};
 use ::twobit::TwoBitFile;
 use std::collections::HashMap;
 /// Sequences of a genome region.
-#[derive(Debug)]
+#[derive(Debug, Default)]
 pub struct Sequence {
     /// 1-based genome coordinate of sequence[0].
     /// 1-based, inclusive.
@@ -53,9 +57,7 @@ impl Sequence {
     pub fn end(&self) -> usize {
         self.start + self.sequence.len() - 1
     }
-}
 
-impl Sequence {
     /// Get the sequence in [left, right].
     /// 1-based, inclusive.
     pub fn get_sequence(&self, region: &Region) -> Option<Vec<u8>> {
@@ -117,7 +119,49 @@ pub enum SequenceRepositoryEnum {
 }
 
 impl SequenceRepositoryEnum {
-    pub async fn query_sequence(
+    pub fn new(settings: &Settings) -> Result<Option<(Self, SequenceCache)>, TGVError> {
+        match (&settings.backend, &settings.reference) {
+            (_, Reference::NoReference) => Ok(None),
+            (_, Reference::IndexedFasta(path)) => Ok(Some({
+                let (sr, sc) = IndexedFastaSequenceRepository::new(path.clone())?;
+                (Self::IndexedFasta(sr), sc)
+            })),
+
+            (BackendType::Ucsc, _) => Ok(Some({
+                let (sr, sc) =
+                    UCSCApiSequenceRepository::new(&settings.reference, &settings.ucsc_host)
+                        .await?;
+                (Self::UCSCApi(sr), sc)
+            })),
+            (BackendType::Local, _) => Ok(Some({
+                let (sr, sc) =
+                    TwoBitSequenceRepository::new(&settings.reference, &settings.cache_dir);
+                (Self::TwoBit(sr), sc)
+            })),
+            (BackendType::Default, reference) => {
+                // If the local cache is available, use the local cache.
+                // Otherwise, use the UCSC DB / API.
+                match LocalDbTrackService::new(&settings.reference, &settings.cache_dir).await {
+                    Ok(ts) => Ok(Some(TrackServiceEnum::LocalDb(ts))),
+                    Err(TGVError::IOError(e)) => match reference {
+                        Reference::UcscAccession(_) => {
+                            Ok(Some(TrackServiceEnum::Api(UcscApiTrackService::new()?)))
+                        }
+                        _ => Ok(Some(TrackServiceEnum::Db(
+                            UcscDbTrackService::new(&settings.reference, &settings.ucsc_host)
+                                .await?,
+                        ))),
+                    },
+
+                    Err(e) => return Err(e),
+                }
+            }
+        }
+    }
+}
+
+impl SequenceRepository for SequenceRepositoryEnum {
+    async fn query_sequence(
         &self,
         region: &Region,
         cache: &mut SequenceCache,
@@ -130,7 +174,7 @@ impl SequenceRepositoryEnum {
         }
     }
 
-    pub async fn close(&self) -> Result<(), TGVError> {
+    async fn close(&self) -> Result<(), TGVError> {
         match self {
             Self::UCSCApi(repo) => repo.close().await,
             Self::TwoBit(repo) => repo.close().await,

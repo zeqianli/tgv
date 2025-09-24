@@ -11,6 +11,7 @@ pub enum Reference {
     UcscGenome(String),
     UcscAccession(String),
     IndexedFasta(String),
+    NoReference,
 }
 
 impl Reference {
@@ -97,6 +98,24 @@ impl Reference {
             Self::UcscGenome(s) => s.clone(),
             Self::UcscAccession(s) => s.clone(),
             Self::IndexedFasta(s) => s.split('/').last().unwrap().to_string(),
+            Self::NoReference => "no_reference".to_string(),
+        }
+    }
+
+    pub fn needs_track(&self) -> bool {
+        match self {
+            Self::Hg19 | Self::Hg38 | Self::UcscGenome(_) | Self::UcscAccession(_) => true,
+            Self::IndexedFasta(_) | Self::NoReference => false,
+        }
+    }
+    pub fn needs_sequence(&self) -> bool {
+        match self {
+            Self::Hg19
+            | Self::Hg38
+            | Self::UcscGenome(_)
+            | Self::UcscAccession(_)
+            | Self::IndexedFasta(_) => true,
+            Self::NoReference => false,
         }
     }
 }

@@ -29,6 +29,9 @@ impl Default for ViewingWindow {
 }
 
 impl ViewingWindow {
+    pub const MAX_ZOOM_TO_DISPLAY_ALIGNMENTS: usize = 32;
+    pub const MAX_ZOOM_TO_DISPLAY_SEQUENCES: usize = 2;
+
     pub fn new_basewise_window(contig: usize, left: usize, top: usize) -> Self {
         Self {
             contig_index: contig,
@@ -45,6 +48,14 @@ impl ViewingWindow {
             top,
             zoom,
         }
+    }
+
+    pub fn alignment_renderable(&self) -> bool {
+        self.zoom <= Self::MAX_ZOOM_TO_DISPLAY_ALIGNMENTS
+    }
+
+    pub fn sequence_renderable(&self) -> bool {
+        self.zoom <= Self::MAX_ZOOM_TO_DISPLAY_SEQUENCES
     }
 }
 
@@ -170,22 +181,20 @@ impl ViewingWindow {
         }
     }
 
-    pub fn self_correct_y(&mut self, area: &Rect, depth: Option<usize>) {
+    pub fn self_correct_y(&mut self, area: &Rect, depth: usize) {
         // TODO: prevent scrolling past the bottom alignment. But this needs to store the alignment area.
-        self.top = if let Some(depth) = depth {
+        self.top = {
             if depth == 0 {
                 0
             } else {
                 usize::min(self.top, depth - 1)
             }
-        } else {
-            0
         }
     }
 
     /// Set the top track # of the viewing window.
     /// 0-based.
-    pub fn set_top(&mut self, top: usize, area: &Rect, depth: Option<usize>) {
+    pub fn set_top(&mut self, top: usize, area: &Rect, depth: usize) {
         // TODO: prevent scrolling past the bottom alignment. But this needs to store the alignment area.
 
         self.top = top;

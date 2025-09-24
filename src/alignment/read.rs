@@ -332,7 +332,7 @@ impl AlignedRead {
     pub fn from_bam_record(
         read_index: usize,
         read: Record,
-        reference_sequence: Option<&Sequence>,
+        reference_sequence: &Sequence,
     ) -> Result<Self, TGVError> {
         let read_start = read.pos() as usize + 1;
         let read_end = read.reference_end() as usize;
@@ -372,7 +372,7 @@ pub fn calculate_rendering_contexts(
     leading_softclips: usize,
     seq: &Seq,
     is_reverse: bool,
-    reference_sequence: Option<&Sequence>,
+    reference_sequence: &Sequence,
 ) -> Result<Vec<RenderingContext>, TGVError> {
     let mut output: Vec<RenderingContext> = Vec::new();
     if cigars.is_empty() {
@@ -498,32 +498,27 @@ pub fn calculate_rendering_contexts(
                 // TODO: use basemods_iter?
                 // https://docs.rs/rust-htslib/latest/rust_htslib/bam/record/struct.Record.html#method.basemods_iter
 
-                let modifiers: Vec<RenderingContextModifier> = match reference_sequence {
-                    Some(reference_sequence) => (0..*l)
-                        .filter_map(|i| {
-                            let reference_position = reference_pivot + i as usize;
-                            if let Some(reference_base) =
-                                reference_sequence.base_at(reference_position)
-                            // convert to 1-based
-                            {
-                                let query_position = reference_pivot + i as usize;
-                                let query_base = seq[query_pivot + i as usize - 1];
-                                if !matches_base(query_base, reference_base) {
-                                    Some(RenderingContextModifier::Mismatch(
-                                        query_position,
-                                        query_base,
-                                    ))
-                                } else {
-                                    None
-                                }
+                let modifiers: Vec<RenderingContextModifier> = (0..*l)
+                    .filter_map(|i| {
+                        let reference_position = reference_pivot + i as usize;
+                        if let Some(reference_base) = reference_sequence.base_at(reference_position)
+                        // convert to 1-based
+                        {
+                            let query_position = reference_pivot + i as usize;
+                            let query_base = seq[query_pivot + i as usize - 1];
+                            if !matches_base(query_base, reference_base) {
+                                Some(RenderingContextModifier::Mismatch(
+                                    query_position,
+                                    query_base,
+                                ))
                             } else {
                                 None
                             }
-                        })
-                        .collect::<Vec<_>>(),
-
-                    None => Vec::new(),
-                };
+                        } else {
+                            None
+                        }
+                    })
+                    .collect::<Vec<_>>();
 
                 new_contexts.push(RenderingContext {
                     start: reference_pivot,

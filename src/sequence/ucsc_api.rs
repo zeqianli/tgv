@@ -3,7 +3,7 @@ use crate::error::TGVError;
 use crate::intervals::Region;
 use crate::reference::Reference;
 use crate::sequence::{Sequence, SequenceCache, SequenceRepository};
-use crate::tracks::schema::*;
+use crate::tracks::{schema::*, UcscHost};
 use reqwest::Client;
 use serde::Deserialize;
 
@@ -14,7 +14,7 @@ pub struct UCSCApiSequenceRepository {
 }
 
 impl UCSCApiSequenceRepository {
-    pub fn new(reference: Reference) -> Result<(Self, SequenceCache), TGVError> {
+    pub fn new(reference: Reference, hsot: &UcscHost) -> Result<(Self, SequenceCache), TGVError> {
         Ok((
             Self {
                 client: Client::new(),

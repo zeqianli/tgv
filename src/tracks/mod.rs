@@ -9,9 +9,9 @@ use crate::{
     cytoband::Cytoband,
     error::TGVError,
     feature::{Gene, SubGeneFeature},
-    intervals::GenomeInterval,
-    intervals::Region,
+    intervals::{GenomeInterval, Region},
     reference::Reference,
+    settings::{self, BackendType, Settings},
     track::Track,
 };
 use async_trait::async_trait;
@@ -241,6 +241,45 @@ pub enum TrackServiceEnum {
 }
 
 impl TrackServiceEnum {
+    pub async fn new(settings: &Settings) -> Result<Option<Self>, TGVError> {
+        match (&settings.backend, &settings.reference) {
+            (_, Reference::NoReference) | (_, Reference::IndexedFasta(_)) => Ok(None),
+            (BackendType::Ucsc, Reference::UcscAccession(_)) => {
+                Ok(Some(Self::Api(UcscApiTrackService::new()?)))
+            }
+            (BackendType::Ucsc, _) => Ok(Some(Self::Db(
+                UcscDbTrackService::new(&settings.reference, &settings.ucsc_host).await?,
+            ))),
+            (BackendType::Local, _) => Ok(Some(TrackServiceEnum::LocalDb(
+                LocalDbTrackService::new(&settings.reference, &settings.cache_dir).await?,
+            ))),
+            (BackendType::Default, reference) => {
+                // If the local cache is available, use the local cache.
+                // Otherwise, use the UCSC DB / API.
+                match LocalDbTrackService::new(&settings.reference, &settings.cache_dir).await {
+                    Ok(ts) => Ok(Some(TrackServiceEnum::LocalDb(ts))),
+                    Err(TGVError::IOError(e)) => match reference {
+                        Reference::UcscAccession(_) => {
+                            Ok(Some(TrackServiceEnum::Api(UcscApiTrackService::new()?)))
+                        }
+                        _ => Ok(Some(TrackServiceEnum::Db(
+                            UcscDbTrackService::new(&settings.reference, &settings.ucsc_host)
+                                .await?,
+                        ))),
+                    },
+
+                    Err(e) => return Err(e),
+                }
+            }
+
+            _ => {
+                return Err(TGVError::ValueError(format!(
+                    "Failed to initialize TrackService for reference {}",
+                    settings.reference.to_string()
+                )));
+            }
+        }
+    }
     /// Return a map of: contig name -> 2bit file basename, if available.
     /// If not available, the value is None.    
     pub async fn get_contig_2bit_file_lookup(
