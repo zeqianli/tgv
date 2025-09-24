@@ -38,17 +38,11 @@ impl App {
         let (repository, sequence_cache, track_cache, contig_header) =
             Repository::new(&settings).await?;
 
-        let mut state = State::new(
-            &settings,
-            terminal.get_frame().area(),
-            sequence_cache,
-            track_cache,
-            contig_header,
-        )?;
+        let mut state = State::new(&settings, terminal.get_frame().area(), contig_header)?;
 
         StateHandler::handle_initial_messages(
             &mut state,
-            &repository,
+            &mut repository,
             &settings,
             settings.initial_state_messages.clone(),
         )
@@ -109,7 +103,7 @@ impl App {
                     let state_messages = self.registers.update_key_event(key_event, &self.state)?;
                     StateHandler::handle(
                         &mut self.state,
-                        &self.repository,
+                        &mut self.repository,
                         &self.settings,
                         state_messages,
                     )
@@ -125,7 +119,7 @@ impl App {
 
                     StateHandler::handle(
                         &mut self.state,
-                        &self.repository,
+                        &mut self.repository,
                         &self.settings,
                         state_messages,
                     )

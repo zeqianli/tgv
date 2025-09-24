@@ -2,7 +2,7 @@ use crate::contig_header::ContigHeader;
 use crate::error::TGVError;
 use crate::intervals::Region;
 use crate::reference::Reference;
-use crate::sequence::{Sequence, SequenceCache, SequenceRepository};
+use crate::sequence::{Sequence, SequenceRepository};
 use crate::tracks::{schema::*, UcscHost};
 use reqwest::Client;
 use serde::Deserialize;
@@ -11,32 +11,34 @@ use serde::Deserialize;
 pub struct UCSCApiSequenceRepository {
     client: Client,
     reference: Reference,
+
+    /// Used when using UCSC APIs and the reference is a UCSC Accession.
+    /// None: Not queried yet
+    /// Some(hub_url): Queried and cached.
+    hub_url: Option<String>,
 }
 
 impl UCSCApiSequenceRepository {
-    pub fn new(reference: &Reference, host: &UcscHost) -> Result<(Self, SequenceCache), TGVError> {
+    pub fn new(reference: &Reference, host: &UcscHost) -> Result<Self, TGVError> {
         // FIXME: decide API url based on host
-        Ok((
-            Self {
-                client: Client::new(),
-                reference: reference.clone(),
-            },
-            SequenceCache::UcscApi(UcscApiSequenceCache { hub_url: None }),
-        ))
+        Ok(Self {
+            client: Client::new(),
+            reference: reference.clone(),
+            hub_url: None,
+        })
     }
 
-    pub async fn close(&self) -> Result<(), TGVError> {
+    pub async fn close(&mut self) -> Result<(), TGVError> {
         // Reqwest client does not need to be closed.
         Ok(())
     }
 
     /// start / end: 1-based, inclusive.
     async fn get_api_url(
-        &self,
+        &mut self,
         contig_index: &usize,
         start: usize,
         end: usize,
-        cache: &mut UcscApiSequenceCache,
         contig_header: &ContigHeader,
     ) -> Result<String, TGVError> {
         let contig_name = contig_header.get_name(*contig_index)?;
@@ -49,11 +51,11 @@ impl UCSCApiSequenceRepository {
                 end
             )),
             Reference::UcscAccession(genome) => {
-                if cache.hub_url.is_none() {
+                if self.hub_url.is_none() {
                     let hub_url = self.get_hub_url_for_genark_accession(genome).await?;
-                    cache.hub_url = Some(hub_url);
+                    self.hub_url = Some(hub_url);
                 }
-                let hub_url = cache.hub_url.as_ref().unwrap();
+                let hub_url = self.hub_url.as_ref().unwrap();
                 Ok(format!(
                     "https://api.genome.ucsc.edu/getData/sequence?hubUrl={}&genome={};chrom={};start={};end={}",
                     hub_url, genome, contig_name, start - 1, end
@@ -91,25 +93,15 @@ struct UcscResponse {
 
 impl SequenceRepository for UCSCApiSequenceRepository {
     async fn query_sequence(
-        &self,
+        &mut self,
         region: &Region,
-        cache: &mut SequenceCache,
         contig_header: &ContigHeader,
     ) -> Result<Sequence, TGVError> {
-        let cache = match cache {
-            SequenceCache::UcscApi(cache) => cache,
-            _ => {
-                return Err(TGVError::StateError(format!(
-                    "Expected SequenceCache::UcscApi"
-                )));
-            }
-        };
         let url = self
             .get_api_url(
                 &region.contig_index,
                 region.start,
                 region.end,
-                cache,
                 contig_header,
             )
             .await?;
@@ -123,16 +115,7 @@ impl SequenceRepository for UCSCApiSequenceRepository {
         })
     }
 
-    async fn close(&self) -> Result<(), TGVError> {
+    async fn close(&mut self) -> Result<(), TGVError> {
         Ok(())
     }
-}
-
-/// Sequence access cache.
-#[derive(Default, Debug)]
-pub struct UcscApiSequenceCache {
-    /// Used when using UCSC APIs and the reference is a UCSC Accession.
-    /// None: Not queried yet
-    /// Some(hub_url): Queried and cached.
-    hub_url: Option<String>,
 }

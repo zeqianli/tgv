@@ -4,7 +4,7 @@ mod ucsc_api;
 
 pub use crate::sequence::{
     fasta::{IndexedFastaSequenceCache, IndexedFastaSequenceRepository},
-    twobit::{TwoBitSequenceCache, TwoBitSequenceRepository},
+    twobit::TwoBitSequenceRepository,
     ucsc_api::{UCSCApiSequenceRepository, UcscApiSequenceCache},
 };
 use crate::{
@@ -94,22 +94,22 @@ impl Sequence {
     }
 }
 
-pub enum SequenceCache {
-    UcscApi(UcscApiSequenceCache),
-    TwoBit(TwoBitSequenceCache),
-    IndexedFasta(IndexedFastaSequenceCache),
-    NoReference,
-}
+// pub enum SequenceCache {
+//     UcscApi(UcscApiSequenceCache),
+//     TwoBit(TwoBitSequenceCache),
+//     IndexedFasta(IndexedFastaSequenceCache),
+//     NoReference,
+// }
 
 pub trait SequenceRepository {
     async fn query_sequence(
-        &self,
+        &mut self,
         region: &Region,
-        cache: &mut SequenceCache,
+        // cache: &mut SequenceCache,
         contig_header: &ContigHeader,
     ) -> Result<Sequence, TGVError>;
 
-    async fn close(&self) -> Result<(), TGVError>;
+    async fn close(&mut self) -> Result<(), TGVError>;
 }
 
 #[derive(Debug)]
@@ -131,7 +131,7 @@ impl SequenceRepositoryEnum {
     fn new_local(
         settings: &Settings,
         track_service: Option<&TrackServiceEnum>,
-    ) -> Result<Option<(Self, SequenceCache)>, TGVError> {
+    ) -> Result<Self, TGVError> {
         Ok(Some({
             let (sr, sc) = TwoBitSequenceRepository::new(&settings.reference, &settings.cache_dir);
             (Self::TwoBit(sr), sc)
@@ -140,7 +140,7 @@ impl SequenceRepositoryEnum {
     pub fn new(
         settings: &Settings,
         track_service: Option<&TrackServiceEnum>,
-    ) -> Result<Option<(Self, SequenceCache)>, TGVError> {
+    ) -> Result<Self, TGVError> {
         match (&settings.backend, &settings.reference) {
             (_, Reference::NoReference) => Ok(None),
             (_, Reference::IndexedFasta(path)) => Ok(Some({
@@ -174,19 +174,18 @@ impl SequenceRepositoryEnum {
 
 impl SequenceRepository for SequenceRepositoryEnum {
     async fn query_sequence(
-        &self,
+        &mut self,
         region: &Region,
-        cache: &mut SequenceCache,
         contig_header: &ContigHeader,
     ) -> Result<Sequence, TGVError> {
         match self {
-            Self::UCSCApi(repo) => repo.query_sequence(region, cache, contig_header).await,
-            Self::TwoBit(repo) => repo.query_sequence(region, cache, contig_header).await,
-            Self::IndexedFasta(repo) => repo.query_sequence(region, cache, contig_header).await,
+            Self::UCSCApi(repo) => repo.query_sequence(region, contig_header).await,
+            Self::TwoBit(repo) => repo.query_sequence(region, contig_header).await,
+            Self::IndexedFasta(repo) => repo.query_sequence(region, contig_header).await,
         }
     }
 
-    async fn close(&self) -> Result<(), TGVError> {
+    async fn close(&mut self) -> Result<(), TGVError> {
         match self {
             Self::UCSCApi(repo) => repo.close().await,
             Self::TwoBit(repo) => repo.close().await,

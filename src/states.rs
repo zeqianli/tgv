@@ -19,7 +19,7 @@ use crate::{
     register::DisplayMode,
     rendering::layout::resize_node,
     rendering::MainLayout,
-    sequence::{Sequence, SequenceCache, SequenceRepository},
+    sequence::{Sequence, SequenceRepository},
     track::Track,
     window::ViewingWindow,
 };
@@ -48,11 +48,8 @@ pub struct State {
 
     /// Tracks.
     pub track: Track<Gene>,
-    pub track_cache: TrackCache,
-
     /// Sequences.
     pub sequence: Sequence,
-    pub sequence_cache: SequenceCache,
 
     // TODO: in the first implementation, refresh all data when the viewing window is near the boundary.
     /// Consensus contig header from BAM and reference genomes
@@ -69,8 +66,6 @@ impl State {
         settings: &Settings,
         // initial_window: ViewingWindow,
         initial_area: Rect,
-        sequence_cache: SequenceCache,
-        track_cache: TrackCache,
         contigs: ContigHeader,
     ) -> Result<Self, TGVError> {
         Ok(Self {
@@ -85,9 +80,7 @@ impl State {
             alignment: Alignment::default(),
             alignment_options: Vec::new(),
             track: Track::<Gene>::default(),
-            track_cache,
             sequence: Sequence::default(),
-            sequence_cache,
             contig_header: contigs,
 
             display_mode: DisplayMode::Main,
@@ -228,7 +221,7 @@ impl StateHandler {
     /// Main function to route state message handling.
     async fn handle_state_message(
         state: &mut State,
-        repository: &Repository,
+        repository: &mut Repository,
         settings: &Settings,
         message: StateMessage,
     ) -> Result<Vec<DataMessage>, TGVError> {
@@ -377,7 +370,7 @@ impl StateHandler {
 
     fn get_data_requirements(
         state: &State,
-        repository: &Repository, // settings: &Settings,
+        repository: &mut Repository, // settings: &Settings,
     ) -> Result<Vec<DataMessage>, TGVError> {
         let mut data_messages = Vec::new();
 
@@ -575,7 +568,7 @@ impl StateHandler {
 
     async fn go_to_next_genes_start(
         state: &mut State,
-        repository: &Repository,
+        repository: &mut Repository,
         n: usize,
     ) -> Result<(), TGVError> {
         if n == 0 {
@@ -597,7 +590,6 @@ impl StateHandler {
                 state.contig_index(),
                 middle,
                 n,
-                &mut state.track_cache,
                 &state.contig_header,
             )
             .await?;
@@ -607,7 +599,7 @@ impl StateHandler {
 
     async fn go_to_next_genes_end(
         state: &mut State,
-        repository: &Repository,
+        repository: &mut Repository,
         n: usize,
     ) -> Result<(), TGVError> {
         if n == 0 {
@@ -628,7 +620,6 @@ impl StateHandler {
                 state.contig_index(),
                 middle,
                 n,
-                &mut state.track_cache,
                 &state.contig_header,
             )
             .await?;
@@ -638,7 +629,7 @@ impl StateHandler {
 
     async fn go_to_previous_genes_start(
         state: &mut State,
-        repository: &Repository,
+        repository: &mut Repository,
         n: usize,
     ) -> Result<(), TGVError> {
         if n == 0 {
@@ -659,7 +650,6 @@ impl StateHandler {
                 state.contig_index(),
                 middle,
                 n,
-                &mut state.track_cache,
                 &state.contig_header,
             )
             .await?;
@@ -669,7 +659,7 @@ impl StateHandler {
 
     async fn go_to_previous_genes_end(
         state: &mut State,
-        repository: &Repository,
+        repository: &mut Repository,
         n: usize,
     ) -> Result<(), TGVError> {
         if n == 0 {
@@ -690,7 +680,6 @@ impl StateHandler {
                 state.contig_index(),
                 middle,
                 n,
-                &mut state.track_cache,
                 &state.contig_header,
             )
             .await?;
@@ -700,7 +689,7 @@ impl StateHandler {
 
     async fn go_to_next_exons_start(
         state: &mut State,
-        repository: &Repository,
+        repository: &mut Repository,
         n: usize,
     ) -> Result<(), TGVError> {
         if n == 0 {
@@ -721,7 +710,6 @@ impl StateHandler {
                 state.contig_index(),
                 middle,
                 n,
-                &mut state.track_cache,
                 &state.contig_header,
             )
             .await?;
@@ -731,7 +719,7 @@ impl StateHandler {
 
     async fn go_to_next_exons_end(
         state: &mut State,
-        repository: &Repository,
+        repository: &mut Repository,
         n: usize,
     ) -> Result<(), TGVError> {
         if n == 0 {
@@ -752,7 +740,6 @@ impl StateHandler {
                 state.contig_index(),
                 middle,
                 n,
-                &mut state.track_cache,
                 &state.contig_header,
             )
             .await?;
@@ -762,7 +749,7 @@ impl StateHandler {
 
     async fn go_to_previous_exons_start(
         state: &mut State,
-        repository: &Repository,
+        repository: &mut Repository,
         n: usize,
     ) -> Result<(), TGVError> {
         if n == 0 {
@@ -783,7 +770,6 @@ impl StateHandler {
                 state.contig_index(),
                 middle,
                 n,
-                &mut state.track_cache,
                 &state.contig_header,
             )
             .await?;
@@ -793,7 +779,7 @@ impl StateHandler {
 
     async fn go_to_previous_exons_end(
         state: &mut State,
-        repository: &Repository,
+        repository: &mut Repository,
         n: usize,
     ) -> Result<(), TGVError> {
         if n == 0 {
@@ -815,7 +801,6 @@ impl StateHandler {
                 state.contig_index(),
                 middle,
                 n,
-                &mut state.track_cache,
                 &state.contig_header,
             )
             .await?;
@@ -825,17 +810,12 @@ impl StateHandler {
 
     async fn go_to_gene(
         state: &mut State,
-        repository: &Repository,
+        repository: &mut Repository,
         gene_name: String,
     ) -> Result<(), TGVError> {
         let gene = repository
             .track_service_checked()?
-            .query_gene_name(
-                &state.reference,
-                &gene_name,
-                &mut state.track_cache,
-                &state.contig_header,
-            )
+            .query_gene_name(&state.reference, &gene_name, &state.contig_header)
             .await?;
 
         Self::go_to_contig_coordinate(state, gene.contig_index(), gene.start() + 1)
@@ -857,7 +837,7 @@ impl StateHandler {
         Self::go_to_contig_coordinate(state, contig_index, 1)
     }
 
-    async fn go_to_default(state: &mut State, repository: &Repository) -> Result<(), TGVError> {
+    async fn go_to_default(state: &mut State, repository: &mut Repository) -> Result<(), TGVError> {
         match state.reference {
             Reference::Hg38 | Reference::Hg19 => {
                 return Self::go_to_gene(state, repository, "TP53".to_string()).await;
@@ -872,14 +852,7 @@ impl StateHandler {
                 // We use query_k_genes_after starting from coordinate 0 with k=1.
                 match repository
                     .track_service_checked()?
-                    .query_k_genes_after(
-                        &state.reference,
-                        first_contig,
-                        0,
-                        1,
-                        &mut state.track_cache,
-                        &state.contig_header,
-                    )
+                    .query_k_genes_after(&state.reference, first_contig, 0, 1, &state.contig_header)
                     .await
                 {
                     Ok(gene) => {
@@ -920,7 +893,7 @@ impl StateHandler {
 
         match data_message {
             DataMessage::RequiresCompleteAlignments(region) => {
-                if !Self::has_complete_alignment(state, &region) {
+                if !state.alignment.has_complete_data(&region) {
                     state.alignment = {
                         let mut alignment = repository
                             .alignment_repository
@@ -940,18 +913,13 @@ impl StateHandler {
                 }
             }
             DataMessage::RequiresCompleteFeatures(region) => {
-                let has_complete_track = Self::has_complete_track(state, &region);
+                let has_complete_track = state.::has_complete_track(state, &region);
                 if let (Some(reference), Some(track_service)) =
                     (state.reference.as_ref(), repository.track_service.as_ref())
                 {
                     if !has_complete_track {
                         if let Ok(track) = track_service
-                            .query_gene_track(
-                                reference,
-                                &region,
-                                &mut state.track_cache,
-                                &state.contig_header,
-                            )
+                            .query_gene_track(reference, &region, &state.contig_header)
                             .await
                         {
                             state.track = Some(track);
@@ -978,12 +946,12 @@ impl StateHandler {
             DataMessage::RequiresCompleteSequences(region) => {
                 let sequence_service = repository.sequence_service_checked()?;
 
-                if !Self::has_complete_sequence(state, &region) {
+                if !state.sequence.has_complete_data(&region) {
                     let sequence = sequence_service
-                        .query_sequence(&region, &mut state.sequence_cache, &state.contig_header)
+                        .query_sequence(&region, &state.contig_header)
                         .await?;
 
-                    state.sequence = Some(sequence);
+                    state.sequence = sequence;
                     loaded_data = true;
                 }
             }
@@ -997,12 +965,7 @@ impl StateHandler {
                     (state.reference.clone(), repository.track_service.as_ref())
                 {
                     let cytoband = track_service
-                        .get_cytoband(
-                            reference,
-                            contig_index,
-                            &mut state.track_cache,
-                            &state.contig_header,
-                        )
+                        .get_cytoband(reference, contig_index, &state.contig_header)
                         .await?;
                     state
                         .contig_header
@@ -1017,17 +980,5 @@ impl StateHandler {
         }
 
         Ok(loaded_data)
-    }
-
-    pub fn has_complete_alignment(state: &State, region: &Region) -> bool {
-        state.alignment.is_some() && state.alignment.as_ref().unwrap().has_complete_data(region)
-    }
-
-    pub fn has_complete_track(state: &State, region: &Region) -> bool {
-        state.track.is_some() && state.track.as_ref().unwrap().has_complete_data(region)
-    }
-
-    pub fn has_complete_sequence(state: &State, region: &Region) -> bool {
-        state.sequence.is_some() && state.sequence.as_ref().unwrap().has_complete_data(region)
     }
 }

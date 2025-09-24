@@ -2,12 +2,12 @@ use crate::contig_header::ContigHeader;
 use crate::error::TGVError;
 use crate::intervals::Region;
 use crate::reference::Reference;
-use crate::sequence::{Sequence, SequenceCache, SequenceRepository};
+use crate::sequence::{Sequence, SequenceRepository};
 use std::collections::HashMap;
 use twobit::TwoBitFile;
 
 /// Repository for reading sequences from 2bit files
-#[derive(Debug)]
+
 pub struct TwoBitSequenceRepository {
     /// Reference genome.
     reference: Reference,
@@ -17,6 +17,12 @@ pub struct TwoBitSequenceRepository {
 
     /// Cache root directory. 2bit files are in cache_dir/_reference_name/*.2bit
     cache_dir: String,
+
+    /// contig index -> 2bit buffer index in buffers. Used in local mode (TwoBitSequenceRepository).
+    contig_to_buffer_index: HashMap<usize, usize>,
+
+    /// 2bit file buffers. Used in local mode (TwoBitSequenceRepository).
+    buffers: Vec<TwoBitFile<std::io::BufReader<std::fs::File>>>,
 }
 
 impl TwoBitSequenceRepository {
@@ -24,7 +30,7 @@ impl TwoBitSequenceRepository {
         reference: Reference,
         contig_to_file_name: HashMap<usize, Option<String>>,
         cache_dir: String,
-    ) -> Result<(Self, SequenceCache), TGVError> {
+    ) -> Result<Self, TGVError> {
         // Get the file path for this contig
 
         let mut buffers = Vec::new();
@@ -64,37 +70,25 @@ impl TwoBitSequenceRepository {
             }
         }
 
-        Ok((
-            Self {
-                reference,
-                contig_to_file_name,
-                cache_dir,
-            },
-            SequenceCache::TwoBit(TwoBitSequenceCache {
-                contig_to_buffer_index,
-                buffers,
-            }),
-        ))
+        Ok(Self {
+            reference,
+            contig_to_file_name,
+            cache_dir,
+            contig_to_buffer_index,
+            buffers,
+        })
     }
 }
 
 impl SequenceRepository for TwoBitSequenceRepository {
     async fn query_sequence(
-        &self,
+        &mut self,
         region: &Region,
-        cache: &mut SequenceCache,
+
         contig_header: &ContigHeader,
     ) -> Result<Sequence, TGVError> {
-        let cache = match cache {
-            SequenceCache::TwoBit(cache) => cache,
-            _ => {
-                return Err(TGVError::StateError(format!(
-                    "Expect SequenceCache::TwoBit"
-                )));
-            }
-        };
         let contig_name = contig_header.get_name(region.contig_index)?;
-        let buffer = &mut cache.buffers[cache.contig_to_buffer_index[&region.contig_index]];
+        let buffer = &mut self.buffers[self.contig_to_buffer_index[&region.contig_index]];
         let sequence_str = buffer.read_sequence(
             contig_name,
             (region.start - 1)..region.end, // Convert to 0-based range
@@ -107,16 +101,7 @@ impl SequenceRepository for TwoBitSequenceRepository {
         })
     }
 
-    async fn close(&self) -> Result<(), TGVError> {
+    async fn close(&mut self) -> Result<(), TGVError> {
         Ok(())
     }
-}
-
-#[derive(Default)]
-pub struct TwoBitSequenceCache {
-    /// contig index -> 2bit buffer index in buffers. Used in local mode (TwoBitSequenceRepository).
-    contig_to_buffer_index: HashMap<usize, usize>,
-
-    /// 2bit file buffers. Used in local mode (TwoBitSequenceRepository).
-    buffers: Vec<TwoBitFile<std::io::BufReader<std::fs::File>>>,
 }

@@ -123,24 +123,20 @@ impl LocalDbTrackService {
 
 #[async_trait]
 impl TrackService for LocalDbTrackService {
-    async fn close(&self) -> Result<(), TGVError> {
+    async fn close(&mut self) -> Result<(), TGVError> {
         self.pool.close().await;
         Ok(())
     }
 
-    async fn get_all_contigs(
-        &self,
-        reference: &Reference,
-        cache: &mut TrackCache,
-    ) -> Result<Vec<Contig>, TGVError> {
+    async fn get_all_contigs(&mut self, reference: &Reference) -> Result<Vec<Contig>, TGVError> {
         let contigs: Vec<ContigRow> = sqlx::query_as(
-            "SELECT 
-                chromInfo.chrom as chrom, 
+            "SELECT
+                chromInfo.chrom as chrom,
                 chromInfo.size as size,
                 GROUP_CONCAT(chromAlias.alias, ',') as aliases
-            FROM chromInfo 
+            FROM chromInfo
             LEFT JOIN chromAlias ON chromAlias.chrom = chromInfo.chrom
-            WHERE chromInfo.chrom NOT LIKE 'chr%\\_%' ESCAPE '\\' 
+            WHERE chromInfo.chrom NOT LIKE 'chr%\\_%' ESCAPE '\\'
             GROUP BY chromInfo.chrom
             ORDER BY chromInfo.chrom;
             ",
@@ -149,10 +145,10 @@ impl TrackService for LocalDbTrackService {
         .await
         .unwrap_or({
             sqlx::query_as(
-                "SELECT 
-                    chromInfo.chrom as chrom, 
+                "SELECT
+                    chromInfo.chrom as chrom,
                     chromInfo.size as size
-                FROM chromInfo 
+                FROM chromInfo
                 WHERE chromInfo.chrom NOT LIKE 'chr%\\_%' ESCAPE '\\'
                 ORDER BY chromInfo.chrom",
             )
@@ -180,7 +176,6 @@ impl TrackService for LocalDbTrackService {
         &self,
         reference: &Reference,
         contig_index: usize,
-        cache: &mut TrackCache,
         contig_header: &ContigHeader,
     ) -> Result<Option<Cytoband>, TGVError> {
         let contig_name = contig_header.get_name(contig_index)?;
@@ -245,7 +240,7 @@ impl TrackService for LocalDbTrackService {
         let contig_name = contig_header.get_name(region.contig_index())?;
         let rows: Vec<UcscGeneRow> = sqlx::query_as(
             format!(
-                "SELECT * FROM {} 
+                "SELECT * FROM {}
              WHERE chrom = ? AND (txStart <= ?) AND (txEnd >= ?)",
                 self.get_preferred_track_name_with_cache(reference, cache)
                     .await?
@@ -275,7 +270,7 @@ impl TrackService for LocalDbTrackService {
         let gene_row: Option<UcscGeneRow> = sqlx::query_as(
             format!(
                 "SELECT *
-             FROM {} 
+             FROM {}
              WHERE chrom = ? AND txStart <= ? AND txEnd >= ?",
                 self.get_preferred_track_name_with_cache(reference, cache)
                     .await?,
@@ -301,7 +296,7 @@ impl TrackService for LocalDbTrackService {
         let gene_row: Option<UcscGeneRow> = sqlx::query_as(
             format!(
                 "SELECT *
-            FROM {} 
+            FROM {}
             WHERE name2 = ?",
                 self.get_preferred_track_name_with_cache(reference, cache)
                     .await?
@@ -337,8 +332,8 @@ impl TrackService for LocalDbTrackService {
         let gene_rows: Vec<UcscGeneRow> = sqlx::query_as(
             format!(
                 "SELECT *
-             FROM {} 
-             WHERE chrom = ? AND txEnd >= ? 
+             FROM {}
+             WHERE chrom = ? AND txEnd >= ?
              ORDER BY txEnd ASC LIMIT ?",
                 self.get_preferred_track_name_with_cache(reference, cache)
                     .await?,
@@ -374,8 +369,8 @@ impl TrackService for LocalDbTrackService {
         let gene_rows: Vec<UcscGeneRow> = sqlx::query_as(
             format!(
                 "SELECT *
-             FROM {} 
-             WHERE chrom = ? AND txStart <= ? 
+             FROM {}
+             WHERE chrom = ? AND txStart <= ?
              ORDER BY txStart DESC LIMIT ?",
                 self.get_preferred_track_name_with_cache(reference, cache)
                     .await?,
@@ -411,8 +406,8 @@ impl TrackService for LocalDbTrackService {
         let gene_rows: Vec<UcscGeneRow> = sqlx::query_as(
             format!(
                 "SELECT *
-             FROM {} 
-             WHERE chrom = ? AND txEnd >= ? 
+             FROM {}
+             WHERE chrom = ? AND txEnd >= ?
              ORDER BY txEnd ASC LIMIT ?",
                 self.get_preferred_track_name_with_cache(reference, cache)
                     .await?,
@@ -447,8 +442,8 @@ impl TrackService for LocalDbTrackService {
         let gene_rows: Vec<UcscGeneRow> = sqlx::query_as(
             format!(
                 "SELECT *
-             FROM {} 
-             WHERE chrom = ? AND txStart <= ? 
+             FROM {}
+             WHERE chrom = ? AND txStart <= ?
              ORDER BY txStart DESC LIMIT ?",
                 self.get_preferred_track_name_with_cache(reference, cache)
                     .await?,

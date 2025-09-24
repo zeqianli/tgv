@@ -7,7 +7,7 @@ use crate::{
     intervals::Region,
     reference::Reference,
     sequence::{
-        IndexedFastaSequenceRepository, Sequence, SequenceCache, SequenceRepositoryEnum,
+        IndexedFastaSequenceRepository, Sequence, SequenceRepositoryEnum,
         TwoBitSequenceRepository, UCSCApiSequenceRepository,
     },
     settings::{BackendType, Settings},
@@ -32,8 +32,10 @@ pub struct Repository {
     pub bed_intervals: Option<BEDIntervals>,
 
     pub track_service: Option<TrackServiceEnum>,
+    pub track_cache: TrackCache,
 
     pub sequence_service: Option<SequenceRepositoryEnum>,
+
 }
 
 impl Repository {
@@ -92,9 +94,9 @@ impl Repository {
 
         let alignment_repository = AlignmentRepositoryEnum::new(settings)?;
 
-        let variant_repository = match &settings.vcf_path.try_map(|vcf_path| 
+        let variant_repository = match &settings.vcf_path.try_map(|vcf_path|
             VariantRepository::from_vcf(vcf_path, &contig_header))?;
-        
+
 
         let bed_intervals = match &settings.bed_path {
             Some(bed_path) => Some(BEDIntervals::from_bed(bed_path, &contig_header)?),
@@ -115,18 +117,18 @@ impl Repository {
         ))
     }
 
-    pub fn track_service_checked(&self) -> Result<&TrackServiceEnum, TGVError> {
-        match self.track_service {
-            Some(ref track_service) => Ok(track_service),
+    pub fn track_service_checked(&mut self) -> Result<&mut TrackServiceEnum, TGVError> {
+        match self.track_service.as_mut(){
+            Some(track_service) => Ok(track_service),
             None => Err(TGVError::StateError(
                 "Track service is not initialized".to_string(),
             )),
         }
     }
 
-    pub fn sequence_service_checked(&self) -> Result<&SequenceRepositoryEnum, TGVError> {
-        match self.sequence_service {
-            Some(ref sequence_service) => Ok(sequence_service),
+    pub fn sequence_service_checked(&mut self) -> Result<&mut SequenceRepositoryEnum, TGVError> {
+        match self.sequence_service.as_mut(){
+            Some(sequence_service) => Ok(sequence_service),
             None => Err(TGVError::StateError(
                 "Sequence service is not initialized".to_string(),
             )),
@@ -143,7 +145,7 @@ impl Repository {
         Ok(())
     }
 
-    
+
 }
 
 #[derive(Debug)]
