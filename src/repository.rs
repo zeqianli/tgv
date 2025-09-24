@@ -43,7 +43,7 @@ impl Repository {
         settings: &Settings,
     ) -> Result<(Self, SequenceCache, TrackCache, ContigHeader), TGVError> {
         let mut contig_header = ContigHeader::new(settings.reference.clone());
-        let mut track_cache = TrackCache::new();
+        let mut track_cache = TrackCache::default();
 
         let track_service = TrackServiceEnum::new(&settings).await?;
 
