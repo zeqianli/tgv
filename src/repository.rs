@@ -1,27 +1,19 @@
 use crate::{
     alignment::{AlignedRead, Alignment},
     bed::BEDIntervals,
-    contig_header::{Contig, ContigHeader},
+    contig_header::ContigHeader,
     error::TGVError,
     helpers::is_url,
     intervals::Region,
-    reference::Reference,
-    sequence::{
-        IndexedFastaSequenceRepository, Sequence, SequenceRepository, SequenceRepositoryEnum,
-        TwoBitSequenceRepository, UCSCApiSequenceRepository,
-    },
-    settings::{BackendType, Settings},
-    tracks::{
-        LocalDbTrackService, TrackCache, TrackService, TrackServiceEnum, UcscApiTrackService,
-        UcscDbTrackService,
-    },
+    sequence::{Sequence, SequenceRepository, SequenceRepositoryEnum},
+    settings::Settings,
+    tracks::{TrackService, TrackServiceEnum},
     variant::VariantRepository,
 };
 
 use rust_htslib::bam;
 use rust_htslib::bam::{Header, IndexedReader, Read};
 use std::path::Path;
-// Add twobit crate to Cargo.toml
 use url::Url;
 
 pub struct Repository {
