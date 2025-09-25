@@ -45,7 +45,7 @@ impl UCSCDownloader {
             .map_err(|e| TGVError::IOError(format!("Failed to create genome directory: {}", e)))?;
         Ok(Self {
             reference: reference.clone(),
-            cache_dir: cache_dir,
+            cache_dir,
         })
     }
 

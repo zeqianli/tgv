@@ -97,8 +97,8 @@ impl Reference {
             Self::Hg38 => Self::HG38.to_string(),
             Self::UcscGenome(s) => s.clone(),
             Self::UcscAccession(s) => s.clone(),
-            Self::BYOIndexedFasta(s) => s.split('/').last().unwrap().to_string(),
-            Self::BYOTwoBit(s) => s.split('/').last().unwrap().to_string(),
+            Self::BYOIndexedFasta(s) => s.split('/').next_back().unwrap().to_string(),
+            Self::BYOTwoBit(s) => s.split('/').next_back().unwrap().to_string(),
             Self::NoReference => "no_reference".to_string(),
         }
     }
@@ -123,7 +123,7 @@ impl Reference {
 
     pub fn cache_dir(&self, parent_cache_dir: &str) -> String {
         Path::new(parent_cache_dir)
-            .join(&self.to_string())
+            .join(self.to_string())
             .to_str()
             .unwrap()
             .to_string()

@@ -32,8 +32,8 @@ impl Repository {
     pub async fn new(settings: &Settings) -> Result<(Self, ContigHeader), TGVError> {
         let mut contig_header = ContigHeader::new(settings.reference.clone());
 
-        let mut track_service = TrackServiceEnum::new(&settings).await?;
-        let mut sequence_service = SequenceRepositoryEnum::new(&settings)?;
+        let mut track_service = TrackServiceEnum::new(settings).await?;
+        let mut sequence_service = SequenceRepositoryEnum::new(settings)?;
 
         if let Some(ts) = track_service.as_mut() {
             ts.get_all_contigs(&settings.reference)

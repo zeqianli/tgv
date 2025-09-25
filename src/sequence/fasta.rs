@@ -6,7 +6,7 @@ use crate::{
 };
 use noodles_core::region::Region as noodlesRegion;
 use noodles_fasta::{
-    fai::{Index, Record},
+    fai::Index,
     io::{
         indexed_reader::{Builder, IndexedReader},
         BufReader,
@@ -24,7 +24,7 @@ impl IndexedFastaSequenceRepository {
     pub fn new(path: String) -> Result<Self, TGVError> {
         let reader = Builder::default().build_from_path(path)?;
         let index = reader.index().clone();
-        return Ok(Self { index, reader });
+        Ok(Self { index, reader })
     }
 
     pub fn query_contigs(&self) -> Vec<Contig> {

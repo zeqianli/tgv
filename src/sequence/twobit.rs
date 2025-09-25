@@ -48,7 +48,7 @@ impl TwoBitSequenceRepository {
                 // add a new buffer
                 //let file_path = format!("{}/{}/{}", &cache_dir, reference.to_string(), file_name);
                 let tb: TwoBitFile<std::io::BufReader<std::fs::File>> =
-                    twobit::TwoBitFile::open(&path).map_err(|e| {
+                    twobit::TwoBitFile::open(path).map_err(|e| {
                         TGVError::IOError(format!("Failed to open 2bit file {}: {}", &path, e))
                     })?;
                 self.buffers.push(tb);

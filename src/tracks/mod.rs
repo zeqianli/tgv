@@ -11,7 +11,7 @@ use crate::{
     feature::{Gene, SubGeneFeature},
     intervals::{GenomeInterval, Region},
     reference::Reference,
-    settings::{self, BackendType, Settings},
+    settings::{BackendType, Settings},
     track::Track,
 };
 use async_trait::async_trait;
@@ -233,15 +233,15 @@ impl TrackServiceEnum {
                         ))),
                     },
 
-                    Err(e) => return Err(e),
+                    Err(e) => Err(e),
                 }
             }
 
             _ => {
-                return Err(TGVError::ValueError(format!(
+                Err(TGVError::ValueError(format!(
                     "Failed to initialize TrackService for reference {}",
                     settings.reference.to_string()
-                )));
+                )))
             }
         }
     }

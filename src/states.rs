@@ -1,4 +1,3 @@
-use std::default;
 
 use crate::error::TGVError;
 use crate::intervals::GenomeInterval;
@@ -7,7 +6,7 @@ use crate::message::AlignmentFilter;
 use crate::repository::AlignmentRepository;
 use crate::repository::Repository;
 use crate::settings::Settings;
-use crate::tracks::{TrackCache, TrackService};
+use crate::tracks::TrackService;
 use crate::{
     alignment::Alignment,
     contig_header::ContigHeader,
@@ -940,8 +939,7 @@ impl StateHandler {
                         .contig_header
                         .update_cytoband(contig_index, cytoband)?;
                     loaded_data = true;
-                } else {
-                }
+                } 
             }
         }
 
