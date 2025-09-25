@@ -28,7 +28,6 @@ pub fn render_contig_list(
     }
 
     // First line: reference name
-
     buf.set_string(
         area.x,
         area.y,

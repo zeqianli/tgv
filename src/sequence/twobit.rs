@@ -12,11 +12,7 @@ pub struct TwoBitSequenceRepository {
     /// Reference genome.
     reference: Reference,
 
-    /// reference genome string -> 2bit file base name
-    contig_to_file_name: HashMap<usize, String>,
-
-    /// Cache root directory. 2bit files are in cache_dir/_reference_name/*.2bit
-    cache_dir: String,
+    file_name_to_buffer_index: HashMap<String, usize>,
 
     /// contig index -> 2bit buffer index in buffers. Used in local mode (TwoBitSequenceRepository).
     contig_to_buffer_index: HashMap<usize, usize>,
@@ -24,59 +20,42 @@ pub struct TwoBitSequenceRepository {
     /// 2bit file buffers. Used in local mode (TwoBitSequenceRepository).
     buffers: Vec<TwoBitFile<std::io::BufReader<std::fs::File>>>,
 }
-
 impl TwoBitSequenceRepository {
-    pub fn new(
-        reference: Reference,
-        contig_to_file_name: HashMap<usize, Option<String>>,
-        cache_dir: String,
-    ) -> Result<Self, TGVError> {
-        // Get the file path for this contig
+    pub fn new(reference: Reference) -> Self {
+        Self {
+            reference,
+            file_name_to_buffer_index: HashMap::new(),
+            contig_to_buffer_index: HashMap::new(),
+            buffers: Vec::new(),
+        }
+    }
 
-        let mut buffers = Vec::new();
-        let mut file_name_to_buffer_index = HashMap::new();
-        let mut contig_to_buffer_index = HashMap::new();
-
+    pub fn add_contig_path(mut self, contig_index: usize, path: &String) -> Result<Self, TGVError> {
+        // contig_to_file_name: HashMap<usize, Option<String>>,
+        // cache_dir: String,
         // Remove contigs that have no 2bit file.
-        let contig_to_file_name: HashMap<usize, String> = contig_to_file_name
-            .into_iter()
-            .filter(|(_, file_name)| file_name.is_some())
-            .map(|(contig, file_name)| (contig, file_name.unwrap()))
-            .collect();
 
-        for (contig, file_name) in contig_to_file_name.iter() {
-            let i_buffer = buffers.len();
+        match self.file_name_to_buffer_index.get(path) {
+            Some(i_buffer) => {
+                self.contig_to_buffer_index.insert(contig_index, *i_buffer);
+            }
+            None => {
+                let i_buffer = self.buffers.len();
+                self.file_name_to_buffer_index
+                    .insert(path.clone(), i_buffer);
+                self.contig_to_buffer_index.insert(contig_index, i_buffer);
 
-            match file_name_to_buffer_index.get(file_name) {
-                Some(i_buffer) => {
-                    contig_to_buffer_index.insert(*contig, *i_buffer);
-                }
-                None => {
-                    file_name_to_buffer_index.insert(file_name.clone(), i_buffer);
-                    contig_to_buffer_index.insert(*contig, i_buffer);
-
-                    // add a new buffer
-                    let file_path =
-                        format!("{}/{}/{}", &cache_dir, reference.to_string(), file_name);
-                    let tb: TwoBitFile<std::io::BufReader<std::fs::File>> =
-                        twobit::TwoBitFile::open(&file_path).map_err(|e| {
-                            TGVError::IOError(format!(
-                                "Failed to open 2bit file {}: {}",
-                                &file_path, e
-                            ))
-                        })?;
-                    buffers.push(tb);
-                }
+                // add a new buffer
+                //let file_path = format!("{}/{}/{}", &cache_dir, reference.to_string(), file_name);
+                let tb: TwoBitFile<std::io::BufReader<std::fs::File>> =
+                    twobit::TwoBitFile::open(&path).map_err(|e| {
+                        TGVError::IOError(format!("Failed to open 2bit file {}: {}", &path, e))
+                    })?;
+                self.buffers.push(tb);
             }
         }
 
-        Ok(Self {
-            reference,
-            contig_to_file_name,
-            cache_dir,
-            contig_to_buffer_index,
-            buffers,
-        })
+        Ok(self)
     }
 }
 

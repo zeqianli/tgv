@@ -116,7 +116,7 @@ pub enum SequenceRepositoryEnum {
 }
 
 impl SequenceRepositoryEnum {
-    fn new_ucsc_api(settings: &Settings) -> Result<Option<(Self, SequenceCache)>, TGVError> {
+    fn new_ucsc_api(settings: &Settings) -> Result<Self, TGVError> {
         Ok(Some({
             let (sr, sc) =
                 UCSCApiSequenceRepository::new(&settings.reference, &settings.ucsc_host)?;

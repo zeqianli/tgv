@@ -911,21 +911,21 @@ mod tests {
     use rust_htslib::bam::record::{Cigar, CigarString};
 
     #[rstest]
-    #[case(10, vec![Cigar::Match(3)],  b"ATT", false,None, vec![RenderingContext{
+    #[case(10, vec![Cigar::Match(3)],  b"ATT", false,Sequence::default(), vec![RenderingContext{
         start:10,
         end:12,
         kind: RenderingContextKind::Match,
         modifiers:vec![RenderingContextModifier::Forward]
     }])]
     // Test reverse strand
-    #[case(10, vec![Cigar::Match(3)],  b"ATT", true, None, vec![RenderingContext{
+    #[case(10, vec![Cigar::Match(3)],  b"ATT", true, Sequence::default(), vec![RenderingContext{
         start:10,
         end:12,
         kind: RenderingContextKind::Match,
         modifiers:vec![RenderingContextModifier::Reverse]
     }])]
     // Test deletion
-    #[case(10, vec![Cigar::Match(3),Cigar::Del(2), Cigar::Match(3)], b"AAATTT", true, None, vec![RenderingContext{
+    #[case(10, vec![Cigar::Match(3),Cigar::Del(2), Cigar::Match(3)], b"AAATTT", true, Sequence::default(), vec![RenderingContext{
         start:10,
         end:12,
         kind: RenderingContextKind::Match,
@@ -942,7 +942,7 @@ mod tests {
         modifiers:vec![]
     }])]
     // Test RefSkip
-    #[case(10, vec![Cigar::Match(3),Cigar::RefSkip(2)], b"AAA", false, None, vec![RenderingContext{
+    #[case(10, vec![Cigar::Match(3),Cigar::RefSkip(2)], b"AAA", false, Sequence::default(), vec![RenderingContext{
         start:10,
         end:12,
         kind: RenderingContextKind::Match,
@@ -954,7 +954,7 @@ mod tests {
         modifiers:vec![RenderingContextModifier::Forward]
     }])]
     // Test insertion
-    #[case(10, vec![Cigar::Match(3), Cigar::Ins(2), Cigar::Match(3)], b"AAATTCCC", false, None, vec![RenderingContext{
+    #[case(10, vec![Cigar::Match(3), Cigar::Ins(2), Cigar::Match(3)], b"AAATTCCC", false, Sequence::default(), vec![RenderingContext{
         start:10,
         end:12,
         kind: RenderingContextKind::Match,
@@ -966,7 +966,7 @@ mod tests {
         modifiers:vec![RenderingContextModifier::Insertion(2), RenderingContextModifier::Forward]
     }])]
     // Test soft clips
-    #[case(10, vec![Cigar::SoftClip(2), Cigar::Match(3), Cigar::SoftClip(1)], b"GGATTC", true, None, vec![
+    #[case(10, vec![Cigar::SoftClip(2), Cigar::Match(3), Cigar::SoftClip(1)], b"GGATTC", true, Sequence::default(), vec![
         RenderingContext{
             start:8,
             end:8,
@@ -993,14 +993,14 @@ mod tests {
         }
     ])]
     // Test Equal cigar (matches current implementation with query pivot)
-    #[case(10, vec![Cigar::Equal(3)], b"ATT", false, None, vec![RenderingContext{
+    #[case(10, vec![Cigar::Equal(3)], b"ATT", false, Sequence::default(), vec![RenderingContext{
         start:10,
         end:12, // This matches the current implementation which uses next_query_pivot - 1
         kind: RenderingContextKind::Match,
         modifiers:vec![RenderingContextModifier::Forward]
     }])]
     // Test Diff cigar (explicit mismatch)
-    #[case(10, vec![Cigar::Diff(3)], b"ATT", false, None, vec![RenderingContext{
+    #[case(10, vec![Cigar::Diff(3)], b"ATT", false, Sequence::default(), vec![RenderingContext{
         start:10,
         end:12,
         kind: RenderingContextKind::Match,
@@ -1013,7 +1013,7 @@ mod tests {
     }])]
     // Test complex cigar: soft clip + match + insertion + match + deletion + match
     #[case(10, vec![Cigar::SoftClip(1), Cigar::Match(2), Cigar::Ins(1), Cigar::Match(2), Cigar::Del(3), Cigar::Match(2)],
-           b"GATCGAA", false, None, vec![
+           b"GATCGAA", false, Sequence::default(), vec![
         RenderingContext{
             start:9,
             end:9,
@@ -1046,7 +1046,7 @@ mod tests {
         }
     ])]
     // Test soft clips
-    #[case(10, vec![Cigar::SoftClip(2), Cigar::Match(3), Cigar::SoftClip(1)], b"GGATTC", true, Sequence::new(10, b"AATG".to_vec(), 0).unwrap(), vec![
+    #[case(10, vec![Cigar::SoftClip(2), Cigar::Match(3), Cigar::SoftClip(1)], b"GGATTC", true, Sequence::new(10, b"AATG".to_vec(), 0), vec![
         RenderingContext{
             start:8,
             end:8,

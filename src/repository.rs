@@ -7,7 +7,7 @@ use crate::{
     intervals::Region,
     reference::Reference,
     sequence::{
-        IndexedFastaSequenceRepository, Sequence, SequenceRepositoryEnum,
+        IndexedFastaSequenceRepository, Sequence, SequenceRepositoryEnum, SequenceRepository,
         TwoBitSequenceRepository, UCSCApiSequenceRepository,
     },
     settings::{BackendType, Settings},
@@ -32,7 +32,6 @@ pub struct Repository {
     pub bed_intervals: Option<BEDIntervals>,
 
     pub track_service: Option<TrackServiceEnum>,
-    pub track_cache: TrackCache,
 
     pub sequence_service: Option<SequenceRepositoryEnum>,
 
@@ -213,7 +212,7 @@ impl BamRepository {
             }
         }
 
-        Ok(Self { bam_path.clone(), bai_path })
+        Ok(Self { bam_path: bam_path.clone(), bai_path })
     }
 }
 
