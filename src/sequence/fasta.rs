@@ -72,7 +72,3 @@ impl SequenceRepository for IndexedFastaSequenceRepository {
         Ok(())
     }
 }
-
-// FIXME: I don't like this repository - cache setup. This is out of mutability concerns. Feels redundant.
-
-pub struct IndexedFastaSequenceCache {}

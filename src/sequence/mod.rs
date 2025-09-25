@@ -3,8 +3,7 @@ mod twobit;
 mod ucsc_api;
 
 pub use crate::sequence::{
-    fasta::{IndexedFastaSequenceCache, IndexedFastaSequenceRepository},
-    twobit::TwoBitSequenceRepository,
+    fasta::IndexedFastaSequenceRepository, twobit::TwoBitSequenceRepository,
     ucsc_api::UCSCApiSequenceRepository,
 };
 use crate::{
@@ -13,10 +12,8 @@ use crate::{
     intervals::Region,
     reference::Reference,
     settings::{BackendType, Settings},
-    tracks::TrackServiceEnum,
 };
-use ::twobit::TwoBitFile;
-use std::collections::HashMap;
+use std::path::Path;
 /// Sequences of a genome region.
 #[derive(Debug, Default)]
 pub struct Sequence {
@@ -90,13 +87,6 @@ impl Sequence {
     }
 }
 
-// pub enum SequenceCache {
-//     UcscApi(UcscApiSequenceCache),
-//     TwoBit(TwoBitSequenceCache),
-//     IndexedFasta(IndexedFastaSequenceCache),
-//     NoReference,
-// }
-
 pub trait SequenceRepository {
     async fn query_sequence(
         &mut self,
@@ -108,7 +98,6 @@ pub trait SequenceRepository {
     async fn close(&mut self) -> Result<(), TGVError>;
 }
 
-#[derive(Debug)]
 pub enum SequenceRepositoryEnum {
     UCSCApi(UCSCApiSequenceRepository),
     TwoBit(TwoBitSequenceRepository),
@@ -116,52 +105,32 @@ pub enum SequenceRepositoryEnum {
 }
 
 impl SequenceRepositoryEnum {
-    fn new_ucsc_api(settings: &Settings) -> Result<Self, TGVError> {
-        Ok(Some({
-            let (sr, sc) =
-                UCSCApiSequenceRepository::new(&settings.reference, &settings.ucsc_host)?;
-            (Self::UCSCApi(sr), sc)
-        }))
-    }
-
-    fn new_local(
-        settings: &Settings,
-        track_service: Option<&TrackServiceEnum>,
-    ) -> Result<Self, TGVError> {
-        Ok(Some({
-            let (sr, sc) = TwoBitSequenceRepository::new(&settings.reference, &settings.cache_dir);
-            (Self::TwoBit(sr), sc)
-        }))
-    }
-    pub fn new(
-        settings: &Settings,
-        track_service: Option<&TrackServiceEnum>,
-    ) -> Result<Self, TGVError> {
+    pub fn new(settings: &Settings) -> Result<Option<Self>, TGVError> {
         match (&settings.backend, &settings.reference) {
             (_, Reference::NoReference) => Ok(None),
-            (_, Reference::IndexedFasta(path)) => Ok(Some({
-                let (sr, sc) = IndexedFastaSequenceRepository::new(path.clone())?;
-                (Self::IndexedFasta(sr), sc)
-            })),
+            (_, Reference::BYOIndexedFasta(path)) => Ok(Some(Self::IndexedFasta(
+                IndexedFastaSequenceRepository::new(path.clone())?,
+            ))),
 
-            (BackendType::Ucsc, _) => Self::new_ucsc_api(settings),
-            (BackendType::Local, _) => Self::new_local(settings, track_service),
-            (BackendType::Default, reference) => {
+            (BackendType::Ucsc, _) => Ok(Some(Self::UCSCApi(UCSCApiSequenceRepository::new(
+                &settings.reference,
+                &settings.ucsc_host,
+            )?))),
+            (BackendType::Local, _) => Ok(Some(Self::TwoBit(TwoBitSequenceRepository::new(
+                &settings.reference,
+            )))), // add paths later
+            (BackendType::Default, _) => {
                 // If the local cache is available, use the local cache.
                 // Otherwise, use the UCSC DB / API.
-                match LocalDbTrackService::new(&settings.reference, &settings.cache_dir).await {
-                    Ok(ts) => Ok(Some(TrackServiceEnum::LocalDb(ts))),
-                    Err(TGVError::IOError(e)) => match reference {
-                        Reference::UcscAccession(_) => {
-                            Ok(Some(TrackServiceEnum::Api(UcscApiTrackService::new()?)))
-                        }
-                        _ => Ok(Some(TrackServiceEnum::Db(
-                            UcscDbTrackService::new(&settings.reference, &settings.ucsc_host)
-                                .await?,
-                        ))),
-                    },
-
-                    Err(e) => return Err(e),
+                if Path::new(&settings.reference.cache_dir(&settings.cache_dir)).exists() {
+                    Ok(Some(Self::TwoBit(TwoBitSequenceRepository::new(
+                        &settings.reference,
+                    ))))
+                } else {
+                    Ok(Some(Self::UCSCApi(UCSCApiSequenceRepository::new(
+                        &settings.reference,
+                        &settings.ucsc_host,
+                    )?)))
                 }
             }
         }

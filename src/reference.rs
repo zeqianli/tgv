@@ -1,5 +1,5 @@
 use crate::error::TGVError;
-
+use std::path::Path;
 // Added: Embed the CSV content as static bytes
 const DEFAULT_DB_CSV: &[u8] = include_bytes!("resources/defaultDb.csv");
 
@@ -9,7 +9,8 @@ pub enum Reference {
     Hg38,
     UcscGenome(String),
     UcscAccession(String),
-    IndexedFasta(String),
+    BYOIndexedFasta(String),
+    BYOTwoBit(String),
     NoReference,
 }
 
@@ -64,7 +65,7 @@ impl Reference {
                 )));
             }
 
-            return Ok(Self::IndexedFasta(s));
+            return Ok(Self::BYOIndexedFasta(s));
         }
 
         // Check for common names
@@ -96,7 +97,8 @@ impl Reference {
             Self::Hg38 => Self::HG38.to_string(),
             Self::UcscGenome(s) => s.clone(),
             Self::UcscAccession(s) => s.clone(),
-            Self::IndexedFasta(s) => s.split('/').last().unwrap().to_string(),
+            Self::BYOIndexedFasta(s) => s.split('/').last().unwrap().to_string(),
+            Self::BYOTwoBit(s) => s.split('/').last().unwrap().to_string(),
             Self::NoReference => "no_reference".to_string(),
         }
     }
@@ -104,7 +106,7 @@ impl Reference {
     pub fn needs_track(&self) -> bool {
         match self {
             Self::Hg19 | Self::Hg38 | Self::UcscGenome(_) | Self::UcscAccession(_) => true,
-            Self::IndexedFasta(_) | Self::NoReference => false,
+            Self::BYOIndexedFasta(_) | Self::BYOTwoBit(_) | Self::NoReference => false,
         }
     }
     pub fn needs_sequence(&self) -> bool {
@@ -113,9 +115,18 @@ impl Reference {
             | Self::Hg38
             | Self::UcscGenome(_)
             | Self::UcscAccession(_)
-            | Self::IndexedFasta(_) => true,
+            | Self::BYOIndexedFasta(_)
+            | Self::BYOTwoBit(_) => true,
             Self::NoReference => false,
         }
+    }
+
+    pub fn cache_dir(&self, parent_cache_dir: &str) -> String {
+        Path::new(parent_cache_dir)
+            .join(&self.to_string())
+            .to_str()
+            .unwrap()
+            .to_string()
     }
 }
 

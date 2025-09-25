@@ -16,6 +16,7 @@ use sqlx::{
     Column, Row,
 };
 use std::collections::HashMap;
+use std::path::Path;
 use std::sync::Arc;
 
 /// Local database track service that reads from SQLite files created by UcscDownloader
@@ -29,13 +30,7 @@ pub struct LocalDbTrackService {
 impl LocalDbTrackService {
     /// Initialize the database connections using SQLite cache files
     pub async fn new(reference: &Reference, cache_dir: &str) -> Result<Self, TGVError> {
-        let expanded_cache_dir = shellexpand::full(cache_dir).map_err(|e| {
-            TGVError::ValueError(format!("Failed to expand cache directory path: {}", e))
-        })?;
-
-        let db_path = std::path::Path::new(expanded_cache_dir.as_ref())
-            .join(reference.to_string())
-            .join("tracks.sqlite");
+        let db_path = Path::new(&reference.cache_dir(cache_dir)).join("tracks.sqlite");
 
         if !db_path.exists() {
             return Err(TGVError::IOError(format!(

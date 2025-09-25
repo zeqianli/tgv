@@ -170,7 +170,7 @@ impl PartialEq for Contig {
 /// A collection of contigs. This helps relative contig movements.
 #[derive(Debug)]
 pub struct ContigHeader {
-    reference: Option<Reference>,
+    reference: Reference,
     pub contigs: Vec<Contig>,
 
     /// contig name / aliases -> index
@@ -178,7 +178,7 @@ pub struct ContigHeader {
 }
 
 impl ContigHeader {
-    pub fn new(reference: Option<Reference>) -> Self {
+    pub fn new(reference: Reference) -> Self {
         Self {
             reference,
             contigs: Vec::new(),
@@ -272,11 +272,7 @@ impl ContigHeader {
         Ok(())
     }
 
-    pub fn update_from_bam(
-        &mut self,
-        reference: Option<&Reference>,
-        bam: &AlignmentRepositoryEnum,
-    ) -> Result<(), TGVError> {
+    pub fn update_from_bam(&mut self, bam: &AlignmentRepositoryEnum) -> Result<(), TGVError> {
         // Use the indexed_reader::Builder pattern as shown in alignment.rs
 
         for (contig_name, contig_length) in bam.read_header()? {

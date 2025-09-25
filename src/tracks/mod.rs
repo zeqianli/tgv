@@ -208,7 +208,7 @@ pub enum TrackServiceEnum {
 impl TrackServiceEnum {
     pub async fn new(settings: &Settings) -> Result<Option<Self>, TGVError> {
         match (&settings.backend, &settings.reference) {
-            (_, Reference::NoReference) | (_, Reference::IndexedFasta(_)) => Ok(None),
+            (_, Reference::NoReference) | (_, Reference::BYOIndexedFasta(_)) => Ok(None),
             (BackendType::Ucsc, Reference::UcscAccession(_)) => {
                 Ok(Some(Self::Api(UcscApiTrackService::new()?)))
             }

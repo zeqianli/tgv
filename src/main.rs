@@ -40,7 +40,8 @@ async fn main() -> Result<(), TGVError> {
             reference,
             cache_dir,
         }) => {
-            let downloader = UCSCDownloader::new(Reference::from_str(&reference)?, cache_dir)?;
+            let cache_dir = shellexpand::tilde(&cache_dir).to_string();
+            let downloader = UCSCDownloader::new(Reference::from_str(&reference)?, &cache_dir)?;
             downloader.download().await?;
             return Ok(());
         }
@@ -125,6 +126,7 @@ mod tests {
     use ratatui::{backend::TestBackend, Terminal};
     use rstest::rstest;
     use std::env;
+    use std::path::Path;
 
     /// Test that the app runs without panicking.
     /// Snapshots are saved in src/snapshots
@@ -192,18 +194,14 @@ mod tests {
     async fn download_integration_test(#[case] reference_str: &str) {
         let reference = Reference::from_str(reference_str).unwrap();
         let temp_dir = tempfile::TempDir::new().unwrap();
-        println!("temp_dir: {:?}", temp_dir.path());
-        let downloader = UCSCDownloader::new(
-            Reference::from_str(reference_str).unwrap(),
-            temp_dir.path().to_str().unwrap().to_string(),
-        )
-        .unwrap();
+        let temp_dir = temp_dir.path().to_str().unwrap();
+        let downloader =
+            UCSCDownloader::new(Reference::from_str(reference_str).unwrap(), temp_dir).unwrap();
 
         downloader.download().await.unwrap();
 
-        assert!(temp_dir.path().join(reference.to_string()).exists());
-        assert!(temp_dir
-            .path()
+        assert!(Path::new(&temp_dir).join(reference.to_string()).exists());
+        assert!(Path::new(&temp_dir)
             .join(reference.to_string())
             .join("tracks.sqlite")
             .exists());

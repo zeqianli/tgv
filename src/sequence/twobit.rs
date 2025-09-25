@@ -21,16 +21,16 @@ pub struct TwoBitSequenceRepository {
     buffers: Vec<TwoBitFile<std::io::BufReader<std::fs::File>>>,
 }
 impl TwoBitSequenceRepository {
-    pub fn new(reference: Reference) -> Self {
+    pub fn new(reference: &Reference) -> Self {
         Self {
-            reference,
+            reference: reference.clone(),
             file_name_to_buffer_index: HashMap::new(),
             contig_to_buffer_index: HashMap::new(),
             buffers: Vec::new(),
         }
     }
 
-    pub fn add_contig_path(mut self, contig_index: usize, path: &String) -> Result<Self, TGVError> {
+    pub fn add_contig_path(&mut self, contig_index: usize, path: &str) -> Result<(), TGVError> {
         // contig_to_file_name: HashMap<usize, Option<String>>,
         // cache_dir: String,
         // Remove contigs that have no 2bit file.
@@ -42,7 +42,7 @@ impl TwoBitSequenceRepository {
             None => {
                 let i_buffer = self.buffers.len();
                 self.file_name_to_buffer_index
-                    .insert(path.clone(), i_buffer);
+                    .insert(path.to_string(), i_buffer);
                 self.contig_to_buffer_index.insert(contig_index, i_buffer);
 
                 // add a new buffer
@@ -55,7 +55,7 @@ impl TwoBitSequenceRepository {
             }
         }
 
-        Ok(self)
+        Ok(())
     }
 }
 

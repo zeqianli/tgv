@@ -867,7 +867,7 @@ impl StateHandler {
                 }
             }
 
-            Reference::IndexedFasta(_) | Reference::NoReference => {} // handle later
+            Reference::BYOIndexedFasta(_) | Reference::BYOTwoBit(_) | Reference::NoReference => {} // handle later
         };
 
         // If reaches here, go to the first contig:1
@@ -928,7 +928,7 @@ impl StateHandler {
                 } else {
                     loaded_data = match state.reference {
                         // FIXME: this is duplicate code as Settings.
-                        Reference::IndexedFasta(_) => false,
+                        Reference::BYOIndexedFasta(_) => false,
                         _ => true,
                     };
                 }

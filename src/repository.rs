@@ -7,7 +7,7 @@ use crate::{
     intervals::Region,
     reference::Reference,
     sequence::{
-        IndexedFastaSequenceRepository, Sequence, SequenceRepositoryEnum, SequenceRepository,
+        IndexedFastaSequenceRepository, Sequence, SequenceRepository, SequenceRepositoryEnum,
         TwoBitSequenceRepository, UCSCApiSequenceRepository,
     },
     settings::{BackendType, Settings},
@@ -34,66 +34,57 @@ pub struct Repository {
     pub track_service: Option<TrackServiceEnum>,
 
     pub sequence_service: Option<SequenceRepositoryEnum>,
-
 }
 
 impl Repository {
-    pub async fn new(
-        settings: &Settings,
-    ) -> Result<(Self,  ContigHeader), TGVError> {
+    pub async fn new(settings: &Settings) -> Result<(Self, ContigHeader), TGVError> {
         let mut contig_header = ContigHeader::new(settings.reference.clone());
 
-        let track_service = TrackServiceEnum::new(&settings).await?;
+        let mut track_service = TrackServiceEnum::new(&settings).await?;
+        let mut sequence_service = SequenceRepositoryEnum::new(&settings)?;
 
-        let (track_service, sequence_service, sequence_cache): (
-            Option<TrackServiceEnum>,
-            Option<SequenceRepositoryEnum>,
-        ) = match settings.reference {
-            Reference::IndexedFasta(path) => {
-                //let (sr, sc) = ;
+        if let Some(ts) = track_service.as_mut() {
+            ts.get_all_contigs(&settings.reference)
+                .await?
+                .into_iter()
+                .try_for_each(|contig| contig_header.update_or_add_contig(contig))?;
 
-                sr.query_contigs()
-                    .into_iter()
-                    .try_for_each(|contig| contig_header.update_or_add_contig(contig))?;
-
-                (None, Some(SequenceRepositoryEnum::IndexedFasta(sr)), sc)
-            }
-
-            _ => {
-                let ts = match (&settings.backend, settings.reference) {};
-
-                ts.get_all_contigs(reference, &mut track_cache)
+            if let Some(SequenceRepositoryEnum::TwoBit(twobit_sr)) = sequence_service.as_mut() {
+                ts.get_contig_2bit_file_lookup(&settings.reference, &contig_header)
                     .await?
-                    .into_iter()
-                    .try_for_each(|contig| contig_header.update_or_add_contig(contig))?;
-
-                let use_ucsc_api_sequence =
-                    matches!(ts, TrackServiceEnum::Api(_) | TrackServiceEnum::Db(_));
-
-                let (ss, sc) = if use_ucsc_api_sequence {
-                    let (sr, sc) = UCSCApiSequenceRepository::new(reference.clone())?;
-                    (SequenceRepositoryEnum::UCSCApi(sr), sc)
-                } else {
-                    // query the chromInfo table to get the 2bit file path
-
-                    let (ss, cache) = TwoBitSequenceRepository::new(
-                        reference.clone(),
-                        ts.get_contig_2bit_file_lookup(reference, &contig_header)
-                            .await?,
-                        settings.cache_dir.clone(),
-                    )?;
-
-                    (SequenceRepositoryEnum::TwoBit(ss), cache)
-                };
-                (Some(ts), Some(ss), sc)
+                    .iter()
+                    .try_for_each(|(contig_index, path)| {
+                        if let Some(path) = path.as_ref() {
+                            let twobit_file_path =
+                                Path::new(&settings.reference.cache_dir(&settings.cache_dir))
+                                    .join(path);
+                            let twobit_file_path = twobit_file_path.to_str().unwrap();
+                            twobit_sr
+                                .add_contig_path(*contig_index, twobit_file_path)
+                                .map(|_| ())
+                        } else {
+                            Ok(())
+                        }
+                    })?;
             }
+        }
+
+        if let Some(SequenceRepositoryEnum::IndexedFasta(fasta_sr)) = sequence_service.as_mut() {
+            fasta_sr
+                .query_contigs()
+                .into_iter()
+                .try_for_each(|contig| contig_header.update_or_add_contig(contig))?;
         };
 
         let alignment_repository = AlignmentRepositoryEnum::new(settings)?;
+        if let Some(bam) = alignment_repository.as_ref() {
+            contig_header.update_from_bam(bam)?
+        }
 
-        let variant_repository = match &settings.vcf_path.try_map(|vcf_path|
-            VariantRepository::from_vcf(vcf_path, &contig_header))?;
-
+        let variant_repository = match &settings.vcf_path {
+            Some(vcf_path) => Some(VariantRepository::from_vcf(vcf_path, &contig_header)?),
+            None => None,
+        };
 
         let bed_intervals = match &settings.bed_path {
             Some(bed_path) => Some(BEDIntervals::from_bed(bed_path, &contig_header)?),
@@ -113,7 +104,7 @@ impl Repository {
     }
 
     pub fn track_service_checked(&mut self) -> Result<&mut TrackServiceEnum, TGVError> {
-        match self.track_service.as_mut(){
+        match self.track_service.as_mut() {
             Some(track_service) => Ok(track_service),
             None => Err(TGVError::StateError(
                 "Track service is not initialized".to_string(),
@@ -122,7 +113,7 @@ impl Repository {
     }
 
     pub fn sequence_service_checked(&mut self) -> Result<&mut SequenceRepositoryEnum, TGVError> {
-        match self.sequence_service.as_mut(){
+        match self.sequence_service.as_mut() {
             Some(sequence_service) => Ok(sequence_service),
             None => Err(TGVError::StateError(
                 "Sequence service is not initialized".to_string(),
@@ -139,8 +130,6 @@ impl Repository {
         }
         Ok(())
     }
-
-
 }
 
 #[derive(Debug)]
@@ -212,7 +201,10 @@ impl BamRepository {
             }
         }
 
-        Ok(Self { bam_path: bam_path.clone(), bai_path })
+        Ok(Self {
+            bam_path: bam_path.clone(),
+            bai_path,
+        })
     }
 }
 

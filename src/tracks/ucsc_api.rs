@@ -92,7 +92,7 @@ impl UcscApiTrackService {
                     hub_url, genome, preferred_track, contig_name
                 )
             }
-            Reference::IndexedFasta(_) | Reference::NoReference => {
+            _ => {
                 return Err(TGVError::StateError(
                     "UcscApi can only be used for UCSC reference genomes.".to_string(),
                 ));
@@ -166,7 +166,7 @@ impl TrackService for UcscApiTrackService {
                     hub_url, genome
                 )
             }
-            Reference::IndexedFasta(_) | Reference::NoReference => {
+            _ => {
                 return Err(TGVError::StateError(
                     "UcscApi tracks can only be used for UCSC reference genomes.".to_string(),
                 ));
@@ -222,7 +222,7 @@ impl TrackService for UcscApiTrackService {
                     hub_url, genome, contig_name
                 )
             }
-            Reference::IndexedFasta(_) | Reference::NoReference => {
+            _ => {
                 return Err(TGVError::StateError(
                     "UcscApi tracks can only be used for UCSC reference genomes.".to_string(),
                 ));
@@ -261,7 +261,7 @@ impl TrackService for UcscApiTrackService {
                     hub_url, genome
                 )
             }
-            Reference::IndexedFasta(_) | Reference::NoReference => {
+            _ => {
                 return Err(TGVError::StateError(
                     "UcscApi tracks can only be used for UCSC reference genomes.".to_string(),
                 ));
