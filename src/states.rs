@@ -51,7 +51,6 @@ pub struct State {
     /// Sequences.
     pub sequence: Sequence,
 
-    // TODO: in the first implementation, refresh all data when the viewing window is near the boundary.
     /// Consensus contig header from BAM and reference genomes
     pub contig_header: ContigHeader,
 
@@ -124,28 +123,10 @@ impl State {
         self.contig_header.cytoband(self.contig_index())
     }
 
-    // pub fn alignment_depth(&self) -> Option<usize> {
-    //     self.alignment.as_ref().map(|alignment| alignment.depth())
-    // }
-
     /// Maximum length of the contig.
     pub fn contig_length(&self) -> Result<Option<usize>, TGVError> {
         Ok(self.contig_header.get(self.contig_index())?.length)
     }
-
-    /*   /// Get the reference if set.
-    pub fn reference_checked(&self) -> Result<&Reference, TGVError> {
-        match self.reference {
-            Some(ref reference) => Ok(reference),
-            None => Err(TGVError::StateError("Reference is not set".to_string())),
-        }
-    } */
-
-    /*  pub fn track_checked(&self) -> Result<&Track<Gene>, TGVError> {
-        self.track
-            .as_ref()
-            .ok_or(TGVError::StateError("Track is not initialized".to_string()))
-    } */
 }
 
 // mutating methods

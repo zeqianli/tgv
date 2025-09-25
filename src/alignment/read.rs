@@ -417,13 +417,14 @@ pub fn calculate_rendering_contexts(
                             //  ssss======>   (read)
                             //    ^           edge of screen
                             //  ^^            these softcliped bases are not displayed
+
                             continue;
                         }
 
                         let base_coordinate: usize =
                             reference_pivot - leading_softclips + i_soft_clip_base;
 
-                        let base = seq[i_soft_clip_base + query_pivot - 1];
+                        let base = seq[i_soft_clip_base];
                         new_contexts.push(RenderingContext {
                             start: base_coordinate,
                             end: base_coordinate,
@@ -535,6 +536,8 @@ pub fn calculate_rendering_contexts(
         }
 
         if new_contexts.is_empty() {
+            reference_pivot = next_reference_pivot;
+            query_pivot = next_query_pivot;
             continue;
         }
 
