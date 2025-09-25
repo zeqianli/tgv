@@ -168,24 +168,25 @@ impl MainLayout {
         let mut children = Vec::new();
 
         if settings.reference.needs_track() {
-            children.extend(vec![
-                LayoutNode::Area {
-                    constraint: Constraint::Length(2),
-                    area_type: AreaType::Cytoband,
-                },
-                LayoutNode::Area {
-                    constraint: Constraint::Length(2),
-                    area_type: AreaType::Coordinate,
-                },
-            ]);
+            children.extend(vec![LayoutNode::Area {
+                constraint: Constraint::Length(2),
+                area_type: AreaType::Cytoband,
+            }]);
+        }
+
+        if settings.reference.needs_sequence() || settings.reference.needs_track() {
+            children.extend(vec![LayoutNode::Area {
+                constraint: Constraint::Length(2),
+                area_type: AreaType::Coordinate,
+            }]);
         }
 
         if settings.bam_path.is_some() {
             children.push(LayoutNode::Area {
                 constraint: Constraint::Length(6),
                 area_type: AreaType::Coverage,
-            })
-        };
+            });
+        }
         if settings.vcf_path.is_some() {
             children.push(LayoutNode::Area {
                 constraint: Constraint::Length(1),
@@ -205,17 +206,17 @@ impl MainLayout {
             area_type: AreaType::Alignment,
         }]);
 
+        if settings.reference.needs_sequence() {
+            children.extend(vec![LayoutNode::Area {
+                constraint: Constraint::Length(1),
+                area_type: AreaType::Sequence,
+            }]);
+        }
         if settings.reference.needs_track() {
-            children.extend(vec![
-                LayoutNode::Area {
-                    constraint: Constraint::Length(1),
-                    area_type: AreaType::Sequence,
-                },
-                LayoutNode::Area {
-                    constraint: Constraint::Length(2),
-                    area_type: AreaType::GeneTrack,
-                },
-            ]);
+            children.extend(vec![LayoutNode::Area {
+                constraint: Constraint::Length(2),
+                area_type: AreaType::GeneTrack,
+            }]);
         }
 
         children.extend(vec![

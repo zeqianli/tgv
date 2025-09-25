@@ -49,7 +49,7 @@ impl Sequence {
 
     /// Sequence end. 1-based, inclusive.
     pub fn end(&self) -> usize {
-        self.start + self.sequence.len() - 1
+        (self.start + self.sequence.len()).saturating_sub(1)
     }
 
     /// Get the sequence in [left, right].
