@@ -46,7 +46,7 @@ impl UcscApiTrackService {
 
         contig_header: &ContigHeader,
     ) -> Result<(), TGVError> {
-        if cache.contig_quried(&contig_index) {
+        if self.cache.contig_quried(&contig_index) {
             return Ok(());
         }
 
@@ -82,9 +82,9 @@ impl UcscApiTrackService {
                 contig_name
             ),
             Reference::UcscAccession(genome) => {
-                let hub_url = self.cache.hub_url.clone().unwrap_or({
+                let hub_url = self.hub_url.clone().unwrap_or({
                     let hub_url = self.get_hub_url_for_genark_accession(genome).await?;
-                    self.cache.hub_url = Some(hub_url.clone());
+                    self.hub_url = Some(hub_url.clone());
                     hub_url
                 });
                 format!(
@@ -311,7 +311,8 @@ impl TrackService for UcscApiTrackService {
 
         // TODO: now I don't really handle empty query results
 
-        Ok(cache
+        Ok(self
+            .cache
             .tracks
             .get(&region.contig_index())
             .ok_or(TGVError::IOError(format!(
@@ -332,10 +333,11 @@ impl TrackService for UcscApiTrackService {
 
         contig_header: &ContigHeader,
     ) -> Result<Option<Gene>, TGVError> {
-        self.query_track_if_not_cached(reference, contig_index, cache, contig_header)
+        self.query_track_if_not_cached(reference, contig_index, contig_header)
             .await?;
 
-        Ok(cache
+        Ok(self
+            .cache
             .tracks
             .get(&contig_index)
             .ok_or(TGVError::IOError(format!(
@@ -399,10 +401,10 @@ impl TrackService for UcscApiTrackService {
 
         contig_header: &ContigHeader,
     ) -> Result<Gene, TGVError> {
-        self.query_track_if_not_cached(reference, contig_index, cache, contig_header)
+        self.query_track_if_not_cached(reference, contig_index, contig_header)
             .await?;
 
-        cache
+        self.cache
             .tracks
             .get(&contig_index)
             .ok_or(TGVError::IOError(format!(
@@ -423,10 +425,10 @@ impl TrackService for UcscApiTrackService {
 
         contig_header: &ContigHeader,
     ) -> Result<SubGeneFeature, TGVError> {
-        self.query_track_if_not_cached(reference, contig_index, cache, contig_header)
+        self.query_track_if_not_cached(reference, contig_index, contig_header)
             .await?;
 
-        cache
+        self.cache
             .tracks
             .get(&contig_index)
             .ok_or(TGVError::IOError(format!(
@@ -446,10 +448,10 @@ impl TrackService for UcscApiTrackService {
 
         contig_header: &ContigHeader,
     ) -> Result<SubGeneFeature, TGVError> {
-        self.query_track_if_not_cached(reference, contig_index, cache, contig_header)
+        self.query_track_if_not_cached(reference, contig_index, contig_header)
             .await?;
 
-        cache
+        self.cache
             .tracks
             .get(&contig_index)
             .ok_or(TGVError::IOError(format!(

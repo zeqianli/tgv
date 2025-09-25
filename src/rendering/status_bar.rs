@@ -24,16 +24,13 @@ pub fn render_status_bar(area: &Rect, buf: &mut Buffer, state: &State) -> Result
     // X and y coordinates
 
     let x_coordinate_string = format!("{}: {}", state.contig_name()?, state.window.middle(area));
-    let mut y_coordinate_string = if let Some(depth) = state.alignment_depth() {
-        if depth == 0 {
-            "".to_string()
-        } else {
-            let y = state.window.top() + 1; // Change to 1-base
-            let percent = y * 100 / depth;
-            format!("{}% ({} / {})", percent, y, depth)
-        }
-    } else {
+    let mut y_coordinate_string = if state.alignment.depth() == 0 {
         "".to_string()
+    } else {
+        let y = state.window.top() + 1; // Change to 1-base
+        let depth = state.alignment.depth();
+        let percent = y * 100 / depth;
+        format!("{}% ({} / {})", percent, y, depth)
     };
 
     // Alignment options

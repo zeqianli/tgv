@@ -381,7 +381,7 @@ impl StateHandler {
 
         if repository.sequence_service.is_some()
             && state.window.sequence_renderable()
-            && !Self::has_complete_sequence(state, &viewing_region)
+            && !state.sequence.has_complete_data(&viewing_region)
         {
             let sequence_cache_region = Self::sequence_cache_region(state, &viewing_region)?;
             data_messages.push(DataMessage::RequiresCompleteSequences(
@@ -390,7 +390,7 @@ impl StateHandler {
         }
         if repository.alignment_repository.is_some()
             && state.window.alignment_renderable()
-            && !Self::has_complete_alignment(state, &viewing_region)
+            && !state.alignment.has_complete_data(&viewing_region)
         {
             let alignment_cache_region = Self::alignment_cache_region(state, &viewing_region)?;
             data_messages.push(DataMessage::RequiresCompleteAlignments(
@@ -399,7 +399,7 @@ impl StateHandler {
         }
 
         if repository.track_service.is_some() {
-            if !Self::has_complete_track(state, &viewing_region) {
+            if !state.track.has_complete_data(&viewing_region) {
                 // viewing_window.zoom <= Self::MAX_ZOOM_TO_DISPLAY_FEATURES is always true
                 let track_cache_region = Self::track_cache_region(state, &viewing_region)?;
                 data_messages.push(DataMessage::RequiresCompleteFeatures(track_cache_region));
@@ -901,8 +901,7 @@ impl StateHandler {
                             .unwrap()
                             .read_alignment(&region, &state.sequence, &state.contig_header)?;
 
-                        alignment
-                            .apply_options(&state.alignment_options, state.sequence.as_ref())?;
+                        alignment.apply_options(&state.alignment_options, &state.sequence)?;
 
                         alignment
                     };
@@ -913,34 +912,25 @@ impl StateHandler {
                 }
             }
             DataMessage::RequiresCompleteFeatures(region) => {
-                let has_complete_track = state.::has_complete_track(state, &region);
-                if let (Some(reference), Some(track_service)) =
-                    (state.reference.as_ref(), repository.track_service.as_ref())
-                {
+                let has_complete_track = state.track.has_complete_data(&region);
+                if let Some(track_service) = repository.track_service.as_mut() {
                     if !has_complete_track {
                         if let Ok(track) = track_service
-                            .query_gene_track(reference, &region, &state.contig_header)
+                            .query_gene_track(&state.reference, &region, &state.contig_header)
                             .await
                         {
-                            state.track = Some(track);
+                            state.track = track;
                             loaded_data = true;
                         } else {
                             // Do nothing (track not found). TODO: fix this shit properly.
                         }
                     }
-                } else if match state.reference.as_ref() {
-                    // FIXME: this is duplicate code as Settings.
-                    Some(reference) => match reference {
+                } else {
+                    loaded_data = match state.reference {
+                        // FIXME: this is duplicate code as Settings.
                         Reference::IndexedFasta(_) => false,
                         _ => true,
-                    },
-                    None => false,
-                } {
-                    // No reference provided, cannot load features
-                } else {
-                    return Err(TGVError::StateError(
-                        "Error at handling DataMessage::RequiresCompleteFeatures: Track service not initialized".to_string(),
-                    ));
+                    };
                 }
             }
             DataMessage::RequiresCompleteSequences(region) => {
@@ -961,20 +951,15 @@ impl StateHandler {
                     return Ok(false);
                 }
 
-                if let (Some(ref reference), Some(track_service)) =
-                    (state.reference.clone(), repository.track_service.as_ref())
-                {
+                if let Some(track_service) = repository.track_service.as_mut() {
                     let cytoband = track_service
-                        .get_cytoband(reference, contig_index, &state.contig_header)
+                        .get_cytoband(&state.reference, contig_index, &state.contig_header)
                         .await?;
                     state
                         .contig_header
                         .update_cytoband(contig_index, cytoband)?;
                     loaded_data = true;
-                } else if state.reference.is_none() {
-                    // Cannot load cytobands without reference
                 } else {
-                    // track service not available
                 }
             }
         }

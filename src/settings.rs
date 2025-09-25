@@ -343,19 +343,19 @@ mod tests {
     }))]
     #[case("tgv input.bam -r TP53 -g hg19", Ok(Settings {
         bam_path: Some("input.bam".to_string()),
-        reference: Some(Reference::Hg19),
+        reference: Reference::Hg19,
         initial_state_messages: vec![StateMessage::GoToGene("TP53".to_string())],
         ..default_settings()
     }))]
     #[case("tgv input.bam -r TP53 -g mm39", Ok(Settings {
         bam_path: Some("input.bam".to_string()),
-        reference: Some(Reference::UcscGenome("mm39".to_string())),
+        reference: Reference::UcscGenome("mm39".to_string()),
         initial_state_messages: vec![StateMessage::GoToGene("TP53".to_string())],
         ..default_settings()
     }))]
     #[case("tgv input.bam -r 1:12345 --no-reference", Ok(Settings {
         bam_path: Some("input.bam".to_string()),
-        reference: None,
+        reference: Reference::NoReference,
         initial_state_messages: vec![StateMessage::GotoContigNameCoordinate(
             "1".to_string(),
             12345,

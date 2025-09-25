@@ -22,6 +22,8 @@ use std::sync::Arc;
 #[derive(Debug)]
 pub struct LocalDbTrackService {
     pool: Arc<SqlitePool>,
+
+    cache: TrackCache,
 }
 
 impl LocalDbTrackService {
@@ -53,6 +55,7 @@ impl LocalDbTrackService {
 
         Ok(Self {
             pool: Arc::new(pool),
+            cache: TrackCache::default(),
         })
     }
 
@@ -67,14 +70,13 @@ impl LocalDbTrackService {
     }
 
     async fn get_preferred_track_name_with_cache(
-        &self,
+        &mut self,
         reference: &Reference,
-        cache: &mut TrackCache,
     ) -> Result<String, TGVError> {
-        match &cache.preferred_track_name {
+        match &self.cache.preferred_track_name {
             None => {
-                let preferred_track = self.get_preferred_track_name(reference, cache).await?;
-                cache.set_preferred_track_name(preferred_track.clone());
+                let preferred_track = self.get_preferred_track_name(reference).await?;
+                self.cache.set_preferred_track_name(preferred_track.clone());
                 preferred_track
             }
             Some(track) => track.clone(),
@@ -173,7 +175,7 @@ impl TrackService for LocalDbTrackService {
     }
 
     async fn get_cytoband(
-        &self,
+        &mut self,
         reference: &Reference,
         contig_index: usize,
         contig_header: &ContigHeader,
@@ -202,9 +204,8 @@ impl TrackService for LocalDbTrackService {
     }
 
     async fn get_preferred_track_name(
-        &self,
+        &mut self,
         reference: &Reference,
-        cache: &mut TrackCache,
     ) -> Result<Option<String>, TGVError> {
         match reference {
             // Speed up for human genomes
@@ -231,10 +232,10 @@ impl TrackService for LocalDbTrackService {
     }
 
     async fn query_genes_overlapping(
-        &self,
+        &mut self,
         reference: &Reference,
         region: &Region,
-        cache: &mut TrackCache,
+
         contig_header: &ContigHeader,
     ) -> Result<Vec<Gene>, TGVError> {
         let contig_name = contig_header.get_name(region.contig_index())?;
@@ -242,8 +243,7 @@ impl TrackService for LocalDbTrackService {
             format!(
                 "SELECT * FROM {}
              WHERE chrom = ? AND (txStart <= ?) AND (txEnd >= ?)",
-                self.get_preferred_track_name_with_cache(reference, cache)
-                    .await?
+                self.get_preferred_track_name_with_cache(reference).await?
             )
             .as_str(),
         )
@@ -259,11 +259,11 @@ impl TrackService for LocalDbTrackService {
     }
 
     async fn query_gene_covering(
-        &self,
+        &mut self,
         reference: &Reference,
         contig_index: usize,
         coord: usize,
-        cache: &mut TrackCache,
+
         contig_header: &ContigHeader,
     ) -> Result<Option<Gene>, TGVError> {
         let contig_name = contig_header.get_name(contig_index)?;
@@ -272,8 +272,7 @@ impl TrackService for LocalDbTrackService {
                 "SELECT *
              FROM {}
              WHERE chrom = ? AND txStart <= ? AND txEnd >= ?",
-                self.get_preferred_track_name_with_cache(reference, cache)
-                    .await?,
+                self.get_preferred_track_name_with_cache(reference).await?,
             )
             .as_str(),
         )
@@ -287,10 +286,10 @@ impl TrackService for LocalDbTrackService {
     }
 
     async fn query_gene_name(
-        &self,
+        &mut self,
         reference: &Reference,
         gene_name: &String,
-        cache: &mut TrackCache,
+
         contig_header: &ContigHeader,
     ) -> Result<Gene, TGVError> {
         let gene_row: Option<UcscGeneRow> = sqlx::query_as(
@@ -298,8 +297,7 @@ impl TrackService for LocalDbTrackService {
                 "SELECT *
             FROM {}
             WHERE name2 = ?",
-                self.get_preferred_track_name_with_cache(reference, cache)
-                    .await?
+                self.get_preferred_track_name_with_cache(reference).await?
             )
             .as_str(),
         )
@@ -316,12 +314,12 @@ impl TrackService for LocalDbTrackService {
     }
 
     async fn query_k_genes_after(
-        &self,
+        &mut self,
         reference: &Reference,
         contig_index: usize,
         coord: usize,
         k: usize,
-        cache: &mut TrackCache,
+
         contig_header: &ContigHeader,
     ) -> Result<Gene, TGVError> {
         let contig_name = contig_header.get_name(contig_index)?;
@@ -335,8 +333,7 @@ impl TrackService for LocalDbTrackService {
              FROM {}
              WHERE chrom = ? AND txEnd >= ?
              ORDER BY txEnd ASC LIMIT ?",
-                self.get_preferred_track_name_with_cache(reference, cache)
-                    .await?,
+                self.get_preferred_track_name_with_cache(reference).await?,
             )
             .as_str(),
         )
@@ -353,12 +350,12 @@ impl TrackService for LocalDbTrackService {
     }
 
     async fn query_k_genes_before(
-        &self,
+        &mut self,
         reference: &Reference,
         contig_index: usize,
         coord: usize,
         k: usize,
-        cache: &mut TrackCache,
+
         contig_header: &ContigHeader,
     ) -> Result<Gene, TGVError> {
         let contig_name = contig_header.get_name(contig_index)?;
@@ -372,8 +369,7 @@ impl TrackService for LocalDbTrackService {
              FROM {}
              WHERE chrom = ? AND txStart <= ?
              ORDER BY txStart DESC LIMIT ?",
-                self.get_preferred_track_name_with_cache(reference, cache)
-                    .await?,
+                self.get_preferred_track_name_with_cache(reference).await?,
             )
             .as_str(),
         )
@@ -390,12 +386,12 @@ impl TrackService for LocalDbTrackService {
     }
 
     async fn query_k_exons_after(
-        &self,
+        &mut self,
         reference: &Reference,
         contig_index: usize,
         coord: usize,
         k: usize,
-        cache: &mut TrackCache,
+
         contig_header: &ContigHeader,
     ) -> Result<SubGeneFeature, TGVError> {
         let contig_name = contig_header.get_name(contig_index)?;
@@ -409,8 +405,7 @@ impl TrackService for LocalDbTrackService {
              FROM {}
              WHERE chrom = ? AND txEnd >= ?
              ORDER BY txEnd ASC LIMIT ?",
-                self.get_preferred_track_name_with_cache(reference, cache)
-                    .await?,
+                self.get_preferred_track_name_with_cache(reference).await?,
             )
             .as_str(),
         )
@@ -426,12 +421,12 @@ impl TrackService for LocalDbTrackService {
     }
 
     async fn query_k_exons_before(
-        &self,
+        &mut self,
         reference: &Reference,
         contig_index: usize,
         coord: usize,
         k: usize,
-        cache: &mut TrackCache,
+
         contig_header: &ContigHeader,
     ) -> Result<SubGeneFeature, TGVError> {
         let contig_name = contig_header.get_name(contig_index)?;
@@ -445,8 +440,7 @@ impl TrackService for LocalDbTrackService {
              FROM {}
              WHERE chrom = ? AND txStart <= ?
              ORDER BY txStart DESC LIMIT ?",
-                self.get_preferred_track_name_with_cache(reference, cache)
-                    .await?,
+                self.get_preferred_track_name_with_cache(reference).await?,
             )
             .as_str(),
         )

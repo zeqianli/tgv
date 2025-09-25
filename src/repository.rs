@@ -41,16 +41,14 @@ pub struct Repository {
 impl Repository {
     pub async fn new(
         settings: &Settings,
-    ) -> Result<(Self, SequenceCache, TrackCache, ContigHeader), TGVError> {
+    ) -> Result<(Self,  ContigHeader), TGVError> {
         let mut contig_header = ContigHeader::new(settings.reference.clone());
-        let mut track_cache = TrackCache::default();
 
         let track_service = TrackServiceEnum::new(&settings).await?;
 
         let (track_service, sequence_service, sequence_cache): (
             Option<TrackServiceEnum>,
             Option<SequenceRepositoryEnum>,
-            SequenceCache,
         ) = match settings.reference {
             Reference::IndexedFasta(path) => {
                 //let (sr, sc) = ;
@@ -111,8 +109,6 @@ impl Repository {
                 track_service,
                 sequence_service,
             },
-            sequence_cache,
-            track_cache,
             contig_header,
         ))
     }

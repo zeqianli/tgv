@@ -35,8 +35,7 @@ impl App {
     ) -> Result<Self, TGVError> {
         // Gather resources before initializing the state.
 
-        let (repository, sequence_cache, track_cache, contig_header) =
-            Repository::new(&settings).await?;
+        let (mut repository, contig_header) = Repository::new(&settings).await?;
 
         let mut state = State::new(&settings, terminal.get_frame().area(), contig_header)?;
 

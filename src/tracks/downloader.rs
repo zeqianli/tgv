@@ -151,7 +151,7 @@ impl UCSCDownloader {
         sqlite_pool: &Pool<Sqlite>,
     ) -> Result<(), TGVError> {
         // 1. Get hub url
-        let ucsc_api_service = UcscApiTrackService::new()?;
+        let mut ucsc_api_service = UcscApiTrackService::new()?;
         let hub_url = ucsc_api_service
             .get_hub_url_for_genark_accession(&reference.to_string())
             .await?;

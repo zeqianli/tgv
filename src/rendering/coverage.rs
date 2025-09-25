@@ -30,14 +30,8 @@ pub fn render_coverage(
         return Ok(());
     }
 
-    if state.alignment.is_none() {
-        return Ok(());
-    }
-
-    let alignment = state.alignment.as_ref().unwrap();
-
     let mut binned_coverage = calculate_binned_coverage(
-        alignment,
+        &state.alignment,
         state.window.left(),
         state.window.right(area),
         area.width as usize,

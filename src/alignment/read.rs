@@ -1046,7 +1046,7 @@ mod tests {
         }
     ])]
     // Test soft clips
-    #[case(10, vec![Cigar::SoftClip(2), Cigar::Match(3), Cigar::SoftClip(1)], b"GGATTC", true, Some(Sequence::new(10, b"AATG".to_vec(), 0).unwrap()), vec![
+    #[case(10, vec![Cigar::SoftClip(2), Cigar::Match(3), Cigar::SoftClip(1)], b"GGATTC", true, Sequence::new(10, b"AATG".to_vec(), 0).unwrap(), vec![
         RenderingContext{
             start:8,
             end:8,
@@ -1077,7 +1077,7 @@ mod tests {
         #[case] cigars: Vec<Cigar>,
         #[case] seq: &[u8],
         #[case] is_reverse: bool,
-        #[case] reference_sequence: Option<Sequence>,
+        #[case] reference_sequence: Sequence,
         #[case] expected_rendering_contexts: Vec<RenderingContext>,
     ) {
         let mut record = Record::new();
@@ -1094,7 +1094,7 @@ mod tests {
             record.cigar().leading_softclips() as usize,
             &record.seq(),
             is_reverse,
-            reference_sequence.as_ref(),
+            &reference_sequence,
         )
         .unwrap();
 

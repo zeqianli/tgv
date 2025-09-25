@@ -5,7 +5,7 @@ mod ucsc_api;
 pub use crate::sequence::{
     fasta::{IndexedFastaSequenceCache, IndexedFastaSequenceRepository},
     twobit::TwoBitSequenceRepository,
-    ucsc_api::{UCSCApiSequenceRepository, UcscApiSequenceCache},
+    ucsc_api::UCSCApiSequenceRepository,
 };
 use crate::{
     contig_header::ContigHeader,
@@ -32,16 +32,12 @@ pub struct Sequence {
 }
 
 impl Sequence {
-    pub fn new(start: usize, sequence: Vec<u8>, contig_index: usize) -> Result<Self, ()> {
-        if usize::MAX - start < sequence.len() {
-            return Err(());
-        }
-
-        Ok(Self {
+    pub fn new(start: usize, sequence: Vec<u8>, contig_index: usize) -> Self {
+        Self {
             contig_index,
             start,
             sequence,
-        })
+        }
     }
 
     /// Sequence start. 1-based, inclusive.
