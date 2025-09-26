@@ -258,18 +258,22 @@ impl ContigHeader {
         Ok(())
     }
 
-    pub fn update_or_add_contig(&mut self, contig: Contig) -> Result<(), TGVError> {
+    pub fn update_or_add_contig(&mut self, contig: Contig) -> Result<usize, TGVError> {
         // TODO: this causes problems when the aliases have repeats.
-        if self.get_index(&contig).is_none() {
-            self.contig_lookup
-                .insert(contig.name.clone(), self.contigs.len());
-            for alias in contig.aliases.iter() {
-                self.contig_lookup.insert(alias.clone(), self.contigs.len());
+        let index = match self.get_index(&contig) {
+            None => {
+                self.contig_lookup
+                    .insert(contig.name.clone(), self.contigs.len());
+                for alias in contig.aliases.iter() {
+                    self.contig_lookup.insert(alias.clone(), self.contigs.len());
+                }
+                self.contigs.push(contig);
+                self.contigs.len() - 1
             }
-            self.contigs.push(contig);
-        }
+            Some(index) => index,
+        };
 
-        Ok(())
+        Ok(index)
     }
 
     pub fn update_from_bam(&mut self, bam: &AlignmentRepositoryEnum) -> Result<(), TGVError> {

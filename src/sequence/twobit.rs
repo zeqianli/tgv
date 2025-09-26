@@ -1,4 +1,4 @@
-use crate::contig_header::ContigHeader;
+use crate::contig_header::{Contig, ContigHeader};
 use crate::error::TGVError;
 use crate::intervals::Region;
 use crate::reference::Reference;
@@ -12,48 +12,44 @@ pub struct TwoBitSequenceRepository {
     /// Reference genome.
     reference: Reference,
 
-    file_name_to_buffer_index: HashMap<String, usize>,
-
-    /// contig index -> 2bit buffer index in buffers. Used in local mode (TwoBitSequenceRepository).
+    /// contig index -> 2bit buffer index in buffers.
     contig_to_buffer_index: HashMap<usize, usize>,
 
-    /// 2bit file buffers. Used in local mode (TwoBitSequenceRepository).
+    /// 2bit file buffers.
     buffers: Vec<TwoBitFile<std::io::BufReader<std::fs::File>>>,
 }
 impl TwoBitSequenceRepository {
     pub fn new(reference: &Reference) -> Self {
         Self {
             reference: reference.clone(),
-            file_name_to_buffer_index: HashMap::new(),
             contig_to_buffer_index: HashMap::new(),
             buffers: Vec::new(),
         }
     }
 
-    pub fn add_contig_path(&mut self, contig_index: usize, path: &str) -> Result<(), TGVError> {
-        // contig_to_file_name: HashMap<usize, Option<String>>,
-        // cache_dir: String,
-        // Remove contigs that have no 2bit file.
+    pub fn add_contig_path(
+        &mut self,
+        path: &str,
+        contig_header: &mut ContigHeader,
+    ) -> Result<(), TGVError> {
+        let tb: TwoBitFile<std::io::BufReader<std::fs::File>> = twobit::TwoBitFile::open(path)
+            .map_err(|e| TGVError::IOError(format!("Failed to open 2bit file {}: {}", &path, e)))?;
 
-        match self.file_name_to_buffer_index.get(path) {
-            Some(i_buffer) => {
-                self.contig_to_buffer_index.insert(contig_index, *i_buffer);
-            }
-            None => {
-                let i_buffer = self.buffers.len();
-                self.file_name_to_buffer_index
-                    .insert(path.to_string(), i_buffer);
-                self.contig_to_buffer_index.insert(contig_index, i_buffer);
+        let buffer_index = self.buffers.len();
 
-                // add a new buffer
-                //let file_path = format!("{}/{}/{}", &cache_dir, reference.to_string(), file_name);
-                let tb: TwoBitFile<std::io::BufReader<std::fs::File>> =
-                    twobit::TwoBitFile::open(path).map_err(|e| {
-                        TGVError::IOError(format!("Failed to open 2bit file {}: {}", &path, e))
-                    })?;
-                self.buffers.push(tb);
-            }
-        }
+        tb.chrom_names()
+            .into_iter()
+            .zip(tb.chrom_sizes().into_iter())
+            .map(|(chrom_name, chrom_size)| {
+                contig_header.update_or_add_contig(Contig::new(&chrom_name, Some(chrom_size)))
+            })
+            .collect::<Result<Vec<_>, _>>()?
+            .into_iter()
+            .for_each(|i| {
+                self.contig_to_buffer_index.insert(i, buffer_index);
+            });
+
+        self.buffers.push(tb);
 
         Ok(())
     }
@@ -82,5 +78,9 @@ impl SequenceRepository for TwoBitSequenceRepository {
 
     async fn close(&mut self) -> Result<(), TGVError> {
         Ok(())
+    }
+
+    async fn get_all_contigs(&mut self) -> Result<Vec<Contig>, TGVError> {
+        todo!()
     }
 }

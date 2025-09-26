@@ -5,14 +5,15 @@ use crate::{
     error::TGVError,
     helpers::is_url,
     intervals::Region,
-    sequence::{Sequence, SequenceRepository, SequenceRepositoryEnum},
+    reference::Reference,
+    sequence::{Sequence, SequenceRepository, SequenceRepositoryEnum, TwoBitSequenceRepository},
     settings::Settings,
     tracks::{TrackService, TrackServiceEnum},
     variant::VariantRepository,
 };
 
-use rust_htslib::bam;
-use rust_htslib::bam::{Header, IndexedReader, Read};
+use itertools::Itertools;
+use rust_htslib::bam::{self, Header, IndexedReader, Read};
 use std::path::Path;
 use url::Url;
 
@@ -30,45 +31,77 @@ pub struct Repository {
 
 impl Repository {
     pub async fn new(settings: &Settings) -> Result<(Self, ContigHeader), TGVError> {
-        let mut contig_header = ContigHeader::new(settings.reference.clone());
-
         let mut track_service = TrackServiceEnum::new(settings).await?;
         let mut sequence_service = SequenceRepositoryEnum::new(settings)?;
+        let alignment_repository = AlignmentRepositoryEnum::new(settings)?;
 
-        if let Some(ts) = track_service.as_mut() {
-            ts.get_all_contigs(&settings.reference)
-                .await?
-                .into_iter()
-                .try_for_each(|contig| contig_header.update_or_add_contig(contig))?;
+        // Contig header collect contigs from multiple sources.
+        // - If the reference is a ucsc genome: ucsc database (local, mariadb, or api)
+        // - If the reference is a custom indexed fasta or a 2bit file: from the reference file
+        // - If bam file is provided: from bam header
+        let mut contig_header = ContigHeader::new(settings.reference.clone());
 
-            if let Some(SequenceRepositoryEnum::TwoBit(twobit_sr)) = sequence_service.as_mut() {
-                ts.get_contig_2bit_file_lookup(&settings.reference, &contig_header)
+        match &settings.reference {
+            Reference::Hg19
+            | Reference::Hg38
+            | Reference::UcscGenome(_)
+            | Reference::UcscAccession(_) => {
+                track_service
+                    .as_mut()
+                    .unwrap()
+                    .get_all_contigs(&settings.reference)
                     .await?
-                    .iter()
-                    .try_for_each(|(contig_index, path)| {
-                        if let Some(path) = path.as_ref() {
+                    .into_iter()
+                    .try_for_each(|contig| {
+                        contig_header.update_or_add_contig(contig).map(|_| ())
+                    })?;
+
+                if let Some(SequenceRepositoryEnum::TwoBit(twobit_sr)) = sequence_service.as_mut() {
+                    track_service
+                        .as_mut()
+                        .unwrap()
+                        .get_contig_2bit_file_lookup(&settings.reference, &contig_header)
+                        .await?
+                        .iter()
+                        .filter_map(|(contig_index, path)| path.as_ref())
+                        .collect::<Vec<_>>()
+                        .into_iter()
+                        .unique()
+                        .try_for_each(|path| {
                             let twobit_file_path =
                                 Path::new(&settings.reference.cache_dir(&settings.cache_dir))
                                     .join(path);
                             let twobit_file_path = twobit_file_path.to_str().unwrap();
-                            twobit_sr
-                                .add_contig_path(*contig_index, twobit_file_path)
-                                .map(|_| ())
-                        } else {
-                            Ok(())
-                        }
-                    })?;
+                            twobit_sr.add_contig_path(twobit_file_path, &mut contig_header)
+                        })?;
+                }
             }
+            Reference::BYOIndexedFasta(_) => {
+                if let Some(SequenceRepositoryEnum::IndexedFasta(fasta_sr)) =
+                    sequence_service.as_mut()
+                {
+                    fasta_sr
+                        .get_all_contigs()
+                        .await?
+                        .into_iter()
+                        .try_for_each(|contig| {
+                            contig_header.update_or_add_contig(contig).map(|_| ())
+                        })?;
+                } else {
+                    unreachable!()
+                }
+            }
+
+            Reference::BYOTwoBit(path) => {
+                if let Some(SequenceRepositoryEnum::TwoBit(twobit_sr)) = sequence_service.as_mut() {
+                    twobit_sr.add_contig_path(path, &mut contig_header)?;
+                } else {
+                    unreachable!()
+                }
+            }
+            _ => {}
         }
 
-        if let Some(SequenceRepositoryEnum::IndexedFasta(fasta_sr)) = sequence_service.as_mut() {
-            fasta_sr
-                .query_contigs()
-                .into_iter()
-                .try_for_each(|contig| contig_header.update_or_add_contig(contig))?;
-        };
-
-        let alignment_repository = AlignmentRepositoryEnum::new(settings)?;
         if let Some(bam) = alignment_repository.as_ref() {
             contig_header.update_from_bam(bam)?
         }

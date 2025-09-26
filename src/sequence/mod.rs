@@ -7,7 +7,7 @@ pub use crate::sequence::{
     ucsc_api::UCSCApiSequenceRepository,
 };
 use crate::{
-    contig_header::ContigHeader,
+    contig_header::{Contig, ContigHeader},
     error::TGVError,
     intervals::Region,
     reference::Reference,
@@ -96,6 +96,8 @@ pub trait SequenceRepository {
     ) -> Result<Sequence, TGVError>;
 
     async fn close(&mut self) -> Result<(), TGVError>;
+
+    async fn get_all_contigs(&mut self) -> Result<Vec<Contig>, TGVError>;
 }
 
 pub enum SequenceRepositoryEnum {
@@ -111,6 +113,9 @@ impl SequenceRepositoryEnum {
             (_, Reference::BYOIndexedFasta(path)) => Ok(Some(Self::IndexedFasta(
                 IndexedFastaSequenceRepository::new(path.clone())?,
             ))),
+            (_, Reference::BYOTwoBit(_)) => Ok(Some(Self::TwoBit(TwoBitSequenceRepository::new(
+                &settings.reference,
+            )))),
 
             (BackendType::Ucsc, _) => Ok(Some(Self::UCSCApi(UCSCApiSequenceRepository::new(
                 &settings.reference,
@@ -155,6 +160,14 @@ impl SequenceRepository for SequenceRepositoryEnum {
             Self::UCSCApi(repo) => repo.close().await,
             Self::TwoBit(repo) => repo.close().await,
             Self::IndexedFasta(repo) => repo.close().await,
+        }
+    }
+
+    async fn get_all_contigs(&mut self) -> Result<Vec<Contig>, TGVError> {
+        match self {
+            Self::UCSCApi(repo) => repo.get_all_contigs().await,
+            Self::TwoBit(repo) => repo.get_all_contigs().await,
+            Self::IndexedFasta(repo) => repo.get_all_contigs().await,
         }
     }
 }

@@ -26,19 +26,6 @@ impl IndexedFastaSequenceRepository {
         let index = reader.index().clone();
         Ok(Self { index, reader })
     }
-
-    pub fn query_contigs(&self) -> Vec<Contig> {
-        self.index
-            .as_ref()
-            .iter()
-            .map(|record| {
-                Contig::new(
-                    record.name().to_string().as_ref(),
-                    Some(record.length() as usize),
-                )
-            })
-            .collect::<Vec<Contig>>()
-    }
 }
 
 impl SequenceRepository for IndexedFastaSequenceRepository {
@@ -70,5 +57,19 @@ impl SequenceRepository for IndexedFastaSequenceRepository {
 
     async fn close(&mut self) -> Result<(), TGVError> {
         Ok(())
+    }
+
+    async fn get_all_contigs(&mut self) -> Result<Vec<Contig>, TGVError> {
+        Ok(self
+            .index
+            .as_ref()
+            .iter()
+            .map(|record| {
+                Contig::new(
+                    record.name().to_string().as_ref(),
+                    Some(record.length() as usize),
+                )
+            })
+            .collect::<Vec<Contig>>())
     }
 }

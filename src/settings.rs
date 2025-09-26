@@ -177,8 +177,7 @@ impl Settings {
         let backend = match (cli.offline, cli.online) {
             (true, true) => {
                 return Err(TGVError::CliError(
-                    "Both --offline and --online flags are used. Please use only one of them."
-                        .to_string(),
+                    "Both --offline and --online flags are used. Please use only one.".to_string(),
                 ));
             }
             (true, false) => BackendType::Local,
@@ -223,11 +222,6 @@ impl Settings {
             cache_dir,
             palette: DARK_THEME,
         })
-    }
-
-    pub fn test_mode(mut self) -> Self {
-        self.test_mode = true;
-        self
     }
 
     fn translate_initial_state_messages(

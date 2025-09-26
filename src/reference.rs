@@ -43,8 +43,7 @@ impl Reference {
             return Ok(Self::UcscAccession(s.to_string()));
         }
 
-        // Reference fasta?
-
+        // Reference fasta
         if s.ends_with(".fa")
             || s.ends_with(".fasta")
             || s.ends_with(".fa.gz")
@@ -68,10 +67,22 @@ impl Reference {
             return Ok(Self::BYOIndexedFasta(s));
         }
 
+        // 2bit
+        if s.ends_with(".2bit") {
+            // check that index file exists
+            let s = shellexpand::tilde(s).to_string();
+            if !std::path::Path::new(&s).exists() {
+                return Err(TGVError::IOError(format!(
+                    "2bit reference genome file {} does not exist",
+                    s
+                )));
+            }
+
+            return Ok(Self::BYOTwoBit(s));
+        }
+
         // Check for common names
-
         let s_standardized = standardize_common_genome_name(s)?;
-
         for (genome, name) in Reference::get_common_genome_names()? {
             let genome_standardized = standardize_common_genome_name(genome.as_str())?;
             let name_trimmed = name.trim().trim_matches('"');

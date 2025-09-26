@@ -176,7 +176,8 @@ mod tests {
         };
 
         let cli = Cli::parse_from(shlex::split(&args_string).unwrap());
-        let settings = Settings::new(cli).unwrap().test_mode();
+        let mut settings = Settings::new(cli).unwrap();
+        settings.test_mode = true;
 
         let mut terminal = Terminal::new(TestBackend::new(50, 20)).unwrap();
 

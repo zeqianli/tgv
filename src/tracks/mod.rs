@@ -208,7 +208,9 @@ pub enum TrackServiceEnum {
 impl TrackServiceEnum {
     pub async fn new(settings: &Settings) -> Result<Option<Self>, TGVError> {
         match (&settings.backend, &settings.reference) {
-            (_, Reference::NoReference) | (_, Reference::BYOIndexedFasta(_)) => Ok(None),
+            (_, Reference::NoReference)
+            | (_, Reference::BYOIndexedFasta(_))
+            | (_, Reference::BYOTwoBit(_)) => Ok(None),
             (BackendType::Ucsc, Reference::UcscAccession(_)) => {
                 Ok(Some(Self::Api(UcscApiTrackService::new()?)))
             }
@@ -237,12 +239,10 @@ impl TrackServiceEnum {
                 }
             }
 
-            _ => {
-                Err(TGVError::ValueError(format!(
-                    "Failed to initialize TrackService for reference {}",
-                    settings.reference.to_string()
-                )))
-            }
+            _ => Err(TGVError::ValueError(format!(
+                "Failed to initialize TrackService for reference {}",
+                settings.reference.to_string()
+            ))),
         }
     }
     /// Return a map of: contig name -> 2bit file basename, if available.

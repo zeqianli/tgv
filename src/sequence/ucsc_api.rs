@@ -1,4 +1,4 @@
-use crate::contig_header::ContigHeader;
+use crate::contig_header::{Contig, ContigHeader};
 use crate::error::TGVError;
 use crate::intervals::Region;
 use crate::reference::Reference;
@@ -117,5 +117,56 @@ impl SequenceRepository for UCSCApiSequenceRepository {
 
     async fn close(&mut self) -> Result<(), TGVError> {
         Ok(())
+    }
+
+    async fn get_all_contigs(&mut self) -> Result<Vec<Contig>, TGVError> {
+        let query_url = match &self.reference {
+            Reference::Hg19 | Reference::Hg38 | Reference::UcscGenome(_) => {
+                format!(
+                    "https://api.genome.ucsc.edu/list/chromosomes?genome={}",
+                    self.reference.to_string()
+                )
+            }
+            Reference::UcscAccession(genome) => {
+                let hub_url = self.hub_url.clone().unwrap_or({
+                    let hub_url = self.get_hub_url_for_genark_accession(genome).await?;
+                    self.hub_url = Some(hub_url.clone());
+                    hub_url
+                });
+
+                format!(
+                    "https://api.genome.ucsc.edu/list/chromosomes?hubUrl={};genome={}",
+                    hub_url, genome
+                )
+            }
+            _ => {
+                return Err(TGVError::StateError(
+                    "UcscApi sequence can only be used for UCSC reference genomes.".to_string(),
+                ));
+            }
+        };
+
+        let response = self
+            .client
+            .get(query_url)
+            .send()
+            .await?
+            .json::<UcscListChromosomeResponse>()
+            .await?;
+
+        let mut output = Vec::new();
+        for (name_string, length) in response.chromosomes.into_iter() {
+            output.push(Contig::new(&name_string, Some(length)));
+        }
+
+        output.sort_by(|a, b| {
+            if a.name.starts_with("chr") || b.name.starts_with("chr") {
+                Contig::contigs_compare(a, b)
+            } else {
+                b.length.cmp(&a.length) // Sort by length in descending order
+            }
+        });
+
+        Ok(output)
     }
 }
