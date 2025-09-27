@@ -20,41 +20,50 @@ use reqwest::Client;
 #[derive(Debug)]
 pub struct UcscApiTrackService {
     client: Client,
+
+    cache: TrackCache,
+
+    /// hub_url for UCSC accessions.
+    /// None: Not initialized.
+    /// Some(url): Queried and found.
+    hub_url: Option<String>,
 }
 
 impl UcscApiTrackService {
     pub fn new() -> Result<Self, TGVError> {
         Ok(Self {
             client: Client::new(),
+            cache: TrackCache::default(),
+            hub_url: None,
         })
     }
 
     /// Query the API to download the gene track data for a contig.
     pub async fn query_track_if_not_cached(
-        &self,
+        &mut self,
         reference: &Reference,
         contig_index: usize,
-        cache: &mut TrackCache,
+
         contig_header: &ContigHeader,
     ) -> Result<(), TGVError> {
-        if cache.contig_quried(&contig_index) {
+        if self.cache.contig_quried(&contig_index) {
             return Ok(());
         }
 
         let contig_name = contig_header.get_name(contig_index)?;
 
-        let preferred_track = match &cache.preferred_track_name {
+        let preferred_track = match &self.cache.preferred_track_name {
             None => {
                 {
-                    let preferred_track = self
-                        .get_preferred_track_name(reference, cache)
-                        .await?
-                        .ok_or(TGVError::IOError(format!(
+                    let preferred_track = self.get_preferred_track_name(reference).await?.ok_or(
+                        TGVError::IOError(format!(
                             "Failed to get prefered track for {} from UCSC API",
                             contig_name
-                        )))?; // TODO: proper handling
+                        )),
+                    )?; // TODO: proper handling
 
-                    cache.set_preferred_track_name(Some(preferred_track.clone()));
+                    self.cache
+                        .set_preferred_track_name(Some(preferred_track.clone()));
                     preferred_track
                 }
             }
@@ -73,15 +82,20 @@ impl UcscApiTrackService {
                 contig_name
             ),
             Reference::UcscAccession(genome) => {
-                let hub_url = cache.hub_url.clone().unwrap_or({
+                let hub_url = self.hub_url.clone().unwrap_or({
                     let hub_url = self.get_hub_url_for_genark_accession(genome).await?;
-                    cache.hub_url = Some(hub_url.clone());
+                    self.hub_url = Some(hub_url.clone());
                     hub_url
                 });
                 format!(
                     "https://api.genome.ucsc.edu/getData/track?hubUrl={}&genome={}&track={}&chrom={}",
                     hub_url, genome, preferred_track, contig_name
                 )
+            }
+            _ => {
+                return Err(TGVError::StateError(
+                    "UcscApi can only be used for UCSC reference genomes.".to_string(),
+                ));
             }
         };
 
@@ -91,7 +105,7 @@ impl UcscApiTrackService {
         let response: UcscApiListGeneResponse =
             serde_json::from_value(response[preferred_track].take())?;
 
-        cache.add_track(
+        self.cache.add_track(
             contig_index,
             Track::from_genes(
                 response
@@ -107,7 +121,7 @@ impl UcscApiTrackService {
     }
 
     pub async fn get_hub_url_for_genark_accession(
-        &self,
+        &mut self,
         accession: &str,
     ) -> Result<String, TGVError> {
         let response = self
@@ -127,16 +141,12 @@ impl UcscApiTrackService {
 
 #[async_trait]
 impl TrackService for UcscApiTrackService {
-    async fn close(&self) -> Result<(), TGVError> {
+    async fn close(&mut self) -> Result<(), TGVError> {
         // reqwest client dones't need closing
         Ok(())
     }
 
-    async fn get_all_contigs(
-        &self,
-        reference: &Reference,
-        track_cache: &mut TrackCache,
-    ) -> Result<Vec<Contig>, TGVError> {
+    async fn get_all_contigs(&mut self, reference: &Reference) -> Result<Vec<Contig>, TGVError> {
         let query_url = match reference {
             Reference::Hg19 | Reference::Hg38 | Reference::UcscGenome(_) => {
                 format!(
@@ -145,9 +155,9 @@ impl TrackService for UcscApiTrackService {
                 )
             }
             Reference::UcscAccession(genome) => {
-                let hub_url = track_cache.hub_url.clone().unwrap_or({
+                let hub_url = self.hub_url.clone().unwrap_or({
                     let hub_url = self.get_hub_url_for_genark_accession(genome).await?;
-                    track_cache.hub_url = Some(hub_url.clone());
+                    self.hub_url = Some(hub_url.clone());
                     hub_url
                 });
 
@@ -155,6 +165,11 @@ impl TrackService for UcscApiTrackService {
                     "https://api.genome.ucsc.edu/list/chromosomes?hubUrl={};genome={}",
                     hub_url, genome
                 )
+            }
+            _ => {
+                return Err(TGVError::StateError(
+                    "UcscApi tracks can only be used for UCSC reference genomes.".to_string(),
+                ));
             }
         };
 
@@ -183,10 +198,10 @@ impl TrackService for UcscApiTrackService {
     }
 
     async fn get_cytoband(
-        &self,
+        &mut self,
         reference: &Reference,
         contig_index: usize,
-        cache: &mut TrackCache,
+
         contig_header: &ContigHeader,
     ) -> Result<Option<Cytoband>, TGVError> {
         let contig_name = contig_header.get_name(contig_index)?;
@@ -197,15 +212,20 @@ impl TrackService for UcscApiTrackService {
                 contig_name
             ),
             Reference::UcscAccession(genome) => {
-                if cache.hub_url.is_none() {
+                if self.hub_url.is_none() {
                     let hub_url = self.get_hub_url_for_genark_accession(genome).await?;
-                    cache.hub_url = Some(hub_url);
+                    self.hub_url = Some(hub_url);
                 }
-                let hub_url = cache.hub_url.as_ref().unwrap();
+                let hub_url = self.hub_url.as_ref().unwrap();
                 format!(
                     "https://api.genome.ucsc.edu/getData/track?hubUrl={}&genome={}&track=cytoBandIdeo&chrom={}",
                     hub_url, genome, contig_name
                 )
+            }
+            _ => {
+                return Err(TGVError::StateError(
+                    "UcscApi tracks can only be used for UCSC reference genomes.".to_string(),
+                ));
             }
         };
 
@@ -222,9 +242,8 @@ impl TrackService for UcscApiTrackService {
     }
 
     async fn get_preferred_track_name(
-        &self,
+        &mut self,
         reference: &Reference,
-        cache: &mut TrackCache,
     ) -> Result<Option<String>, TGVError> {
         let query_url = match reference {
             Reference::Hg19 | Reference::Hg38 | Reference::UcscGenome(_) => format!(
@@ -232,15 +251,20 @@ impl TrackService for UcscApiTrackService {
                 reference.to_string(),
             ),
             Reference::UcscAccession(genome) => {
-                if cache.hub_url.is_none() {
+                if self.hub_url.is_none() {
                     let hub_url = self.get_hub_url_for_genark_accession(genome).await?;
-                    cache.hub_url = Some(hub_url);
+                    self.hub_url = Some(hub_url);
                 }
-                let hub_url = cache.hub_url.as_ref().unwrap();
+                let hub_url = self.hub_url.as_ref().unwrap();
                 format!(
                     "https://api.genome.ucsc.edu/list/tracks?trackLeavesOnly=1;hubUrl={};genome={}",
                     hub_url, genome
                 )
+            }
+            _ => {
+                return Err(TGVError::StateError(
+                    "UcscApi tracks can only be used for UCSC reference genomes.".to_string(),
+                ));
             }
         };
         match reference.clone() {
@@ -276,18 +300,19 @@ impl TrackService for UcscApiTrackService {
     }
 
     async fn query_genes_overlapping(
-        &self,
+        &mut self,
         reference: &Reference,
         region: &Region,
-        cache: &mut TrackCache,
+
         contig_header: &ContigHeader,
     ) -> Result<Vec<Gene>, TGVError> {
-        self.query_track_if_not_cached(reference, region.contig_index(), cache, contig_header)
+        self.query_track_if_not_cached(reference, region.contig_index(), contig_header)
             .await?;
 
         // TODO: now I don't really handle empty query results
 
-        Ok(cache
+        Ok(self
+            .cache
             .tracks
             .get(&region.contig_index())
             .ok_or(TGVError::IOError(format!(
@@ -301,17 +326,18 @@ impl TrackService for UcscApiTrackService {
     }
 
     async fn query_gene_covering(
-        &self,
+        &mut self,
         reference: &Reference,
         contig_index: usize,
         position: usize,
-        cache: &mut TrackCache,
+
         contig_header: &ContigHeader,
     ) -> Result<Option<Gene>, TGVError> {
-        self.query_track_if_not_cached(reference, contig_index, cache, contig_header)
+        self.query_track_if_not_cached(reference, contig_index, contig_header)
             .await?;
 
-        Ok(cache
+        Ok(self
+            .cache
             .tracks
             .get(&contig_index)
             .ok_or(TGVError::IOError(format!(
@@ -323,19 +349,18 @@ impl TrackService for UcscApiTrackService {
     }
 
     async fn query_gene_name(
-        &self,
+        &mut self,
         reference: &Reference,
         gene_name: &String,
-        cache: &mut TrackCache,
         contig_header: &ContigHeader,
     ) -> Result<Gene, TGVError> {
-        if !cache.gene_quried(gene_name) {
+        if !self.cache.gene_quried(gene_name) {
             // query all possible tracks until the gene is found
             for contig_index in 0..contig_header.contigs.len() {
-                self.query_track_if_not_cached(reference, contig_index, cache, contig_header)
+                self.query_track_if_not_cached(reference, contig_index, contig_header)
                     .await?;
 
-                if let Some(gene) = cache.get_gene(gene_name) {
+                if let Some(gene) = self.cache.get_gene(gene_name) {
                     return Ok(gene.clone());
                 }
             }
@@ -345,18 +370,17 @@ impl TrackService for UcscApiTrackService {
     }
 
     async fn query_k_genes_after(
-        &self,
+        &mut self,
         reference: &Reference,
         contig_index: usize,
         coord: usize,
         k: usize,
-        cache: &mut TrackCache,
         contig_header: &ContigHeader,
     ) -> Result<Gene, TGVError> {
-        self.query_track_if_not_cached(reference, contig_index, cache, contig_header)
+        self.query_track_if_not_cached(reference, contig_index, contig_header)
             .await?;
 
-        cache
+        self.cache
             .tracks
             .get(&contig_index)
             .ok_or(TGVError::IOError(format!(
@@ -369,18 +393,18 @@ impl TrackService for UcscApiTrackService {
     }
 
     async fn query_k_genes_before(
-        &self,
+        &mut self,
         reference: &Reference,
         contig_index: usize,
         coord: usize,
         k: usize,
-        cache: &mut TrackCache,
+
         contig_header: &ContigHeader,
     ) -> Result<Gene, TGVError> {
-        self.query_track_if_not_cached(reference, contig_index, cache, contig_header)
+        self.query_track_if_not_cached(reference, contig_index, contig_header)
             .await?;
 
-        cache
+        self.cache
             .tracks
             .get(&contig_index)
             .ok_or(TGVError::IOError(format!(
@@ -393,18 +417,18 @@ impl TrackService for UcscApiTrackService {
     }
 
     async fn query_k_exons_after(
-        &self,
+        &mut self,
         reference: &Reference,
         contig_index: usize,
         coord: usize,
         k: usize,
-        cache: &mut TrackCache,
+
         contig_header: &ContigHeader,
     ) -> Result<SubGeneFeature, TGVError> {
-        self.query_track_if_not_cached(reference, contig_index, cache, contig_header)
+        self.query_track_if_not_cached(reference, contig_index, contig_header)
             .await?;
 
-        cache
+        self.cache
             .tracks
             .get(&contig_index)
             .ok_or(TGVError::IOError(format!(
@@ -416,18 +440,18 @@ impl TrackService for UcscApiTrackService {
     }
 
     async fn query_k_exons_before(
-        &self,
+        &mut self,
         reference: &Reference,
         contig_index: usize,
         coord: usize,
         k: usize,
-        cache: &mut TrackCache,
+
         contig_header: &ContigHeader,
     ) -> Result<SubGeneFeature, TGVError> {
-        self.query_track_if_not_cached(reference, contig_index, cache, contig_header)
+        self.query_track_if_not_cached(reference, contig_index, contig_header)
             .await?;
 
-        cache
+        self.cache
             .tracks
             .get(&contig_index)
             .ok_or(TGVError::IOError(format!(

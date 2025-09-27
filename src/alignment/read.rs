@@ -332,7 +332,7 @@ impl AlignedRead {
     pub fn from_bam_record(
         read_index: usize,
         read: Record,
-        reference_sequence: Option<&Sequence>,
+        reference_sequence: &Sequence,
     ) -> Result<Self, TGVError> {
         let read_start = read.pos() as usize + 1;
         let read_end = read.reference_end() as usize;
@@ -372,7 +372,7 @@ pub fn calculate_rendering_contexts(
     leading_softclips: usize,
     seq: &Seq,
     is_reverse: bool,
-    reference_sequence: Option<&Sequence>,
+    reference_sequence: &Sequence,
 ) -> Result<Vec<RenderingContext>, TGVError> {
     let mut output: Vec<RenderingContext> = Vec::new();
     if cigars.is_empty() {
@@ -417,13 +417,14 @@ pub fn calculate_rendering_contexts(
                             //  ssss======>   (read)
                             //    ^           edge of screen
                             //  ^^            these softcliped bases are not displayed
+
                             continue;
                         }
 
                         let base_coordinate: usize =
                             reference_pivot - leading_softclips + i_soft_clip_base;
 
-                        let base = seq[i_soft_clip_base + query_pivot - 1];
+                        let base = seq[i_soft_clip_base];
                         new_contexts.push(RenderingContext {
                             start: base_coordinate,
                             end: base_coordinate,
@@ -498,32 +499,27 @@ pub fn calculate_rendering_contexts(
                 // TODO: use basemods_iter?
                 // https://docs.rs/rust-htslib/latest/rust_htslib/bam/record/struct.Record.html#method.basemods_iter
 
-                let modifiers: Vec<RenderingContextModifier> = match reference_sequence {
-                    Some(reference_sequence) => (0..*l)
-                        .filter_map(|i| {
-                            let reference_position = reference_pivot + i as usize;
-                            if let Some(reference_base) =
-                                reference_sequence.base_at(reference_position)
-                            // convert to 1-based
-                            {
-                                let query_position = reference_pivot + i as usize;
-                                let query_base = seq[query_pivot + i as usize - 1];
-                                if !matches_base(query_base, reference_base) {
-                                    Some(RenderingContextModifier::Mismatch(
-                                        query_position,
-                                        query_base,
-                                    ))
-                                } else {
-                                    None
-                                }
+                let modifiers: Vec<RenderingContextModifier> = (0..*l)
+                    .filter_map(|i| {
+                        let reference_position = reference_pivot + i as usize;
+                        if let Some(reference_base) = reference_sequence.base_at(reference_position)
+                        // convert to 1-based
+                        {
+                            let query_position = reference_pivot + i as usize;
+                            let query_base = seq[query_pivot + i as usize - 1];
+                            if !matches_base(query_base, reference_base) {
+                                Some(RenderingContextModifier::Mismatch(
+                                    query_position,
+                                    query_base,
+                                ))
                             } else {
                                 None
                             }
-                        })
-                        .collect::<Vec<_>>(),
-
-                    None => Vec::new(),
-                };
+                        } else {
+                            None
+                        }
+                    })
+                    .collect::<Vec<_>>();
 
                 new_contexts.push(RenderingContext {
                     start: reference_pivot,
@@ -540,6 +536,8 @@ pub fn calculate_rendering_contexts(
         }
 
         if new_contexts.is_empty() {
+            reference_pivot = next_reference_pivot;
+            query_pivot = next_query_pivot;
             continue;
         }
 
@@ -916,21 +914,21 @@ mod tests {
     use rust_htslib::bam::record::{Cigar, CigarString};
 
     #[rstest]
-    #[case(10, vec![Cigar::Match(3)],  b"ATT", false,None, vec![RenderingContext{
+    #[case(10, vec![Cigar::Match(3)],  b"ATT", false,Sequence::default(), vec![RenderingContext{
         start:10,
         end:12,
         kind: RenderingContextKind::Match,
         modifiers:vec![RenderingContextModifier::Forward]
     }])]
     // Test reverse strand
-    #[case(10, vec![Cigar::Match(3)],  b"ATT", true, None, vec![RenderingContext{
+    #[case(10, vec![Cigar::Match(3)],  b"ATT", true, Sequence::default(), vec![RenderingContext{
         start:10,
         end:12,
         kind: RenderingContextKind::Match,
         modifiers:vec![RenderingContextModifier::Reverse]
     }])]
     // Test deletion
-    #[case(10, vec![Cigar::Match(3),Cigar::Del(2), Cigar::Match(3)], b"AAATTT", true, None, vec![RenderingContext{
+    #[case(10, vec![Cigar::Match(3),Cigar::Del(2), Cigar::Match(3)], b"AAATTT", true, Sequence::default(), vec![RenderingContext{
         start:10,
         end:12,
         kind: RenderingContextKind::Match,
@@ -947,7 +945,7 @@ mod tests {
         modifiers:vec![]
     }])]
     // Test RefSkip
-    #[case(10, vec![Cigar::Match(3),Cigar::RefSkip(2)], b"AAA", false, None, vec![RenderingContext{
+    #[case(10, vec![Cigar::Match(3),Cigar::RefSkip(2)], b"AAA", false, Sequence::default(), vec![RenderingContext{
         start:10,
         end:12,
         kind: RenderingContextKind::Match,
@@ -959,7 +957,7 @@ mod tests {
         modifiers:vec![RenderingContextModifier::Forward]
     }])]
     // Test insertion
-    #[case(10, vec![Cigar::Match(3), Cigar::Ins(2), Cigar::Match(3)], b"AAATTCCC", false, None, vec![RenderingContext{
+    #[case(10, vec![Cigar::Match(3), Cigar::Ins(2), Cigar::Match(3)], b"AAATTCCC", false, Sequence::default(), vec![RenderingContext{
         start:10,
         end:12,
         kind: RenderingContextKind::Match,
@@ -971,7 +969,7 @@ mod tests {
         modifiers:vec![RenderingContextModifier::Insertion(2), RenderingContextModifier::Forward]
     }])]
     // Test soft clips
-    #[case(10, vec![Cigar::SoftClip(2), Cigar::Match(3), Cigar::SoftClip(1)], b"GGATTC", true, None, vec![
+    #[case(10, vec![Cigar::SoftClip(2), Cigar::Match(3), Cigar::SoftClip(1)], b"GGATTC", true, Sequence::default(), vec![
         RenderingContext{
             start:8,
             end:8,
@@ -998,14 +996,14 @@ mod tests {
         }
     ])]
     // Test Equal cigar (matches current implementation with query pivot)
-    #[case(10, vec![Cigar::Equal(3)], b"ATT", false, None, vec![RenderingContext{
+    #[case(10, vec![Cigar::Equal(3)], b"ATT", false, Sequence::default(), vec![RenderingContext{
         start:10,
         end:12, // This matches the current implementation which uses next_query_pivot - 1
         kind: RenderingContextKind::Match,
         modifiers:vec![RenderingContextModifier::Forward]
     }])]
     // Test Diff cigar (explicit mismatch)
-    #[case(10, vec![Cigar::Diff(3)], b"ATT", false, None, vec![RenderingContext{
+    #[case(10, vec![Cigar::Diff(3)], b"ATT", false, Sequence::default(), vec![RenderingContext{
         start:10,
         end:12,
         kind: RenderingContextKind::Match,
@@ -1018,7 +1016,7 @@ mod tests {
     }])]
     // Test complex cigar: soft clip + match + insertion + match + deletion + match
     #[case(10, vec![Cigar::SoftClip(1), Cigar::Match(2), Cigar::Ins(1), Cigar::Match(2), Cigar::Del(3), Cigar::Match(2)],
-           b"GATCGAA", false, None, vec![
+           b"GATCGAA", false, Sequence::default(), vec![
         RenderingContext{
             start:9,
             end:9,
@@ -1051,7 +1049,7 @@ mod tests {
         }
     ])]
     // Test soft clips
-    #[case(10, vec![Cigar::SoftClip(2), Cigar::Match(3), Cigar::SoftClip(1)], b"GGATTC", true, Some(Sequence::new(10, b"AATG".to_vec(), 0).unwrap()), vec![
+    #[case(10, vec![Cigar::SoftClip(2), Cigar::Match(3), Cigar::SoftClip(1)], b"GGATTC", true, Sequence::new(10, b"AATG".to_vec(), 0), vec![
         RenderingContext{
             start:8,
             end:8,
@@ -1082,7 +1080,7 @@ mod tests {
         #[case] cigars: Vec<Cigar>,
         #[case] seq: &[u8],
         #[case] is_reverse: bool,
-        #[case] reference_sequence: Option<Sequence>,
+        #[case] reference_sequence: Sequence,
         #[case] expected_rendering_contexts: Vec<RenderingContext>,
     ) {
         let mut record = Record::new();
@@ -1099,7 +1097,7 @@ mod tests {
             record.cigar().leading_softclips() as usize,
             &record.seq(),
             is_reverse,
-            reference_sequence.as_ref(),
+            &reference_sequence,
         )
         .unwrap();
 

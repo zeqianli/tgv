@@ -114,14 +114,12 @@ impl MouseRegister {
                                 &state.window.coordinates_of_onscreen_x(event.column, area),
                                 &state.window.coordinate_of_onscreen_y(event.row, area),
                             ) {
-                                if let Some(alignment) = &state.alignment {
-                                    if let Some(read) = alignment.read_overlapping(
-                                        *left_coordinate,
-                                        *right_coordinate,
-                                        *y_coordinate,
-                                    ) {
-                                        messages.push(StateMessage::Message(read.describe()?))
-                                    }
+                                if let Some(read) = state.alignment.read_overlapping(
+                                    *left_coordinate,
+                                    *right_coordinate,
+                                    *y_coordinate,
+                                ) {
+                                    messages.push(StateMessage::Message(read.describe()?))
                                 }
                             }
                         }
@@ -130,18 +128,15 @@ impl MouseRegister {
                             if let Some((left_coordinate, right_coordinate)) =
                                 &state.window.coordinates_of_onscreen_x(event.column, area)
                             {
-                                if let Some(sequence) = state.sequence.as_ref() {
-                                    let description: String = (*left_coordinate
-                                        ..=*right_coordinate)
-                                        .filter_map(|coordinate| {
-                                            sequence.base_at(coordinate).map(|base_u8| {
-                                                format!("{}: {}", coordinate, base_u8 as char)
-                                            })
+                                let description: String = (*left_coordinate..=*right_coordinate)
+                                    .filter_map(|coordinate| {
+                                        state.sequence.base_at(coordinate).map(|base_u8| {
+                                            format!("{}: {}", coordinate, base_u8 as char)
                                         })
-                                        .join(", ");
+                                    })
+                                    .join(", ");
 
-                                    messages.push(StateMessage::Message(description))
-                                }
+                                messages.push(StateMessage::Message(description))
                             }
                         }
 
@@ -149,29 +144,23 @@ impl MouseRegister {
                             if let Some((left_coordinate, right_coordinate)) =
                                 &state.window.coordinates_of_onscreen_x(event.column, area)
                             {
-                                if let Some(alignment) = state.alignment.as_ref() {
-                                    let mut total_coverage: BaseCoverage = BaseCoverage::default();
-                                    (*left_coordinate..=*right_coordinate).for_each(|coordinate| {
-                                        total_coverage.add(alignment.coverage_at(coordinate))
-                                    });
+                                let mut total_coverage: BaseCoverage = BaseCoverage::default();
+                                (*left_coordinate..=*right_coordinate).for_each(|coordinate| {
+                                    total_coverage.add(state.alignment.coverage_at(coordinate))
+                                });
 
-                                    let message = if *left_coordinate == *right_coordinate {
-                                        format!(
-                                            "{}: {}",
-                                            *left_coordinate,
-                                            total_coverage.describe()
-                                        )
-                                    } else {
-                                        format!(
-                                            "{} - {}: {}",
-                                            *left_coordinate,
-                                            *right_coordinate,
-                                            total_coverage.describe()
-                                        )
-                                    };
+                                let message = if *left_coordinate == *right_coordinate {
+                                    format!("{}: {}", *left_coordinate, total_coverage.describe())
+                                } else {
+                                    format!(
+                                        "{} - {}: {}",
+                                        *left_coordinate,
+                                        *right_coordinate,
+                                        total_coverage.describe()
+                                    )
+                                };
 
-                                    messages.push(StateMessage::Message(message))
-                                }
+                                messages.push(StateMessage::Message(message))
                             }
                         }
                         AreaType::Variant => {

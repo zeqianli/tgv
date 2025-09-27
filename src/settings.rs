@@ -127,7 +127,7 @@ pub struct Settings {
     pub bai_path: Option<String>,
     pub vcf_path: Option<String>,
     pub bed_path: Option<String>,
-    pub reference: Option<Reference>,
+    pub reference: Reference,
     pub backend: BackendType,
 
     pub initial_state_messages: Vec<StateMessage>,
@@ -145,26 +145,6 @@ pub struct Settings {
 
 /// Settings to browse alignments
 impl Settings {
-    pub fn needs_alignment(&self) -> bool {
-        self.bam_path.is_some()
-    }
-
-    pub fn needs_track(&self) -> bool {
-        self.reference.is_some()
-    }
-
-    pub fn needs_sequence(&self) -> bool {
-        self.reference.is_some()
-    }
-
-    pub fn needs_variants(&self) -> bool {
-        self.vcf_path.is_some()
-    }
-
-    pub fn needs_bed(&self) -> bool {
-        self.bed_path.is_some()
-    }
-
     pub fn new(cli: Cli) -> Result<Self, TGVError> {
         // If this is a download command, it should be handled separately
         if cli.command.is_some() {
@@ -185,9 +165,9 @@ impl Settings {
 
         // Reference
         let reference = if cli.no_reference {
-            None
+            Reference::NoReference
         } else {
-            Some(Reference::from_str(&cli.reference)?)
+            Reference::from_str(&cli.reference)?
         };
 
         // Initial messages
@@ -197,8 +177,7 @@ impl Settings {
         let backend = match (cli.offline, cli.online) {
             (true, true) => {
                 return Err(TGVError::CliError(
-                    "Both --offline and --online flags are used. Please use only one of them."
-                        .to_string(),
+                    "Both --offline and --online flags are used. Please use only one.".to_string(),
                 ));
             }
             (true, false) => BackendType::Local,
@@ -208,7 +187,7 @@ impl Settings {
 
         // Additional validations:
         // 1. If no reference is provided, the initial state messages cannot contain GoToGene
-        if reference.is_none() {
+        if !reference.needs_track() {
             for m in initial_state_messages.iter() {
                 if let StateMessage::GoToGene(gene_name) = m {
                     return Err(TGVError::CliError(format!(
@@ -220,7 +199,7 @@ impl Settings {
         }
 
         // 2. bam file and reference cannot both be none
-        if cli.bam_path.is_none() && reference.is_none() {
+        if cli.bam_path.is_none() && cli.no_reference {
             return Err(TGVError::CliError(
                 "Bam file and reference cannot both be none".to_string(),
             ));
@@ -243,11 +222,6 @@ impl Settings {
             cache_dir,
             palette: DARK_THEME,
         })
-    }
-
-    pub fn test_mode(mut self) -> Self {
-        self.test_mode = true;
-        self
     }
 
     fn translate_initial_state_messages(
@@ -305,7 +279,7 @@ mod tests {
             bai_path: None,
             vcf_path: None,
             bed_path: None,
-            reference: Some(Reference::Hg38),
+            reference: Reference::Hg38,
             backend: BackendType::Default, // Default backend
             initial_state_messages: vec![StateMessage::GoToDefault],
             test_mode: false,
@@ -363,19 +337,19 @@ mod tests {
     }))]
     #[case("tgv input.bam -r TP53 -g hg19", Ok(Settings {
         bam_path: Some("input.bam".to_string()),
-        reference: Some(Reference::Hg19),
+        reference: Reference::Hg19,
         initial_state_messages: vec![StateMessage::GoToGene("TP53".to_string())],
         ..default_settings()
     }))]
     #[case("tgv input.bam -r TP53 -g mm39", Ok(Settings {
         bam_path: Some("input.bam".to_string()),
-        reference: Some(Reference::UcscGenome("mm39".to_string())),
+        reference: Reference::UcscGenome("mm39".to_string()),
         initial_state_messages: vec![StateMessage::GoToGene("TP53".to_string())],
         ..default_settings()
     }))]
     #[case("tgv input.bam -r 1:12345 --no-reference", Ok(Settings {
         bam_path: Some("input.bam".to_string()),
-        reference: None,
+        reference: Reference::NoReference,
         initial_state_messages: vec![StateMessage::GotoContigNameCoordinate(
             "1".to_string(),
             12345,

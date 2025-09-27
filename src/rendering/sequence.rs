@@ -14,14 +14,10 @@ pub fn render_sequence(
 ) -> Result<(), TGVError> {
     let region = &state.viewing_region();
 
-    if let Some(sequence) = &state.sequence {
-        match state.window.zoom {
-            1 => render_sequence_at_1x(area, buf, region, sequence, pallete),
-            2 => render_sequence_at_2x(area, buf, region, sequence, pallete),
-            _ => Ok(()),
-        }
-    } else {
-        Ok(())
+    match state.window.zoom {
+        1 => render_sequence_at_1x(area, buf, region, &state.sequence, pallete),
+        2 => render_sequence_at_2x(area, buf, region, &state.sequence, pallete),
+        _ => Ok(()),
     }
 }
 
@@ -36,11 +32,7 @@ fn render_sequence_at_1x(
         return Ok(());
     }
 
-    let sequence_string = String::from_utf8(
-        sequence
-            .get_sequence(region)
-            .ok_or(TGVError::StateError("Sequence not found".to_string()))?,
-    )?;
+    let sequence_string = String::from_utf8(sequence.get_sequence(region).unwrap_or_default())?;
 
     for (i, base) in sequence_string.chars().enumerate() {
         buf.set_string(

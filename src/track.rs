@@ -34,6 +34,24 @@ pub struct Track<T: GenomeInterval> {
     feature_lookup: HashMap<String, usize>,
 }
 
+impl<T: GenomeInterval> Default for Track<T> {
+    fn default() -> Self {
+        Self {
+            features: Vec::<T>::new(),
+            contig_index: 0,
+            features_by_start: BTreeMap::new(),
+            features_by_end: BTreeMap::new(),
+
+            most_left_bound: usize::MAX,
+            most_right_bound: usize::MIN,
+
+            exons_by_start: None,
+            exons_by_end: None,
+            feature_lookup: HashMap::new(),
+        }
+    }
+}
+
 impl<T: GenomeInterval> Track<T> {
     /// Create a track from a list of features.
     /// Assumes no feature overlapping.

@@ -24,67 +24,51 @@ pub fn render_alignment(
         return Ok(());
     }
 
-    if let Some(alignment) = &state.alignment {
-        let display_as_pairs = state
-            .alignment_options
-            .iter()
-            .any(|option| *option == AlignmentDisplayOption::ViewAsPairs);
-        if display_as_pairs && alignment.read_pairs.is_none() {
-            return Err(TGVError::StateError(
-                "Read pairs are not calculated before rendering.".to_string(),
-            ));
-        }
-
-        if display_as_pairs {
-            alignment
-                .read_pairs
-                .as_ref()
-                .unwrap()
-                .iter()
-                .zip(alignment.show_pairs.as_ref().unwrap().iter()).try_for_each(|(read_pair, show_pair)| {
-                    if *show_pair {
-                        let y = alignment.ys[read_pair.read_1_index];
-                        read_pair
-                            .rendering_contexts
-                            .iter().try_for_each(|context| {
-                                render_contexts(
-                                    context,
-                                    y,
-                                    buf,
-                                    state,
-                                    area,
-                                    background_color,
-                                    pallete,
-                                )
-                            })
-                    } else {
-                        Ok(())
-                    }
-                })?;
-        } else {
-            alignment
-                .ys_index
-                .iter()
-                .enumerate().try_for_each(|(y, read_indexes)| {
-                    read_indexes
-                        .iter().try_for_each(|read_index| {
-                            alignment.reads[*read_index]
-                                .rendering_contexts
-                                .iter().try_for_each(|context| {
-                                    render_contexts(
-                                        context,
-                                        y,
-                                        buf,
-                                        state,
-                                        area,
-                                        background_color,
-                                        pallete,
-                                    )
-                                })
-                        })
-                })?
-        };
+    let display_as_pairs = state
+        .alignment_options
+        .iter()
+        .any(|option| *option == AlignmentDisplayOption::ViewAsPairs);
+    if display_as_pairs && state.alignment.read_pairs.is_none() {
+        return Err(TGVError::StateError(
+            "Read pairs are not calculated before rendering.".to_string(),
+        ));
     }
+
+    if display_as_pairs {
+        state
+            .alignment
+            .read_pairs
+            .as_ref()
+            .unwrap()
+            .iter()
+            .zip(state.alignment.show_pairs.as_ref().unwrap().iter())
+            .try_for_each(|(read_pair, show_pair)| {
+                if *show_pair {
+                    let y = state.alignment.ys[read_pair.read_1_index];
+                    read_pair.rendering_contexts.iter().try_for_each(|context| {
+                        render_contexts(context, y, buf, state, area, background_color, pallete)
+                    })
+                } else {
+                    Ok(())
+                }
+            })?;
+    } else {
+        state
+            .alignment
+            .ys_index
+            .iter()
+            .enumerate()
+            .try_for_each(|(y, read_indexes)| {
+                read_indexes.iter().try_for_each(|read_index| {
+                    state.alignment.reads[*read_index]
+                        .rendering_contexts
+                        .iter()
+                        .try_for_each(|context| {
+                            render_contexts(context, y, buf, state, area, background_color, pallete)
+                        })
+                })
+            })?
+    };
     Ok(())
 }
 

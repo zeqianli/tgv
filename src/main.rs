@@ -40,7 +40,8 @@ async fn main() -> Result<(), TGVError> {
             reference,
             cache_dir,
         }) => {
-            let downloader = UCSCDownloader::new(Reference::from_str(&reference)?, cache_dir)?;
+            let cache_dir = shellexpand::tilde(&cache_dir).to_string();
+            let downloader = UCSCDownloader::new(Reference::from_str(&reference)?, &cache_dir)?;
             downloader.download().await?;
             return Ok(());
         }
@@ -125,6 +126,7 @@ mod tests {
     use ratatui::{backend::TestBackend, Terminal};
     use rstest::rstest;
     use std::env;
+    use std::path::Path;
 
     /// Test that the app runs without panicking.
     /// Snapshots are saved in src/snapshots
@@ -150,6 +152,11 @@ mod tests {
         Some("covid.sorted.bam"),
         Some("--no-reference -r MN908947.3:100 --offline")
     )]
+    #[case(Some("covid.sorted.bam"), Some("-g tests/data/covid.fa --offline"))]
+    #[case(
+        Some("covid.sorted.bam"),
+        Some("-g tests/data/cache/wuhCor1/wuhCor1.2bit --offline")
+    )]
     #[tokio::test]
     async fn integration_test(#[case] bam_path: Option<&str>, #[case] args: Option<&str>) {
         let snapshot_name = match (bam_path, args) {
@@ -173,7 +180,8 @@ mod tests {
         };
 
         let cli = Cli::parse_from(shlex::split(&args_string).unwrap());
-        let settings = Settings::new(cli).unwrap().test_mode();
+        let mut settings = Settings::new(cli).unwrap();
+        settings.test_mode = true;
 
         let mut terminal = Terminal::new(TestBackend::new(50, 20)).unwrap();
 
@@ -192,18 +200,14 @@ mod tests {
     async fn download_integration_test(#[case] reference_str: &str) {
         let reference = Reference::from_str(reference_str).unwrap();
         let temp_dir = tempfile::TempDir::new().unwrap();
-        println!("temp_dir: {:?}", temp_dir.path());
-        let downloader = UCSCDownloader::new(
-            Reference::from_str(reference_str).unwrap(),
-            temp_dir.path().to_str().unwrap().to_string(),
-        )
-        .unwrap();
+        let temp_dir = temp_dir.path().to_str().unwrap();
+        let downloader =
+            UCSCDownloader::new(Reference::from_str(reference_str).unwrap(), temp_dir).unwrap();
 
         downloader.download().await.unwrap();
 
-        assert!(temp_dir.path().join(reference.to_string()).exists());
-        assert!(temp_dir
-            .path()
+        assert!(Path::new(&temp_dir).join(reference.to_string()).exists());
+        assert!(Path::new(&temp_dir)
             .join(reference.to_string())
             .join("tracks.sqlite")
             .exists());

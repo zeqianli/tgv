@@ -12,7 +12,7 @@ pub fn calculate_basewise_coverage(
     cigars: &CigarStringView,
     leading_softclips: usize,
     seq: &Seq,
-    reference_sequence: Option<&Sequence>,
+    reference_sequence: &Sequence,
 ) -> Result<HashMap<usize, BaseCoverage>, TGVError> {
     let mut output: HashMap<usize, BaseCoverage> = HashMap::new();
     if cigars.is_empty() {
@@ -59,11 +59,10 @@ pub fn calculate_basewise_coverage(
 
                         output
                             .entry(base_coordinate)
-                            .or_insert(BaseCoverage::new(match reference_sequence {
+                            .or_insert(BaseCoverage::new(
                                 // FIXME: This can cause problems when sequence cache didn't catch up with alignment.
-                                Some(sequence) => sequence.base_at(base_coordinate).unwrap_or(b'N'),
-                                None => b'N',
-                            }))
+                                reference_sequence.base_at(base_coordinate).unwrap_or(b'N'),
+                            ))
                             .update_softclip(base)
                     }
                 } else {
@@ -73,11 +72,10 @@ pub fn calculate_basewise_coverage(
                         let base = seq[query_pivot + i_soft_clip_base - 1];
                         output
                             .entry(base_coordinate)
-                            .or_insert(BaseCoverage::new(match reference_sequence {
+                            .or_insert(BaseCoverage::new(
                                 // FIXME: This can cause problems when sequence cache didn't catch up with alignment.
-                                Some(sequence) => sequence.base_at(base_coordinate).unwrap_or(b'N'),
-                                None => b'N',
-                            }))
+                                reference_sequence.base_at(base_coordinate).unwrap_or(b'N'),
+                            ))
                             .update_softclip(base);
                     }
                 }
@@ -92,11 +90,10 @@ pub fn calculate_basewise_coverage(
                     let base_coordinate = reference_pivot + i;
                     output
                         .entry(base_coordinate)
-                        .or_insert(BaseCoverage::new(match reference_sequence {
+                        .or_insert(BaseCoverage::new(
                             // FIXME: This can cause problems when sequence cache didn't catch up with alignment.
-                            Some(sequence) => sequence.base_at(base_coordinate).unwrap_or(b'N'),
-                            None => b'N',
-                        }))
+                            reference_sequence.base_at(base_coordinate).unwrap_or(b'N'),
+                        ))
                         .update(seq[query_pivot + i - 1])
                 }
             }

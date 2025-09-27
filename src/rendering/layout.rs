@@ -167,33 +167,34 @@ impl MainLayout {
     pub fn initialize(settings: &Settings, initial_area: Rect) -> Result<Self, TGVError> {
         let mut children = Vec::new();
 
-        if settings.needs_track() {
-            children.extend(vec![
-                LayoutNode::Area {
-                    constraint: Constraint::Length(2),
-                    area_type: AreaType::Cytoband,
-                },
-                LayoutNode::Area {
-                    constraint: Constraint::Length(2),
-                    area_type: AreaType::Coordinate,
-                },
-            ]);
+        if settings.reference.needs_track() {
+            children.extend(vec![LayoutNode::Area {
+                constraint: Constraint::Length(2),
+                area_type: AreaType::Cytoband,
+            }]);
         }
 
-        if settings.needs_alignment() {
+        if settings.reference.needs_sequence() || settings.reference.needs_track() {
+            children.extend(vec![LayoutNode::Area {
+                constraint: Constraint::Length(2),
+                area_type: AreaType::Coordinate,
+            }]);
+        }
+
+        if settings.bam_path.is_some() {
             children.push(LayoutNode::Area {
                 constraint: Constraint::Length(6),
                 area_type: AreaType::Coverage,
-            })
-        };
-        if settings.needs_variants() {
+            });
+        }
+        if settings.vcf_path.is_some() {
             children.push(LayoutNode::Area {
                 constraint: Constraint::Length(1),
                 area_type: AreaType::Variant,
             });
         }
 
-        if settings.needs_bed() {
+        if settings.bed_path.is_some() {
             children.push(LayoutNode::Area {
                 constraint: Constraint::Length(1),
                 area_type: AreaType::Bed,
@@ -205,17 +206,17 @@ impl MainLayout {
             area_type: AreaType::Alignment,
         }]);
 
-        if settings.needs_track() {
-            children.extend(vec![
-                LayoutNode::Area {
-                    constraint: Constraint::Length(1),
-                    area_type: AreaType::Sequence,
-                },
-                LayoutNode::Area {
-                    constraint: Constraint::Length(2),
-                    area_type: AreaType::GeneTrack,
-                },
-            ]);
+        if settings.reference.needs_sequence() {
+            children.extend(vec![LayoutNode::Area {
+                constraint: Constraint::Length(1),
+                area_type: AreaType::Sequence,
+            }]);
+        }
+        if settings.reference.needs_track() {
+            children.extend(vec![LayoutNode::Area {
+                constraint: Constraint::Length(2),
+                area_type: AreaType::GeneTrack,
+            }]);
         }
 
         children.extend(vec![
@@ -311,22 +312,22 @@ impl MainLayout {
             AreaType::Cytoband => render_cytobands(rect, buf, state, pallete)?,
             AreaType::Coordinate => render_coordinates(rect, buf, state)?,
             AreaType::Coverage => {
-                if state.alignment_renderable() {
+                if repository.alignment_repository.is_some() {
                     render_coverage(rect, buf, state, pallete)?;
                 }
             }
             AreaType::Alignment => {
-                if state.alignment_renderable() {
+                if repository.alignment_repository.is_some() {
                     render_alignment(rect, buf, state, &background_color, pallete)?;
                 }
             }
             AreaType::Sequence => {
-                if state.sequence_renderable() {
+                if repository.sequence_service.is_some() {
                     render_sequence(rect, buf, state, pallete)?;
                 }
             }
             AreaType::GeneTrack => {
-                if state.track_renderable() {
+                if repository.track_service.is_some() {
                     render_track(rect, buf, state, pallete)?;
                 }
             }

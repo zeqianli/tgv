@@ -1,6 +1,5 @@
 use crate::error::TGVError;
-use std::fmt;
-
+use std::path::Path;
 // Added: Embed the CSV content as static bytes
 const DEFAULT_DB_CSV: &[u8] = include_bytes!("resources/defaultDb.csv");
 
@@ -10,6 +9,9 @@ pub enum Reference {
     Hg38,
     UcscGenome(String),
     UcscAccession(String),
+    BYOIndexedFasta(String),
+    BYOTwoBit(String),
+    NoReference,
 }
 
 impl Reference {
@@ -41,10 +43,46 @@ impl Reference {
             return Ok(Self::UcscAccession(s.to_string()));
         }
 
+        // Reference fasta
+        if s.ends_with(".fa")
+            || s.ends_with(".fasta")
+            || s.ends_with(".fa.gz")
+            || s.ends_with(".fasta.gz")
+        {
+            // check that index file exists
+            let s = shellexpand::tilde(s).to_string();
+            if !std::path::Path::new(&s).exists() {
+                return Err(TGVError::IOError(format!(
+                    "Reference genome file {} does not exist",
+                    s
+                )));
+            }
+            if !std::path::Path::new(&format!("{}.fai", s)).exists() {
+                return Err(TGVError::IOError(format!(
+                    ".fai index file is required for custom reference genome. \nYou can create index by\n   samtools faidx {}.\n(see https://www.htslib.org/doc/samtools-faidx.html)",
+                    s
+                )));
+            }
+
+            return Ok(Self::BYOIndexedFasta(s));
+        }
+
+        // 2bit
+        if s.ends_with(".2bit") {
+            // check that index file exists
+            let s = shellexpand::tilde(s).to_string();
+            if !std::path::Path::new(&s).exists() {
+                return Err(TGVError::IOError(format!(
+                    "2bit reference genome file {} does not exist",
+                    s
+                )));
+            }
+
+            return Ok(Self::BYOTwoBit(s));
+        }
+
         // Check for common names
-
         let s_standardized = standardize_common_genome_name(s)?;
-
         for (genome, name) in Reference::get_common_genome_names()? {
             let genome_standardized = standardize_common_genome_name(genome.as_str())?;
             let name_trimmed = name.trim().trim_matches('"');
@@ -70,18 +108,36 @@ impl Reference {
             Self::Hg38 => Self::HG38.to_string(),
             Self::UcscGenome(s) => s.clone(),
             Self::UcscAccession(s) => s.clone(),
+            Self::BYOIndexedFasta(s) => s.split('/').next_back().unwrap().to_string(),
+            Self::BYOTwoBit(s) => s.split('/').next_back().unwrap().to_string(),
+            Self::NoReference => "no_reference".to_string(),
         }
     }
-}
 
-impl fmt::Display for Reference {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+    pub fn needs_track(&self) -> bool {
         match self {
-            Self::Hg19 => write!(f, "{}", Self::HG19),
-            Self::Hg38 => write!(f, "{}", Self::HG38),
-            Self::UcscGenome(s) => write!(f, "{}", s),
-            Self::UcscAccession(s) => write!(f, "{}", s),
+            Self::Hg19 | Self::Hg38 | Self::UcscGenome(_) | Self::UcscAccession(_) => true,
+            Self::BYOIndexedFasta(_) | Self::BYOTwoBit(_) | Self::NoReference => false,
         }
+    }
+    pub fn needs_sequence(&self) -> bool {
+        match self {
+            Self::Hg19
+            | Self::Hg38
+            | Self::UcscGenome(_)
+            | Self::UcscAccession(_)
+            | Self::BYOIndexedFasta(_)
+            | Self::BYOTwoBit(_) => true,
+            Self::NoReference => false,
+        }
+    }
+
+    pub fn cache_dir(&self, parent_cache_dir: &str) -> String {
+        Path::new(parent_cache_dir)
+            .join(self.to_string())
+            .to_str()
+            .unwrap()
+            .to_string()
     }
 }
 

@@ -12,6 +12,7 @@ use crate::{
 use std::collections::{hash_map::Entry, BTreeMap, HashMap};
 
 /// A alignment region on a contig.
+#[derive(Debug, Default)]
 pub struct Alignment {
     pub reads: Vec<AlignedRead>,
 
@@ -114,7 +115,7 @@ impl Alignment {
     pub fn from_aligned_reads(
         reads: Vec<AlignedRead>,
         region: &Region,
-        reference_sequence: Option<&Sequence>,
+        reference_sequence: &Sequence,
     ) -> Result<Self, TGVError> {
         let show_reads = vec![true; reads.len()];
         let ys = stack_tracks_for_reads(&reads, &show_reads);
@@ -214,7 +215,7 @@ impl Alignment {
     pub fn apply_options(
         &mut self,
         options: &Vec<AlignmentDisplayOption>,
-        reference_sequence: Option<&Sequence>,
+        reference_sequence: &Sequence,
     ) -> Result<&mut Self, TGVError> {
         options.iter().try_for_each(|option| match option {
             AlignmentDisplayOption::Filter(filter) => {
@@ -231,7 +232,8 @@ impl Alignment {
     }
 
     /// Reset alignment options
-    pub fn reset(&mut self, reference_sequence: Option<&Sequence>) -> Result<&mut Self, TGVError> {
+    pub fn reset(&mut self, reference_sequence: &Sequence) -> Result<&mut Self, TGVError> {
+        // TODO: reference sequence could be empty.
         self.ys = self.default_ys.clone();
         self.show_read = vec![true; self.reads.len()];
 
@@ -278,10 +280,7 @@ impl Alignment {
         }
     }
 
-    pub fn build_coverage(
-        &mut self,
-        reference_sequence: Option<&Sequence>,
-    ) -> Result<&mut Self, TGVError> {
+    pub fn build_coverage(&mut self, reference_sequence: &Sequence) -> Result<&mut Self, TGVError> {
         // coverage
 
         let mut coverage_hashmap: HashMap<usize, BaseCoverage> = HashMap::new();
@@ -319,7 +318,7 @@ impl Alignment {
     pub fn filter(
         &mut self,
         filter: &AlignmentFilter,
-        reference_sequence: Option<&Sequence>,
+        reference_sequence: &Sequence,
     ) -> Result<&mut Self, TGVError> {
         for (i, read) in self.reads.iter().enumerate() {
             self.show_read[i] = read.passes_filter(filter)

@@ -28,9 +28,12 @@ pub fn render_contig_list(
     }
 
     // First line: reference name
-    if let Some(reference) = &state.reference {
-        buf.set_string(area.x, area.y, reference.to_string(), Style::default());
-    }
+    buf.set_string(
+        area.x,
+        area.y,
+        state.reference.to_string(),
+        Style::default(),
+    );
 
     // Highlight the selection row
     let selection_row = area.height / 2;
@@ -159,3 +162,5 @@ fn render_contig_at_y(
 
     Ok(())
 }
+
+// FEAT: command mode in listing contig to search reference genome

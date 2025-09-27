@@ -5,7 +5,7 @@ use crate::message::AlignmentFilter;
 use crate::repository::AlignmentRepository;
 use crate::repository::Repository;
 use crate::settings::Settings;
-use crate::tracks::{TrackCache, TrackService};
+use crate::tracks::TrackService;
 use crate::{
     alignment::Alignment,
     contig_header::ContigHeader,
@@ -17,7 +17,7 @@ use crate::{
     register::DisplayMode,
     rendering::layout::resize_node,
     rendering::MainLayout,
-    sequence::{Sequence, SequenceCache, SequenceRepository},
+    sequence::{Sequence, SequenceRepository},
     track::Track,
     window::ViewingWindow,
 };
@@ -31,8 +31,8 @@ pub struct State {
 
     /// Viewing window.
     pub window: ViewingWindow,
-    // pub area: Rect,
-    pub reference: Option<Reference>,
+
+    pub reference: Reference,
 
     /// Settings
     ///pub settings: Settings,
@@ -41,18 +41,14 @@ pub struct State {
     pub messages: Vec<String>,
 
     /// Alignment segments.
-    pub alignment: Option<Alignment>,
+    pub alignment: Alignment,
     pub alignment_options: Vec<AlignmentDisplayOption>,
 
     /// Tracks.
-    pub track: Option<Track<Gene>>,
-    pub track_cache: TrackCache,
-
+    pub track: Track<Gene>,
     /// Sequences.
-    pub sequence: Option<Sequence>,
-    pub sequence_cache: SequenceCache,
+    pub sequence: Sequence,
 
-    // TODO: in the first implementation, refresh all data when the viewing window is near the boundary.
     /// Consensus contig header from BAM and reference genomes
     pub contig_header: ContigHeader,
 
@@ -67,8 +63,6 @@ impl State {
         settings: &Settings,
         // initial_window: ViewingWindow,
         initial_area: Rect,
-        sequence_cache: SequenceCache,
-        track_cache: TrackCache,
         contigs: ContigHeader,
     ) -> Result<Self, TGVError> {
         Ok(Self {
@@ -80,12 +74,10 @@ impl State {
             // /settings: settings.clone(),
             messages: Vec::new(),
 
-            alignment: None,
+            alignment: Alignment::default(),
             alignment_options: Vec::new(),
-            track: None,
-            track_cache,
-            sequence: None,
-            sequence_cache,
+            track: Track::<Gene>::default(),
+            sequence: Sequence::default(),
             contig_header: contigs,
 
             display_mode: DisplayMode::Main,
@@ -129,27 +121,9 @@ impl State {
         self.contig_header.cytoband(self.contig_index())
     }
 
-    pub fn alignment_depth(&self) -> Option<usize> {
-        self.alignment.as_ref().map(|alignment| alignment.depth())
-    }
-
     /// Maximum length of the contig.
     pub fn contig_length(&self) -> Result<Option<usize>, TGVError> {
         Ok(self.contig_header.get(self.contig_index())?.length)
-    }
-
-    /// Get the reference if set.
-    pub fn reference_checked(&self) -> Result<&Reference, TGVError> {
-        match self.reference {
-            Some(ref reference) => Ok(reference),
-            None => Err(TGVError::StateError("Reference is not set".to_string())),
-        }
-    }
-
-    pub fn track_checked(&self) -> Result<&Track<Gene>, TGVError> {
-        self.track
-            .as_ref()
-            .ok_or(TGVError::StateError("Track is not initialized".to_string()))
     }
 }
 
@@ -159,22 +133,6 @@ impl State {
         let contig_length = self.contig_length().unwrap();
         self.window
             .self_correct(&self.layout.main_area, contig_length);
-    }
-
-    pub fn alignment_renderable(&self) -> bool {
-        self.alignment.is_some() && self.window.zoom <= StateHandler::MAX_ZOOM_TO_DISPLAY_ALIGNMENTS
-    }
-
-    pub fn sequence_renderable(&self) -> bool {
-        self.reference.is_some()
-            && self.sequence.is_some()
-            && self.window.zoom <= StateHandler::MAX_ZOOM_TO_DISPLAY_SEQUENCES
-    }
-
-    pub fn track_renderable(&self) -> bool {
-        self.reference.is_some()
-            && self.track.is_some()
-            && self.window.zoom <= StateHandler::MAX_ZOOM_TO_DISPLAY_FEATURES
     }
 
     pub fn cytoband_renderable(&self) -> bool {
@@ -189,7 +147,7 @@ impl StateHandler {
     /// This has different error handling strategy (loud) vs handle(...), which suppresses errors.
     pub async fn handle_initial_messages(
         state: &mut State,
-        repository: &Repository,
+        repository: &mut Repository,
         settings: &Settings,
         messages: Vec<StateMessage>,
     ) -> Result<(), TGVError> {
@@ -212,7 +170,7 @@ impl StateHandler {
     /// Handle messages after initialization. This blocks any error messages instead of propagating them.
     pub async fn handle(
         state: &mut State,
-        repository: &Repository,
+        repository: &mut Repository,
         settings: &Settings,
         messages: Vec<StateMessage>,
     ) -> Result<(), TGVError> {
@@ -227,7 +185,7 @@ impl StateHandler {
             }
         }
 
-        let data_messages = StateHandler::get_data_requirements(state, settings)?;
+        let data_messages = StateHandler::get_data_requirements(state, repository)?;
 
         for data_message in data_messages {
             match Self::handle_data_message(state, repository, data_message).await {
@@ -242,7 +200,7 @@ impl StateHandler {
     /// Main function to route state message handling.
     async fn handle_state_message(
         state: &mut State,
-        repository: &Repository,
+        repository: &mut Repository,
         settings: &Settings,
         message: StateMessage,
     ) -> Result<Vec<DataMessage>, TGVError> {
@@ -265,9 +223,7 @@ impl StateHandler {
             }
 
             StateMessage::GotoY(y) => StateHandler::go_to_y(state, y)?,
-            StateMessage::GotoYBottom => {
-                StateHandler::go_to_y(state, state.alignment_depth().unwrap_or(0))?
-            }
+            StateMessage::GotoYBottom => StateHandler::go_to_y(state, state.alignment.depth())?,
 
             // Zoom handling
             StateMessage::ZoomOut(r) => StateHandler::handle_zoom_out(state, r)?,
@@ -343,46 +299,39 @@ impl StateHandler {
 
             StateMessage::SetAlignmentChange(options) => {
                 let middle = state.middle();
-                if let Some(alignment) = state.alignment.as_mut() {
-                    alignment.reset(state.sequence.as_ref())?;
 
-                    let options = options
-                        .into_iter()
-                        .map(|option| match option {
-                            AlignmentDisplayOption::Filter(
-                                AlignmentFilter::BaseAtCurrentPosition(base),
-                            ) => {
-                                AlignmentDisplayOption::Filter(AlignmentFilter::Base(middle, base))
-                            }
+                state.alignment.reset(&state.sequence)?;
 
-                            AlignmentDisplayOption::Filter(
-                                AlignmentFilter::BaseAtCurrentPositionSoftClip,
-                            ) => AlignmentDisplayOption::Filter(AlignmentFilter::BaseSoftclip(
-                                middle,
-                            )),
+                let options = options
+                    .into_iter()
+                    .map(|option| match option {
+                        AlignmentDisplayOption::Filter(AlignmentFilter::BaseAtCurrentPosition(
+                            base,
+                        )) => AlignmentDisplayOption::Filter(AlignmentFilter::Base(middle, base)),
 
-                            _ => option,
-                        })
-                        .collect_vec();
-                    state.alignment_options = options;
-                    let _ = alignment
-                        .apply_options(&state.alignment_options, state.sequence.as_ref())?;
-                }
+                        AlignmentDisplayOption::Filter(
+                            AlignmentFilter::BaseAtCurrentPositionSoftClip,
+                        ) => AlignmentDisplayOption::Filter(AlignmentFilter::BaseSoftclip(middle)),
+
+                        _ => option,
+                    })
+                    .collect_vec();
+                state.alignment_options = options;
+                let _ = state
+                    .alignment
+                    .apply_options(&state.alignment_options, &state.sequence)?;
             }
+
             StateMessage::AddAlignmentChange(options) => {}
         }
 
-        Self::get_data_requirements(state, settings)
+        Self::get_data_requirements(state, repository)
     }
 }
 
 // Data message handling
 
 impl StateHandler {
-    pub const MAX_ZOOM_TO_DISPLAY_FEATURES: usize = usize::MAX;
-    pub const MAX_ZOOM_TO_DISPLAY_ALIGNMENTS: usize = 32;
-    pub const MAX_ZOOM_TO_DISPLAY_SEQUENCES: usize = 2;
-
     fn quit(state: &mut State) -> Result<(), TGVError> {
         state.exit = true;
         Ok(())
@@ -400,7 +349,7 @@ impl StateHandler {
 
     fn get_data_requirements(
         state: &State,
-        settings: &Settings,
+        repository: &mut Repository, // settings: &Settings,
     ) -> Result<Vec<DataMessage>, TGVError> {
         let mut data_messages = Vec::new();
 
@@ -409,18 +358,18 @@ impl StateHandler {
         // It's important to load sequence first!
         // Alignment IO requires calculating mismatches with the reference sequence.
 
-        if settings.needs_sequence()
-            && (state.window.zoom <= Self::MAX_ZOOM_TO_DISPLAY_SEQUENCES)
-            && !Self::has_complete_sequence(state, &viewing_region)
+        if repository.sequence_service.is_some()
+            && state.window.sequence_renderable()
+            && !state.sequence.has_complete_data(&viewing_region)
         {
             let sequence_cache_region = Self::sequence_cache_region(state, &viewing_region)?;
             data_messages.push(DataMessage::RequiresCompleteSequences(
                 sequence_cache_region,
             ));
         }
-        if settings.needs_alignment()
-            && state.window.zoom <= Self::MAX_ZOOM_TO_DISPLAY_ALIGNMENTS
-            && !Self::has_complete_alignment(state, &viewing_region)
+        if repository.alignment_repository.is_some()
+            && state.window.alignment_renderable()
+            && !state.alignment.has_complete_data(&viewing_region)
         {
             let alignment_cache_region = Self::alignment_cache_region(state, &viewing_region)?;
             data_messages.push(DataMessage::RequiresCompleteAlignments(
@@ -428,8 +377,8 @@ impl StateHandler {
             ));
         }
 
-        if settings.needs_track() {
-            if !Self::has_complete_track(state, &viewing_region) {
+        if repository.track_service.is_some() {
+            if !state.track.has_complete_data(&viewing_region) {
                 // viewing_window.zoom <= Self::MAX_ZOOM_TO_DISPLAY_FEATURES is always true
                 let track_cache_region = Self::track_cache_region(state, &viewing_region)?;
                 data_messages.push(DataMessage::RequiresCompleteFeatures(track_cache_region));
@@ -536,7 +485,7 @@ impl StateHandler {
         state.window.set_top(
             state.window.top().saturating_sub(n),
             &state.layout.main_area,
-            state.alignment_depth(),
+            state.alignment.depth(),
         );
         Ok(())
     }
@@ -544,7 +493,7 @@ impl StateHandler {
         state.window.set_top(
             state.window.top().saturating_add(n),
             &state.layout.main_area,
-            state.alignment_depth(),
+            state.alignment.depth(),
         );
         Ok(())
     }
@@ -567,7 +516,7 @@ impl StateHandler {
             .set_middle(&state.layout.main_area, n, state.contig_length()?);
         state
             .window
-            .set_top(0, &state.layout.main_area, state.alignment_depth());
+            .set_top(0, &state.layout.main_area, state.alignment.depth());
 
         Ok(())
     }
@@ -575,7 +524,7 @@ impl StateHandler {
     fn go_to_y(state: &mut State, y: usize) -> Result<(), TGVError> {
         state
             .window
-            .set_top(y, &state.layout.main_area, state.alignment_depth());
+            .set_top(y, &state.layout.main_area, state.alignment.depth());
 
         Ok(())
     }
@@ -598,18 +547,17 @@ impl StateHandler {
 
     async fn go_to_next_genes_start(
         state: &mut State,
-        repository: &Repository,
+        repository: &mut Repository,
         n: usize,
     ) -> Result<(), TGVError> {
         if n == 0 {
             return Ok(());
         }
 
-        let track = state.track_checked()?;
         let middle = state.middle();
 
         // The gene is in the track.
-        if let Some(target_gene) = track.get_k_genes_after(middle, n) {
+        if let Some(target_gene) = state.track.get_k_genes_after(middle, n) {
             return Self::go_to_coordinate(state, target_gene.start() + 1);
         }
 
@@ -617,11 +565,10 @@ impl StateHandler {
         let gene = repository
             .track_service_checked()?
             .query_k_genes_after(
-                &state.reference_checked()?.clone(),
+                &state.reference,
                 state.contig_index(),
                 middle,
                 n,
-                &mut state.track_cache,
                 &state.contig_header,
             )
             .await?;
@@ -631,7 +578,7 @@ impl StateHandler {
 
     async fn go_to_next_genes_end(
         state: &mut State,
-        repository: &Repository,
+        repository: &mut Repository,
         n: usize,
     ) -> Result<(), TGVError> {
         if n == 0 {
@@ -639,9 +586,8 @@ impl StateHandler {
         }
 
         let middle = state.middle();
-        let track = state.track_checked()?;
 
-        if let Some(target_gene) = track.get_k_genes_after(middle, n) {
+        if let Some(target_gene) = state.track.get_k_genes_after(middle, n) {
             return Self::go_to_coordinate(state, target_gene.end() + 1);
         }
 
@@ -649,11 +595,10 @@ impl StateHandler {
         let gene = repository
             .track_service_checked()?
             .query_k_genes_after(
-                &state.reference_checked()?.clone(),
+                &state.reference,
                 state.contig_index(),
                 middle,
                 n,
-                &mut state.track_cache,
                 &state.contig_header,
             )
             .await?;
@@ -663,7 +608,7 @@ impl StateHandler {
 
     async fn go_to_previous_genes_start(
         state: &mut State,
-        repository: &Repository,
+        repository: &mut Repository,
         n: usize,
     ) -> Result<(), TGVError> {
         if n == 0 {
@@ -671,9 +616,8 @@ impl StateHandler {
         }
 
         let middle = state.middle();
-        let track = state.track_checked()?;
 
-        if let Some(target_gene) = track.get_k_genes_before(middle, n) {
+        if let Some(target_gene) = state.track.get_k_genes_before(middle, n) {
             return Self::go_to_coordinate(state, target_gene.start() - 1);
         }
 
@@ -681,11 +625,10 @@ impl StateHandler {
         let gene = repository
             .track_service_checked()?
             .query_k_genes_before(
-                &state.reference_checked()?.clone(),
+                &state.reference,
                 state.contig_index(),
                 middle,
                 n,
-                &mut state.track_cache,
                 &state.contig_header,
             )
             .await?;
@@ -695,7 +638,7 @@ impl StateHandler {
 
     async fn go_to_previous_genes_end(
         state: &mut State,
-        repository: &Repository,
+        repository: &mut Repository,
         n: usize,
     ) -> Result<(), TGVError> {
         if n == 0 {
@@ -703,9 +646,8 @@ impl StateHandler {
         }
 
         let middle = state.middle();
-        let track = state.track_checked()?;
 
-        if let Some(target_gene) = track.get_k_genes_before(middle, n) {
+        if let Some(target_gene) = state.track.get_k_genes_before(middle, n) {
             return Self::go_to_coordinate(state, target_gene.end() - 1);
         }
 
@@ -713,11 +655,10 @@ impl StateHandler {
         let gene = repository
             .track_service_checked()?
             .query_k_genes_before(
-                &state.reference_checked()?.clone(),
+                &state.reference,
                 state.contig_index(),
                 middle,
                 n,
-                &mut state.track_cache,
                 &state.contig_header,
             )
             .await?;
@@ -727,7 +668,7 @@ impl StateHandler {
 
     async fn go_to_next_exons_start(
         state: &mut State,
-        repository: &Repository,
+        repository: &mut Repository,
         n: usize,
     ) -> Result<(), TGVError> {
         if n == 0 {
@@ -735,9 +676,8 @@ impl StateHandler {
         }
 
         let middle = state.middle();
-        let track = state.track_checked()?;
 
-        if let Some(target_exon) = track.get_k_exons_after(middle, n) {
+        if let Some(target_exon) = state.track.get_k_exons_after(middle, n) {
             return Self::go_to_coordinate(state, target_exon.start() + 1);
         }
 
@@ -745,11 +685,10 @@ impl StateHandler {
         let exon = repository
             .track_service_checked()?
             .query_k_exons_after(
-                &state.reference_checked()?.clone(),
+                &state.reference,
                 state.contig_index(),
                 middle,
                 n,
-                &mut state.track_cache,
                 &state.contig_header,
             )
             .await?;
@@ -759,7 +698,7 @@ impl StateHandler {
 
     async fn go_to_next_exons_end(
         state: &mut State,
-        repository: &Repository,
+        repository: &mut Repository,
         n: usize,
     ) -> Result<(), TGVError> {
         if n == 0 {
@@ -768,7 +707,7 @@ impl StateHandler {
 
         let middle = state.middle();
 
-        if let Some(target_exon) = state.track_checked()?.get_k_exons_after(middle, n) {
+        if let Some(target_exon) = state.track.get_k_exons_after(middle, n) {
             return Self::go_to_coordinate(state, target_exon.end() + 1);
         }
 
@@ -776,11 +715,10 @@ impl StateHandler {
         let exon = repository
             .track_service_checked()?
             .query_k_exons_after(
-                &state.reference_checked()?.clone(),
+                &state.reference,
                 state.contig_index(),
                 middle,
                 n,
-                &mut state.track_cache,
                 &state.contig_header,
             )
             .await?;
@@ -790,7 +728,7 @@ impl StateHandler {
 
     async fn go_to_previous_exons_start(
         state: &mut State,
-        repository: &Repository,
+        repository: &mut Repository,
         n: usize,
     ) -> Result<(), TGVError> {
         if n == 0 {
@@ -798,9 +736,8 @@ impl StateHandler {
         }
 
         let middle = state.middle();
-        let track = state.track_checked()?;
 
-        if let Some(target_exon) = track.get_k_exons_before(middle, n) {
+        if let Some(target_exon) = state.track.get_k_exons_before(middle, n) {
             return Self::go_to_coordinate(state, target_exon.start() - 1);
         }
 
@@ -808,11 +745,10 @@ impl StateHandler {
         let exon = repository
             .track_service_checked()?
             .query_k_exons_before(
-                &state.reference_checked()?.clone(),
+                &state.reference,
                 state.contig_index(),
                 middle,
                 n,
-                &mut state.track_cache,
                 &state.contig_header,
             )
             .await?;
@@ -822,7 +758,7 @@ impl StateHandler {
 
     async fn go_to_previous_exons_end(
         state: &mut State,
-        repository: &Repository,
+        repository: &mut Repository,
         n: usize,
     ) -> Result<(), TGVError> {
         if n == 0 {
@@ -830,9 +766,8 @@ impl StateHandler {
         }
 
         let middle = state.middle();
-        let track = state.track_checked()?;
 
-        let target_exon = track.get_k_exons_before(middle, n);
+        let target_exon = state.track.get_k_exons_before(middle, n);
         if let Some(target_exon) = target_exon {
             return Self::go_to_coordinate(state, target_exon.end() - 1);
         }
@@ -841,11 +776,10 @@ impl StateHandler {
         let exon = repository
             .track_service_checked()?
             .query_k_exons_before(
-                &state.reference_checked()?.clone(),
+                &state.reference,
                 state.contig_index(),
                 middle,
                 n,
-                &mut state.track_cache,
                 &state.contig_header,
             )
             .await?;
@@ -855,17 +789,12 @@ impl StateHandler {
 
     async fn go_to_gene(
         state: &mut State,
-        repository: &Repository,
+        repository: &mut Repository,
         gene_name: String,
     ) -> Result<(), TGVError> {
         let gene = repository
             .track_service_checked()?
-            .query_gene_name(
-                &state.reference_checked()?.clone(),
-                &gene_name,
-                &mut state.track_cache,
-                &state.contig_header,
-            )
+            .query_gene_name(&state.reference, &gene_name, &state.contig_header)
             .await?;
 
         Self::go_to_contig_coordinate(state, gene.contig_index(), gene.start() + 1)
@@ -887,14 +816,13 @@ impl StateHandler {
         Self::go_to_contig_coordinate(state, contig_index, 1)
     }
 
-    async fn go_to_default(state: &mut State, repository: &Repository) -> Result<(), TGVError> {
-        let reference = state.reference.as_ref();
-        match reference {
-            Some(Reference::Hg38) | Some(Reference::Hg19) => {
+    async fn go_to_default(state: &mut State, repository: &mut Repository) -> Result<(), TGVError> {
+        match state.reference {
+            Reference::Hg38 | Reference::Hg19 => {
                 return Self::go_to_gene(state, repository, "TP53".to_string()).await;
             }
 
-            Some(Reference::UcscGenome { .. }) | Some(Reference::UcscAccession { .. }) => {
+            Reference::UcscGenome(_) | Reference::UcscAccession(_) => {
                 // Find the first gene on the first contig. If anything is not found, handle it later.
 
                 let first_contig = state.contig_header.first()?;
@@ -903,14 +831,7 @@ impl StateHandler {
                 // We use query_k_genes_after starting from coordinate 0 with k=1.
                 match repository
                     .track_service_checked()?
-                    .query_k_genes_after(
-                        &state.reference_checked()?.clone(),
-                        first_contig,
-                        0,
-                        1,
-                        &mut state.track_cache,
-                        &state.contig_header,
-                    )
+                    .query_k_genes_after(&state.reference, first_contig, 0, 1, &state.contig_header)
                     .await
                 {
                     Ok(gene) => {
@@ -924,7 +845,8 @@ impl StateHandler {
                     Err(_) => {} // Gene not found. Handle later.
                 }
             }
-            None => {} // handle later
+
+            Reference::BYOIndexedFasta(_) | Reference::BYOTwoBit(_) | Reference::NoReference => {} // handle later
         };
 
         // If reaches here, go to the first contig:1
@@ -943,30 +865,25 @@ impl StateHandler {
     // TODO: async
     pub async fn handle_data_message(
         state: &mut State,
-        repository: &Repository,
+        repository: &mut Repository,
         data_message: DataMessage,
     ) -> Result<bool, TGVError> {
         let mut loaded_data = false;
 
         match data_message {
             DataMessage::RequiresCompleteAlignments(region) => {
-                if !Self::has_complete_alignment(state, &region) {
-                    state.alignment = Some({
+                if !state.alignment.has_complete_data(&region) {
+                    state.alignment = {
                         let mut alignment = repository
                             .alignment_repository
                             .as_ref()
                             .unwrap()
-                            .read_alignment(
-                                &region,
-                                state.sequence.as_ref(),
-                                &state.contig_header,
-                            )?;
+                            .read_alignment(&region, &state.sequence, &state.contig_header)?;
+
+                        alignment.apply_options(&state.alignment_options, &state.sequence)?;
 
                         alignment
-                            .apply_options(&state.alignment_options, state.sequence.as_ref())?;
-
-                        alignment
-                    });
+                    };
 
                     // apply sorting and filtering
 
@@ -974,43 +891,36 @@ impl StateHandler {
                 }
             }
             DataMessage::RequiresCompleteFeatures(region) => {
-                let has_complete_track = Self::has_complete_track(state, &region);
-                if let (Some(ref reference), Some(track_service)) =
-                    (state.reference.clone(), repository.track_service.as_ref())
-                {
+                let has_complete_track = state.track.has_complete_data(&region);
+                if let Some(track_service) = repository.track_service.as_mut() {
                     if !has_complete_track {
                         if let Ok(track) = track_service
-                            .query_gene_track(
-                                reference,
-                                &region,
-                                &mut state.track_cache,
-                                &state.contig_header,
-                            )
+                            .query_gene_track(&state.reference, &region, &state.contig_header)
                             .await
                         {
-                            state.track = Some(track);
+                            state.track = track;
                             loaded_data = true;
                         } else {
                             // Do nothing (track not found). TODO: fix this shit properly.
                         }
                     }
-                } else if state.reference.is_none() {
-                    // No reference provided, cannot load features
                 } else {
-                    return Err(TGVError::StateError(
-                        "Track service not initialized".to_string(),
-                    ));
+                    loaded_data = match state.reference {
+                        // FIXME: this is duplicate code as Settings.
+                        Reference::BYOIndexedFasta(_) => false,
+                        _ => true,
+                    };
                 }
             }
             DataMessage::RequiresCompleteSequences(region) => {
                 let sequence_service = repository.sequence_service_checked()?;
 
-                if !Self::has_complete_sequence(state, &region) {
+                if !state.sequence.has_complete_data(&region) {
                     let sequence = sequence_service
-                        .query_sequence(&region, &mut state.sequence_cache, &state.contig_header)
+                        .query_sequence(&region, &state.contig_header)
                         .await?;
 
-                    state.sequence = Some(sequence);
+                    state.sequence = sequence;
                     loaded_data = true;
                 }
             }
@@ -1020,41 +930,18 @@ impl StateHandler {
                     return Ok(false);
                 }
 
-                if let (Some(ref reference), Some(track_service)) =
-                    (state.reference.clone(), repository.track_service.as_ref())
-                {
+                if let Some(track_service) = repository.track_service.as_mut() {
                     let cytoband = track_service
-                        .get_cytoband(
-                            reference,
-                            contig_index,
-                            &mut state.track_cache,
-                            &state.contig_header,
-                        )
+                        .get_cytoband(&state.reference, contig_index, &state.contig_header)
                         .await?;
                     state
                         .contig_header
                         .update_cytoband(contig_index, cytoband)?;
                     loaded_data = true;
-                } else if state.reference.is_none() {
-                    // Cannot load cytobands without reference
-                } else {
-                    // track service not available
                 }
             }
         }
 
         Ok(loaded_data)
-    }
-
-    pub fn has_complete_alignment(state: &State, region: &Region) -> bool {
-        state.alignment.is_some() && state.alignment.as_ref().unwrap().has_complete_data(region)
-    }
-
-    pub fn has_complete_track(state: &State, region: &Region) -> bool {
-        state.track.is_some() && state.track.as_ref().unwrap().has_complete_data(region)
-    }
-
-    pub fn has_complete_sequence(state: &State, region: &Region) -> bool {
-        state.sequence.is_some() && state.sequence.as_ref().unwrap().has_complete_data(region)
     }
 }

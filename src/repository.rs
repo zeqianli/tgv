@@ -6,22 +6,15 @@ use crate::{
     helpers::is_url,
     intervals::Region,
     reference::Reference,
-    sequence::{
-        Sequence, SequenceCache, SequenceRepositoryEnum, TwoBitSequenceRepository,
-        UCSCApiSequenceRepository,
-    },
-    settings::{BackendType, Settings},
-    tracks::{
-        LocalDbTrackService, TrackCache, TrackService, TrackServiceEnum, UcscApiTrackService,
-        UcscDbTrackService,
-    },
+    sequence::{Sequence, SequenceRepository, SequenceRepositoryEnum},
+    settings::Settings,
+    tracks::{TrackService, TrackServiceEnum},
     variant::VariantRepository,
 };
 
-use rust_htslib::bam;
-use rust_htslib::bam::{Header, IndexedReader, Read};
+use itertools::Itertools;
+use rust_htslib::bam::{self, Header, IndexedReader, Read};
 use std::path::Path;
-// Add twobit crate to Cargo.toml
 use url::Url;
 
 pub struct Repository {
@@ -37,93 +30,83 @@ pub struct Repository {
 }
 
 impl Repository {
-    pub async fn new(
-        settings: &Settings,
-    ) -> Result<(Self, SequenceCache, TrackCache, ContigHeader), TGVError> {
+    pub async fn new(settings: &Settings) -> Result<(Self, ContigHeader), TGVError> {
+        let mut track_service = TrackServiceEnum::new(settings).await?;
+        let mut sequence_service = SequenceRepositoryEnum::new(settings)?;
+        let alignment_repository = AlignmentRepositoryEnum::new(settings)?;
+
+        // Contig header collect contigs from multiple sources.
+        // - If the reference is a ucsc genome: ucsc database (local, mariadb, or api)
+        // - If the reference is a custom indexed fasta or a 2bit file: from the reference file
+        // - If bam file is provided: from bam header
         let mut contig_header = ContigHeader::new(settings.reference.clone());
-        let mut track_cache = TrackCache::new();
 
-        let (track_service, sequence_service, sequence_cache): (
-            Option<TrackServiceEnum>,
-            Option<SequenceRepositoryEnum>,
-            SequenceCache,
-        ) = match settings.reference.as_ref() {
-            Some(reference) => {
-                let ts = match (&settings.backend, reference) {
-                    (BackendType::Ucsc, Reference::UcscAccession(_)) => {
-                        TrackServiceEnum::Api(UcscApiTrackService::new()?)
-                    }
-                    (BackendType::Ucsc, _) => TrackServiceEnum::Db(
-                        UcscDbTrackService::new(reference, &settings.ucsc_host).await?,
-                    ),
-                    (BackendType::Local, _) => TrackServiceEnum::LocalDb(
-                        LocalDbTrackService::new(reference, &settings.cache_dir).await?,
-                    ),
-                    (BackendType::Default, reference) => {
-                        // If the local cache is available, use the local cache.
-                        // Otherwise, use the UCSC DB / API.
-                        match LocalDbTrackService::new(reference, &settings.cache_dir).await {
-                            Ok(ts) => TrackServiceEnum::LocalDb(ts),
-                            Err(TGVError::IOError(e)) => match reference {
-                                Reference::UcscAccession(_) => {
-                                    TrackServiceEnum::Api(UcscApiTrackService::new()?)
-                                }
-                                _ => TrackServiceEnum::Db(
-                                    UcscDbTrackService::new(reference, &settings.ucsc_host).await?,
-                                ),
-                            },
-
-                            Err(e) => return Err(e),
-                        }
-                    }
-                    _ => {
-                        return Err(TGVError::ValueError(format!(
-                            "Unsupported reference: {}",
-                            reference
-                        )));
-                    }
-                };
-
-                ts.get_all_contigs(reference, &mut track_cache)
+        match &settings.reference {
+            Reference::Hg19
+            | Reference::Hg38
+            | Reference::UcscGenome(_)
+            | Reference::UcscAccession(_) => {
+                track_service
+                    .as_mut()
+                    .unwrap()
+                    .get_all_contigs(&settings.reference)
                     .await?
                     .into_iter()
-                    .try_for_each(|contig| contig_header.update_or_add_contig(contig))?;
+                    .try_for_each(|contig| {
+                        contig_header.update_or_add_contig(contig).map(|_| ())
+                    })?;
 
-                let use_ucsc_api_sequence =
-                    matches!(ts, TrackServiceEnum::Api(_) | TrackServiceEnum::Db(_));
-
-                let (ss, sc) = if use_ucsc_api_sequence {
-                    (
-                        SequenceRepositoryEnum::UCSCApi(UCSCApiSequenceRepository::new(
-                            reference.clone(),
-                        )?),
-                        SequenceCache::new(),
-                    )
+                if let Some(SequenceRepositoryEnum::TwoBit(twobit_sr)) = sequence_service.as_mut() {
+                    track_service
+                        .as_mut()
+                        .unwrap()
+                        .get_contig_2bit_file_lookup(&settings.reference, &contig_header)
+                        .await?
+                        .iter()
+                        .filter_map(|(contig_index, path)| path.as_ref())
+                        .collect::<Vec<_>>()
+                        .into_iter()
+                        .unique()
+                        .try_for_each(|path| {
+                            let twobit_file_path =
+                                Path::new(&settings.reference.cache_dir(&settings.cache_dir))
+                                    .join(path);
+                            let twobit_file_path = twobit_file_path.to_str().unwrap();
+                            twobit_sr.add_contig_path(twobit_file_path, &mut contig_header)
+                        })?;
+                }
+            }
+            Reference::BYOIndexedFasta(_) => {
+                if let Some(SequenceRepositoryEnum::IndexedFasta(fasta_sr)) =
+                    sequence_service.as_mut()
+                {
+                    fasta_sr
+                        .get_all_contigs()
+                        .await?
+                        .into_iter()
+                        .try_for_each(|contig| {
+                            contig_header.update_or_add_contig(contig).map(|_| ())
+                        })?;
                 } else {
-                    // query the chromInfo table to get the 2bit file path
-
-                    let (ss, cache) = TwoBitSequenceRepository::new(
-                        reference.clone(),
-                        ts.get_contig_2bit_file_lookup(reference, &contig_header)
-                            .await?,
-                        settings.cache_dir.clone(),
-                    )?;
-
-                    (SequenceRepositoryEnum::TwoBit(ss), cache)
-                };
-                (Some(ts), Some(ss), sc)
+                    unreachable!()
+                }
             }
-            None => (None, None, SequenceCache::new()),
-        };
 
-        let alignment_repository = match settings.bam_path {
-            Some(_) => {
-                let repository = AlignmentRepositoryEnum::from(settings)?;
-                contig_header.update_from_bam(settings.reference.as_ref(), &repository)?;
-                Some(repository)
+            Reference::BYOTwoBit(path) => {
+                if let Some(SequenceRepositoryEnum::TwoBit(twobit_sr)) = sequence_service.as_mut() {
+                    twobit_sr.add_contig_path(path, &mut contig_header)?;
+                } else {
+                    unreachable!()
+                }
             }
-            None => None,
-        };
+            _ => {}
+        }
+
+        // FIXME
+        // Warning when the reference contig is not present in the BAM header.
+        if let Some(bam) = alignment_repository.as_ref() {
+            contig_header.update_from_bam(bam, &settings.reference)?
+        }
 
         let variant_repository = match &settings.vcf_path {
             Some(vcf_path) => Some(VariantRepository::from_vcf(vcf_path, &contig_header)?),
@@ -143,24 +126,22 @@ impl Repository {
                 track_service,
                 sequence_service,
             },
-            sequence_cache,
-            track_cache,
             contig_header,
         ))
     }
 
-    pub fn track_service_checked(&self) -> Result<&TrackServiceEnum, TGVError> {
-        match self.track_service {
-            Some(ref track_service) => Ok(track_service),
+    pub fn track_service_checked(&mut self) -> Result<&mut TrackServiceEnum, TGVError> {
+        match self.track_service.as_mut() {
+            Some(track_service) => Ok(track_service),
             None => Err(TGVError::StateError(
                 "Track service is not initialized".to_string(),
             )),
         }
     }
 
-    pub fn sequence_service_checked(&self) -> Result<&SequenceRepositoryEnum, TGVError> {
-        match self.sequence_service {
-            Some(ref sequence_service) => Ok(sequence_service),
+    pub fn sequence_service_checked(&mut self) -> Result<&mut SequenceRepositoryEnum, TGVError> {
+        match self.sequence_service.as_mut() {
+            Some(sequence_service) => Ok(sequence_service),
             None => Err(TGVError::StateError(
                 "Sequence service is not initialized".to_string(),
             )),
@@ -176,18 +157,6 @@ impl Repository {
         }
         Ok(())
     }
-
-    pub fn has_alignment(&self) -> bool {
-        self.alignment_repository.is_some()
-    }
-
-    pub fn has_track(&self) -> bool {
-        self.track_service.is_some()
-    }
-
-    pub fn has_sequence(&self) -> bool {
-        self.sequence_service.is_some()
-    }
 }
 
 #[derive(Debug)]
@@ -198,7 +167,7 @@ enum RemoteSource {
 }
 
 impl RemoteSource {
-    fn from(path: &String) -> Result<Self, TGVError> {
+    fn from(path: &str) -> Result<Self, TGVError> {
         if path.starts_with("s3://") {
             Ok(Self::S3)
         } else if path.starts_with("http://") || path.starts_with("https://") {
@@ -218,7 +187,7 @@ pub trait AlignmentRepository {
     fn read_alignment(
         &self,
         region: &Region,
-        sequence: Option<&Sequence>,
+        sequence: &Sequence,
         contig_header: &ContigHeader,
     ) -> Result<Alignment, TGVError>;
 
@@ -232,14 +201,7 @@ pub struct BamRepository {
 }
 
 impl BamRepository {
-    fn new(bam_path: String, bai_path: Option<String>) -> Result<Self, TGVError> {
-        if is_url(&bam_path) {
-            return Err(TGVError::IOError(format!(
-                "{} is a remote path. Use RemoteBamRepository for remote BAM IO",
-                bam_path
-            )));
-        }
-
+    fn new(bam_path: &String, bai_path: Option<String>) -> Result<Self, TGVError> {
         if !Path::new(&bam_path).exists() {
             return Err(TGVError::IOError(format!(
                 "BAM file {} not found",
@@ -247,7 +209,7 @@ impl BamRepository {
             )));
         }
 
-        match &bai_path {
+        match bai_path.as_ref() {
             Some(bai_path) => {
                 if !Path::new(bai_path).exists() {
                     return Err(TGVError::IOError(format!(
@@ -266,7 +228,10 @@ impl BamRepository {
             }
         }
 
-        Ok(Self { bam_path, bai_path })
+        Ok(Self {
+            bam_path: bam_path.clone(),
+            bai_path,
+        })
     }
 }
 
@@ -275,7 +240,7 @@ impl AlignmentRepository for BamRepository {
     fn read_alignment(
         &self,
         region: &Region,
-        sequence: Option<&Sequence>,
+        sequence: &Sequence,
         contig_header: &ContigHeader,
     ) -> Result<Alignment, TGVError> {
         let mut bam = match self.bai_path.as_ref() {
@@ -287,21 +252,30 @@ impl AlignmentRepository for BamRepository {
 
         let header = bam::Header::from_template(bam.header());
 
-        let query_contig_string = get_query_contig_string(&header, region, contig_header)?;
-        bam.fetch((
-            &query_contig_string,
-            region.start as i32 - 1,
-            region.end as i32,
-        ))
-        .map_err(|e| TGVError::IOError(e.to_string()))?;
+        match get_query_contig_string(&header, region, contig_header)? {
+            Some(query_contig_string) => {
+                bam.fetch((
+                    &query_contig_string,
+                    region.start as i32 - 1,
+                    region.end as i32,
+                ))
+                .map_err(|e| TGVError::IOError(e.to_string()))?;
 
-        let reads = bam
-            .records()
-            .enumerate()
-            .map(|(i, record)| AlignedRead::from_bam_record(i, record?, sequence))
-            .collect::<Result<_, _>>()?;
+                let reads = bam
+                    .records()
+                    .enumerate()
+                    .map(|(i, record)| AlignedRead::from_bam_record(i, record?, sequence))
+                    .collect::<Result<_, _>>()?;
 
-        Alignment::from_aligned_reads(reads, region, sequence)
+                Alignment::from_aligned_reads(reads, region, sequence)
+            }
+
+            None => {
+                // Contig indicated in region is not present in the BAM header.
+                // Can happen when contigs in the reference and in the BAM header mismatches.
+                Alignment::from_aligned_reads(Vec::new(), region, sequence)
+            }
+        }
     }
 
     /// Read BAM headers and return contig namesa and lengths.
@@ -326,9 +300,9 @@ pub struct RemoteBamRepository {
 }
 
 impl RemoteBamRepository {
-    pub fn new(bam_path: &String) -> Result<Self, TGVError> {
+    pub fn new(bam_path: &str) -> Result<Self, TGVError> {
         Ok(Self {
-            bam_path: bam_path.clone(),
+            bam_path: bam_path.to_string(),
             source: RemoteSource::from(bam_path)?,
         })
     }
@@ -338,7 +312,7 @@ impl AlignmentRepository for RemoteBamRepository {
     fn read_alignment(
         &self,
         region: &Region,
-        sequence: Option<&Sequence>,
+        sequence: &Sequence,
         contig_header: &ContigHeader,
     ) -> Result<Alignment, TGVError> {
         let mut bam = IndexedReader::from_url(
@@ -347,21 +321,30 @@ impl AlignmentRepository for RemoteBamRepository {
 
         let header = bam::Header::from_template(bam.header());
 
-        let query_contig_string = get_query_contig_string(&header, region, contig_header)?;
-        bam.fetch((
-            &query_contig_string,
-            region.start as i32 - 1,
-            region.end as i32,
-        ))
-        .map_err(|e| TGVError::IOError(e.to_string()))?;
+        match get_query_contig_string(&header, region, contig_header)? {
+            Some(query_contig_string) => {
+                bam.fetch((
+                    &query_contig_string,
+                    region.start as i32 - 1,
+                    region.end as i32,
+                ))
+                .map_err(|e| TGVError::IOError(e.to_string()))?;
 
-        let reads = bam
-            .records()
-            .enumerate()
-            .map(|(i, record)| AlignedRead::from_bam_record(i, record?, sequence))
-            .collect::<Result<_, _>>()?;
+                let reads = bam
+                    .records()
+                    .enumerate()
+                    .map(|(i, record)| AlignedRead::from_bam_record(i, record?, sequence))
+                    .collect::<Result<_, _>>()?;
 
-        Alignment::from_aligned_reads(reads, region, sequence)
+                Alignment::from_aligned_reads(reads, region, sequence)
+            }
+
+            None => {
+                // Contig indicated in region is not present in the BAM header.
+                // Can happen when contigs in the reference and in the BAM header mismatches.
+                Alignment::from_aligned_reads(Vec::new(), region, sequence)
+            }
+        }
     }
 
     fn read_header(&self) -> Result<Vec<(String, Option<usize>)>, TGVError> {
@@ -413,7 +396,10 @@ fn get_query_contig_string(
     header: &Header,
     region: &Region,
     contig_header: &ContigHeader,
-) -> Result<String, TGVError> {
+) -> Result<Option<String>, TGVError> {
+    // FIXME:
+    // BAM header is re-parsed for every alignment loading.
+    // Parse this once and store it in the repository.
     let mut bam_headers = Vec::new();
 
     for (_key, records) in header.to_hashmap().iter() {
@@ -427,7 +413,7 @@ fn get_query_contig_string(
                         .aliases
                         .contains(&reference_name)
                 {
-                    return Ok(reference_name);
+                    return Ok(Some(reference_name));
                 }
 
                 bam_headers.push(reference_name);
@@ -435,12 +421,9 @@ fn get_query_contig_string(
         }
     }
 
-    Err(TGVError::IOError(format!(
-        "Contig index {}  not found in the bam file header. BAM file has {} contigs: {}",
-        region.contig_index,
-        bam_headers.len(),
-        bam_headers.join(", ")
-    )))
+    // Contig is not in the BAM header.
+    // This can happen when the reference contig names and the BAM contig names mismatch.
+    Ok(None)
 }
 
 #[derive(Debug)]
@@ -450,23 +433,22 @@ pub enum AlignmentRepositoryEnum {
 }
 
 impl AlignmentRepositoryEnum {
-    pub fn from(settings: &Settings) -> Result<Self, TGVError> {
-        if settings.bam_path.is_none() {
-            return Err(TGVError::ValueError("BAM path is not set".to_string()));
+    pub fn new(settings: &Settings) -> Result<Option<Self>, TGVError> {
+        match &settings.bam_path {
+            None => Ok(None),
+            Some(bam_path) => {
+                if is_url(bam_path) {
+                    Ok(Some(AlignmentRepositoryEnum::RemoteBam(
+                        RemoteBamRepository::new(bam_path)?,
+                    )))
+                } else {
+                    Ok(Some(AlignmentRepositoryEnum::Bam(BamRepository::new(
+                        bam_path,
+                        settings.bai_path.clone(),
+                    )?)))
+                }
+            }
         }
-
-        let bam_path = settings.bam_path.clone().unwrap();
-
-        if is_url(&bam_path) {
-            return Ok(AlignmentRepositoryEnum::RemoteBam(
-                RemoteBamRepository::new(&bam_path)?,
-            ));
-        }
-
-        Ok(AlignmentRepositoryEnum::Bam(BamRepository::new(
-            bam_path,
-            settings.bai_path.clone(),
-        )?))
     }
 
     pub fn has_alignment(&self) -> bool {
@@ -481,7 +463,7 @@ impl AlignmentRepository for AlignmentRepositoryEnum {
     fn read_alignment(
         &self,
         region: &Region,
-        sequence: Option<&Sequence>,
+        sequence: &Sequence,
         contig_header: &ContigHeader,
     ) -> Result<Alignment, TGVError> {
         match self {

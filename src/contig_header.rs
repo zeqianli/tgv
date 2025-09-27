@@ -170,7 +170,7 @@ impl PartialEq for Contig {
 /// A collection of contigs. This helps relative contig movements.
 #[derive(Debug)]
 pub struct ContigHeader {
-    reference: Option<Reference>,
+    reference: Reference,
     pub contigs: Vec<Contig>,
 
     /// contig name / aliases -> index
@@ -178,7 +178,7 @@ pub struct ContigHeader {
 }
 
 impl ContigHeader {
-    pub fn new(reference: Option<Reference>) -> Self {
+    pub fn new(reference: Reference) -> Self {
         Self {
             reference,
             contigs: Vec::new(),
@@ -258,32 +258,35 @@ impl ContigHeader {
         Ok(())
     }
 
-    pub fn update_or_add_contig(&mut self, contig: Contig) -> Result<(), TGVError> {
+    pub fn update_or_add_contig(&mut self, contig: Contig) -> Result<usize, TGVError> {
         // TODO: this causes problems when the aliases have repeats.
-        if self.get_index(&contig).is_none() {
-            self.contig_lookup
-                .insert(contig.name.clone(), self.contigs.len());
-            for alias in contig.aliases.iter() {
-                self.contig_lookup.insert(alias.clone(), self.contigs.len());
+        let index = match self.get_index(&contig) {
+            None => {
+                self.contig_lookup
+                    .insert(contig.name.clone(), self.contigs.len());
+                for alias in contig.aliases.iter() {
+                    self.contig_lookup.insert(alias.clone(), self.contigs.len());
+                }
+                self.contigs.push(contig);
+                self.contigs.len() - 1
             }
-            self.contigs.push(contig);
-        }
+            Some(index) => index,
+        };
 
-        Ok(())
+        Ok(index)
     }
 
     pub fn update_from_bam(
         &mut self,
-        reference: Option<&Reference>,
         bam: &AlignmentRepositoryEnum,
+        reference: &Reference,
     ) -> Result<(), TGVError> {
-        // Use the indexed_reader::Builder pattern as shown in alignment.rs
-
-        for (contig_name, contig_length) in bam.read_header()? {
-            self.update_or_add_contig(Contig::new(&contig_name, contig_length))?;
-        }
-
-        Ok(())
+        bam.read_header()?
+            .into_iter()
+            .try_for_each(|(contig_name, contig_length)| {
+                self.update_or_add_contig(Contig::new(&contig_name, contig_length))
+                    .map(|_| ())
+            })
     }
 
     pub fn contains(&self, contig: &Contig) -> bool {

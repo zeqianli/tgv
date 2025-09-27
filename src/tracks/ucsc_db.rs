@@ -18,6 +18,8 @@ use std::sync::Arc;
 #[derive(Debug)]
 pub struct UcscDbTrackService {
     pool: Arc<MySqlPool>,
+
+    cache: TrackCache,
 }
 use crate::tracks::{TrackCache, TrackService, TRACK_PREFERENCES};
 
@@ -32,17 +34,20 @@ impl UcscDbTrackService {
 
         Ok(Self {
             pool: Arc::new(pool),
+            cache: TrackCache::default(),
         })
     }
 
     pub fn get_mysql_url(reference: &Reference, ucsc_host: &UcscHost) -> Result<String, TGVError> {
         match reference {
-            Reference::Hg19 | Reference::Hg38 | Reference::UcscGenome(_) => {
-                Ok(format!("mysql://genome@{}/{}", ucsc_host.url(), reference))
-            }
+            Reference::Hg19 | Reference::Hg38 | Reference::UcscGenome(_) => Ok(format!(
+                "mysql://genome@{}/{}",
+                ucsc_host.url(),
+                reference.to_string()
+            )),
             _ => Err(TGVError::ValueError(format!(
                 "Unsupported reference: {}",
-                reference
+                reference.to_string()
             ))),
         }
     }
@@ -100,14 +105,13 @@ impl UcscDbTrackService {
     }
 
     async fn get_preferred_track_name_with_cache(
-        &self,
+        &mut self,
         reference: &Reference,
-        cache: &mut TrackCache,
     ) -> Result<String, TGVError> {
-        match &cache.preferred_track_name {
+        match self.cache.preferred_track_name.as_ref() {
             None => {
-                let preferred_track = self.get_preferred_track_name(reference, cache).await?;
-                cache.set_preferred_track_name(preferred_track.clone());
+                let preferred_track = self.get_preferred_track_name(reference).await?;
+                self.cache.set_preferred_track_name(preferred_track.clone());
                 preferred_track
             }
             Some(track) => track.clone(),
@@ -155,23 +159,19 @@ impl UcscDbTrackService {
 
 #[async_trait]
 impl TrackService for UcscDbTrackService {
-    async fn close(&self) -> Result<(), TGVError> {
+    async fn close(&mut self) -> Result<(), TGVError> {
         self.pool.close().await;
         Ok(())
     }
 
-    async fn get_all_contigs(
-        &self,
-        reference: &Reference,
-        cache: &mut TrackCache,
-    ) -> Result<Vec<Contig>, TGVError> {
+    async fn get_all_contigs(&mut self, reference: &Reference) -> Result<Vec<Contig>, TGVError> {
         // Some references have chromAlias table, some don't.
         let contigs: Vec<ContigRow> = sqlx::query_as(
-            "SELECT 
-                chromInfo.chrom as chrom, 
+            "SELECT
+                chromInfo.chrom as chrom,
                 chromInfo.size as size,
                 GROUP_CONCAT(chromAlias.alias SEPARATOR ',') as aliases
-            FROM chromInfo 
+            FROM chromInfo
             LEFT JOIN chromAlias ON chromAlias.chrom = chromInfo.chrom
             WHERE chromInfo.chrom NOT LIKE 'chr%\\_%'
             GROUP BY chromInfo.chrom
@@ -182,10 +182,10 @@ impl TrackService for UcscDbTrackService {
         .await
         .unwrap_or({
             sqlx::query_as(
-                "SELECT 
-                    chromInfo.chrom as chrom, 
+                "SELECT
+                    chromInfo.chrom as chrom,
                     chromInfo.size as size
-                FROM chromInfo 
+                FROM chromInfo
                 WHERE chromInfo.chrom NOT LIKE 'chr%\\_%'
                 ORDER BY chromInfo.chrom",
             )
@@ -210,10 +210,10 @@ impl TrackService for UcscDbTrackService {
     }
 
     async fn get_cytoband(
-        &self,
+        &mut self,
         reference: &Reference,
         contig_index: usize,
-        cache: &mut TrackCache,
+
         contig_header: &ContigHeader,
     ) -> Result<Option<Cytoband>, TGVError> {
         let contig_name = contig_header.get_name(contig_index)?;
@@ -240,9 +240,8 @@ impl TrackService for UcscDbTrackService {
     }
 
     async fn get_preferred_track_name(
-        &self,
+        &mut self,
         reference: &Reference,
-        cache: &mut TrackCache,
     ) -> Result<Option<String>, TGVError> {
         match reference {
             // Speed up for human genomes
@@ -266,19 +265,18 @@ impl TrackService for UcscDbTrackService {
     }
 
     async fn query_genes_overlapping(
-        &self,
+        &mut self,
         reference: &Reference,
         region: &Region,
-        cache: &mut TrackCache,
+
         contig_header: &ContigHeader,
     ) -> Result<Vec<Gene>, TGVError> {
         let contig_name = contig_header.get_name(region.contig_index())?;
         let gene_rows: Vec<UcscGeneRow> = sqlx::query_as(
             format!(
-                "SELECT * FROM {} 
+                "SELECT * FROM {}
              WHERE chrom = ? AND (txStart <= ?) AND (txEnd >= ?)",
-                self.get_preferred_track_name_with_cache(reference, cache)
-                    .await?
+                self.get_preferred_track_name_with_cache(reference).await?
             )
             .as_str(),
         )
@@ -295,21 +293,20 @@ impl TrackService for UcscDbTrackService {
     }
 
     async fn query_gene_covering(
-        &self,
+        &mut self,
         reference: &Reference,
         contig_index: usize,
         coord: usize,
-        cache: &mut TrackCache,
+
         contig_header: &ContigHeader,
     ) -> Result<Option<Gene>, TGVError> {
         let contig_name = contig_header.get_name(contig_index)?;
         let gene_row: Option<UcscGeneRow> = sqlx::query_as(
             format!(
                 "SELECT *
-             FROM {} 
+             FROM {}
              WHERE chrom = ? AND txStart <= ? AND txEnd >= ?",
-                self.get_preferred_track_name_with_cache(reference, cache)
-                    .await?,
+                self.get_preferred_track_name_with_cache(reference).await?,
             )
             .as_str(),
         )
@@ -323,19 +320,18 @@ impl TrackService for UcscDbTrackService {
     }
 
     async fn query_gene_name(
-        &self,
+        &mut self,
         reference: &Reference,
         gene_name: &String,
-        cache: &mut TrackCache,
+
         contig_header: &ContigHeader,
     ) -> Result<Gene, TGVError> {
         let gene_row: Option<UcscGeneRow> = sqlx::query_as(
             format!(
                 "SELECT *
-            FROM {} 
+            FROM {}
             WHERE name2 = ?",
-                self.get_preferred_track_name_with_cache(reference, cache)
-                    .await?
+                self.get_preferred_track_name_with_cache(reference).await?
             )
             .as_str(),
         )
@@ -352,12 +348,12 @@ impl TrackService for UcscDbTrackService {
     }
 
     async fn query_k_genes_after(
-        &self,
+        &mut self,
         reference: &Reference,
         contig_index: usize,
         coord: usize,
         k: usize,
-        cache: &mut TrackCache,
+
         contig_header: &ContigHeader,
     ) -> Result<Gene, TGVError> {
         let contig_name = contig_header.get_name(contig_index)?;
@@ -368,11 +364,10 @@ impl TrackService for UcscDbTrackService {
         let gene_rows: Vec<UcscGeneRow> = sqlx::query_as(
             format!(
                 "SELECT *
-             FROM {} 
-             WHERE chrom = ? AND txEnd >= ? 
+             FROM {}
+             WHERE chrom = ? AND txEnd >= ?
              ORDER BY txEnd ASC LIMIT ?",
-                self.get_preferred_track_name_with_cache(reference, cache)
-                    .await?,
+                self.get_preferred_track_name_with_cache(reference).await?,
             )
             .as_str(),
         )
@@ -389,12 +384,12 @@ impl TrackService for UcscDbTrackService {
     }
 
     async fn query_k_genes_before(
-        &self,
+        &mut self,
         reference: &Reference,
         contig_index: usize,
         coord: usize,
         k: usize,
-        cache: &mut TrackCache,
+
         contig_header: &ContigHeader,
     ) -> Result<Gene, TGVError> {
         let contig_name = contig_header.get_name(contig_index)?;
@@ -405,11 +400,10 @@ impl TrackService for UcscDbTrackService {
         let gene_rows: Vec<UcscGeneRow> = sqlx::query_as(
             format!(
                 "SELECT *
-             FROM {} 
-             WHERE chrom = ? AND txStart <= ? 
+             FROM {}
+             WHERE chrom = ? AND txStart <= ?
              ORDER BY txStart DESC LIMIT ?",
-                self.get_preferred_track_name_with_cache(reference, cache)
-                    .await?,
+                self.get_preferred_track_name_with_cache(reference).await?,
             )
             .as_str(),
         )
@@ -426,12 +420,12 @@ impl TrackService for UcscDbTrackService {
     }
 
     async fn query_k_exons_after(
-        &self,
+        &mut self,
         reference: &Reference,
         contig_index: usize,
         coord: usize,
         k: usize,
-        cache: &mut TrackCache,
+
         contig_header: &ContigHeader,
     ) -> Result<SubGeneFeature, TGVError> {
         let contig_name = contig_header.get_name(contig_index)?;
@@ -442,11 +436,10 @@ impl TrackService for UcscDbTrackService {
         let gene_rows: Vec<UcscGeneRow> = sqlx::query_as(
             format!(
                 "SELECT *
-             FROM {} 
-             WHERE chrom = ? AND txEnd >= ? 
+             FROM {}
+             WHERE chrom = ? AND txEnd >= ?
              ORDER BY txEnd ASC LIMIT ?",
-                self.get_preferred_track_name_with_cache(reference, cache)
-                    .await?,
+                self.get_preferred_track_name_with_cache(reference).await?,
             )
             .as_str(),
         )
@@ -462,12 +455,12 @@ impl TrackService for UcscDbTrackService {
     }
 
     async fn query_k_exons_before(
-        &self,
+        &mut self,
         reference: &Reference,
         contig_index: usize,
         coord: usize,
         k: usize,
-        cache: &mut TrackCache,
+
         contig_header: &ContigHeader,
     ) -> Result<SubGeneFeature, TGVError> {
         let contig_name = contig_header.get_name(contig_index)?;
@@ -478,11 +471,10 @@ impl TrackService for UcscDbTrackService {
         let gene_rows: Vec<UcscGeneRow> = sqlx::query_as(
             format!(
                 "SELECT *
-             FROM {} 
-             WHERE chrom = ? AND txStart <= ? 
+             FROM {}
+             WHERE chrom = ? AND txStart <= ?
              ORDER BY txStart DESC LIMIT ?",
-                self.get_preferred_track_name_with_cache(reference, cache)
-                    .await?,
+                self.get_preferred_track_name_with_cache(reference).await?,
             )
             .as_str(),
         )

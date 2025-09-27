@@ -39,40 +39,21 @@ impl UCSCColumnType {
 }
 
 impl UCSCDownloader {
-    pub fn new(reference: Reference, cache_dir: String) -> Result<Self, TGVError> {
-        // Expand the cache directory path (handles tilde, env vars, etc.)
-        let expanded_cache_dir = shellexpand::full(&cache_dir)
-            .map(|expanded| expanded.into_owned())
-            .map_err(|e| {
-                TGVError::IOError(format!(
-                    "Failed to expand cache directory '{}': {}",
-                    cache_dir, e
-                ))
-            })?;
-
-        Ok(Self {
-            reference,
-            cache_dir: expanded_cache_dir,
-        })
-    }
-
-    fn reference_cache_dir(&self, reference: &Reference) -> Result<PathBuf, TGVError> {
-        let reference_cache_dir = Path::new(&self.cache_dir).join(reference.to_string());
-
-        // Ensure genome directory exists
-        std::fs::create_dir_all(&reference_cache_dir)
+    pub fn new(reference: Reference, cache_dir: &str) -> Result<Self, TGVError> {
+        let cache_dir = reference.cache_dir(cache_dir);
+        std::fs::create_dir_all(Path::new(&cache_dir))
             .map_err(|e| TGVError::IOError(format!("Failed to create genome directory: {}", e)))?;
-        Ok(reference_cache_dir)
+        Ok(Self {
+            reference: reference.clone(),
+            cache_dir,
+        })
     }
 
     /// Download data for references. This is the main entry point for downloading data.
     pub async fn download(&self) -> Result<(), TGVError> {
-        use std::fs;
-
         // Create SQLite database file path: cache_dir/reference_name/tracks.sqlite
-        let cache_dir = self.reference_cache_dir(&self.reference)?;
-        fs::create_dir_all(&cache_dir)?;
-        let db_path = cache_dir.join("tracks.sqlite");
+
+        let db_path = Path::new(&self.cache_dir).join("tracks.sqlite");
 
         let sqlite_pool = SqlitePoolOptions::new()
             .max_connections(1)
@@ -85,12 +66,17 @@ impl UCSCDownloader {
 
         match &self.reference {
             Reference::Hg19 | Reference::Hg38 | Reference::UcscGenome(_) => {
-                self.download_for_ucsc_assembly(&self.reference, &cache_dir, &sqlite_pool)
+                self.download_for_ucsc_assembly(&self.reference, &sqlite_pool)
                     .await?
             }
             Reference::UcscAccession(_) => {
-                self.download_for_ucsc_accession(&self.reference, &cache_dir, &sqlite_pool)
+                self.download_for_ucsc_accession(&self.reference, &sqlite_pool)
                     .await?
+            }
+            _ => {
+                return Err(TGVError::StateError(
+                    "UcscApi cannot be used for a custom reference genome file.".to_string(),
+                ));
             }
         }
 
@@ -104,7 +90,6 @@ impl UCSCDownloader {
     async fn download_for_ucsc_assembly(
         &self,
         reference: &Reference,
-        cache_dir: &PathBuf,
         sqlite_pool: &Pool<Sqlite>,
     ) -> Result<(), TGVError> {
         // Connect to MariaDB
@@ -142,28 +127,25 @@ impl UCSCDownloader {
     async fn download_for_ucsc_accession(
         &self,
         reference: &Reference,
-        cache_dir: &PathBuf,
         sqlite_pool: &Pool<Sqlite>,
     ) -> Result<(), TGVError> {
         // 1. Get hub url
-        let ucsc_api_service = UcscApiTrackService::new()?;
+        let mut ucsc_api_service = UcscApiTrackService::new()?;
         let hub_url = ucsc_api_service
             .get_hub_url_for_genark_accession(&reference.to_string())
             .await?;
-        self.download_to_directory(&hub_url, cache_dir).await?;
+        self.download_to_directory(&hub_url).await?;
 
         // 2. Parse hub file and download files
         println!("Parsing hub file...");
         let hub_content = UcscHubFileParser::parse_hub_file(&hub_url).await?;
 
         if let Some(twobit_path) = &hub_content.twobit_path {
-            self.download_to_directory(twobit_path, cache_dir).await?;
+            self.download_to_directory(twobit_path).await?;
         }
 
         if let Some(chrom_info_path) = &hub_content.chrom_info_path {
-            let local_chrom_info_path = self
-                .download_to_directory(chrom_info_path, cache_dir)
-                .await?;
+            let local_chrom_info_path = self.download_to_directory(chrom_info_path).await?;
             self.add_chrom_info_to_sqlite(
                 &local_chrom_info_path,
                 hub_content.twobit_path.as_ref(),
@@ -173,9 +155,7 @@ impl UCSCDownloader {
         }
 
         if let Some(chrom_alias_path) = &hub_content.chrom_alias_path {
-            let local_chrom_alias_path = self
-                .download_to_directory(chrom_alias_path, cache_dir)
-                .await?;
+            let local_chrom_alias_path = self.download_to_directory(chrom_alias_path).await?;
             BigBedConverter::save_to_sqlite(
                 local_chrom_alias_path.to_str().unwrap(),
                 "chromAlias",
@@ -189,7 +169,7 @@ impl UCSCDownloader {
                 continue;
             }
 
-            let local_big_data_path = self.download_to_directory(big_data_url, cache_dir).await?;
+            let local_big_data_path = self.download_to_directory(big_data_url).await?;
             BigBedConverter::save_to_sqlite(
                 local_big_data_path.to_str().unwrap(),
                 track_name,
@@ -439,13 +419,11 @@ impl UCSCDownloader {
             return Ok(());
         }
 
-        let cache_dir = self.reference_cache_dir(&self.reference)?;
         for row in rows {
             let file_name: String = row.try_get("fileName")?;
             let download_url = format!("http://hgdownload.soe.ucsc.edu/{}", file_name);
 
-            self.download_to_directory(&download_url, &cache_dir)
-                .await?;
+            self.download_to_directory(&download_url).await?;
         }
 
         println!("Genome file download completed");
@@ -454,12 +432,8 @@ impl UCSCDownloader {
 
     /// Download a file to a directory with the same filename.
     /// Skip if file already exists. Note that no cache invalidation here. TODO.
-    async fn download_to_directory(
-        &self,
-        url: &str,
-        local_dir: &PathBuf,
-    ) -> Result<PathBuf, TGVError> {
-        let local_path = local_dir.join(url.split("/").last().unwrap());
+    async fn download_to_directory(&self, url: &str) -> Result<PathBuf, TGVError> {
+        let local_path = Path::new(&self.cache_dir).join(url.split("/").last().unwrap());
         let client = reqwest::Client::new();
 
         println!("Downloading file: {}", local_path.display());
