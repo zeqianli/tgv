@@ -1,7 +1,7 @@
 /// The main app object
 ///
 use crossterm::event::{self, Event, KeyEventKind};
-use ratatui::{prelude::Backend, widgets::Widget, Terminal};
+use ratatui::{prelude::Backend, Terminal};
 
 use crate::error::TGVError;
 use crate::register::{KeyRegister, MouseRegister, Registers};
@@ -60,11 +60,9 @@ impl App {
     /// Main loop
     pub async fn run<B: Backend>(&mut self, terminal: &mut Terminal<B>) -> Result<(), TGVError> {
         while !self.state.exit {
-            self.registers.update_state(&self.state)?;
-
             // Prepare rendering
+            self.registers.update(&self.state)?;
             self.renderer.update(&self.state)?;
-
             if self.renderer.needs_refresh {
                 let _ = terminal.clear();
             }

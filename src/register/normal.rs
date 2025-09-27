@@ -1,24 +1,12 @@
 use crate::{error::TGVError, message::StateMessage, register::KeyRegister, states::State};
 use crossterm::event::{KeyCode, KeyEvent};
 
-#[derive(Clone)]
+#[derive(Clone, Debug, Default)]
 pub struct NormalModeRegister {
     input: String,
 }
 
-impl Default for NormalModeRegister {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
 impl NormalModeRegister {
-    pub fn new() -> Self {
-        Self {
-            input: String::new(),
-        }
-    }
-
     pub fn add_char(&mut self, c: char) {
         self.input.push(c);
     }

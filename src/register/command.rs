@@ -16,33 +16,13 @@ use nom::{
     IResult, Parser,
 };
 
+#[derive(Default, Debug)]
 pub struct CommandModeRegister {
-    input: String,
-    cursor_position: usize,
-}
-
-impl Default for CommandModeRegister {
-    fn default() -> Self {
-        Self::new()
-    }
+    pub input: String,
+    pub cursor_position: usize,
 }
 
 impl CommandModeRegister {
-    pub fn new() -> Self {
-        Self {
-            input: String::new(),
-            cursor_position: 0,
-        }
-    }
-
-    pub fn input(&self) -> String {
-        self.input.clone()
-    }
-
-    pub fn cursor_position(&self) -> usize {
-        self.cursor_position
-    }
-
     pub fn clear(&mut self) {
         self.input = String::new();
         self.cursor_position = 0;

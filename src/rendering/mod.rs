@@ -41,7 +41,6 @@ use ratatui::{buffer::Buffer, layout::Rect};
 #[derive(Debug, Default)]
 pub struct Renderer {
     pub last_frame_area: Rect,
-
     pub needs_refresh: bool,
 }
 
@@ -61,7 +60,6 @@ impl Renderer {
 
     pub fn render(
         &self,
-
         buf: &mut Buffer,
         state: &State,
         registers: &Registers,
@@ -69,19 +67,12 @@ impl Renderer {
         pallete: &Palette,
     ) -> Result<(), TGVError> {
         match &state.display_mode {
-            DisplayMode::Main => {
-                // TODO: Get layout tree from state
-                // For now, fall back to existing layout
-                Self::render_main(buf, state, registers, repository, pallete)?;
-            }
-            DisplayMode::Help => {
-                render_help(state.area(), buf)?;
-            }
+            DisplayMode::Main => Self::render_main(buf, state, registers, repository, pallete),
+            DisplayMode::Help => render_help(state.area(), buf),
             DisplayMode::ContigList => {
-                render_contig_list(state.area(), buf, state, registers, pallete)?;
+                render_contig_list(state.area(), buf, state, registers, pallete)
             }
         }
-        Ok(())
     }
 
     /// Render all areas in the layout
@@ -95,7 +86,6 @@ impl Renderer {
         // Render each area based on its type
         for (i, (area_type, rect)) in state.layout.areas.iter().enumerate() {
             if rect.y >= buf.area.height || rect.x >= buf.area.width {
-                // bound check
                 continue;
             }
 

@@ -4,19 +4,8 @@ use crate::{
 };
 use crossterm::event::{KeyCode, KeyEvent};
 
+#[derive(Default, Debug)]
 pub struct HelpModeRegister {}
-
-impl Default for HelpModeRegister {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
-impl HelpModeRegister {
-    pub fn new() -> Self {
-        Self {}
-    }
-}
 
 impl KeyRegister for HelpModeRegister {
     fn update_key_event(

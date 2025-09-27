@@ -17,22 +17,19 @@ pub fn render_console(
         return Ok(());
     }
 
-    let input = register.input();
-    let cursor_position = register.cursor_position();
-
-    let cursor_char = if cursor_position >= input.len() {
-        ' '
-    } else {
-        input.chars().nth(cursor_position).unwrap()
-    };
-    let cursor_char_position = area.x + 1 + cursor_position as u16;
+    let cursor_char = register
+        .input
+        .chars()
+        .nth(register.cursor_position)
+        .unwrap_or(' ');
+    let cursor_char_position = area.x + 1 + register.cursor_position as u16;
     let cursor_char_style = Style::default().bg(Color::Red);
 
     buf.set_stringn(area.x, area.y, ":", area.width as usize, Style::default());
     buf.set_stringn(
         area.x + 1,
         area.y,
-        input,
+        &register.input,
         area.width as usize - 1,
         Style::default(),
     );

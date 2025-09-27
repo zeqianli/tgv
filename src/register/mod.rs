@@ -65,15 +65,15 @@ impl Registers {
     pub fn new(state: &State) -> Result<Self, TGVError> {
         Ok(Self {
             current: RegisterType::Normal,
-            normal: NormalModeRegister::new(),
-            command: CommandModeRegister::new(),
-            help: HelpModeRegister::new(),
-            contig_list: ContigListModeRegister::new(0),
+            normal: NormalModeRegister::default(),
+            command: CommandModeRegister::default(),
+            help: HelpModeRegister::default(),
+            contig_list: ContigListModeRegister::default(),
             mouse_register: NormalMouseRegister::new(&state.layout.root),
         })
     }
 
-    pub fn update_state(&mut self, state: &State) -> Result<(), TGVError> {
+    pub fn update(&mut self, state: &State) -> Result<(), TGVError> {
         if self.current != RegisterType::ContigList {
             self.contig_list.cursor_position = state.contig_index();
         }
@@ -111,13 +111,13 @@ impl KeyRegister for Registers {
             }
 
             (KeyCode::Enter, RegisterType::Command) => {
-                if self.command.input() == "h" {
+                if self.command.input == "h" {
                     self.current = RegisterType::Help;
                     self.clear();
                     return Ok(vec![StateMessage::SetDisplayMode(DisplayMode::Help)]);
                 }
 
-                if self.command.input() == "ls" || self.command.input() == "contigs" {
+                if self.command.input == "ls" || self.command.input == "contigs" {
                     self.current = RegisterType::ContigList;
                     self.clear();
                     return Ok(vec![StateMessage::SetDisplayMode(DisplayMode::ContigList)]);

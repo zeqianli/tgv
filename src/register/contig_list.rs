@@ -1,15 +1,10 @@
 use crate::{error::TGVError, message::StateMessage, register::KeyRegister, states::State};
 use crossterm::event::{KeyCode, KeyEvent};
 
+#[derive(Debug, Default)]
 pub struct ContigListModeRegister {
     /// index of contigs in the contig header
     pub cursor_position: usize,
-}
-
-impl ContigListModeRegister {
-    pub fn new(cursor_position: usize) -> Self {
-        Self { cursor_position }
-    }
 }
 
 impl KeyRegister for ContigListModeRegister {
@@ -50,4 +45,8 @@ impl KeyRegister for ContigListModeRegister {
     }
 }
 
-// FEAT: command mode in listing contig to search reference genome
+#[derive(Default, Debug)]
+pub struct ContigListCommandModeRegister {
+    pub input: String,
+    pub cursor_position: usize,
+}
