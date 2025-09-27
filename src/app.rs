@@ -51,7 +51,7 @@ impl App {
             settings: settings.clone(),
             repository,
             registers,
-            rendering_state: RenderingState::new(),
+            rendering_state: RenderingState::default(),
         })
     }
 }
@@ -65,7 +65,7 @@ impl App {
             // Prepare rendering
             self.rendering_state.update(&self.state)?;
 
-            if self.rendering_state.needs_refresh() {
+            if self.rendering_state.needs_refresh {
                 let _ = terminal.clear();
             }
 

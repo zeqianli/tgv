@@ -266,90 +266,55 @@ impl MainLayout {
         pallete: &Palette,
     ) -> Result<(), TGVError> {
         // Render each area based on its type
-        let mut alternate_background = 0;
         for (i, (area_type, rect)) in self.areas.iter().enumerate() {
             if rect.y >= buf.area.height || rect.x >= buf.area.width {
                 // bound check
                 continue;
             }
-            let background_color = if area_type.alternate_background() {
-                alternate_background += 1;
-                match alternate_background % 2 {
-                    1 => Some(pallete.background_1),
-                    _ => Some(pallete.background_2),
-                }
-            } else {
-                alternate_background = 0;
-                None
-            };
-            Self::render_by_area_type(
-                *area_type,
-                rect,
-                buf,
-                background_color,
-                state,
-                registers,
-                repository,
-                pallete,
-            )?;
-        }
-        Ok(())
-    }
 
-    /// Render an area based on its type
-    fn render_by_area_type(
-        area_type: AreaType,
-        rect: &Rect,
-        buf: &mut Buffer,
-        background_color: Option<Color>,
-        state: &State,
-        registers: &Registers,
-        repository: &Repository,
-        pallete: &Palette,
-    ) -> Result<(), TGVError> {
-        let background_color = background_color.unwrap_or(pallete.background_1);
-        match area_type {
-            AreaType::Cytoband => render_cytobands(rect, buf, state, pallete)?,
-            AreaType::Coordinate => render_coordinates(rect, buf, state)?,
-            AreaType::Coverage => {
-                if repository.alignment_repository.is_some() {
-                    render_coverage(rect, buf, state, pallete)?;
+            match area_type {
+                AreaType::Cytoband => render_cytobands(rect, buf, state, pallete)?,
+                AreaType::Coordinate => render_coordinates(rect, buf, state)?,
+                AreaType::Coverage => {
+                    if repository.alignment_repository.is_some() {
+                        render_coverage(rect, buf, state, pallete)?;
+                    }
                 }
-            }
-            AreaType::Alignment => {
-                if repository.alignment_repository.is_some() {
-                    render_alignment(rect, buf, state, &background_color, pallete)?;
+                AreaType::Alignment => {
+                    if repository.alignment_repository.is_some() {
+                        render_alignment(rect, buf, state, pallete)?;
+                    }
                 }
-            }
-            AreaType::Sequence => {
-                if repository.sequence_service.is_some() {
-                    render_sequence(rect, buf, state, pallete)?;
+                AreaType::Sequence => {
+                    if repository.sequence_service.is_some() {
+                        render_sequence(rect, buf, state, pallete)?;
+                    }
                 }
-            }
-            AreaType::GeneTrack => {
-                if repository.track_service.is_some() {
-                    render_track(rect, buf, state, pallete)?;
+                AreaType::GeneTrack => {
+                    if repository.track_service.is_some() {
+                        render_track(rect, buf, state, pallete)?;
+                    }
                 }
-            }
-            AreaType::Console => {
-                if registers.current == RegisterType::Command {
-                    render_console(rect, buf, &registers.command)?;
+                AreaType::Console => {
+                    if registers.current == RegisterType::Command {
+                        render_console(rect, buf, &registers.command)?;
+                    }
                 }
-            }
-            AreaType::Error => {
-                render_status_bar(rect, buf, state)?;
-            }
-            AreaType::Variant => {
-                if let Some(variants) = repository.variant_repository.as_ref() {
-                    render_variants(rect, buf, variants, state, pallete)?
+                AreaType::Error => {
+                    render_status_bar(rect, buf, state)?;
                 }
-            }
-            AreaType::Bed => {
-                if let Some(bed) = repository.bed_intervals.as_ref() {
-                    render_bed(rect, buf, bed, state, pallete)?
+                AreaType::Variant => {
+                    if let Some(variants) = repository.variant_repository.as_ref() {
+                        render_variants(rect, buf, variants, state, pallete)?
+                    }
                 }
-            }
-        };
+                AreaType::Bed => {
+                    if let Some(bed) = repository.bed_intervals.as_ref() {
+                        render_bed(rect, buf, bed, state, pallete)?
+                    }
+                }
+            };
+        }
         Ok(())
     }
 }

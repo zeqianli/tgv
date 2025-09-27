@@ -35,44 +35,22 @@ use crate::repository::Repository;
 use crate::states::State;
 use ratatui::{buffer::Buffer, layout::Rect};
 
+#[derive(Debug, Default)]
 pub struct RenderingState {
-    last_frame_area: Rect,
+    pub last_frame_area: Rect,
 
-    refresh: bool,
-}
-
-// if area.width < MIN_AREA_WIDTH || area.height < MIN_AREA_HEIGHT {
-//     return; // TOO small. Skip rendering to prevent overflow.
-// }
-
-const MAX_ZOOM_TO_DISPLAY_ALIGNMENTS: u32 = 2;
-
-impl Default for RenderingState {
-    fn default() -> Self {
-        Self::new()
-    }
+    pub needs_refresh: bool,
 }
 
 impl RenderingState {
-    pub fn new() -> Self {
-        Self {
-            refresh: false,
-            last_frame_area: Rect::default(),
-        }
-    }
-
-    pub fn needs_refresh(&self) -> bool {
-        self.refresh
-    }
-
     pub fn update(&mut self, state: &State) -> Result<&mut Self, TGVError> {
         if self.last_frame_area.width != state.area().width
             || self.last_frame_area.height != state.area().height
         {
-            self.refresh = true;
+            self.needs_refresh = true;
             self.last_frame_area = *state.area();
         } else {
-            self.refresh = false;
+            self.needs_refresh = false;
         }
 
         Ok(self)

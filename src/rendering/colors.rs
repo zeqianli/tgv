@@ -5,8 +5,8 @@ use ratatui::style::{palette::tailwind, Color};
 #[allow(non_snake_case)]
 pub struct Palette {
     /// Track alternating colors
-    pub background_1: Color,
-    pub background_2: Color,
+    pub background: Color,
+    //pub background_2: Color,
 
     // Alignment
     pub MATCH_COLOR: Color,
@@ -110,8 +110,8 @@ impl Palette {
 
 pub const DARK_THEME: Palette = Palette {
     // FIXME: use standard ATCG colors, same as IGV
-    background_1: Color::from_u32(0x1e1e1e),
-    background_2: Color::from_u32(0x323232),
+    background: Color::from_u32(0x1e1e1e),
+    //background_2: Color::from_u32(0x323232),
 
     // Alignment
     MATCH_COLOR: tailwind::GRAY.c500,
