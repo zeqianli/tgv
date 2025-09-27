@@ -149,7 +149,7 @@ impl StateHandler {
         settings: &Settings,
         messages: Vec<Message>,
     ) -> Result<(), TGVError> {
-        StateHandler::clear_messages(state)?;
+        state.messages.clear();
 
         let mut data_messages: Vec<DataMessage> = Vec::new();
 
@@ -186,7 +186,7 @@ impl StateHandler {
     ) -> Result<Vec<DataMessage>, TGVError> {
         match message {
             // Swithching modes
-            Message::Quit => StateHandler::quit(state)?,
+            Message::Quit => state.exit = true,
 
             // Movement handling
             Message::MoveLeft(n) => StateHandler::move_left(state, n)?,
@@ -235,9 +235,7 @@ impl StateHandler {
                 StateHandler::go_to_previous_genes_end(state, repository, n).await?
             }
             Message::GotoNextContig(n) => StateHandler::go_to_next_contig(state, n).await?,
-            Message::GotoPreviousContig(n) => {
-                StateHandler::go_to_previous_contig(state, n).await?
-            }
+            Message::GotoPreviousContig(n) => StateHandler::go_to_previous_contig(state, n).await?,
             Message::GotoContigIndex(index) => {
                 StateHandler::go_to_contig_index(state, index).await?
             }
@@ -320,18 +318,8 @@ impl StateHandler {
 // Data message handling
 
 impl StateHandler {
-    fn quit(state: &mut State) -> Result<(), TGVError> {
-        state.exit = true;
-        Ok(())
-    }
-
     fn add_message(state: &mut State, message: String) -> Result<(), TGVError> {
         state.messages.push(message);
-        Ok(())
-    }
-
-    fn clear_messages(state: &mut State) -> Result<(), TGVError> {
-        state.messages.clear();
         Ok(())
     }
 
