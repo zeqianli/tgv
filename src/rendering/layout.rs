@@ -17,14 +17,6 @@ pub enum AreaType {
 }
 
 impl AreaType {
-    /// Whether the area should have an alternate background color. Useful to distinguish between tracks (alignment, vcf, bed, etc.)
-    fn alternate_background(&self) -> bool {
-        match self {
-            AreaType::Variant | AreaType::Bed | AreaType::Alignment => true,
-            _ => false,
-        }
-    }
-
     /// Whether the track can be resized.
     fn resizeable(&self) -> bool {
         // TODO: improve resizing code to allow more intuitive and flexible actions.
@@ -224,7 +216,7 @@ impl MainLayout {
         };
 
         let mut layout = Self::new(root)?;
-        layout.set_area(initial_area);
+        layout.set_area(initial_area)?;
         Ok(layout)
     }
 

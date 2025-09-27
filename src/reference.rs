@@ -17,7 +17,6 @@ pub enum Reference {
 impl Reference {
     pub const HG19: &str = "hg19";
     pub const HG38: &str = "hg38";
-    pub const SUPPORTED_REFERENCES: [&str; 2] = [Self::HG19, Self::HG38];
 
     pub fn get_common_genome_names() -> Result<Vec<(String, String)>, TGVError> {
         let mut common_genome_names = Vec::new();

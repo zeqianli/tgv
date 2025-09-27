@@ -21,22 +21,26 @@ impl KeyRegister for ContigListModeRegister {
         state: &State,
     ) -> Result<Vec<Message>, TGVError> {
         match key_event.code {
-            KeyCode::Enter => {
-                return Ok(vec![
-                    Message::ClearAllKeyRegisters,
-                    Message::SwitchKeyRegister(KeyRegisterType::Normal),
-                    Message::SwitchScene(Scene::Main),
-                    Message::GotoContigIndex(self.cursor_position),
-                ]);
-            }
+            KeyCode::Enter => Ok(vec![
+                Message::ClearAllKeyRegisters,
+                Message::SwitchKeyRegister(KeyRegisterType::Normal),
+                Message::SwitchScene(Scene::Main),
+                Message::GotoContigIndex(self.cursor_position),
+            ]),
 
-            KeyCode::Esc => {
-                return Ok(vec![
-                    Message::ClearAllKeyRegisters,
-                    Message::SwitchKeyRegister(KeyRegisterType::Normal),
-                    Message::SwitchScene(Scene::Main),
-                ]);
-            }
+            KeyCode::Esc => Ok(vec![
+                Message::ClearAllKeyRegisters,
+                Message::SwitchKeyRegister(KeyRegisterType::Normal),
+                Message::SwitchScene(Scene::Main),
+            ]),
+            // FEAT: command mode in contig list
+            // - search and filter contig by regex patterns
+            // Implementing this needs lots of extra state tracking and messaging types.
+            // Note sure how useful this is.
+            //
+            // KeyCode::Char(':') | KeyCode::Char('/') => Ok(vec![Message::SwitchKeyRegister(
+            //     KeyRegisterType::ContigListCommand,
+            // )]),
             KeyCode::Char('j') | KeyCode::Down => {
                 self.cursor_position = usize::min(
                     self.cursor_position.saturating_add(1),
@@ -72,6 +76,10 @@ pub struct ContigListCommandModeRegister {
     pub buffer: CommandBuffer,
 }
 
+/// [Not implemented yet]
+/// - search and filter contig by regex patterns
+// Implementing this needs lots of extra state tracking and messaging types.
+// Note sure how useful this is.
 impl KeyRegister for ContigListCommandModeRegister {
     fn handle_key_event(
         &mut self,

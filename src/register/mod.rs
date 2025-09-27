@@ -23,7 +23,7 @@ pub enum KeyRegisterType {
     Command,
     Help,
     ContigList,
-    ContigListCommand,
+    // ContigListCommand,
 }
 
 /// Register stores inputs and translates key event to StateMessages.
@@ -50,7 +50,7 @@ pub struct Registers {
     pub command: CommandModeRegister,
     pub help: HelpModeRegister,
     pub contig_list: ContigListModeRegister,
-    pub contig_list_command: ContigListCommandModeRegister,
+    //pub contig_list_command: ContigListCommandModeRegister,
     pub mouse_register: NormalMouseRegister,
 }
 
@@ -62,7 +62,7 @@ impl Registers {
             command: CommandModeRegister::default(),
             help: HelpModeRegister::default(),
             contig_list: ContigListModeRegister::default(),
-            contig_list_command: ContigListCommandModeRegister::default(),
+            //contig_list_command: ContigListCommandModeRegister::default(),
             mouse_register: NormalMouseRegister::new(&state.layout.root),
         })
     }
@@ -77,7 +77,7 @@ impl Registers {
     pub fn clear(&mut self) {
         self.normal.clear();
         self.command.buffer.clear();
-        self.contig_list_command.buffer.clear();
+        //self.contig_list_command.buffer.clear();
     }
 }
 
@@ -92,9 +92,9 @@ impl KeyRegister for Registers {
             KeyRegisterType::Command => self.command.handle_key_event(key_event, state),
             KeyRegisterType::Help => self.help.handle_key_event(key_event, state),
             KeyRegisterType::ContigList => self.contig_list.handle_key_event(key_event, state),
-            KeyRegisterType::ContigListCommand => {
-                self.contig_list_command.handle_key_event(key_event, state)
-            }
+            // KeyRegisterType::ContigListCommand => {
+            //     self.contig_list_command.handle_key_event(key_event, state)
+            // }
         }
         .unwrap_or_else(|e| {
             vec![

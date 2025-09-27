@@ -32,24 +32,6 @@ impl ViewingWindow {
     pub const MAX_ZOOM_TO_DISPLAY_ALIGNMENTS: usize = 32;
     pub const MAX_ZOOM_TO_DISPLAY_SEQUENCES: usize = 2;
 
-    pub fn new_basewise_window(contig: usize, left: usize, top: usize) -> Self {
-        Self {
-            contig_index: contig,
-            left,
-            top,
-            zoom: 1,
-        }
-    }
-
-    pub fn new_zoom_out_window(contig: usize, left: usize, top: usize, zoom: usize) -> Self {
-        Self {
-            contig_index: contig,
-            left,
-            top,
-            zoom,
-        }
-    }
-
     pub fn alignment_renderable(&self) -> bool {
         self.zoom <= Self::MAX_ZOOM_TO_DISPLAY_ALIGNMENTS
     }

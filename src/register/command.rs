@@ -80,7 +80,7 @@ impl KeyRegister for CommandModeRegister {
                     return Ok(vec![
                         Message::SwitchScene(Scene::ContigList),
                         Message::ClearAllKeyRegisters,
-                        Message::SwitchKeyRegister(KeyRegisterType::Help),
+                        Message::SwitchKeyRegister(KeyRegisterType::ContigList),
                     ]);
                 }
                 _ => Ok(self
