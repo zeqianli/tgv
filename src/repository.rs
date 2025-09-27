@@ -13,6 +13,7 @@ use crate::{
 };
 
 use itertools::Itertools;
+use noodles_vcf::header::record::value::map::contig;
 use rust_htslib::bam::{self, Header, IndexedReader, Read};
 use std::path::Path;
 use url::Url;
@@ -102,8 +103,10 @@ impl Repository {
             _ => {}
         }
 
+        // FIXME
+        // Warning when the reference contig is not present in the BAM header.
         if let Some(bam) = alignment_repository.as_ref() {
-            contig_header.update_from_bam(bam)?
+            contig_header.update_from_bam(bam, &settings.reference)?
         }
 
         let variant_repository = match &settings.vcf_path {
@@ -250,21 +253,30 @@ impl AlignmentRepository for BamRepository {
 
         let header = bam::Header::from_template(bam.header());
 
-        let query_contig_string = get_query_contig_string(&header, region, contig_header)?;
-        bam.fetch((
-            &query_contig_string,
-            region.start as i32 - 1,
-            region.end as i32,
-        ))
-        .map_err(|e| TGVError::IOError(e.to_string()))?;
+        match get_query_contig_string(&header, region, contig_header)? {
+            Some(query_contig_string) => {
+                bam.fetch((
+                    &query_contig_string,
+                    region.start as i32 - 1,
+                    region.end as i32,
+                ))
+                .map_err(|e| TGVError::IOError(e.to_string()))?;
 
-        let reads = bam
-            .records()
-            .enumerate()
-            .map(|(i, record)| AlignedRead::from_bam_record(i, record?, sequence))
-            .collect::<Result<_, _>>()?;
+                let reads = bam
+                    .records()
+                    .enumerate()
+                    .map(|(i, record)| AlignedRead::from_bam_record(i, record?, sequence))
+                    .collect::<Result<_, _>>()?;
 
-        Alignment::from_aligned_reads(reads, region, sequence)
+                Alignment::from_aligned_reads(reads, region, sequence)
+            }
+
+            None => {
+                // Contig indicated in region is not present in the BAM header.
+                // Can happen when contigs in the reference and in the BAM header mismatches.
+                Alignment::from_aligned_reads(Vec::new(), region, sequence)
+            }
+        }
     }
 
     /// Read BAM headers and return contig namesa and lengths.
@@ -310,21 +322,30 @@ impl AlignmentRepository for RemoteBamRepository {
 
         let header = bam::Header::from_template(bam.header());
 
-        let query_contig_string = get_query_contig_string(&header, region, contig_header)?;
-        bam.fetch((
-            &query_contig_string,
-            region.start as i32 - 1,
-            region.end as i32,
-        ))
-        .map_err(|e| TGVError::IOError(e.to_string()))?;
+        match get_query_contig_string(&header, region, contig_header)? {
+            Some(query_contig_string) => {
+                bam.fetch((
+                    &query_contig_string,
+                    region.start as i32 - 1,
+                    region.end as i32,
+                ))
+                .map_err(|e| TGVError::IOError(e.to_string()))?;
 
-        let reads = bam
-            .records()
-            .enumerate()
-            .map(|(i, record)| AlignedRead::from_bam_record(i, record?, sequence))
-            .collect::<Result<_, _>>()?;
+                let reads = bam
+                    .records()
+                    .enumerate()
+                    .map(|(i, record)| AlignedRead::from_bam_record(i, record?, sequence))
+                    .collect::<Result<_, _>>()?;
 
-        Alignment::from_aligned_reads(reads, region, sequence)
+                Alignment::from_aligned_reads(reads, region, sequence)
+            }
+
+            None => {
+                // Contig indicated in region is not present in the BAM header.
+                // Can happen when contigs in the reference and in the BAM header mismatches.
+                Alignment::from_aligned_reads(Vec::new(), region, sequence)
+            }
+        }
     }
 
     fn read_header(&self) -> Result<Vec<(String, Option<usize>)>, TGVError> {
@@ -376,7 +397,10 @@ fn get_query_contig_string(
     header: &Header,
     region: &Region,
     contig_header: &ContigHeader,
-) -> Result<String, TGVError> {
+) -> Result<Option<String>, TGVError> {
+    // FIXME:
+    // BAM header is re-parsed for every alignment loading.
+    // Parse this once and store it in the repository.
     let mut bam_headers = Vec::new();
 
     for (_key, records) in header.to_hashmap().iter() {
@@ -390,7 +414,7 @@ fn get_query_contig_string(
                         .aliases
                         .contains(&reference_name)
                 {
-                    return Ok(reference_name);
+                    return Ok(Some(reference_name));
                 }
 
                 bam_headers.push(reference_name);
@@ -398,12 +422,9 @@ fn get_query_contig_string(
         }
     }
 
-    Err(TGVError::IOError(format!(
-        "Contig index {}  not found in the bam file header. BAM file has {} contigs: {}",
-        region.contig_index,
-        bam_headers.len(),
-        bam_headers.join(", ")
-    )))
+    // Contig is not in the BAM header.
+    // This can happen when the reference contig names and the BAM contig names mismatch.
+    Ok(None)
 }
 
 #[derive(Debug)]

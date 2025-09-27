@@ -152,7 +152,11 @@ mod tests {
         Some("covid.sorted.bam"),
         Some("--no-reference -r MN908947.3:100 --offline")
     )]
-    #[case(Some("covid.sorted.bam"), Some("-g test/data/covid.fa --offline"))]
+    #[case(Some("covid.sorted.bam"), Some("-g tests/data/covid.fa --offline"))]
+    #[case(
+        Some("covid.sorted.bam"),
+        Some("-g tests/data/cache/wuhCor1/wuhCor1.2bit --offline")
+    )]
     #[tokio::test]
     async fn integration_test(#[case] bam_path: Option<&str>, #[case] args: Option<&str>) {
         let snapshot_name = match (bam_path, args) {

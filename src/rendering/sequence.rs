@@ -32,11 +32,7 @@ fn render_sequence_at_1x(
         return Ok(());
     }
 
-    let sequence_string = String::from_utf8(
-        sequence
-            .get_sequence(region)
-            .ok_or(TGVError::StateError("Sequence not found".to_string()))?,
-    )?;
+    let sequence_string = String::from_utf8(sequence.get_sequence(region).unwrap_or(vec![]))?;
 
     for (i, base) in sequence_string.chars().enumerate() {
         buf.set_string(

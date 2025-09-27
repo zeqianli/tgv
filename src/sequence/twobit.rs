@@ -3,6 +3,7 @@ use crate::error::TGVError;
 use crate::intervals::Region;
 use crate::reference::Reference;
 use crate::sequence::{Sequence, SequenceRepository};
+use rust_htslib::bcf::buffer;
 use std::collections::HashMap;
 use twobit::TwoBitFile;
 
@@ -63,17 +64,30 @@ impl SequenceRepository for TwoBitSequenceRepository {
         contig_header: &ContigHeader,
     ) -> Result<Sequence, TGVError> {
         let contig_name = contig_header.get_name(region.contig_index)?;
-        let buffer = &mut self.buffers[self.contig_to_buffer_index[&region.contig_index]];
-        let sequence_str = buffer.read_sequence(
-            contig_name,
-            (region.start - 1)..region.end, // Convert to 0-based range
-        )?;
 
-        Ok(Sequence {
-            start: region.start,
-            sequence: sequence_str.into_bytes(),
-            contig_index: region.contig_index,
-        })
+        match self.contig_to_buffer_index.get(&region.contig_index) {
+            Some(buffer_index) => {
+                let buffer = &mut self.buffers[*buffer_index];
+                let sequence_string = buffer.read_sequence(
+                    contig_name,
+                    (region.start - 1)..region.end, // Convert to 0-based range
+                )?;
+                Ok(Sequence {
+                    start: region.start,
+                    sequence: sequence_string.into_bytes(),
+                    contig_index: region.contig_index,
+                })
+            }
+            None => {
+                // Going to a contig that's not in twobit file.
+                // Can happen when there are contig mismatches between data sources (e.g. BAM and reference)
+                Ok(Sequence {
+                    start: region.start,
+                    sequence: "".to_string().into_bytes(),
+                    contig_index: region.contig_index,
+                })
+            }
+        }
     }
 
     async fn close(&mut self) -> Result<(), TGVError> {

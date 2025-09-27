@@ -276,14 +276,17 @@ impl ContigHeader {
         Ok(index)
     }
 
-    pub fn update_from_bam(&mut self, bam: &AlignmentRepositoryEnum) -> Result<(), TGVError> {
-        // Use the indexed_reader::Builder pattern as shown in alignment.rs
-
-        for (contig_name, contig_length) in bam.read_header()? {
-            self.update_or_add_contig(Contig::new(&contig_name, contig_length))?;
-        }
-
-        Ok(())
+    pub fn update_from_bam(
+        &mut self,
+        bam: &AlignmentRepositoryEnum,
+        reference: &Reference,
+    ) -> Result<(), TGVError> {
+        bam.read_header()?
+            .into_iter()
+            .try_for_each(|(contig_name, contig_length)| {
+                self.update_or_add_contig(Contig::new(&contig_name, contig_length))
+                    .map(|_| ())
+            })
     }
 
     pub fn contains(&self, contig: &Contig) -> bool {
