@@ -45,7 +45,7 @@ pub fn render_alignment(
                 if *show_pair {
                     let y = state.alignment.ys[read_pair.read_1_index];
                     read_pair.rendering_contexts.iter().try_for_each(|context| {
-                        render_contexts(context, y, buf, state, area,, pallete)
+                        render_contexts(context, y, buf, state, area, pallete)
                     })
                 } else {
                     Ok(())
@@ -63,7 +63,7 @@ pub fn render_alignment(
                         .rendering_contexts
                         .iter()
                         .try_for_each(|context| {
-                            render_contexts(context, y, buf, state, area,pallete)
+                            render_contexts(context, y, buf, state, area, pallete)
                         })
                 })
             })?
@@ -162,7 +162,9 @@ fn get_read_rendering_info(
             x: onscreen_x,
             y: onscreen_y,
             string: "-".repeat(length as usize),
-            style: Style::new().bg(pallete.background).fg(pallete.PAIRGAP_COLOR),
+            style: Style::new()
+                .bg(pallete.background)
+                .fg(pallete.PAIRGAP_COLOR),
         }),
 
         RenderingContextKind::PairOverlap => output.push(OnScreenRenderingContext {

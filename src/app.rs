@@ -5,7 +5,7 @@ use ratatui::{prelude::Backend, widgets::Widget, Terminal};
 
 use crate::error::TGVError;
 use crate::register::{KeyRegister, MouseRegister, Registers};
-use crate::rendering::RenderingState;
+use crate::rendering::Renderer;
 use crate::repository::Repository;
 use crate::settings::Settings;
 use crate::states::{State, StateHandler};
@@ -22,7 +22,7 @@ pub struct App {
     pub registers: Registers,
 
     /// Main render. Uses the state pattern.
-    pub rendering_state: RenderingState,
+    pub renderer: Renderer,
 }
 
 impl App {
@@ -51,7 +51,7 @@ impl App {
             settings: settings.clone(),
             repository,
             registers,
-            rendering_state: RenderingState::default(),
+            renderer: Renderer::default(),
         })
     }
 }
@@ -63,9 +63,9 @@ impl App {
             self.registers.update_state(&self.state)?;
 
             // Prepare rendering
-            self.rendering_state.update(&self.state)?;
+            self.renderer.update(&self.state)?;
 
-            if self.rendering_state.needs_refresh {
+            if self.renderer.needs_refresh {
                 let _ = terminal.clear();
             }
 
@@ -76,7 +76,7 @@ impl App {
                 .draw(|frame| {
                     let buffer = frame.buffer_mut();
                     self.state.set_area(buffer.area).unwrap();
-                    self.rendering_state
+                    self.renderer
                         .render(
                             buffer,
                             &self.state,
