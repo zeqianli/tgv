@@ -30,13 +30,19 @@ pub use variants::render_variants;
 
 use crate::{
     error::TGVError,
-    register::DisplayMode,
     register::{RegisterType, Registers},
     rendering::layout::AreaType,
     repository::Repository,
     states::State,
 };
 use ratatui::{buffer::Buffer, layout::Rect};
+
+#[derive(Debug, Clone, Eq, PartialEq)]
+pub enum Scene {
+    Main,
+    Help,
+    ContigList,
+}
 
 #[derive(Debug, Default)]
 pub struct Renderer {
@@ -66,12 +72,10 @@ impl Renderer {
         repository: &Repository,
         pallete: &Palette,
     ) -> Result<(), TGVError> {
-        match &state.display_mode {
-            DisplayMode::Main => Self::render_main(buf, state, registers, repository, pallete),
-            DisplayMode::Help => render_help(state.area(), buf),
-            DisplayMode::ContigList => {
-                render_contig_list(state.area(), buf, state, registers, pallete)
-            }
+        match &state.scene {
+            Scene::Main => Self::render_main(buf, state, registers, repository, pallete),
+            Scene::Help => render_help(state.area(), buf),
+            Scene::ContigList => render_contig_list(state.area(), buf, state, registers, pallete),
         }
     }
 

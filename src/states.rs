@@ -14,9 +14,9 @@ use crate::{
     intervals::Region,
     message::{DataMessage, StateMessage},
     reference::Reference,
-    register::DisplayMode,
     rendering::layout::resize_node,
     rendering::MainLayout,
+    rendering::Scene,
     sequence::{Sequence, SequenceRepository},
     track::Track,
     window::ViewingWindow,
@@ -53,7 +53,7 @@ pub struct State {
     pub contig_header: ContigHeader,
 
     /// Display mode
-    pub display_mode: DisplayMode,
+    pub scene: Scene,
     pub layout: MainLayout,
 }
 
@@ -80,7 +80,7 @@ impl State {
             sequence: Sequence::default(),
             contig_header: contigs,
 
-            display_mode: DisplayMode::Main,
+            scene: Scene::Main,
             layout: MainLayout::initialize(settings, initial_area)?,
         })
     }
@@ -274,7 +274,7 @@ impl StateHandler {
             StateMessage::Message(message) => StateHandler::add_message(state, message)?,
 
             StateMessage::SetDisplayMode(display_mode) => {
-                state.display_mode = display_mode;
+                state.scene = display_mode;
             }
 
             StateMessage::ResizeTrack {

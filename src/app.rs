@@ -93,7 +93,7 @@ impl App {
             // handle events
             match event::read() {
                 Ok(Event::Key(key_event)) if key_event.kind == KeyEventKind::Press => {
-                    let state_messages = self.registers.update_key_event(key_event, &self.state)?;
+                    let state_messages = self.registers.handle_key_event(key_event, &self.state)?;
                     StateHandler::handle(
                         &mut self.state,
                         &mut self.repository,
@@ -131,7 +131,6 @@ impl App {
 
     /// close connections
     pub async fn close(&mut self) -> Result<(), TGVError> {
-        self.repository.close().await?;
-        Ok(())
+        self.repository.close().await
     }
 }

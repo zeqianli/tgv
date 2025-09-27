@@ -9,7 +9,7 @@ pub struct ContigListModeRegister {
 
 impl KeyRegister for ContigListModeRegister {
     /// Move the selected contig up or down.
-    fn update_key_event(
+    fn handle_key_event(
         &mut self,
         key_event: KeyEvent,
         state: &State,

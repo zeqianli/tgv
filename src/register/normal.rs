@@ -133,7 +133,7 @@ impl NormalModeRegister {
 }
 
 impl KeyRegister for NormalModeRegister {
-    fn update_key_event(
+    fn handle_key_event(
         &mut self,
         key_event: KeyEvent,
         state: &State,

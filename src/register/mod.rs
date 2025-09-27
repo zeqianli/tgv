@@ -6,24 +6,16 @@ mod normal;
 use crate::{error::TGVError, message::StateMessage, states::State};
 use crossterm::event::{KeyCode, KeyEvent, MouseEvent};
 
-use strum::Display;
-
 pub use crate::{
     register::{
         command::CommandModeRegister, contig_list::ContigListModeRegister, help::HelpModeRegister,
         mouse::NormalMouseRegister, normal::NormalModeRegister,
     },
+    rendering::Scene,
     repository::Repository,
 };
 
 #[derive(Debug, Clone, Eq, PartialEq)]
-pub enum DisplayMode {
-    Main,
-    Help,
-    ContigList,
-}
-
-#[derive(Debug, Clone, Eq, PartialEq, Display)]
 pub enum RegisterType {
     Normal,
     Command,
@@ -33,10 +25,7 @@ pub enum RegisterType {
 
 /// Register stores inputs and translates key event to StateMessages.
 pub trait KeyRegister {
-    /// Update with a new event.
-    /// If applicable, return
-    /// If this event triggers an error, returns Error.
-    fn update_key_event(
+    fn handle_key_event(
         &mut self,
         event: KeyEvent,
         state: &State,
@@ -87,7 +76,7 @@ impl Registers {
 }
 
 impl KeyRegister for Registers {
-    fn update_key_event(
+    fn handle_key_event(
         &mut self,
         key_event: KeyEvent,
         state: &State,
@@ -107,20 +96,20 @@ impl KeyRegister for Registers {
             (KeyCode::Esc, RegisterType::Help) => {
                 self.current = RegisterType::Normal;
                 self.clear();
-                return Ok(vec![StateMessage::SetDisplayMode(DisplayMode::Main)]);
+                return Ok(vec![StateMessage::SetDisplayMode(Scene::Main)]);
             }
 
             (KeyCode::Enter, RegisterType::Command) => {
                 if self.command.input == "h" {
                     self.current = RegisterType::Help;
                     self.clear();
-                    return Ok(vec![StateMessage::SetDisplayMode(DisplayMode::Help)]);
+                    return Ok(vec![StateMessage::SetDisplayMode(Scene::Help)]);
                 }
 
                 if self.command.input == "ls" || self.command.input == "contigs" {
                     self.current = RegisterType::ContigList;
                     self.clear();
-                    return Ok(vec![StateMessage::SetDisplayMode(DisplayMode::ContigList)]);
+                    return Ok(vec![StateMessage::SetDisplayMode(Scene::ContigList)]);
                 }
                 let output = self
                     .command
@@ -135,7 +124,7 @@ impl KeyRegister for Registers {
                 self.clear();
 
                 return Ok(vec![
-                    StateMessage::SetDisplayMode(DisplayMode::Main),
+                    StateMessage::SetDisplayMode(Scene::Main),
                     StateMessage::GotoContigIndex(self.contig_list.cursor_position),
                 ]);
             }
@@ -143,17 +132,17 @@ impl KeyRegister for Registers {
             (KeyCode::Esc, RegisterType::ContigList) => {
                 self.current = RegisterType::Normal;
                 self.clear();
-                return Ok(vec![StateMessage::SetDisplayMode(DisplayMode::Main)]);
+                return Ok(vec![StateMessage::SetDisplayMode(Scene::Main)]);
             }
 
             _ => {}
         }
 
         Ok(match self.current {
-            RegisterType::Normal => self.normal.update_key_event(key_event, state),
-            RegisterType::Command => self.command.update_key_event(key_event, state),
-            RegisterType::Help => self.help.update_key_event(key_event, state),
-            RegisterType::ContigList => self.contig_list.update_key_event(key_event, state),
+            RegisterType::Normal => self.normal.handle_key_event(key_event, state),
+            RegisterType::Command => self.command.handle_key_event(key_event, state),
+            RegisterType::Help => self.help.handle_key_event(key_event, state),
+            RegisterType::ContigList => self.contig_list.handle_key_event(key_event, state),
         }
         .unwrap_or_else(|e| {
             self.clear();
