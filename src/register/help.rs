@@ -1,31 +1,27 @@
 use crate::{
-    error::TGVError, message::StateMessage, register::DisplayMode, register::Register,
+    error::TGVError,
+    message::Message,
+    register::{KeyRegister, KeyRegisterType},
+    rendering::Scene,
     states::State,
 };
 use crossterm::event::{KeyCode, KeyEvent};
 
+#[derive(Default, Debug)]
 pub struct HelpModeRegister {}
 
-impl Default for HelpModeRegister {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
-impl HelpModeRegister {
-    pub fn new() -> Self {
-        Self {}
-    }
-}
-
-impl Register for HelpModeRegister {
-    fn update_key_event(
+impl KeyRegister for HelpModeRegister {
+    fn handle_key_event(
         &mut self,
         key_event: KeyEvent,
         state: &State,
-    ) -> Result<Vec<StateMessage>, TGVError> {
+    ) -> Result<Vec<Message>, TGVError> {
         match key_event.code {
-            KeyCode::Esc => Ok(vec![StateMessage::SetDisplayMode(DisplayMode::Main)]),
+            KeyCode::Esc => Ok(vec![
+                Message::SwitchScene(Scene::Main),
+                Message::ClearAllKeyRegisters,
+                Message::SwitchKeyRegister(KeyRegisterType::Normal),
+            ]),
             _ => Ok(vec![]),
         }
     }

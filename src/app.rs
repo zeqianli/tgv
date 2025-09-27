@@ -1,31 +1,20 @@
 /// The main app object
 ///
 use crossterm::event::{self, Event, KeyEventKind};
-use ratatui::{prelude::Backend, widgets::Widget, Terminal};
+use ratatui::{prelude::Backend, Terminal};
 
 use crate::error::TGVError;
-use crate::register::{MouseRegister, Register, Registers};
-use crate::rendering::RenderingState;
+use crate::register::{KeyRegister, MouseRegister, Registers};
+use crate::rendering::Renderer;
 use crate::repository::Repository;
 use crate::settings::Settings;
 use crate::states::{State, StateHandler};
 pub struct App {
-    // App states and loaded data
     pub state: State,
-
     pub settings: Settings,
-
-    // Data CRUD interfaces
     pub repository: Repository,
-
-    /// Key event parsers and handlers. Translate inputs to commands for the state handler.
     pub registers: Registers,
-
-    /// Mouse event handler
-    pub mouse_register: MouseRegister,
-
-    /// Main render. Uses the state pattern.
-    pub rendering_state: RenderingState,
+    pub renderer: Renderer,
 }
 
 impl App {
@@ -34,28 +23,26 @@ impl App {
         terminal: &mut Terminal<B>,
     ) -> Result<Self, TGVError> {
         // Gather resources before initializing the state.
-
         let (mut repository, contig_header) = Repository::new(&settings).await?;
 
         let mut state = State::new(&settings, terminal.get_frame().area(), contig_header)?;
+        let mut registers = Registers::new(&state)?;
 
         StateHandler::handle_initial_messages(
             &mut state,
             &mut repository,
+            &mut registers,
             &settings,
             settings.initial_state_messages.clone(),
         )
         .await?;
 
-        let mouse_register = MouseRegister::new(&state.layout.root);
-
         Ok(Self {
             state,
             settings: settings.clone(),
             repository,
-            registers: Registers::new()?,
-            mouse_register,
-            rendering_state: RenderingState::new(),
+            registers,
+            renderer: Renderer::default(),
         })
     }
 }
@@ -64,12 +51,10 @@ impl App {
     /// Main loop
     pub async fn run<B: Backend>(&mut self, terminal: &mut Terminal<B>) -> Result<(), TGVError> {
         while !self.state.exit {
-            self.registers.update_state(&self.state)?;
-
             // Prepare rendering
-            self.rendering_state.update(&self.state)?;
-
-            if self.rendering_state.needs_refresh() {
+            self.registers.update(&self.state)?;
+            self.renderer.update(&self.state)?;
+            if self.renderer.needs_refresh {
                 let _ = terminal.clear();
             }
 
@@ -80,7 +65,7 @@ impl App {
                 .draw(|frame| {
                     let buffer = frame.buffer_mut();
                     self.state.set_area(buffer.area).unwrap();
-                    self.rendering_state
+                    self.renderer
                         .render(
                             buffer,
                             &self.state,
@@ -99,10 +84,11 @@ impl App {
             // handle events
             match event::read() {
                 Ok(Event::Key(key_event)) if key_event.kind == KeyEventKind::Press => {
-                    let state_messages = self.registers.update_key_event(key_event, &self.state)?;
+                    let state_messages = self.registers.handle_key_event(key_event, &self.state)?;
                     StateHandler::handle(
                         &mut self.state,
                         &mut self.repository,
+                        &mut self.registers,
                         &self.settings,
                         state_messages,
                     )
@@ -110,7 +96,7 @@ impl App {
                 }
 
                 Ok(Event::Mouse(mouse_event)) => {
-                    let state_messages = self.mouse_register.handle_mouse_event(
+                    let state_messages = self.registers.mouse_register.handle_mouse_event(
                         &self.state,
                         &self.repository,
                         mouse_event,
@@ -119,6 +105,7 @@ impl App {
                     StateHandler::handle(
                         &mut self.state,
                         &mut self.repository,
+                        &mut self.registers,
                         &self.settings,
                         state_messages,
                     )
@@ -137,7 +124,6 @@ impl App {
 
     /// close connections
     pub async fn close(&mut self) -> Result<(), TGVError> {
-        self.repository.close().await?;
-        Ok(())
+        self.repository.close().await
     }
 }

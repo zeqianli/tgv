@@ -1,13 +1,16 @@
-use crate::alignment::BaseCoverage;
-use crate::error::TGVError;
-use crate::intervals::Region;
-use crate::message::StateMessage;
-use crate::rendering::layout::{AreaType, LayoutNode};
-use crate::repository::Repository;
-use crate::states::State;
+use crate::{
+    alignment::BaseCoverage,
+    error::TGVError,
+    intervals::Region,
+    message::Message,
+    register::MouseRegister,
+    rendering::layout::{AreaType, LayoutNode},
+    repository::Repository,
+    states::State,
+};
 use crossterm::event;
 use itertools::Itertools;
-pub struct MouseRegister {
+pub struct NormalMouseRegister {
     /// Resize event handling
     pub mouse_down_x: u16,
     pub mouse_down_y: u16,
@@ -22,7 +25,7 @@ pub struct MouseRegister {
     pub root: LayoutNode,
 }
 
-impl MouseRegister {
+impl NormalMouseRegister {
     pub fn new(root: &LayoutNode) -> Self {
         Self {
             mouse_down_x: 0,
@@ -34,13 +37,15 @@ impl MouseRegister {
             root: root.clone(),
         }
     }
+}
 
-    pub fn handle_mouse_event(
+impl MouseRegister for NormalMouseRegister {
+    fn handle_mouse_event(
         &mut self,
         state: &State,
         repository: &Repository,
         event: event::MouseEvent,
-    ) -> Result<Vec<StateMessage>, TGVError> {
+    ) -> Result<Vec<Message>, TGVError> {
         let mut messages = Vec::new();
         match event.kind {
             event::MouseEventKind::Down(_) => {
@@ -79,15 +84,15 @@ impl MouseRegister {
                     match self.mouse_down_area_type {
                         AreaType::Alignment | AreaType::Coverage => {
                             if event.column < self.mouse_drag_x {
-                                messages.push(StateMessage::MoveRight(1))
+                                messages.push(Message::MoveRight(1))
                             } else if event.column > self.mouse_drag_x {
-                                messages.push(StateMessage::MoveLeft(1))
+                                messages.push(Message::MoveLeft(1))
                             }
 
                             if event.row > self.mouse_down_y {
-                                messages.push(StateMessage::MoveUp(1))
+                                messages.push(Message::MoveUp(1))
                             } else if event.row < self.mouse_down_y {
-                                messages.push(StateMessage::MoveDown(1))
+                                messages.push(Message::MoveDown(1))
                             }
                         }
                         _ => {}
@@ -119,7 +124,7 @@ impl MouseRegister {
                                     *right_coordinate,
                                     *y_coordinate,
                                 ) {
-                                    messages.push(StateMessage::Message(read.describe()?))
+                                    messages.push(Message::Message(read.describe()?))
                                 }
                             }
                         }
@@ -136,7 +141,7 @@ impl MouseRegister {
                                     })
                                     .join(", ");
 
-                                messages.push(StateMessage::Message(description))
+                                messages.push(Message::Message(description))
                             }
                         }
 
@@ -160,7 +165,7 @@ impl MouseRegister {
                                     )
                                 };
 
-                                messages.push(StateMessage::Message(message))
+                                messages.push(Message::Message(message))
                             }
                         }
                         AreaType::Variant => {
@@ -175,7 +180,7 @@ impl MouseRegister {
                                     };
                                     variants.overlapping(&region)?.into_iter().for_each(
                                         |variant| {
-                                            messages.push(StateMessage::Message(variant.describe()))
+                                            messages.push(Message::Message(variant.describe()))
                                         },
                                     );
                                 }
@@ -194,9 +199,7 @@ impl MouseRegister {
                                     };
                                     bed_intervals.overlapping(&region)?.into_iter().for_each(
                                         |bed_interval| {
-                                            messages.push(StateMessage::Message(
-                                                bed_interval.describe(),
-                                            ))
+                                            messages.push(Message::Message(bed_interval.describe()))
                                         },
                                     );
                                 }
@@ -207,13 +210,13 @@ impl MouseRegister {
                 }
             }
 
-            event::MouseEventKind::ScrollDown => messages.push(StateMessage::MoveDown(1)),
+            event::MouseEventKind::ScrollDown => messages.push(Message::MoveDown(1)),
 
-            event::MouseEventKind::ScrollUp => messages.push(StateMessage::MoveUp(1)),
+            event::MouseEventKind::ScrollUp => messages.push(Message::MoveUp(1)),
 
-            event::MouseEventKind::ScrollLeft => messages.push(StateMessage::MoveLeft(1)),
+            event::MouseEventKind::ScrollLeft => messages.push(Message::MoveLeft(1)),
 
-            event::MouseEventKind::ScrollRight => messages.push(StateMessage::MoveRight(1)),
+            event::MouseEventKind::ScrollRight => messages.push(Message::MoveRight(1)),
 
             _ => {}
         }

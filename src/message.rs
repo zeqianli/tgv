@@ -1,10 +1,10 @@
-use crate::{intervals::Region, register::DisplayMode, strand::Strand};
+use crate::{intervals::Region, register::KeyRegisterType, rendering::Scene, strand::Strand};
 
 use strum::Display;
 
 /// State messages
 #[derive(Debug, Clone, Eq, PartialEq, Display)]
-pub enum StateMessage {
+pub enum Message {
     MoveLeft(usize),
     MoveRight(usize),
     MoveUp(usize),
@@ -39,7 +39,7 @@ pub enum StateMessage {
 
     Message(String),
 
-    SetDisplayMode(DisplayMode),
+    SwitchScene(Scene),
 
     ResizeTrack {
         mouse_down_x: u16,
@@ -53,24 +53,10 @@ pub enum StateMessage {
     SetAlignmentChange(Vec<AlignmentDisplayOption>),
 
     Quit,
-}
 
-impl StateMessage {
-    /// Whether the message requires a reference genome.
-    pub fn requires_reference(&self) -> bool {
-        matches!(
-            self,
-            StateMessage::GotoNextExonsStart(_)
-                | StateMessage::GotoNextExonsEnd(_)
-                | StateMessage::GotoPreviousExonsStart(_)
-                | StateMessage::GotoPreviousExonsEnd(_)
-                | StateMessage::GotoNextGenesStart(_)
-                | StateMessage::GotoNextGenesEnd(_)
-                | StateMessage::GotoPreviousGenesStart(_)
-                | StateMessage::GotoPreviousGenesEnd(_)
-                | StateMessage::GoToGene(_)
-        )
-    }
+    ClearKeyRegister(KeyRegisterType),
+    ClearAllKeyRegisters,
+    SwitchKeyRegister(KeyRegisterType),
 }
 
 /// Communication between State and Data

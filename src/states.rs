@@ -12,11 +12,10 @@ use crate::{
     cytoband::Cytoband,
     feature::Gene,
     intervals::Region,
-    message::{DataMessage, StateMessage},
+    message::{DataMessage, Message},
     reference::Reference,
-    register::DisplayMode,
-    rendering::layout::resize_node,
-    rendering::MainLayout,
+    register::Registers,
+    rendering::{layout::resize_node, MainLayout, Scene},
     sequence::{Sequence, SequenceRepository},
     track::Track,
     window::ViewingWindow,
@@ -26,42 +25,25 @@ use ratatui::layout::Rect;
 
 /// Holds states of the application.
 pub struct State {
-    /// Basics
     pub exit: bool,
 
-    /// Viewing window.
     pub window: ViewingWindow,
-
-    pub reference: Reference,
-
-    /// Settings
-    ///pub settings: Settings,
-
-    /// Error messages for display.
+    pub scene: Scene,
+    pub layout: MainLayout,
     pub messages: Vec<String>,
 
-    /// Alignment segments.
+    pub contig_header: ContigHeader,
+    pub reference: Reference,
     pub alignment: Alignment,
     pub alignment_options: Vec<AlignmentDisplayOption>,
-
-    /// Tracks.
     pub track: Track<Gene>,
-    /// Sequences.
     pub sequence: Sequence,
-
-    /// Consensus contig header from BAM and reference genomes
-    pub contig_header: ContigHeader,
-
-    /// Display mode
-    pub display_mode: DisplayMode,
-    pub layout: MainLayout,
 }
 
 /// Getters
 impl State {
     pub fn new(
         settings: &Settings,
-        // initial_window: ViewingWindow,
         initial_area: Rect,
         contigs: ContigHeader,
     ) -> Result<Self, TGVError> {
@@ -80,7 +62,7 @@ impl State {
             sequence: Sequence::default(),
             contig_header: contigs,
 
-            display_mode: DisplayMode::Main,
+            scene: Scene::Main,
             layout: MainLayout::initialize(settings, initial_area)?,
         })
     }
@@ -90,9 +72,7 @@ impl State {
     }
 
     pub fn set_area(&mut self, area: Rect) -> Result<(), TGVError> {
-        let _ = self.layout.set_area(area)?;
-
-        Ok(())
+        self.layout.set_area(area).map(|_| ())
     }
 
     pub fn viewing_region(&self) -> Region {
@@ -113,8 +93,8 @@ impl State {
         self.window.contig_index
     }
 
-    pub fn contig_name(&self) -> Result<String, TGVError> {
-        self.contig_header.get_name(self.contig_index()).cloned()
+    pub fn contig_name(&self) -> Result<&String, TGVError> {
+        self.contig_header.get_name(self.contig_index())
     }
 
     pub fn current_cytoband(&self) -> Option<&Cytoband> {
@@ -125,18 +105,10 @@ impl State {
     pub fn contig_length(&self) -> Result<Option<usize>, TGVError> {
         Ok(self.contig_header.get(self.contig_index())?.length)
     }
-}
 
-// mutating methods
-impl State {
     pub fn self_correct_viewing_window(&mut self) {
-        let contig_length = self.contig_length().unwrap();
         self.window
-            .self_correct(&self.layout.main_area, contig_length);
-    }
-
-    pub fn cytoband_renderable(&self) -> bool {
-        self.current_cytoband().is_some()
+            .self_correct(&self.layout.main_area, self.contig_length().unwrap());
     }
 }
 
@@ -148,14 +120,16 @@ impl StateHandler {
     pub async fn handle_initial_messages(
         state: &mut State,
         repository: &mut Repository,
+        registers: &mut Registers,
         settings: &Settings,
-        messages: Vec<StateMessage>,
+        messages: Vec<Message>,
     ) -> Result<(), TGVError> {
         let mut data_messages = Vec::new();
 
         for message in messages {
             data_messages.extend(
-                StateHandler::handle_state_message(state, repository, settings, message).await?,
+                StateHandler::handle_state_message(state, repository, registers, settings, message)
+                    .await?,
             );
         }
 
@@ -171,15 +145,20 @@ impl StateHandler {
     pub async fn handle(
         state: &mut State,
         repository: &mut Repository,
+        registers: &mut Registers,
         settings: &Settings,
-        messages: Vec<StateMessage>,
+        messages: Vec<Message>,
     ) -> Result<(), TGVError> {
-        StateHandler::clear_messages(state)?;
+        state.messages.clear();
 
         let mut data_messages: Vec<DataMessage> = Vec::new();
 
         for message in messages {
-            match StateHandler::handle_state_message(state, repository, settings, message).await {
+            match StateHandler::handle_state_message(
+                state, repository, registers, settings, message,
+            )
+            .await
+            {
                 Ok(messages) => data_messages.extend(messages),
                 Err(e) => return StateHandler::add_message(state, e.to_string()),
             }
@@ -201,20 +180,21 @@ impl StateHandler {
     async fn handle_state_message(
         state: &mut State,
         repository: &mut Repository,
+        registers: &mut Registers,
         settings: &Settings,
-        message: StateMessage,
+        message: Message,
     ) -> Result<Vec<DataMessage>, TGVError> {
         match message {
             // Swithching modes
-            StateMessage::Quit => StateHandler::quit(state)?,
+            Message::Quit => state.exit = true,
 
             // Movement handling
-            StateMessage::MoveLeft(n) => StateHandler::move_left(state, n)?,
-            StateMessage::MoveRight(n) => StateHandler::move_right(state, n)?,
-            StateMessage::MoveUp(n) => StateHandler::move_up(state, n)?,
-            StateMessage::MoveDown(n) => StateHandler::move_down(state, n)?,
-            StateMessage::GotoCoordinate(n) => StateHandler::go_to_coordinate(state, n)?,
-            StateMessage::GotoContigNameCoordinate(contig_str, n) => {
+            Message::MoveLeft(n) => StateHandler::move_left(state, n)?,
+            Message::MoveRight(n) => StateHandler::move_right(state, n)?,
+            Message::MoveUp(n) => StateHandler::move_up(state, n)?,
+            Message::MoveDown(n) => StateHandler::move_down(state, n)?,
+            Message::GotoCoordinate(n) => StateHandler::go_to_coordinate(state, n)?,
+            Message::GotoContigNameCoordinate(contig_str, n) => {
                 StateHandler::go_to_contig_coordinate(
                     state,
                     state.contig_header.get_index_by_str(&contig_str)?,
@@ -222,62 +202,60 @@ impl StateHandler {
                 )?
             }
 
-            StateMessage::GotoY(y) => StateHandler::go_to_y(state, y)?,
-            StateMessage::GotoYBottom => StateHandler::go_to_y(state, state.alignment.depth())?,
+            Message::GotoY(y) => StateHandler::go_to_y(state, y)?,
+            Message::GotoYBottom => StateHandler::go_to_y(state, state.alignment.depth())?,
 
             // Zoom handling
-            StateMessage::ZoomOut(r) => StateHandler::handle_zoom_out(state, r)?,
-            StateMessage::ZoomIn(r) => StateHandler::handle_zoom_in(state, r)?,
+            Message::ZoomOut(r) => StateHandler::handle_zoom_out(state, r)?,
+            Message::ZoomIn(r) => StateHandler::handle_zoom_in(state, r)?,
 
             // Relative feature movement handling
-            StateMessage::GotoNextExonsStart(n) => {
+            Message::GotoNextExonsStart(n) => {
                 StateHandler::go_to_next_exons_start(state, repository, n).await?
             }
-            StateMessage::GotoNextExonsEnd(n) => {
+            Message::GotoNextExonsEnd(n) => {
                 StateHandler::go_to_next_exons_end(state, repository, n).await?
             }
-            StateMessage::GotoPreviousExonsStart(n) => {
+            Message::GotoPreviousExonsStart(n) => {
                 StateHandler::go_to_previous_exons_start(state, repository, n).await?
             }
-            StateMessage::GotoPreviousExonsEnd(n) => {
+            Message::GotoPreviousExonsEnd(n) => {
                 StateHandler::go_to_previous_exons_end(state, repository, n).await?
             }
-            StateMessage::GotoNextGenesStart(n) => {
+            Message::GotoNextGenesStart(n) => {
                 StateHandler::go_to_next_genes_start(state, repository, n).await?
             }
-            StateMessage::GotoNextGenesEnd(n) => {
+            Message::GotoNextGenesEnd(n) => {
                 StateHandler::go_to_next_genes_end(state, repository, n).await?
             }
-            StateMessage::GotoPreviousGenesStart(n) => {
+            Message::GotoPreviousGenesStart(n) => {
                 StateHandler::go_to_previous_genes_start(state, repository, n).await?
             }
-            StateMessage::GotoPreviousGenesEnd(n) => {
+            Message::GotoPreviousGenesEnd(n) => {
                 StateHandler::go_to_previous_genes_end(state, repository, n).await?
             }
-            StateMessage::GotoNextContig(n) => StateHandler::go_to_next_contig(state, n).await?,
-            StateMessage::GotoPreviousContig(n) => {
-                StateHandler::go_to_previous_contig(state, n).await?
-            }
-            StateMessage::GotoContigIndex(index) => {
+            Message::GotoNextContig(n) => StateHandler::go_to_next_contig(state, n).await?,
+            Message::GotoPreviousContig(n) => StateHandler::go_to_previous_contig(state, n).await?,
+            Message::GotoContigIndex(index) => {
                 StateHandler::go_to_contig_index(state, index).await?
             }
 
             // Absolute feature handling
-            StateMessage::GoToGene(gene_id) => {
+            Message::GoToGene(gene_id) => {
                 StateHandler::go_to_gene(state, repository, gene_id).await?
             }
 
             // Find the default region
-            StateMessage::GoToDefault => StateHandler::go_to_default(state, repository).await?,
+            Message::GoToDefault => StateHandler::go_to_default(state, repository).await?,
 
             // Error messages
-            StateMessage::Message(message) => StateHandler::add_message(state, message)?,
+            Message::Message(message) => StateHandler::add_message(state, message)?,
 
-            StateMessage::SetDisplayMode(display_mode) => {
-                state.display_mode = display_mode;
+            Message::SwitchScene(display_mode) => {
+                state.scene = display_mode;
             }
 
-            StateMessage::ResizeTrack {
+            Message::ResizeTrack {
                 mouse_down_x,
                 mouse_down_y,
                 mouse_released_x,
@@ -297,7 +275,7 @@ impl StateHandler {
                 state.layout.root = new_node;
             }
 
-            StateMessage::SetAlignmentChange(options) => {
+            Message::SetAlignmentChange(options) => {
                 let middle = state.middle();
 
                 state.alignment.reset(&state.sequence)?;
@@ -322,7 +300,15 @@ impl StateHandler {
                     .apply_options(&state.alignment_options, &state.sequence)?;
             }
 
-            StateMessage::AddAlignmentChange(options) => {}
+            Message::AddAlignmentChange(options) => {}
+
+            Message::ClearAllKeyRegisters => registers.clear(),
+
+            Message::ClearKeyRegister(register_type) => {
+                todo!()
+            }
+
+            Message::SwitchKeyRegister(register_type) => registers.current = register_type,
         }
 
         Self::get_data_requirements(state, repository)
@@ -332,18 +318,8 @@ impl StateHandler {
 // Data message handling
 
 impl StateHandler {
-    fn quit(state: &mut State) -> Result<(), TGVError> {
-        state.exit = true;
-        Ok(())
-    }
-
     fn add_message(state: &mut State, message: String) -> Result<(), TGVError> {
         state.messages.push(message);
-        Ok(())
-    }
-
-    fn clear_messages(state: &mut State) -> Result<(), TGVError> {
-        state.messages.clear();
         Ok(())
     }
 

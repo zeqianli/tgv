@@ -144,23 +144,20 @@ fn calculate_binned_coverage(
         // Stack 0: alt allele if above a threshold
         // Stack 1: non-alt alleles
         let mut output = vec![vec![0; n_bins]; 2];
-        (left..right + 1)
-            .enumerate()
-            .map(|(i, x)| {
-                let coverage = alignment.coverage_at(x);
-                let max_alt_depth = coverage.max_alt_depth().unwrap_or(0);
+        (left..right + 1).enumerate().for_each(|(i, x)| {
+            let coverage = alignment.coverage_at(x);
+            let max_alt_depth = coverage.max_alt_depth().unwrap_or(0);
 
-                if max_alt_depth * BaseCoverage::MAX_DISPLAY_ALLELE_FREQUENCY_RECIPROCOL
-                    > coverage.total
-                {
-                    output[0][i] = max_alt_depth;
-                    output[1][i] = coverage.total - max_alt_depth;
-                } else {
-                    output[0][i] = 0;
-                    output[1][i] = coverage.total;
-                }
-            })
-            .collect::<()>();
+            if max_alt_depth * BaseCoverage::MAX_DISPLAY_ALLELE_FREQUENCY_RECIPROCOL
+                > coverage.total
+            {
+                output[0][i] = max_alt_depth;
+                output[1][i] = coverage.total - max_alt_depth;
+            } else {
+                output[0][i] = 0;
+                output[1][i] = coverage.total;
+            }
+        });
         return Ok(output);
     }
 
@@ -170,12 +167,9 @@ fn calculate_binned_coverage(
     linear_space
         .into_iter()
         .enumerate()
-        .map(|(i, (bin_left, bin_right))| {
-            (bin_left..bin_right + 1)
-                .map(|x| output[1][i] += alignment.coverage_at(x).total)
-                .collect()
-        })
-        .collect::<()>();
+        .for_each(|(i, (bin_left, bin_right))| {
+            (bin_left..bin_right + 1).for_each(|x| output[1][i] += alignment.coverage_at(x).total);
+        });
 
     Ok(output)
 }

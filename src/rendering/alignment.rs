@@ -9,7 +9,7 @@ use crate::{
 use ratatui::{
     buffer::Buffer,
     layout::Rect,
-    style::{Color, Style},
+    style::Style,
 };
 
 /// Render an alignment on the alignment area.
@@ -17,7 +17,6 @@ pub fn render_alignment(
     area: &Rect,
     buf: &mut Buffer,
     state: &State,
-    background_color: &Color,
     pallete: &Palette,
 ) -> Result<(), TGVError> {
     if area.height < 1 {
@@ -46,7 +45,7 @@ pub fn render_alignment(
                 if *show_pair {
                     let y = state.alignment.ys[read_pair.read_1_index];
                     read_pair.rendering_contexts.iter().try_for_each(|context| {
-                        render_contexts(context, y, buf, state, area, background_color, pallete)
+                        render_contexts(context, y, buf, state, area, pallete)
                     })
                 } else {
                     Ok(())
@@ -64,7 +63,7 @@ pub fn render_alignment(
                         .rendering_contexts
                         .iter()
                         .try_for_each(|context| {
-                            render_contexts(context, y, buf, state, area, background_color, pallete)
+                            render_contexts(context, y, buf, state, area, pallete)
                         })
                 })
             })?
@@ -78,11 +77,10 @@ fn render_contexts(
     buf: &mut Buffer,
     state: &State,
     area: &Rect,
-    background_color: &Color,
     pallete: &Palette,
 ) -> Result<(), TGVError> {
     if let Some(onscreen_contexts) =
-        get_read_rendering_info(context, y, &state.window, area, background_color, pallete)?
+        get_read_rendering_info(context, y, &state.window, area, pallete)?
     {
         for onscreen_context in onscreen_contexts {
             buf.set_string(
@@ -113,7 +111,6 @@ fn get_read_rendering_info(
     y: usize,
     viewing_window: &ViewingWindow,
     area: &Rect,
-    background_color: &Color,
     pallete: &Palette,
 ) -> Result<Option<Vec<OnScreenRenderingContext>>, TGVError> {
     let onscreen_y = match viewing_window.onscreen_y_coordinate(y, area) {
@@ -150,7 +147,7 @@ fn get_read_rendering_info(
             y: onscreen_y,
             string: "-".repeat(length as usize),
             style: Style::new()
-                .bg(*background_color)
+                .bg(pallete.background)
                 .fg(pallete.DELETION_COLOR),
         }),
 
@@ -165,7 +162,9 @@ fn get_read_rendering_info(
             x: onscreen_x,
             y: onscreen_y,
             string: "-".repeat(length as usize),
-            style: Style::new().bg(*background_color).fg(pallete.PAIRGAP_COLOR),
+            style: Style::new()
+                .bg(pallete.background)
+                .fg(pallete.PAIRGAP_COLOR),
         }),
 
         RenderingContextKind::PairOverlap => output.push(OnScreenRenderingContext {
@@ -173,7 +172,7 @@ fn get_read_rendering_info(
             y: onscreen_y,
             string: "-".repeat(length as usize),
             style: Style::new()
-                .bg(*background_color)
+                .bg(pallete.background)
                 .fg(pallete.PAIR_OVERLAP_COLOR),
         }),
     }
