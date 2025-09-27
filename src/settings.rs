@@ -1,7 +1,7 @@
 use crate::error::TGVError;
 use crate::rendering::{Palette, DARK_THEME};
 use crate::tracks::UcscHost;
-use crate::{message::StateMessage, reference::Reference};
+use crate::{message::Message, reference::Reference};
 use clap::{Parser, Subcommand, ValueEnum};
 
 #[derive(Clone, Debug, PartialEq, Eq, ValueEnum)]
@@ -130,7 +130,7 @@ pub struct Settings {
     pub reference: Reference,
     pub backend: BackendType,
 
-    pub initial_state_messages: Vec<StateMessage>,
+    pub initial_state_messages: Vec<Message>,
 
     pub test_mode: bool,
 
@@ -189,7 +189,7 @@ impl Settings {
         // 1. If no reference is provided, the initial state messages cannot contain GoToGene
         if !reference.needs_track() {
             for m in initial_state_messages.iter() {
-                if let StateMessage::GoToGene(gene_name) = m {
+                if let Message::GoToGene(gene_name) = m {
                     return Err(TGVError::CliError(format!(
                         "The initial region cannot not be a gene name {} when no reference is provided. ",
                         gene_name
@@ -226,10 +226,10 @@ impl Settings {
 
     fn translate_initial_state_messages(
         region_string: Option<String>,
-    ) -> Result<Vec<StateMessage>, TGVError> {
+    ) -> Result<Vec<Message>, TGVError> {
         let region_string = match region_string {
             Some(region_string) => region_string,
-            None => return Ok(vec![StateMessage::GoToDefault]), // Interpretation 1: go to default
+            None => return Ok(vec![Message::GoToDefault]), // Interpretation 1: go to default
         };
 
         // Check format
@@ -245,7 +245,7 @@ impl Settings {
         if split.len() == 2 {
             match split[1].parse::<usize>() {
                 Ok(n) => {
-                    return Ok(vec![StateMessage::GotoContigNameCoordinate(
+                    return Ok(vec![Message::GotoContigNameCoordinate(
                         split[0].to_string(),
                         n,
                     )]);
@@ -260,7 +260,7 @@ impl Settings {
         }
 
         // Interpretation 3: gene name
-        Ok(vec![StateMessage::GoToGene(region_string.to_string())])
+        Ok(vec![Message::GoToGene(region_string.to_string())])
     }
 }
 
@@ -268,7 +268,7 @@ impl Settings {
 mod tests {
     use super::*;
 
-    use crate::message::StateMessage;
+    use crate::message::Message;
     use crate::reference::Reference;
     use rstest::rstest;
 
@@ -281,7 +281,7 @@ mod tests {
             bed_path: None,
             reference: Reference::Hg38,
             backend: BackendType::Default, // Default backend
-            initial_state_messages: vec![StateMessage::GoToDefault],
+            initial_state_messages: vec![Message::GoToDefault],
             test_mode: false,
             debug: false,
             ucsc_host: UcscHost::Us,
@@ -322,7 +322,7 @@ mod tests {
     }))]
     #[case("tgv input.bam -r chr1:12345", Ok(Settings {
         bam_path: Some("input.bam".to_string()),
-        initial_state_messages: vec![StateMessage::GotoContigNameCoordinate(
+        initial_state_messages: vec![Message::GotoContigNameCoordinate(
             "chr1".to_string(),
             12345,
         )],
@@ -332,25 +332,25 @@ mod tests {
     #[case("tgv input.bam -r chr1:12:12345", Err(TGVError::CliError("".to_string())))]
     #[case("tgv input.bam -r TP53", Ok(Settings {
         bam_path: Some("input.bam".to_string()),
-        initial_state_messages: vec![StateMessage::GoToGene("TP53".to_string())],
+        initial_state_messages: vec![Message::GoToGene("TP53".to_string())],
         ..default_settings()
     }))]
     #[case("tgv input.bam -r TP53 -g hg19", Ok(Settings {
         bam_path: Some("input.bam".to_string()),
         reference: Reference::Hg19,
-        initial_state_messages: vec![StateMessage::GoToGene("TP53".to_string())],
+        initial_state_messages: vec![Message::GoToGene("TP53".to_string())],
         ..default_settings()
     }))]
     #[case("tgv input.bam -r TP53 -g mm39", Ok(Settings {
         bam_path: Some("input.bam".to_string()),
         reference: Reference::UcscGenome("mm39".to_string()),
-        initial_state_messages: vec![StateMessage::GoToGene("TP53".to_string())],
+        initial_state_messages: vec![Message::GoToGene("TP53".to_string())],
         ..default_settings()
     }))]
     #[case("tgv input.bam -r 1:12345 --no-reference", Ok(Settings {
         bam_path: Some("input.bam".to_string()),
         reference: Reference::NoReference,
-        initial_state_messages: vec![StateMessage::GotoContigNameCoordinate(
+        initial_state_messages: vec![Message::GotoContigNameCoordinate(
             "1".to_string(),
             12345,
         )],

@@ -1,6 +1,6 @@
 use crate::{
     error::TGVError,
-    message::StateMessage,
+    message::Message,
     register::{command::CommandBuffer, CommandModeRegister, KeyRegister, KeyRegisterType},
     rendering::Scene,
     states::State,
@@ -19,22 +19,22 @@ impl KeyRegister for ContigListModeRegister {
         &mut self,
         key_event: KeyEvent,
         state: &State,
-    ) -> Result<Vec<StateMessage>, TGVError> {
+    ) -> Result<Vec<Message>, TGVError> {
         match key_event.code {
             KeyCode::Enter => {
                 return Ok(vec![
-                    StateMessage::ClearAllKeyRegisters,
-                    StateMessage::SwitchKeyRegister(KeyRegisterType::Normal),
-                    StateMessage::SwitchScene(Scene::Main),
-                    StateMessage::GotoContigIndex(self.cursor_position),
+                    Message::ClearAllKeyRegisters,
+                    Message::SwitchKeyRegister(KeyRegisterType::Normal),
+                    Message::SwitchScene(Scene::Main),
+                    Message::GotoContigIndex(self.cursor_position),
                 ]);
             }
 
             KeyCode::Esc => {
                 return Ok(vec![
-                    StateMessage::ClearAllKeyRegisters,
-                    StateMessage::SwitchKeyRegister(KeyRegisterType::Normal),
-                    StateMessage::SwitchScene(Scene::Main),
+                    Message::ClearAllKeyRegisters,
+                    Message::SwitchKeyRegister(KeyRegisterType::Normal),
+                    Message::SwitchScene(Scene::Main),
                 ]);
             }
             KeyCode::Char('j') | KeyCode::Down => {
@@ -69,7 +69,7 @@ impl KeyRegister for ContigListModeRegister {
 
 #[derive(Default, Debug)]
 pub struct ContigListCommandModeRegister {
-    buffer: CommandBuffer,
+    pub buffer: CommandBuffer,
 }
 
 impl KeyRegister for ContigListCommandModeRegister {
@@ -77,7 +77,7 @@ impl KeyRegister for ContigListCommandModeRegister {
         &mut self,
         key_event: KeyEvent,
         state: &State,
-    ) -> Result<Vec<StateMessage>, TGVError> {
+    ) -> Result<Vec<Message>, TGVError> {
         match key_event.code {
             KeyCode::Char(c) => {
                 self.buffer.add_char(c);

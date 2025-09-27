@@ -12,7 +12,7 @@ use crate::{
     cytoband::Cytoband,
     feature::Gene,
     intervals::Region,
-    message::{DataMessage, StateMessage},
+    message::{DataMessage, Message},
     reference::Reference,
     register::{KeyRegisterType, Registers},
     rendering::{layout::resize_node, MainLayout, Scene},
@@ -120,14 +120,16 @@ impl StateHandler {
     pub async fn handle_initial_messages(
         state: &mut State,
         repository: &mut Repository,
+        registers: &mut Registers,
         settings: &Settings,
-        messages: Vec<StateMessage>,
+        messages: Vec<Message>,
     ) -> Result<(), TGVError> {
         let mut data_messages = Vec::new();
 
         for message in messages {
             data_messages.extend(
-                StateHandler::handle_state_message(state, repository, settings, message).await?,
+                StateHandler::handle_state_message(state, repository, registers, settings, message)
+                    .await?,
             );
         }
 
@@ -145,14 +147,18 @@ impl StateHandler {
         repository: &mut Repository,
         registers: &mut Registers,
         settings: &Settings,
-        messages: Vec<StateMessage>,
+        messages: Vec<Message>,
     ) -> Result<(), TGVError> {
         StateHandler::clear_messages(state)?;
 
         let mut data_messages: Vec<DataMessage> = Vec::new();
 
         for message in messages {
-            match StateHandler::handle_state_message(state, repository, settings, message).await {
+            match StateHandler::handle_state_message(
+                state, repository, registers, settings, message,
+            )
+            .await
+            {
                 Ok(messages) => data_messages.extend(messages),
                 Err(e) => return StateHandler::add_message(state, e.to_string()),
             }
@@ -174,20 +180,21 @@ impl StateHandler {
     async fn handle_state_message(
         state: &mut State,
         repository: &mut Repository,
+        registers: &mut Registers,
         settings: &Settings,
-        message: StateMessage,
+        message: Message,
     ) -> Result<Vec<DataMessage>, TGVError> {
         match message {
             // Swithching modes
-            StateMessage::Quit => StateHandler::quit(state)?,
+            Message::Quit => StateHandler::quit(state)?,
 
             // Movement handling
-            StateMessage::MoveLeft(n) => StateHandler::move_left(state, n)?,
-            StateMessage::MoveRight(n) => StateHandler::move_right(state, n)?,
-            StateMessage::MoveUp(n) => StateHandler::move_up(state, n)?,
-            StateMessage::MoveDown(n) => StateHandler::move_down(state, n)?,
-            StateMessage::GotoCoordinate(n) => StateHandler::go_to_coordinate(state, n)?,
-            StateMessage::GotoContigNameCoordinate(contig_str, n) => {
+            Message::MoveLeft(n) => StateHandler::move_left(state, n)?,
+            Message::MoveRight(n) => StateHandler::move_right(state, n)?,
+            Message::MoveUp(n) => StateHandler::move_up(state, n)?,
+            Message::MoveDown(n) => StateHandler::move_down(state, n)?,
+            Message::GotoCoordinate(n) => StateHandler::go_to_coordinate(state, n)?,
+            Message::GotoContigNameCoordinate(contig_str, n) => {
                 StateHandler::go_to_contig_coordinate(
                     state,
                     state.contig_header.get_index_by_str(&contig_str)?,
@@ -195,62 +202,62 @@ impl StateHandler {
                 )?
             }
 
-            StateMessage::GotoY(y) => StateHandler::go_to_y(state, y)?,
-            StateMessage::GotoYBottom => StateHandler::go_to_y(state, state.alignment.depth())?,
+            Message::GotoY(y) => StateHandler::go_to_y(state, y)?,
+            Message::GotoYBottom => StateHandler::go_to_y(state, state.alignment.depth())?,
 
             // Zoom handling
-            StateMessage::ZoomOut(r) => StateHandler::handle_zoom_out(state, r)?,
-            StateMessage::ZoomIn(r) => StateHandler::handle_zoom_in(state, r)?,
+            Message::ZoomOut(r) => StateHandler::handle_zoom_out(state, r)?,
+            Message::ZoomIn(r) => StateHandler::handle_zoom_in(state, r)?,
 
             // Relative feature movement handling
-            StateMessage::GotoNextExonsStart(n) => {
+            Message::GotoNextExonsStart(n) => {
                 StateHandler::go_to_next_exons_start(state, repository, n).await?
             }
-            StateMessage::GotoNextExonsEnd(n) => {
+            Message::GotoNextExonsEnd(n) => {
                 StateHandler::go_to_next_exons_end(state, repository, n).await?
             }
-            StateMessage::GotoPreviousExonsStart(n) => {
+            Message::GotoPreviousExonsStart(n) => {
                 StateHandler::go_to_previous_exons_start(state, repository, n).await?
             }
-            StateMessage::GotoPreviousExonsEnd(n) => {
+            Message::GotoPreviousExonsEnd(n) => {
                 StateHandler::go_to_previous_exons_end(state, repository, n).await?
             }
-            StateMessage::GotoNextGenesStart(n) => {
+            Message::GotoNextGenesStart(n) => {
                 StateHandler::go_to_next_genes_start(state, repository, n).await?
             }
-            StateMessage::GotoNextGenesEnd(n) => {
+            Message::GotoNextGenesEnd(n) => {
                 StateHandler::go_to_next_genes_end(state, repository, n).await?
             }
-            StateMessage::GotoPreviousGenesStart(n) => {
+            Message::GotoPreviousGenesStart(n) => {
                 StateHandler::go_to_previous_genes_start(state, repository, n).await?
             }
-            StateMessage::GotoPreviousGenesEnd(n) => {
+            Message::GotoPreviousGenesEnd(n) => {
                 StateHandler::go_to_previous_genes_end(state, repository, n).await?
             }
-            StateMessage::GotoNextContig(n) => StateHandler::go_to_next_contig(state, n).await?,
-            StateMessage::GotoPreviousContig(n) => {
+            Message::GotoNextContig(n) => StateHandler::go_to_next_contig(state, n).await?,
+            Message::GotoPreviousContig(n) => {
                 StateHandler::go_to_previous_contig(state, n).await?
             }
-            StateMessage::GotoContigIndex(index) => {
+            Message::GotoContigIndex(index) => {
                 StateHandler::go_to_contig_index(state, index).await?
             }
 
             // Absolute feature handling
-            StateMessage::GoToGene(gene_id) => {
+            Message::GoToGene(gene_id) => {
                 StateHandler::go_to_gene(state, repository, gene_id).await?
             }
 
             // Find the default region
-            StateMessage::GoToDefault => StateHandler::go_to_default(state, repository).await?,
+            Message::GoToDefault => StateHandler::go_to_default(state, repository).await?,
 
             // Error messages
-            StateMessage::Message(message) => StateHandler::add_message(state, message)?,
+            Message::Message(message) => StateHandler::add_message(state, message)?,
 
-            StateMessage::SwitchScene(display_mode) => {
+            Message::SwitchScene(display_mode) => {
                 state.scene = display_mode;
             }
 
-            StateMessage::ResizeTrack {
+            Message::ResizeTrack {
                 mouse_down_x,
                 mouse_down_y,
                 mouse_released_x,
@@ -270,7 +277,7 @@ impl StateHandler {
                 state.layout.root = new_node;
             }
 
-            StateMessage::SetAlignmentChange(options) => {
+            Message::SetAlignmentChange(options) => {
                 let middle = state.middle();
 
                 state.alignment.reset(&state.sequence)?;
@@ -295,7 +302,15 @@ impl StateHandler {
                     .apply_options(&state.alignment_options, &state.sequence)?;
             }
 
-            StateMessage::AddAlignmentChange(options) => {}
+            Message::AddAlignmentChange(options) => {}
+
+            Message::ClearAllKeyRegisters => registers.clear(),
+
+            Message::ClearKeyRegister(register_type) => {
+                todo!()
+            }
+
+            Message::SwitchKeyRegister(register_type) => registers.current = register_type,
         }
 
         Self::get_data_requirements(state, repository)

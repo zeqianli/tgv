@@ -1,6 +1,6 @@
 use crate::{
     error::TGVError,
-    message::StateMessage,
+    message::Message,
     message::{AlignmentDisplayOption, AlignmentFilter, AlignmentSort},
     register::{KeyRegister, KeyRegisterType},
     rendering::Scene,
@@ -63,34 +63,34 @@ impl KeyRegister for CommandModeRegister {
         &mut self,
         key_event: KeyEvent,
         state: &State,
-    ) -> Result<Vec<StateMessage>, TGVError> {
+    ) -> Result<Vec<Message>, TGVError> {
         match key_event.code {
             KeyCode::Esc => Ok(vec![
-                StateMessage::ClearAllKeyRegisters,
-                StateMessage::SwitchKeyRegister(KeyRegisterType::Normal),
+                Message::ClearAllKeyRegisters,
+                Message::SwitchKeyRegister(KeyRegisterType::Normal),
             ]),
 
             KeyCode::Enter => match self.buffer.input.as_ref() {
                 "h" => Ok(vec![
-                    StateMessage::SwitchScene(Scene::Help),
-                    StateMessage::ClearAllKeyRegisters,
-                    StateMessage::SwitchKeyRegister(KeyRegisterType::Help),
+                    Message::SwitchScene(Scene::Help),
+                    Message::ClearAllKeyRegisters,
+                    Message::SwitchKeyRegister(KeyRegisterType::Help),
                 ]),
                 "ls" | "contigs" => {
                     return Ok(vec![
-                        StateMessage::SwitchScene(Scene::ContigList),
-                        StateMessage::ClearAllKeyRegisters,
-                        StateMessage::SwitchKeyRegister(KeyRegisterType::Help),
+                        Message::SwitchScene(Scene::ContigList),
+                        Message::ClearAllKeyRegisters,
+                        Message::SwitchKeyRegister(KeyRegisterType::Help),
                     ]);
                 }
                 _ => Ok(self
                     .parse()
-                    .unwrap_or_else(|e| vec![StateMessage::Message(format!("{}", e))])
+                    .unwrap_or_else(|e| vec![Message::Message(format!("{}", e))])
                     .into_iter()
                     .chain(
                         vec![
-                            StateMessage::ClearAllKeyRegisters,
-                            StateMessage::SwitchKeyRegister(KeyRegisterType::Normal),
+                            Message::ClearAllKeyRegisters,
+                            Message::SwitchKeyRegister(KeyRegisterType::Normal),
                         ]
                         .into_iter(),
                     )
@@ -126,9 +126,9 @@ impl CommandModeRegister {
     /// :h: Help.
     /// :1234: Go to position 1234 on the same contig.
     /// :12:1234: Go to position 1234 on contig 12.
-    pub fn parse(&self) -> Result<Vec<StateMessage>, TGVError> {
+    pub fn parse(&self) -> Result<Vec<Message>, TGVError> {
         if self.buffer.input == "q" {
-            return Ok(vec![StateMessage::Quit]);
+            return Ok(vec![Message::Quit]);
         }
 
         if self.buffer.input == "h" {
@@ -139,18 +139,18 @@ impl CommandModeRegister {
 
         if let Ok((_, true)) = restore_default_options(&self.buffer.input) {
             // TODO: this results in resetting twice now.
-            return Ok(vec![StateMessage::SetAlignmentChange(vec![])]);
+            return Ok(vec![Message::SetAlignmentChange(vec![])]);
         }
 
         if let Ok((_, true)) = view_as_pair(&self.buffer.input) {
-            return Ok(vec![StateMessage::SetAlignmentChange(vec![
+            return Ok(vec![Message::SetAlignmentChange(vec![
                 AlignmentDisplayOption::ViewAsPairs,
             ])]);
         }
 
         if let Ok((remaining, options)) = parse_display_options(&self.buffer.input) {
             if remaining.is_empty() {
-                return Ok(vec![StateMessage::SetAlignmentChange(options)]);
+                return Ok(vec![Message::SetAlignmentChange(options)]);
             }
         }
 
@@ -158,11 +158,11 @@ impl CommandModeRegister {
 
         match split.len() {
             1 => match split[0].parse::<usize>() {
-                Ok(n) => Ok(vec![StateMessage::GotoCoordinate(n)]),
-                Err(_) => Ok(vec![StateMessage::GoToGene(split[0].to_string())]),
+                Ok(n) => Ok(vec![Message::GotoCoordinate(n)]),
+                Err(_) => Ok(vec![Message::GoToGene(split[0].to_string())]),
             },
             2 => match split[1].parse::<usize>() {
-                Ok(n) => Ok(vec![StateMessage::GotoContigNameCoordinate(
+                Ok(n) => Ok(vec![Message::GotoContigNameCoordinate(
                     split[0].to_string(),
                     n,
                 )]),
@@ -353,7 +353,7 @@ fn node_filter(input: &str) -> IResult<&str, AlignmentFilter> {
 mod tests {
 
     use super::*;
-    use crate::message::StateMessage;
+    use crate::message::Message;
     use rstest::rstest;
 
     #[rstest]
@@ -461,23 +461,20 @@ mod tests {
     }
 
     #[rstest]
-    #[case("q", Ok(vec![StateMessage::Quit]))]
-    #[case("1234", Ok(vec![StateMessage::GotoCoordinate(1234)]))]
-    #[case("chr1:1000", Ok(vec![StateMessage::GotoContigNameCoordinate(
+    #[case("q", Ok(vec![Message::Quit]))]
+    #[case("1234", Ok(vec![Message::GotoCoordinate(1234)]))]
+    #[case("chr1:1000", Ok(vec![Message::GotoContigNameCoordinate(
         "chr1".to_string(),
         1000,
     )]))]
-    #[case("17:7572659", Ok(vec![StateMessage::GotoContigNameCoordinate(
+    #[case("17:7572659", Ok(vec![Message::GotoContigNameCoordinate(
         "17".to_string(),
         7572659,
     )]))]
-    #[case("TP53", Ok(vec![StateMessage::GoToGene("TP53".to_string())]))]
+    #[case("TP53", Ok(vec![Message::GoToGene("TP53".to_string())]))]
     #[case("invalid:command:format", Err(TGVError::RegisterError("Invalid command mode input: invalid:command:format".to_string())))]
     #[case("chr1:invalid", Err(TGVError::RegisterError("Invalid command mode input: chr1:invalid".to_string())))]
-    fn test_command_parse(
-        #[case] input: &str,
-        #[case] expected: Result<Vec<StateMessage>, TGVError>,
-    ) {
+    fn test_command_parse(#[case] input: &str, #[case] expected: Result<Vec<Message>, TGVError>) {
         let register = CommandModeRegister {
             buffer: CommandBuffer {
                 input: input.to_string(),

@@ -26,16 +26,16 @@ impl App {
         let (mut repository, contig_header) = Repository::new(&settings).await?;
 
         let mut state = State::new(&settings, terminal.get_frame().area(), contig_header)?;
+        let mut registers = Registers::new(&state)?;
 
         StateHandler::handle_initial_messages(
             &mut state,
             &mut repository,
+            &mut registers,
             &settings,
             settings.initial_state_messages.clone(),
         )
         .await?;
-
-        let registers = Registers::new(&state)?;
 
         Ok(Self {
             state,

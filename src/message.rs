@@ -4,7 +4,7 @@ use strum::Display;
 
 /// State messages
 #[derive(Debug, Clone, Eq, PartialEq, Display)]
-pub enum StateMessage {
+pub enum Message {
     MoveLeft(usize),
     MoveRight(usize),
     MoveUp(usize),

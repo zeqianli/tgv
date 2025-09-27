@@ -1,6 +1,6 @@
 use crate::{
     error::TGVError,
-    message::StateMessage,
+    message::Message,
     register::{KeyRegister, KeyRegisterType},
     rendering::Scene,
     states::State,
@@ -15,12 +15,12 @@ impl KeyRegister for HelpModeRegister {
         &mut self,
         key_event: KeyEvent,
         state: &State,
-    ) -> Result<Vec<StateMessage>, TGVError> {
+    ) -> Result<Vec<Message>, TGVError> {
         match key_event.code {
             KeyCode::Esc => Ok(vec![
-                StateMessage::SwitchScene(Scene::Main),
-                StateMessage::ClearAllKeyRegisters,
-                StateMessage::SwitchKeyRegister(KeyRegisterType::Normal),
+                Message::SwitchScene(Scene::Main),
+                Message::ClearAllKeyRegisters,
+                Message::SwitchKeyRegister(KeyRegisterType::Normal),
             ]),
             _ => Ok(vec![]),
         }

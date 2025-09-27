@@ -4,17 +4,16 @@ mod help;
 mod mouse;
 mod normal;
 use crate::{
-    error::TGVError, message::StateMessage, register::contig_list::ContigListCommandModeRegister,
+    error::TGVError, message::Message, register::contig_list::ContigListCommandModeRegister,
     states::State,
 };
-use crossterm::event::{KeyCode, KeyEvent, MouseEvent};
+use crossterm::event::{KeyEvent, MouseEvent};
 
 pub use crate::{
     register::{
         command::CommandModeRegister, contig_list::ContigListModeRegister, help::HelpModeRegister,
         mouse::NormalMouseRegister, normal::NormalModeRegister,
     },
-    rendering::Scene,
     repository::Repository,
 };
 
@@ -33,7 +32,7 @@ pub trait KeyRegister {
         &mut self,
         event: KeyEvent,
         state: &State,
-    ) -> Result<Vec<StateMessage>, TGVError>;
+    ) -> Result<Vec<Message>, TGVError>;
 }
 
 pub trait MouseRegister {
@@ -42,7 +41,7 @@ pub trait MouseRegister {
         state: &State,
         repository: &Repository,
         event: MouseEvent,
-    ) -> Result<Vec<StateMessage>, TGVError>;
+    ) -> Result<Vec<Message>, TGVError>;
 }
 
 pub struct Registers {
@@ -75,9 +74,10 @@ impl Registers {
         Ok(())
     }
 
-    fn clear(&mut self) {
+    pub fn clear(&mut self) {
         self.normal.clear();
         self.command.buffer.clear();
+        self.contig_list_command.buffer.clear();
     }
 }
 
@@ -86,7 +86,7 @@ impl KeyRegister for Registers {
         &mut self,
         key_event: KeyEvent,
         state: &State,
-    ) -> Result<Vec<StateMessage>, TGVError> {
+    ) -> Result<Vec<Message>, TGVError> {
         Ok(match self.current {
             KeyRegisterType::Normal => self.normal.handle_key_event(key_event, state),
             KeyRegisterType::Command => self.command.handle_key_event(key_event, state),
@@ -98,8 +98,8 @@ impl KeyRegister for Registers {
         }
         .unwrap_or_else(|e| {
             vec![
-                StateMessage::ClearAllKeyRegisters,
-                StateMessage::Message(format!("{}", e)),
+                Message::ClearAllKeyRegisters,
+                Message::Message(format!("{}", e)),
             ]
         }))
     }
