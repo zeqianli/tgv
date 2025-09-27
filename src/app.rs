@@ -10,18 +10,10 @@ use crate::repository::Repository;
 use crate::settings::Settings;
 use crate::states::{State, StateHandler};
 pub struct App {
-    // App states and loaded data
     pub state: State,
-
     pub settings: Settings,
-
-    // Data CRUD interfaces
     pub repository: Repository,
-
-    /// Key event parsers and handlers. Translate inputs to commands for the state handler.
     pub registers: Registers,
-
-    /// Main render. Uses the state pattern.
     pub renderer: Renderer,
 }
 
@@ -31,7 +23,6 @@ impl App {
         terminal: &mut Terminal<B>,
     ) -> Result<Self, TGVError> {
         // Gather resources before initializing the state.
-
         let (mut repository, contig_header) = Repository::new(&settings).await?;
 
         let mut state = State::new(&settings, terminal.get_frame().area(), contig_header)?;

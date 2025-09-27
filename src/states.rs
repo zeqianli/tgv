@@ -26,42 +26,25 @@ use ratatui::layout::Rect;
 
 /// Holds states of the application.
 pub struct State {
-    /// Basics
     pub exit: bool,
 
-    /// Viewing window.
     pub window: ViewingWindow,
-
-    pub reference: Reference,
-
-    /// Settings
-    ///pub settings: Settings,
-
-    /// Error messages for display.
-    pub messages: Vec<String>,
-
-    /// Alignment segments.
-    pub alignment: Alignment,
-    pub alignment_options: Vec<AlignmentDisplayOption>,
-
-    /// Tracks.
-    pub track: Track<Gene>,
-    /// Sequences.
-    pub sequence: Sequence,
-
-    /// Consensus contig header from BAM and reference genomes
-    pub contig_header: ContigHeader,
-
-    /// Display mode
     pub scene: Scene,
     pub layout: MainLayout,
+    pub messages: Vec<String>,
+
+    pub contig_header: ContigHeader,
+    pub reference: Reference,
+    pub alignment: Alignment,
+    pub alignment_options: Vec<AlignmentDisplayOption>,
+    pub track: Track<Gene>,
+    pub sequence: Sequence,
 }
 
 /// Getters
 impl State {
     pub fn new(
         settings: &Settings,
-        // initial_window: ViewingWindow,
         initial_area: Rect,
         contigs: ContigHeader,
     ) -> Result<Self, TGVError> {
@@ -90,9 +73,7 @@ impl State {
     }
 
     pub fn set_area(&mut self, area: Rect) -> Result<(), TGVError> {
-        let _ = self.layout.set_area(area)?;
-
-        Ok(())
+        self.layout.set_area(area).map(|_| ())
     }
 
     pub fn viewing_region(&self) -> Region {
@@ -113,8 +94,8 @@ impl State {
         self.window.contig_index
     }
 
-    pub fn contig_name(&self) -> Result<String, TGVError> {
-        self.contig_header.get_name(self.contig_index()).cloned()
+    pub fn contig_name(&self) -> Result<&String, TGVError> {
+        self.contig_header.get_name(self.contig_index())
     }
 
     pub fn current_cytoband(&self) -> Option<&Cytoband> {
@@ -125,18 +106,10 @@ impl State {
     pub fn contig_length(&self) -> Result<Option<usize>, TGVError> {
         Ok(self.contig_header.get(self.contig_index())?.length)
     }
-}
 
-// mutating methods
-impl State {
     pub fn self_correct_viewing_window(&mut self) {
-        let contig_length = self.contig_length().unwrap();
         self.window
-            .self_correct(&self.layout.main_area, contig_length);
-    }
-
-    pub fn cytoband_renderable(&self) -> bool {
-        self.current_cytoband().is_some()
+            .self_correct(&self.layout.main_area, self.contig_length().unwrap());
     }
 }
 
