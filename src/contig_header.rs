@@ -1,5 +1,5 @@
+use crate::alignment::{AlignmentRepository, AlignmentRepositoryEnum};
 use crate::error::TGVError;
-use crate::repository::{AlignmentRepository, AlignmentRepositoryEnum};
 use crate::{cytoband::Cytoband, reference::Reference};
 use std::collections::HashMap;
 use std::fmt;

@@ -1,21 +1,17 @@
-use crate::error::TGVError;
-use crate::intervals::GenomeInterval;
-use crate::message::AlignmentDisplayOption;
-use crate::message::AlignmentFilter;
-use crate::repository::AlignmentRepository;
-use crate::repository::Repository;
 use crate::settings::Settings;
 use crate::tracks::TrackService;
 use crate::{
-    alignment::Alignment,
+    alignment::{Alignment, AlignmentRepository},
     contig_header::ContigHeader,
     cytoband::Cytoband,
+    error::TGVError,
     feature::Gene,
-    intervals::Region,
-    message::{DataMessage, Message},
+    intervals::{GenomeInterval, Region},
+    message::{AlignmentDisplayOption, AlignmentFilter, DataMessage, Message},
     reference::Reference,
     register::Registers,
     rendering::{layout::resize_node, MainLayout, Scene},
+    repository::Repository,
     sequence::{Sequence, SequenceRepository},
     track::Track,
     window::ViewingWindow,
