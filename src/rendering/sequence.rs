@@ -32,7 +32,7 @@ fn render_sequence_at_1x(
         return Ok(());
     }
 
-    let sequence_string = String::from_utf8(sequence.get_sequence(region).unwrap_or(vec![]))?;
+    let sequence_string = String::from_utf8(sequence.get_sequence(region).unwrap_or_default())?;
 
     for (i, base) in sequence_string.chars().enumerate() {
         buf.set_string(

@@ -6,14 +6,13 @@ use crate::{
     helpers::is_url,
     intervals::Region,
     reference::Reference,
-    sequence::{Sequence, SequenceRepository, SequenceRepositoryEnum, TwoBitSequenceRepository},
+    sequence::{Sequence, SequenceRepository, SequenceRepositoryEnum},
     settings::Settings,
     tracks::{TrackService, TrackServiceEnum},
     variant::VariantRepository,
 };
 
 use itertools::Itertools;
-use noodles_vcf::header::record::value::map::contig;
 use rust_htslib::bam::{self, Header, IndexedReader, Read};
 use std::path::Path;
 use url::Url;

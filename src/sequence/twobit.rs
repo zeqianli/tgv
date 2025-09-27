@@ -3,7 +3,6 @@ use crate::error::TGVError;
 use crate::intervals::Region;
 use crate::reference::Reference;
 use crate::sequence::{Sequence, SequenceRepository};
-use rust_htslib::bcf::buffer;
 use std::collections::HashMap;
 use twobit::TwoBitFile;
 
