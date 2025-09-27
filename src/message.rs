@@ -55,24 +55,6 @@ pub enum StateMessage {
     Quit,
 }
 
-impl StateMessage {
-    /// Whether the message requires a reference genome.
-    pub fn requires_reference(&self) -> bool {
-        matches!(
-            self,
-            StateMessage::GotoNextExonsStart(_)
-                | StateMessage::GotoNextExonsEnd(_)
-                | StateMessage::GotoPreviousExonsStart(_)
-                | StateMessage::GotoPreviousExonsEnd(_)
-                | StateMessage::GotoNextGenesStart(_)
-                | StateMessage::GotoNextGenesEnd(_)
-                | StateMessage::GotoPreviousGenesStart(_)
-                | StateMessage::GotoPreviousGenesEnd(_)
-                | StateMessage::GoToGene(_)
-        )
-    }
-}
-
 /// Communication between State and Data
 #[allow(clippy::enum_variant_names)]
 #[derive(Debug, Clone, Eq, PartialEq, Display)]

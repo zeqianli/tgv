@@ -1,4 +1,4 @@
-use crate::{error::TGVError, message::StateMessage, register::Register, states::State};
+use crate::{error::TGVError, message::StateMessage, register::KeyRegister, states::State};
 use crossterm::event::{KeyCode, KeyEvent};
 
 pub struct ContigListModeRegister {
@@ -12,7 +12,7 @@ impl ContigListModeRegister {
     }
 }
 
-impl Register for ContigListModeRegister {
+impl KeyRegister for ContigListModeRegister {
     /// Move the selected contig up or down.
     fn update_key_event(
         &mut self,
@@ -21,14 +21,27 @@ impl Register for ContigListModeRegister {
     ) -> Result<Vec<StateMessage>, TGVError> {
         match key_event.code {
             KeyCode::Char('j') | KeyCode::Down => {
-                self.cursor_position = self.cursor_position.saturating_add(1);
-                let total_n_contigs = state.contig_header.contigs.len();
-                if self.cursor_position >= total_n_contigs && total_n_contigs > 0 {
-                    self.cursor_position = total_n_contigs - 1;
-                }
+                self.cursor_position = usize::min(
+                    self.cursor_position.saturating_add(1),
+                    state.contig_header.contigs.len() - 1,
+                );
+
                 Ok(vec![])
             }
             KeyCode::Char('k') | KeyCode::Up => {
+                self.cursor_position = self.cursor_position.saturating_sub(1);
+                Ok(vec![])
+            }
+
+            KeyCode::Char('}') => {
+                self.cursor_position = usize::min(
+                    self.cursor_position.saturating_add(30),
+                    state.contig_header.contigs.len() - 1,
+                );
+                Ok(vec![])
+            }
+
+            KeyCode::Char('{') => {
                 self.cursor_position = self.cursor_position.saturating_sub(1);
                 Ok(vec![])
             }

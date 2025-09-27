@@ -4,7 +4,7 @@ use crossterm::event::{self, Event, KeyEventKind};
 use ratatui::{prelude::Backend, widgets::Widget, Terminal};
 
 use crate::error::TGVError;
-use crate::register::{MouseRegister, Register, Registers};
+use crate::register::{KeyRegister, MouseRegister, Registers};
 use crate::rendering::RenderingState;
 use crate::repository::Repository;
 use crate::settings::Settings;
@@ -20,9 +20,6 @@ pub struct App {
 
     /// Key event parsers and handlers. Translate inputs to commands for the state handler.
     pub registers: Registers,
-
-    /// Mouse event handler
-    pub mouse_register: MouseRegister,
 
     /// Main render. Uses the state pattern.
     pub rendering_state: RenderingState,
@@ -47,14 +44,13 @@ impl App {
         )
         .await?;
 
-        let mouse_register = MouseRegister::new(&state.layout.root);
+        let registers = Registers::new(&state)?;
 
         Ok(Self {
             state,
             settings: settings.clone(),
             repository,
-            registers: Registers::new()?,
-            mouse_register,
+            registers,
             rendering_state: RenderingState::new(),
         })
     }
@@ -110,7 +106,7 @@ impl App {
                 }
 
                 Ok(Event::Mouse(mouse_event)) => {
-                    let state_messages = self.mouse_register.handle_mouse_event(
+                    let state_messages = self.registers.mouse_register.handle_mouse_event(
                         &self.state,
                         &self.repository,
                         mouse_event,

@@ -1,5 +1,5 @@
 use crate::{
-    error::TGVError, message::StateMessage, register::DisplayMode, register::Register,
+    error::TGVError, message::StateMessage, register::DisplayMode, register::KeyRegister,
     states::State,
 };
 use crossterm::event::{KeyCode, KeyEvent};
@@ -18,7 +18,7 @@ impl HelpModeRegister {
     }
 }
 
-impl Register for HelpModeRegister {
+impl KeyRegister for HelpModeRegister {
     fn update_key_event(
         &mut self,
         key_event: KeyEvent,

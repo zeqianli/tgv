@@ -1,13 +1,16 @@
-use crate::alignment::BaseCoverage;
-use crate::error::TGVError;
-use crate::intervals::Region;
-use crate::message::StateMessage;
-use crate::rendering::layout::{AreaType, LayoutNode};
-use crate::repository::Repository;
-use crate::states::State;
+use crate::{
+    alignment::BaseCoverage,
+    error::TGVError,
+    intervals::Region,
+    message::StateMessage,
+    register::MouseRegister,
+    rendering::layout::{AreaType, LayoutNode},
+    repository::Repository,
+    states::State,
+};
 use crossterm::event;
 use itertools::Itertools;
-pub struct MouseRegister {
+pub struct NormalMouseRegister {
     /// Resize event handling
     pub mouse_down_x: u16,
     pub mouse_down_y: u16,
@@ -22,7 +25,7 @@ pub struct MouseRegister {
     pub root: LayoutNode,
 }
 
-impl MouseRegister {
+impl NormalMouseRegister {
     pub fn new(root: &LayoutNode) -> Self {
         Self {
             mouse_down_x: 0,
@@ -34,8 +37,10 @@ impl MouseRegister {
             root: root.clone(),
         }
     }
+}
 
-    pub fn handle_mouse_event(
+impl MouseRegister for NormalMouseRegister {
+    fn handle_mouse_event(
         &mut self,
         state: &State,
         repository: &Repository,

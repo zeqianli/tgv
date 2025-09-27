@@ -4,13 +4,16 @@ mod help;
 mod mouse;
 mod normal;
 use crate::{error::TGVError, message::StateMessage, states::State};
-use crossterm::event::{KeyCode, KeyEvent};
+use crossterm::event::{KeyCode, KeyEvent, MouseEvent};
 
 use strum::Display;
 
-pub use crate::register::{
-    command::CommandModeRegister, contig_list::ContigListModeRegister, help::HelpModeRegister,
-    mouse::MouseRegister, normal::NormalModeRegister,
+pub use crate::{
+    register::{
+        command::CommandModeRegister, contig_list::ContigListModeRegister, help::HelpModeRegister,
+        mouse::NormalMouseRegister, normal::NormalModeRegister,
+    },
+    repository::Repository,
 };
 
 #[derive(Debug, Clone, Eq, PartialEq)]
@@ -29,7 +32,7 @@ pub enum RegisterType {
 }
 
 /// Register stores inputs and translates key event to StateMessages.
-pub trait Register {
+pub trait KeyRegister {
     /// Update with a new event.
     /// If applicable, return
     /// If this event triggers an error, returns Error.
@@ -40,22 +43,33 @@ pub trait Register {
     ) -> Result<Vec<StateMessage>, TGVError>;
 }
 
+pub trait MouseRegister {
+    fn handle_mouse_event(
+        &mut self,
+        state: &State,
+        repository: &Repository,
+        event: MouseEvent,
+    ) -> Result<Vec<StateMessage>, TGVError>;
+}
+
 pub struct Registers {
     pub current: RegisterType,
     pub normal: NormalModeRegister,
     pub command: CommandModeRegister,
     pub help: HelpModeRegister,
     pub contig_list: ContigListModeRegister,
+    pub mouse_register: NormalMouseRegister,
 }
 
 impl Registers {
-    pub fn new() -> Result<Self, TGVError> {
+    pub fn new(state: &State) -> Result<Self, TGVError> {
         Ok(Self {
             current: RegisterType::Normal,
             normal: NormalModeRegister::new(),
             command: CommandModeRegister::new(),
             help: HelpModeRegister::new(),
             contig_list: ContigListModeRegister::new(0),
+            mouse_register: NormalMouseRegister::new(&state.layout.root),
         })
     }
 
@@ -72,7 +86,7 @@ impl Registers {
     }
 }
 
-impl Register for Registers {
+impl KeyRegister for Registers {
     fn update_key_event(
         &mut self,
         key_event: KeyEvent,

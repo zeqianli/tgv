@@ -1,4 +1,4 @@
-use crate::{error::TGVError, message::StateMessage, register::Register, states::State};
+use crate::{error::TGVError, message::StateMessage, register::KeyRegister, states::State};
 use crossterm::event::{KeyCode, KeyEvent};
 
 #[derive(Clone)]
@@ -144,7 +144,7 @@ impl NormalModeRegister {
     }
 }
 
-impl Register for NormalModeRegister {
+impl KeyRegister for NormalModeRegister {
     fn update_key_event(
         &mut self,
         key_event: KeyEvent,

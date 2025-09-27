@@ -2,7 +2,7 @@ use crate::{
     error::TGVError,
     message::StateMessage,
     message::{AlignmentDisplayOption, AlignmentFilter, AlignmentSort},
-    register::Register,
+    register::KeyRegister,
     states::State,
 };
 use crossterm::event::{KeyCode, KeyEvent};
@@ -72,7 +72,7 @@ impl CommandModeRegister {
     }
 }
 
-impl Register for CommandModeRegister {
+impl KeyRegister for CommandModeRegister {
     fn update_key_event(
         &mut self,
         key_event: KeyEvent,
