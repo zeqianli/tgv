@@ -199,9 +199,7 @@ impl MouseRegister for NormalMouseRegister {
                                     };
                                     bed_intervals.overlapping(&region)?.into_iter().for_each(
                                         |bed_interval| {
-                                            messages.push(Message::Message(
-                                                bed_interval.describe(),
-                                            ))
+                                            messages.push(Message::Message(bed_interval.describe()))
                                         },
                                     );
                                 }
