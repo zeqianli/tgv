@@ -1,21 +1,17 @@
 use crate::{
-    alignment::{AlignedRead, Alignment, AlignmentRepository, AlignmentRepositoryEnum},
+    alignment::AlignmentRepositoryEnum,
     bed::BEDIntervals,
     contig_header::ContigHeader,
     error::TGVError,
-    helpers::is_url,
-    intervals::Region,
     reference::Reference,
-    sequence::{Sequence, SequenceRepository, SequenceRepositoryEnum},
+    sequence::{SequenceRepository, SequenceRepositoryEnum},
     settings::Settings,
     tracks::{TrackService, TrackServiceEnum},
     variant::VariantRepository,
 };
 
 use itertools::Itertools;
-use rust_htslib::bam::{self, Header, IndexedReader, Read};
 use std::path::Path;
-use url::Url;
 
 pub struct Repository {
     pub alignment_repository: Option<AlignmentRepositoryEnum>,
