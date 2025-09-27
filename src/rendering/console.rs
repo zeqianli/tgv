@@ -1,4 +1,4 @@
-use crate::{error::TGVError, register::CommandModeRegister};
+use crate::{error::TGVError, register::command::CommandBuffer};
 use ratatui::{
     buffer::Buffer,
     layout::Rect,
@@ -11,25 +11,25 @@ const MIN_AREA_HEIGHT: u16 = 1;
 pub fn render_console(
     area: &Rect,
     buf: &mut Buffer,
-    register: &CommandModeRegister,
+    buffer: &CommandBuffer,
 ) -> Result<(), TGVError> {
     if area.width < MIN_AREA_WIDTH || area.height < MIN_AREA_HEIGHT {
         return Ok(());
     }
 
-    let cursor_char = register
+    let cursor_char = buffer
         .input
         .chars()
-        .nth(register.cursor_position)
+        .nth(buffer.cursor_position)
         .unwrap_or(' ');
-    let cursor_char_position = area.x + 1 + register.cursor_position as u16;
+    let cursor_char_position = area.x + 1 + buffer.cursor_position as u16;
     let cursor_char_style = Style::default().bg(Color::Red);
 
     buf.set_stringn(area.x, area.y, ":", area.width as usize, Style::default());
     buf.set_stringn(
         area.x + 1,
         area.y,
-        &register.input,
+        &buffer.input,
         area.width as usize - 1,
         Style::default(),
     );

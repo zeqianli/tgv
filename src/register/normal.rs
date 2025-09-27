@@ -1,4 +1,9 @@
-use crate::{error::TGVError, message::StateMessage, register::KeyRegister, states::State};
+use crate::{
+    error::TGVError,
+    message::StateMessage,
+    register::{KeyRegister, KeyRegisterType},
+    states::State,
+};
 use crossterm::event::{KeyCode, KeyEvent};
 
 #[derive(Clone, Debug, Default)]
@@ -139,6 +144,10 @@ impl KeyRegister for NormalModeRegister {
         state: &State,
     ) -> Result<Vec<StateMessage>, TGVError> {
         match key_event.code {
+            KeyCode::Char(':') => Ok(vec![
+                StateMessage::ClearAllKeyRegisters,
+                StateMessage::SwitchKeyRegister(KeyRegisterType::Command),
+            ]),
             KeyCode::Char(char) => self.update_by_char(char),
             KeyCode::Left => self.update_by_char('h'),
             KeyCode::Up => self.update_by_char('k'),

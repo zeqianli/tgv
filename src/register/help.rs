@@ -1,5 +1,9 @@
 use crate::{
-    error::TGVError, message::StateMessage, register::KeyRegister, rendering::Scene, states::State,
+    error::TGVError,
+    message::StateMessage,
+    register::{KeyRegister, KeyRegisterType},
+    rendering::Scene,
+    states::State,
 };
 use crossterm::event::{KeyCode, KeyEvent};
 
@@ -13,7 +17,11 @@ impl KeyRegister for HelpModeRegister {
         state: &State,
     ) -> Result<Vec<StateMessage>, TGVError> {
         match key_event.code {
-            KeyCode::Esc => Ok(vec![StateMessage::SetDisplayMode(Scene::Main)]),
+            KeyCode::Esc => Ok(vec![
+                StateMessage::SwitchScene(Scene::Main),
+                StateMessage::ClearAllKeyRegisters,
+                StateMessage::SwitchKeyRegister(KeyRegisterType::Normal),
+            ]),
             _ => Ok(vec![]),
         }
     }

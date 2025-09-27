@@ -88,6 +88,7 @@ impl App {
                     StateHandler::handle(
                         &mut self.state,
                         &mut self.repository,
+                        &mut self.registers,
                         &self.settings,
                         state_messages,
                     )
@@ -104,6 +105,7 @@ impl App {
                     StateHandler::handle(
                         &mut self.state,
                         &mut self.repository,
+                        &mut self.registers,
                         &self.settings,
                         state_messages,
                     )

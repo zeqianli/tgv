@@ -1,4 +1,4 @@
-use crate::{intervals::Region, rendering::Scene, strand::Strand};
+use crate::{intervals::Region, register::KeyRegisterType, rendering::Scene, strand::Strand};
 
 use strum::Display;
 
@@ -39,7 +39,7 @@ pub enum StateMessage {
 
     Message(String),
 
-    SetDisplayMode(Scene),
+    SwitchScene(Scene),
 
     ResizeTrack {
         mouse_down_x: u16,
@@ -53,6 +53,10 @@ pub enum StateMessage {
     SetAlignmentChange(Vec<AlignmentDisplayOption>),
 
     Quit,
+
+    ClearKeyRegister(KeyRegisterType),
+    ClearAllKeyRegisters,
+    SwitchKeyRegister(KeyRegisterType),
 }
 
 /// Communication between State and Data

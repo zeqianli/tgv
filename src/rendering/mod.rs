@@ -30,7 +30,7 @@ pub use variants::render_variants;
 
 use crate::{
     error::TGVError,
-    register::{RegisterType, Registers},
+    register::{KeyRegisterType, Registers},
     rendering::layout::AreaType,
     repository::Repository,
     states::State,
@@ -117,8 +117,8 @@ impl Renderer {
                     }
                 }
                 AreaType::Console => {
-                    if registers.current == RegisterType::Command {
-                        render_console(rect, buf, &registers.command)?;
+                    if registers.current == KeyRegisterType::Command {
+                        render_console(rect, buf, &registers.command.buffer)?;
                     }
                 }
                 AreaType::Error => {

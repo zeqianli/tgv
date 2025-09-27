@@ -14,9 +14,8 @@ use crate::{
     intervals::Region,
     message::{DataMessage, StateMessage},
     reference::Reference,
-    rendering::layout::resize_node,
-    rendering::MainLayout,
-    rendering::Scene,
+    register::{KeyRegisterType, Registers},
+    rendering::{layout::resize_node, MainLayout, Scene},
     sequence::{Sequence, SequenceRepository},
     track::Track,
     window::ViewingWindow,
@@ -144,6 +143,7 @@ impl StateHandler {
     pub async fn handle(
         state: &mut State,
         repository: &mut Repository,
+        registers: &mut Registers,
         settings: &Settings,
         messages: Vec<StateMessage>,
     ) -> Result<(), TGVError> {
@@ -246,7 +246,7 @@ impl StateHandler {
             // Error messages
             StateMessage::Message(message) => StateHandler::add_message(state, message)?,
 
-            StateMessage::SetDisplayMode(display_mode) => {
+            StateMessage::SwitchScene(display_mode) => {
                 state.scene = display_mode;
             }
 
