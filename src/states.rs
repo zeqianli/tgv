@@ -1,4 +1,3 @@
-
 use crate::error::TGVError;
 use crate::intervals::GenomeInterval;
 use crate::message::AlignmentDisplayOption;
@@ -939,7 +938,7 @@ impl StateHandler {
                         .contig_header
                         .update_cytoband(contig_index, cytoband)?;
                     loaded_data = true;
-                } 
+                }
             }
         }
 
