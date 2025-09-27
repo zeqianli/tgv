@@ -4,7 +4,7 @@ mod help;
 mod mouse;
 mod normal;
 use crate::{
-    error::TGVError, message::Message, register::contig_list::ContigListCommandModeRegister,
+    error::TGVError, message::Message,
     states::State,
 };
 use crossterm::event::{KeyEvent, MouseEvent};

@@ -1,7 +1,7 @@
 use crate::{
     error::TGVError,
     message::Message,
-    register::{command::CommandBuffer, CommandModeRegister, KeyRegister, KeyRegisterType},
+    register::{command::CommandBuffer, KeyRegister, KeyRegisterType},
     rendering::Scene,
     states::State,
 };

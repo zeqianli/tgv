@@ -9,7 +9,7 @@ use crate::{
 use ratatui::{
     buffer::Buffer,
     layout::Rect,
-    style::{Color, Style},
+    style::Style,
 };
 
 /// Render an alignment on the alignment area.

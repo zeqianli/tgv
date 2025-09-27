@@ -14,7 +14,7 @@ use crate::{
     intervals::Region,
     message::{DataMessage, Message},
     reference::Reference,
-    register::{KeyRegisterType, Registers},
+    register::Registers,
     rendering::{layout::resize_node, MainLayout, Scene},
     sequence::{Sequence, SequenceRepository},
     track::Track,
