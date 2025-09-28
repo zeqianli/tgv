@@ -8,7 +8,8 @@ use crate::{
     settings::Settings,
 };
 
-use rust_htslib::bam::{self, Header, IndexedReader, Read};
+use noodles_bam::{self as bam, bai};
+use noodles_sam::{self as sam, Header};
 use std::path::Path;
 use url::Url;
 
@@ -37,24 +38,39 @@ impl RemoteSource {
 }
 
 pub trait AlignmentRepository {
-    fn read_alignment(
+    async fn read_alignment(
         &self,
         region: &Region,
         sequence: &Sequence,
         contig_header: &ContigHeader,
     ) -> Result<Alignment, TGVError>;
 
-    fn read_header(&self) -> Result<Vec<(String, Option<usize>)>, TGVError>;
+    async fn read_header(&self) -> Result<Vec<(String, Option<usize>)>, TGVError>;
 }
 
 #[derive(Debug)]
 pub struct BamRepository {
     bam_path: String,
-    bai_path: Option<String>,
+    bai_path: String,
+
+    index: bai::Index,
+
+    header: Header,
+
+    reader: bam::r#async::io::Reader<Reader<File>>,
 }
 
 impl BamRepository {
-    fn new(bam_path: &String, bai_path: Option<String>) -> Result<Self, TGVError> {
+    async fn new(bam_path: &str, bai_path: &str) -> Result<Self, TGVError> {
+        use tokio::fs::File;
+
+        let mut reader = File::open(bam_path)
+            .await
+            .map(bam::r#async::io::Reader::new)?;
+        let header = reader.read_header().await?;
+
+        let index = bai::r#async::fs::read(bai_path).await?;
+
         if !Path::new(&bam_path).exists() {
             return Err(TGVError::IOError(format!(
                 "BAM file {} not found",
@@ -62,72 +78,38 @@ impl BamRepository {
             )));
         }
 
-        match bai_path.as_ref() {
-            Some(bai_path) => {
-                if !Path::new(bai_path).exists() {
-                    return Err(TGVError::IOError(format!(
-                        "BAM index file {} not found. Only indexed BAM files are supported.",
-                        bai_path
-                    )));
-                }
-            }
-            None => {
-                if !Path::new(&format!("{}.bai", bam_path)).exists() {
-                    return Err(TGVError::IOError(format!(
-                        "BAM index file {}.bai not found. Only indexed BAM files are supported.",
-                        bam_path
-                    )));
-                }
-            }
-        }
-
         Ok(Self {
-            bam_path: bam_path.clone(),
-            bai_path,
+            bam_path: bam_path.to_string(),
+            bai_path: bai_path.to_string(),
+
+            index: index,
+            header: header,
+            reader: reader,
         })
     }
 }
 
 impl AlignmentRepository for BamRepository {
     /// Read an alignment from a BAM file.
-    fn read_alignment(
-        &self,
+    async fn read_alignment(
+        &mut self,
         region: &Region,
         sequence: &Sequence,
         contig_header: &ContigHeader,
     ) -> Result<Alignment, TGVError> {
-        let mut bam = match self.bai_path.as_ref() {
-            Some(bai_path) => {
-                IndexedReader::from_path_and_index(self.bam_path.clone(), bai_path.clone())?
+        use futures::TryStreamExt;
+
+        match region.to_bam_region_str(contig_header) {
+            Some(region_str) => {
+                let mut query = self.reader.query(&self.header, &self.index, &region_str)?;
+
+                let mut records = Vec::new();
+                while let Some(record) = query.try_next().await? {
+                    records.push(record)
+                }
+                Alignment::from_aligned_reads(records, region, sequence)
             }
-            None => IndexedReader::from_path(self.bam_path.clone())?,
-        };
-
-        let header = bam::Header::from_template(bam.header());
-
-        match get_query_contig_string(&header, region, contig_header)? {
-            Some(query_contig_string) => {
-                bam.fetch((
-                    &query_contig_string,
-                    region.start as i32 - 1,
-                    region.end as i32,
-                ))
-                .map_err(|e| TGVError::IOError(e.to_string()))?;
-
-                let reads = bam
-                    .records()
-                    .enumerate()
-                    .map(|(i, record)| AlignedRead::from_bam_record(i, record?, sequence))
-                    .collect::<Result<_, _>>()?;
-
-                Alignment::from_aligned_reads(reads, region, sequence)
-            }
-
-            None => {
-                // Contig indicated in region is not present in the BAM header.
-                // Can happen when contigs in the reference and in the BAM header mismatches.
-                Alignment::from_aligned_reads(Vec::new(), region, sequence)
-            }
+            None => Alignment::from_aligned_reads(Vec::new(), region, sequence),
         }
     }
 
@@ -241,42 +223,6 @@ fn get_contig_names_and_lengths_from_header(
     }
 
     Ok(output)
-}
-
-/// Get the query string for a region.
-/// Look through the header to decide if the bam file chromosome names are abbreviated or full.
-fn get_query_contig_string(
-    header: &Header,
-    region: &Region,
-    contig_header: &ContigHeader,
-) -> Result<Option<String>, TGVError> {
-    // FIXME:
-    // BAM header is re-parsed for every alignment loading.
-    // Parse this once and store it in the repository.
-    let mut bam_headers = Vec::new();
-
-    for (_key, records) in header.to_hashmap().iter() {
-        for record in records {
-            if record.contains_key("SN") {
-                let reference_name = record["SN"].to_string();
-
-                if reference_name == contig_header.get(region.contig_index)?.name
-                    || contig_header
-                        .get(region.contig_index)?
-                        .aliases
-                        .contains(&reference_name)
-                {
-                    return Ok(Some(reference_name));
-                }
-
-                bam_headers.push(reference_name);
-            }
-        }
-    }
-
-    // Contig is not in the BAM header.
-    // This can happen when the reference contig names and the BAM contig names mismatch.
-    Ok(None)
 }
 
 #[derive(Debug)]

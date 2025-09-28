@@ -99,7 +99,7 @@ impl State {
 
     /// Maximum length of the contig.
     pub fn contig_length(&self) -> Result<Option<usize>, TGVError> {
-        Ok(self.contig_header.get(self.contig_index())?.length)
+        Ok(self.contig_header.try_get(self.contig_index())?.length)
     }
 
     pub fn self_correct_viewing_window(&mut self) {

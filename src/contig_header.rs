@@ -175,6 +175,12 @@ pub struct ContigHeader {
 
     /// contig name / aliases -> index
     contig_lookup: HashMap<String, usize>,
+
+    /// What the contig name is in the bam header.
+    /// - None: contig is not in the bam
+    /// - Some(None): contig name is the bam header is the main name
+    /// - Some(Some(i)): contig name is the ith alias
+    bam_contig_str: Vec<Option<Option<usize>>>,
 }
 
 impl ContigHeader {
@@ -183,6 +189,7 @@ impl ContigHeader {
             reference,
             contigs: Vec::new(),
             contig_lookup: HashMap::new(),
+            bam_contig_str: Vec::new(),
         }
     }
 
@@ -200,15 +207,19 @@ impl ContigHeader {
         Ok(self.contigs.len() - 1)
     }
 
-    pub fn get(&self, index: usize) -> Result<&Contig, TGVError> {
-        self.contigs.get(index).ok_or(TGVError::StateError(format!(
+    pub fn try_get(&self, index: usize) -> Result<&Contig, TGVError> {
+        self.get(index).ok_or(TGVError::StateError(format!(
             "Contig index out of bounds: {}",
             index
         )))
     }
 
+    pub fn get(&self, index: usize) -> Option<&Contig> {
+        self.contigs.get(index)
+    }
+
     pub fn get_name(&self, index: usize) -> Result<&String, TGVError> {
-        Ok(&self.get(index)?.name)
+        Ok(&self.try_get(index)?.name)
     }
 
     pub fn get_index(&self, contig: &Contig) -> Option<usize> {
@@ -308,11 +319,11 @@ impl ContigHeader {
     }
 
     pub fn cytoband(&self, contig_index: usize) -> Option<&Cytoband> {
-        self.get(contig_index).unwrap().cytoband.as_ref() // TODO: bound check
+        self.try_get(contig_index).unwrap().cytoband.as_ref() // TODO: bound check
     }
 
     pub fn cytoband_is_loaded(&self, contig_index: usize) -> Result<bool, TGVError> {
-        Ok(self.get(contig_index)?.cytoband_loaded)
+        Ok(self.try_get(contig_index)?.cytoband_loaded)
     }
 }
 

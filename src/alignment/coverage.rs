@@ -1,8 +1,6 @@
 use crate::alignment::read::{consumes_query, consumes_reference};
 use crate::error::TGVError;
 use crate::sequence::Sequence;
-use rust_htslib::bam::record::Seq;
-use rust_htslib::bam::record::{Cigar, CigarStringView};
 use std::collections::HashMap;
 use std::default::Default;
 

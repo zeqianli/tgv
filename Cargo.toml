@@ -21,7 +21,6 @@ tokio = { version = "1", features = ["full"] }
 serde = { version = "1.0", features = ["derive"] }
 reqwest = { version = "0.12", features = ["json"] }
 itertools="0.14.0"
-rust-htslib={ version = "0.49.0", features = ["serde_feature", "s3", "gcs"] }
 url = "2.5.4"
 csv = "1.3.1"
 strum = {version = "0.27", features = ["derive"]}
@@ -32,11 +31,14 @@ chrono = {version = "0.4", features = ["clock"]}
 shellexpand = "3.1"
 twobit = "0"
 bigtools = "0.5"
-noodles = { version = "0.99.0", features = ["bed", "vcf"] }
+noodles = { version = "0.99.0", features = ["async", "bam", "bed", "cram", "fasta", "vcf"] }
 nom = "8.0.0"
 noodles-vcf = "0.79.0"
 noodles-fasta = "0.54.0"
 noodles-core = "0.17.0"
+futures = "0.3.31"
+noodles-bam = { version = "0.81.0", features = ["async"] }
+noodles-sam = "0.77.0"
 
 [dev-dependencies]
 rstest = "0.25.0"

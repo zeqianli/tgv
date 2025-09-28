@@ -36,7 +36,7 @@ impl SequenceRepository for IndexedFastaSequenceRepository {
     ) -> Result<Sequence, TGVError> {
         let region_string = format!(
             "{}:{}-{}",
-            contig_header.get(region.contig_index)?.name,
+            contig_header.try_get(region.contig_index)?.name,
             region.start,
             region.end
         );
