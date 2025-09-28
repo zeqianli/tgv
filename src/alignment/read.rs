@@ -116,11 +116,6 @@ pub struct ReadPair {
 }
 
 impl AlignedRead {
-    /// Return an 1-based range iterator that includes all bases of the alignment.
-    pub fn range(&self) -> impl Iterator<Item = usize> {
-        self.start..self.end + 1
-    }
-
     pub fn stacking_start(&self) -> usize {
         usize::max(self.start.saturating_sub(self.leading_softclips), 1)
     }
