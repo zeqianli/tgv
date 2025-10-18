@@ -1,15 +1,15 @@
-use crate::alignment::read::{consumes_query, consumes_reference};
 use crate::error::TGVError;
 use crate::sequence::Sequence;
+use noodles_bam::record::{self};
+use noodles_sam::alignment::record::cigar::{op::Kind, Op};
 use std::collections::HashMap;
 use std::default::Default;
 
 /// See: https://samtools.github.io/hts-specs/SAMv1.pdf
 pub fn calculate_basewise_coverage(
     reference_start: usize, // 1-based. Alignment start, not softclip start
-    cigars: &CigarStringView,
-    leading_softclips: usize,
-    seq: &Seq,
+    cigars: &Vec<Op>,
+    sequence: &record::Sequence,
     reference_sequence: &Sequence,
 ) -> Result<HashMap<usize, BaseCoverage>, TGVError> {
     let mut output: HashMap<usize, BaseCoverage> = HashMap::new();
@@ -23,25 +23,27 @@ pub fn calculate_basewise_coverage(
     // FIXME:
     // Mismatches are re-calculated by comparing with the reference genome, but BAM has MM/ML tags for this.
     for (i_op, op) in cigars.iter().enumerate() {
-        let next_reference_pivot = if consumes_reference(op) {
+        let kind = op.kind();
+        let len = op.len();
+        let next_reference_pivot = if kind.consumes_reference() {
             reference_pivot + op.len() as usize
         } else {
             reference_pivot
         };
 
-        let next_query_pivot = if consumes_query(op) {
+        let next_query_pivot = if kind.consumes_read() {
             query_pivot + op.len() as usize
         } else {
             query_pivot
         };
 
-        match op {
-            Cigar::SoftClip(l) => {
+        match kind {
+            Kind::SoftClip => {
                 // S
-                if query_pivot <= leading_softclips {
+                if i_op == 0 {
                     // leading softclips. base rendered at the left of reference pivot.
-                    for i_soft_clip_base in 0..*l as usize {
-                        if reference_pivot + i_soft_clip_base <= leading_softclips + 1 {
+                    for i_soft_clip_base in 0..len as usize {
+                        if reference_pivot + i_soft_clip_base <= len + 1 {
                             //base_coordinate <= 1 (on the edge of screen)
                             // Prevent cases when a soft clip is at the very starting of the reference genome:
                             //    ----------- (ref)
@@ -51,9 +53,8 @@ pub fn calculate_basewise_coverage(
                             continue;
                         }
 
-                        let base_coordinate: usize =
-                            reference_pivot - leading_softclips + i_soft_clip_base;
-                        let base = seq[i_soft_clip_base];
+                        let base_coordinate: usize = reference_pivot - len + i_soft_clip_base;
+                        let base = sequence.get(i_soft_clip_base).unwrap();
 
                         output
                             .entry(base_coordinate)
@@ -65,9 +66,9 @@ pub fn calculate_basewise_coverage(
                     }
                 } else {
                     // right softclips. base rendered at the right of reference pivot.
-                    for i_soft_clip_base in 0..*l as usize {
+                    for i_soft_clip_base in 0..len as usize {
                         let base_coordinate: usize = reference_pivot + i_soft_clip_base;
-                        let base = seq[query_pivot + i_soft_clip_base - 1];
+                        let base = sequence.get(query_pivot + i_soft_clip_base - 1).unwrap();
                         output
                             .entry(base_coordinate)
                             .or_insert(BaseCoverage::new(
@@ -79,12 +80,12 @@ pub fn calculate_basewise_coverage(
                 }
             }
 
-            Cigar::Ins(l) => {}
+            Kind::Insertion => {}
 
-            Cigar::Del(l) | Cigar::RefSkip(l) => {}
+            Kind::Deletion | Kind::Skip => {}
 
-            Cigar::Diff(l) | Cigar::Equal(l) | Cigar::Match(l) => {
-                for i in 0..*l as usize {
+            Kind::SequenceMismatch | Kind::SequenceMatch | Kind::Match => {
+                for i in 0..len as usize {
                     let base_coordinate = reference_pivot + i;
                     output
                         .entry(base_coordinate)
@@ -92,10 +93,10 @@ pub fn calculate_basewise_coverage(
                             // FIXME: This can cause problems when sequence cache didn't catch up with alignment.
                             reference_sequence.base_at(base_coordinate).unwrap_or(b'N'),
                         ))
-                        .update(seq[query_pivot + i - 1])
+                        .update(sequence.get(query_pivot + i - 1).unwrap())
                 }
             }
-            Cigar::HardClip(l) | Cigar::Pad(l) => {}
+            Kind::HardClip | Kind::Pad => {}
         }
 
         query_pivot = next_query_pivot;
