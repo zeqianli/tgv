@@ -3361,6 +3361,7 @@ dependencies = [
  "nom 8.0.0",
  "noodles",
  "noodles-bam",
+ "noodles-bgzf",
  "noodles-core",
  "noodles-fasta",
  "noodles-sam",

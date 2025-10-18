@@ -124,7 +124,7 @@ impl GenomeInterval for Region {
 }
 
 impl Region {
-    fn to_bam_region_str(&self, header: &ContigHeader) -> Option<String> {
+    pub fn to_bam_region_str(&self, header: &ContigHeader) -> Option<String> {
         header.get(self.contig_index).map(|contig| {
             format! {
                 "{}:{}-{}",
