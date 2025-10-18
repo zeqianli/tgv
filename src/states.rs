@@ -1,21 +1,17 @@
-use crate::error::TGVError;
-use crate::intervals::GenomeInterval;
-use crate::message::AlignmentDisplayOption;
-use crate::message::AlignmentFilter;
-use crate::repository::AlignmentRepository;
-use crate::repository::Repository;
 use crate::settings::Settings;
 use crate::tracks::TrackService;
 use crate::{
-    alignment::Alignment,
+    alignment::{Alignment, AlignmentRepository},
     contig_header::ContigHeader,
     cytoband::Cytoband,
+    error::TGVError,
     feature::Gene,
-    intervals::Region,
-    message::{DataMessage, Message},
+    intervals::{GenomeInterval, Region},
+    message::{AlignmentDisplayOption, AlignmentFilter, DataMessage, Message},
     reference::Reference,
     register::Registers,
     rendering::{layout::resize_node, MainLayout, Scene},
+    repository::Repository,
     sequence::{Sequence, SequenceRepository},
     track::Track,
     window::ViewingWindow,
@@ -103,7 +99,7 @@ impl State {
 
     /// Maximum length of the contig.
     pub fn contig_length(&self) -> Result<Option<usize>, TGVError> {
-        Ok(self.contig_header.get(self.contig_index())?.length)
+        Ok(self.contig_header.try_get(self.contig_index())?.length)
     }
 
     pub fn self_correct_viewing_window(&mut self) {
@@ -852,9 +848,10 @@ impl StateHandler {
                     state.alignment = {
                         let mut alignment = repository
                             .alignment_repository
-                            .as_ref()
+                            .as_mut()
                             .unwrap()
-                            .read_alignment(&region, &state.sequence, &state.contig_header)?;
+                            .read_alignment(&region, &state.sequence, &state.contig_header)
+                            .await?;
 
                         alignment.apply_options(&state.alignment_options, &state.sequence)?;
 
