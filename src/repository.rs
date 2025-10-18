@@ -29,7 +29,7 @@ impl Repository {
     pub async fn new(settings: &Settings) -> Result<(Self, ContigHeader), TGVError> {
         let mut track_service = TrackServiceEnum::new(settings).await?;
         let mut sequence_service = SequenceRepositoryEnum::new(settings)?;
-        let alignment_repository = AlignmentRepositoryEnum::new(settings)?;
+        let alignment_repository = AlignmentRepositoryEnum::new(settings).await?;
 
         // Contig header collect contigs from multiple sources.
         // - If the reference is a ucsc genome: ucsc database (local, mariadb, or api)

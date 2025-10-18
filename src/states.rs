@@ -848,9 +848,10 @@ impl StateHandler {
                     state.alignment = {
                         let mut alignment = repository
                             .alignment_repository
-                            .as_ref()
+                            .as_mut()
                             .unwrap()
-                            .read_alignment(&region, &state.sequence, &state.contig_header)?;
+                            .read_alignment(&region, &state.sequence, &state.contig_header)
+                            .await?;
 
                         alignment.apply_options(&state.alignment_options, &state.sequence)?;
 

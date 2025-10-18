@@ -76,10 +76,10 @@ pub struct Cli {
     #[arg(short = 'b', long = "bed", value_name = "bed_path")]
     bed_path: Option<String>,
 
-    /// Index file path.
+    /// Bai file path.
     /// If not provided, .bai in the same directory as the BAM file will be used.
     #[arg(short = 'i', long = "index", value_name = "bai")]
-    index: Option<String>,
+    bai: Option<String>,
 
     /// Starting region. Supported formats: [chr]:[pos] (e.g. 12:25398142); [gene] (e.g. TP53).
     /// If not provided, TGV will find a default starting region.
@@ -205,12 +205,18 @@ impl Settings {
             ));
         }
 
+        let bai_path = if let Some(bam_path) = &cli.bam_path {
+            Some(cli.bai.unwrap_or(format!("{}.bai", bam_path)))
+        } else {
+            cli.bai
+        };
+
         // cache_dir: expand ~
         let cache_dir = shellexpand::tilde(&cli.cache_dir).to_string();
 
         Ok(Self {
             bam_path: cli.bam_path,
-            bai_path: cli.index,
+            bai_path,
             vcf_path: cli.vcf_path,
             bed_path: cli.bed_path,
             reference,

@@ -9,8 +9,8 @@ use crate::{
 };
 
 use itertools::Itertools;
-use noodles_bam::{self as bam, bai};
-use noodles_sam::{self as sam, Header};
+use noodles::bam::{self, bai};
+use noodles::sam::{self, Header};
 use std::path::Path;
 use tokio::fs::File;
 use url::Url;
@@ -47,7 +47,7 @@ pub trait AlignmentRepository {
         contig_header: &ContigHeader,
     ) -> Result<Alignment, TGVError>;
 
-    async fn read_header(&self) -> Result<Vec<(String, Option<usize>)>, TGVError>;
+    fn read_header(&self) -> Result<Vec<(String, Option<usize>)>, TGVError>;
 }
 
 pub struct BamRepository {
@@ -58,7 +58,7 @@ pub struct BamRepository {
 
     header: Header,
 
-    reader: bam::r#async::io::Reader<noodles_bgzf::r#async::io::Reader<File>>,
+    reader: bam::r#async::io::Reader<noodles::bgzf::r#async::io::Reader<File>>,
 }
 
 impl BamRepository {
@@ -120,7 +120,7 @@ impl AlignmentRepository for BamRepository {
 
     /// Read BAM headers and return contig namesa and lengths.
     /// Note that this function does not interprete the contig name as contg vs chromosome.
-    async fn read_header(&self) -> Result<Vec<(String, Option<usize>)>, TGVError> {
+    fn read_header(&self) -> Result<Vec<(String, Option<usize>)>, TGVError> {
         // let bam = match self.bai_path.as_ref() {
         //     Some(bai_path) => {
         //         IndexedReader::from_path_and_index(self.bam_path.clone(), bai_path.clone())?
@@ -267,9 +267,9 @@ impl AlignmentRepository for AlignmentRepositoryEnum {
         }
     }
 
-    async fn read_header(&self) -> Result<Vec<(String, Option<usize>)>, TGVError> {
+    fn read_header(&self) -> Result<Vec<(String, Option<usize>)>, TGVError> {
         match self {
-            AlignmentRepositoryEnum::Bam(repository) => repository.read_header().await,
+            AlignmentRepositoryEnum::Bam(repository) => repository.read_header(),
             //AlignmentRepositoryEnum::RemoteBam(repository) => repository.read_header(),
         }
     }

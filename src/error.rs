@@ -53,5 +53,5 @@ pub enum TGVError {
     InvalidRange,
 
     #[error("Noodles parse error")]
-    NoodlesParseError(#[from] noodles_core::region::ParseError),
+    NoodlesParseError(#[from] noodles::core::region::ParseError),
 }

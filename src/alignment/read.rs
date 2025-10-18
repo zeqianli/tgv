@@ -3,8 +3,8 @@ use crate::message::AlignmentFilter;
 use crate::sequence::Sequence;
 // use rust_htslib::bam::{record::Seq, Read, Record};
 //
-use noodles_bam::record::{self, Cigar, Record};
-use noodles_sam::alignment::record::{
+use noodles::bam::record::{self, Cigar, Record};
+use noodles::sam::alignment::record::{
     cigar::{op::Kind, Op},
     Cigar as CigarTrait, Flags,
 };
@@ -886,6 +886,16 @@ mod tests {
 
     use super::*;
     // use noodles::bam::record::{Cigar, CigarString};
+    use noodles::bam;
+    use noodles::sam::{
+        self,
+        alignment::{
+            io::Write,
+            record::cigar::{op::Kind, Op},
+        },
+    };
+    use std::io;
+
     use rstest::rstest;
 
     #[rstest]
@@ -1063,15 +1073,38 @@ mod tests {
             .map(|(kind, length)| Op::new(kind, length))
             .collect::<Vec<Op>>();
 
+        let header = sam::Header::default();
+
+        let record_buf = sam::alignment::RecordBuf::builder()
+            .set_sequence(sam::alignment::record_buf::Sequence::from(seq))
+            .build();
+        let record = serialize_as_bam_record(&header, &record_buf).unwrap();
+
         let contexts = calculate_rendering_contexts(
             reference_start,
             &cigars,
-            &record.seq(),
+            &record.sequence(),
             is_reverse,
             //&reference_sequence,
         )
         .unwrap();
 
         assert_eq!(contexts, expected_rendering_contexts)
+    }
+
+    /// Helper function to create bam::Record test cases
+    fn serialize_as_bam_record(
+        header: &sam::Header,
+        record_buf: &sam::alignment::RecordBuf,
+    ) -> io::Result<bam::Record> {
+        let mut writer = bam::io::Writer::from(Vec::new());
+        writer.write_alignment_record(header, record_buf)?;
+
+        let src = writer.into_inner();
+        let mut reader = bam::io::Reader::from(&src[..]);
+        let mut record = bam::Record::default();
+        reader.read_record(&mut record)?;
+
+        Ok(record)
     }
 }

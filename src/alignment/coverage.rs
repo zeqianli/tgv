@@ -1,7 +1,7 @@
 use crate::error::TGVError;
 use crate::sequence::Sequence;
-use noodles_bam::record::{self};
-use noodles_sam::alignment::record::cigar::{op::Kind, Op};
+use noodles::bam::record::{self};
+use noodles::sam::alignment::record::cigar::{op::Kind, Op};
 use std::collections::HashMap;
 use std::default::Default;
 

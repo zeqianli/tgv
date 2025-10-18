@@ -4,8 +4,8 @@ use crate::{
     intervals::Region,
     sequence::{Sequence, SequenceRepository},
 };
-use noodles_core::region::Region as noodlesRegion;
-use noodles_fasta::{
+use noodles::core::region::Region as noodlesRegion;
+use noodles::fasta::{
     fai::Index,
     io::{
         indexed_reader::{Builder, IndexedReader},

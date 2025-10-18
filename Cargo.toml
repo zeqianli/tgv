@@ -31,15 +31,9 @@ chrono = {version = "0.4", features = ["clock"]}
 shellexpand = "3.1"
 twobit = "0"
 bigtools = "0.5"
-noodles = { version = "0.99.0", features = ["async", "bam", "bed", "cram", "fasta", "vcf"] }
+noodles = { version = "0.99.0", features = ["async", "bam", "bed", "bgzf", "core", "cram", "fasta", "sam", "vcf"] }
 nom = "8.0.0"
-noodles-vcf = "0.79.0"
-noodles-fasta = "0.54.0"
-noodles-core = "0.17.0"
 futures = "0.3.31"
-noodles-bam = { version = "0.81.0", features = ["async"] }
-noodles-sam = "0.77.0"
-noodles-bgzf = "0.41.0"
 
 [dev-dependencies]
 rstest = "0.25.0"
