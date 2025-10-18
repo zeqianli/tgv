@@ -3,9 +3,11 @@ use crate::message::AlignmentFilter;
 use crate::sequence::Sequence;
 // use rust_htslib::bam::{record::Seq, Read, Record};
 //
+use itertools::Itertools;
 use noodles::bam::record::{self, Cigar, Record};
 use noodles::sam::alignment::record::{
     cigar::{op::Kind, Op},
+    data::field::tag::Tag,
     Cigar as CigarTrait, Flags,
 };
 use std::collections::HashMap;
@@ -343,7 +345,7 @@ impl AlignedRead {
     pub fn from_bam_record(
         read_index: usize,
         read: Record,
-        //reference_sequence: &Sequence,
+        reference_sequence: &Sequence,
     ) -> Result<Self, TGVError> {
         let read_start = read.alignment_start().unwrap().unwrap().get();
         let cigars: Cigar = read.cigar();
@@ -377,6 +379,7 @@ impl AlignedRead {
             &cigars,
             &read.sequence(),
             flags.is_reverse_complemented(),
+            reference_sequence,
         )?;
 
         Ok(Self {
@@ -400,7 +403,7 @@ pub fn calculate_rendering_contexts(
     cigars: &Vec<Op>,
     seq: &record::Sequence,
     is_reverse: bool,
-    // reference_sequence: &Sequence,
+    reference_sequence: &Sequence,
 ) -> Result<Vec<RenderingContext>, TGVError> {
     let mut output: Vec<RenderingContext> = Vec::new();
     if cigars.is_empty() {
@@ -524,9 +527,30 @@ pub fn calculate_rendering_contexts(
             Kind::Match => {
                 // M
                 // check reference sequence for mismatches
+                // FEAT:
+                // Parse base mismatches from the MD field: https://samtools.github.io/hts-specs/SAMtags.pdf#page=3
 
-                let modifiers = Vec::new(); // TODO
-
+                let modifiers: Vec<RenderingContextModifier> = (0..l)
+                    .filter_map(|i| {
+                        let reference_position = reference_pivot + i as usize;
+                        if let Some(reference_base) = reference_sequence.base_at(reference_position)
+                        // convert to 1-based
+                        {
+                            let query_position = reference_pivot + i as usize;
+                            let query_base = seq.get(query_pivot + i as usize - 1).unwrap();
+                            if !matches_base(query_base, reference_base) {
+                                Some(RenderingContextModifier::Mismatch(
+                                    query_position,
+                                    query_base,
+                                ))
+                            } else {
+                                None
+                            }
+                        } else {
+                            None
+                        }
+                    })
+                    .collect_vec();
                 new_contexts.push(RenderingContext {
                     start: reference_pivot,
                     end: next_reference_pivot - 1,
@@ -1085,7 +1109,7 @@ mod tests {
             &cigars,
             &record.sequence(),
             is_reverse,
-            //&reference_sequence,
+            &reference_sequence,
         )
         .unwrap();
 

@@ -95,7 +95,7 @@ impl AlignmentRepository for BamRepository {
     async fn read_alignment(
         &mut self,
         region: &Region,
-        sequence: &Sequence,
+        reference_sequence: &Sequence,
         contig_header: &ContigHeader,
     ) -> Result<Alignment, TGVError> {
         use futures::TryStreamExt;
@@ -109,12 +109,16 @@ impl AlignmentRepository for BamRepository {
                 let mut records = Vec::new();
                 let mut index = 0;
                 while let Some(record) = query.try_next().await? {
-                    records.push(AlignedRead::from_bam_record(index, record)?);
+                    records.push(AlignedRead::from_bam_record(
+                        index,
+                        record,
+                        reference_sequence,
+                    )?);
                     index += 1;
                 }
-                Alignment::from_aligned_reads(records, region, sequence)
+                Alignment::from_aligned_reads(records, region, reference_sequence)
             }
-            None => Alignment::from_aligned_reads(Vec::new(), region, sequence),
+            None => Alignment::from_aligned_reads(Vec::new(), region, reference_sequence),
         }
     }
 
