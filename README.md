@@ -18,7 +18,7 @@
 # Browse the hg38 human genome (internet needed)
 tgv
 
-# Or your favorite genome (see `tgv --list` or `tgv --list-more`)
+# Or your favorite genome (see `tgv list` or `tgv list --more`)
 tgv -g cat 
 ```
 
