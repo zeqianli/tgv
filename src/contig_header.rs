@@ -148,31 +148,16 @@ impl Contig {
         })
     }
 
-    pub fn get_alignment_name(&self) -> Result<&String, TGVError> {
+    pub fn get_alignment_name(&self) -> Option<&String> {
         self.get_name_by_source_index(&self.alignment_name_index)
-            .ok_or(TGVError::StateError(format!(
-                "Contig {} (aliases = {}) is not found in the BAM header. ",
-                self.name,
-                self.aliases.join(",")
-            )))
     }
 
-    pub fn get_sequence_name(&self) -> Result<&String, TGVError> {
+    pub fn get_sequence_name(&self) -> Option<&String> {
         self.get_name_by_source_index(&self.sequence_name_index)
-            .ok_or(TGVError::StateError(format!(
-                "Contig {} (aliases = {}) is not found in the BAM header. ",
-                self.name,
-                self.aliases.join(",")
-            )))
     }
 
-    pub fn get_track_name(&self) -> Result<&String, TGVError> {
+    pub fn get_track_name(&self) -> Option<&String> {
         self.get_name_by_source_index(&self.track_name_index)
-            .ok_or(TGVError::StateError(format!(
-                "Contig {} (aliases = {}) is not found in the BAM header. ",
-                self.name,
-                self.aliases.join(",")
-            )))
     }
 }
 
@@ -263,25 +248,11 @@ impl ContigHeader {
         self.contigs.get(index)
     }
 
-    pub fn get_name(&self, index: usize) -> Result<&String, TGVError> {
+    pub fn try_get_name(&self, index: usize) -> Result<&String, TGVError> {
         Ok(&self.try_get(index)?.name)
     }
 
-    pub fn get_index(&self, contig: &Contig) -> Option<usize> {
-        if let Some(index) = self.contig_lookup.get(&contig.name) {
-            return Some(*index);
-        }
-
-        for alias in contig.aliases.iter() {
-            if let Some(index) = self.contig_lookup.get(alias) {
-                return Some(*index);
-            }
-        }
-
-        None
-    }
-
-    pub fn get_index_by_str(&self, contig_name: &str) -> Result<usize, TGVError> {
+    pub fn try_get_index_by_str(&self, contig_name: &str) -> Result<usize, TGVError> {
         self.contig_lookup
             .get(contig_name)
             .cloned()
@@ -291,13 +262,7 @@ impl ContigHeader {
             )))
     }
 
-    pub fn get_contig_by_str(&self, contig_name: &str) -> Option<&Contig> {
-        self.contig_lookup
-            .get(contig_name)
-            .map(|index| &self.contigs[*index])
-    }
-
-    pub fn update_cytoband(
+    pub fn try_update_cytoband(
         &mut self,
         contig_index: usize,
         cytoband: Option<Cytoband>,
@@ -324,6 +289,14 @@ impl ContigHeader {
         let contig_index = self.contig_lookup.get(&name).cloned().unwrap_or({
             // add a new contig
             self.contigs.push(Contig::new(&name, length));
+            self.contig_lookup
+                .insert(name.clone(), self.contigs.len() - 1);
+
+            aliases.iter().for_each(|alias| {
+                self.contig_lookup
+                    .insert(alias.clone(), self.contigs.len() - 1);
+            });
+
             self.contigs.len() - 1
         });
 
@@ -355,61 +328,6 @@ impl ContigHeader {
         contig_index
     }
 
-    /// If a contig exists (found either through aliases or the main name), do nothing.
-    /// Else, add a new contig.
-    /// FIXME: this does not update contig length or add alias.
-    /// Returns:
-    ///    contig with index i
-    // pub fn update_or_add_contig(&mut self, contig: Contig) -> usize {
-    //     // TODO: this causes problems when the aliases have repeats.
-    //     self.get_index(&contig).unwrap_or({
-    //         self.contig_lookup
-    //             .insert(contig.name.clone(), self.contigs.len());
-    //         for alias in contig.aliases.iter() {
-    //             self.contig_lookup.insert(alias.clone(), self.contigs.len());
-    //         }
-    //         self.contigs.push(contig);
-    //         self.bam_contig_str.push(None);
-    //         self.contigs.len() - 1
-    //     })
-    // }
-
-    // pub fn update_from_bam(
-    //     &mut self,
-    //     bam: &AlignmentRepositoryEnum,
-    //     reference: &Reference,
-    // ) -> Result<(), TGVError> {
-    //     bam.read_header()?
-    //         .into_iter()
-    //         .for_each(|(contig_name, contig_length)| {
-    //             let index = self.update_or_add_contig(Contig::new(&contig_name, contig_length));
-
-    //             // check
-
-    //             self.bam_contig_str[index] = if contig_name == self.contigs[index].name {
-    //                 Some(None)
-    //             } else {
-    //                 Some(
-    //                     self.contigs[index]
-    //                         .aliases
-    //                         .iter()
-    //                         .position(|x| *x == contig_name),
-    //                 )
-    //             };
-    //         });
-
-    //     Ok(())
-    // }
-
-    pub fn contains(&self, contig: &Contig) -> bool {
-        self.get_index(contig).is_some()
-    }
-
-    pub fn length(&self, contig: &Contig) -> Option<usize> {
-        let index = self.get_index(contig)?;
-        self.contigs[index].length
-    }
-
     pub fn next(&self, contig_index: &usize, k: usize) -> usize {
         (contig_index + k) % self.contigs.len() // TODO: bound check
     }
@@ -417,10 +335,6 @@ impl ContigHeader {
     pub fn previous(&self, contig_index: &usize, k: usize) -> usize {
         (contig_index + self.contigs.len() - k % self.contigs.len()) % self.contigs.len()
         // TODO: bound check
-    }
-
-    pub fn cytoband(&self, contig_index: usize) -> Option<&Cytoband> {
-        self.try_get(contig_index).unwrap().cytoband.as_ref() // TODO: bound check
     }
 
     pub fn cytoband_is_loaded(&self, contig_index: usize) -> Result<bool, TGVError> {

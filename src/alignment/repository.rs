@@ -9,8 +9,11 @@ use crate::{
 
 use async_compat::Compat;
 use itertools::Itertools;
-use noodles::bam::{self, bai};
 use noodles::sam::{self, Header};
+use noodles::{
+    bam::{self, bai},
+    vcf::header::record::value::map::contig,
+};
 use opendal::{services, FuturesAsyncReader, Operator};
 use std::path::Path;
 use tokio::fs::File;
@@ -214,7 +217,10 @@ impl AlignmentRepositoryEnum {
     ) -> Result<Alignment, TGVError> {
         use futures::TryStreamExt;
 
-        match region.to_bam_region_str(contig_header) {
+        match contig_header
+            .try_get(region.contig_index)?
+            .get_alignment_name()
+        {
             Some(region_str) => {
                 let mut records = Vec::new();
                 let mut index = 0;

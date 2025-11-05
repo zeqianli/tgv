@@ -84,7 +84,7 @@ impl UcscGeneRow {
             id: self.name.clone(),
             name: self.name2.unwrap_or(self.name.clone()),
             strand: Strand::from_str(self.strand)?,
-            contig_index: contig_header.get_index_by_str(&self.chrom)?,
+            contig_index: contig_header.try_get_index_by_str(&self.chrom)?,
             transcription_start: self.txStart as usize + 1,
             transcription_end: self.txEnd as usize,
             cds_start: self.cdsStart as usize + 1,
@@ -368,7 +368,7 @@ pub struct UcscApiListGeneResponse {
 ///         "clade": "primates"
 ///       }
 ///     },
-///     
+///
 ///   }
 #[derive(Debug, Clone, Deserialize)]
 #[allow(non_snake_case)]

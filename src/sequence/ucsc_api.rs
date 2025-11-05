@@ -41,7 +41,7 @@ impl UCSCApiSequenceRepository {
         end: usize,
         contig_header: &ContigHeader,
     ) -> Result<String, TGVError> {
-        let contig_name = contig_header.get_name(*contig_index)?;
+        let contig_name = contig_header.try_get_name(*contig_index)?;
         match &self.reference {
             Reference::Hg19 | Reference::Hg38 | Reference::UcscGenome(_) => Ok(format!(
                 "https://api.genome.ucsc.edu/getData/sequence?genome={};chrom={};start={};end={}",

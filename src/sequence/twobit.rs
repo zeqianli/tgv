@@ -1,4 +1,4 @@
-use crate::contig_header::{Contig, ContigHeader};
+use crate::contig_header::{Contig, ContigHeader, ContigSource};
 use crate::error::TGVError;
 use crate::intervals::Region;
 use crate::reference::Reference;
@@ -41,8 +41,12 @@ impl TwoBitSequenceRepository {
             .into_iter()
             .zip(tb.chrom_sizes().into_iter())
             .for_each(|(chrom_name, chrom_size)| {
-                let index =
-                    contig_header.update_or_add_contig(Contig::new(&chrom_name, Some(chrom_size)));
+                let index = contig_header.update_or_add_contig(
+                    chrom_name,
+                    Some(chrom_size),
+                    Vec::new(),
+                    ContigSource::Sequence,
+                );
 
                 self.contig_to_buffer_index.insert(index, buffer_index);
             });
@@ -60,7 +64,7 @@ impl SequenceRepository for TwoBitSequenceRepository {
 
         contig_header: &ContigHeader,
     ) -> Result<Sequence, TGVError> {
-        let contig_name = contig_header.get_name(region.contig_index)?;
+        let contig_name = contig_header.try_get_name(region.contig_index)?;
 
         match self.contig_to_buffer_index.get(&region.contig_index) {
             Some(buffer_index) => {

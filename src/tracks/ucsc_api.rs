@@ -50,7 +50,7 @@ impl UcscApiTrackService {
             return Ok(());
         }
 
-        let contig_name = contig_header.get_name(contig_index)?;
+        let contig_name = contig_header.try_get_name(contig_index)?;
 
         let preferred_track = match &self.cache.preferred_track_name {
             None => {
@@ -204,7 +204,7 @@ impl TrackService for UcscApiTrackService {
 
         contig_header: &ContigHeader,
     ) -> Result<Option<Cytoband>, TGVError> {
-        let contig_name = contig_header.get_name(contig_index)?;
+        let contig_name = contig_header.try_get_name(contig_index)?;
         let query_url = match reference {
             Reference::Hg19 | Reference::Hg38 | Reference::UcscGenome(_) => format!(
                 "https://api.genome.ucsc.edu/getData/track?genome={}&track=cytoBandIdeo&chrom={}",

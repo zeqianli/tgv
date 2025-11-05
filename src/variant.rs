@@ -28,7 +28,7 @@ impl Variant {
         contig_header: &ContigHeader,
     ) -> Result<Self, TGVError> {
         let contig_str = record.reference_sequence_name();
-        let contig_index = contig_header.get_index_by_str(contig_str)?;
+        let contig_index = contig_header.try_get_index_by_str(contig_str)?;
 
         let start = record
             .variant_start()

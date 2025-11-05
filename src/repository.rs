@@ -1,7 +1,7 @@
 use crate::{
     alignment::AlignmentRepositoryEnum,
     bed::BEDIntervals,
-    contig_header::ContigHeader,
+    contig_header::{ContigHeader, ContigSource},
     error::TGVError,
     reference::Reference,
     sequence::{SequenceRepository, SequenceRepositoryEnum},
@@ -49,7 +49,12 @@ impl Repository {
                     .await?
                     .into_iter()
                     .for_each(|contig| {
-                        contig_header.update_or_add_contig(contig);
+                        contig_header.update_or_add_contig(
+                            contig.name,
+                            contig.length,
+                            contig.aliases,
+                            ContigSource::Track,
+                        );
                     });
 
                 if let Some(SequenceRepositoryEnum::TwoBit(twobit_sr)) = sequence_service.as_mut() {
@@ -81,7 +86,12 @@ impl Repository {
                         .await?
                         .into_iter()
                         .for_each(|contig| {
-                            contig_header.update_or_add_contig(contig);
+                            contig_header.update_or_add_contig(
+                                contig.name,
+                                contig.length,
+                                contig.aliases,
+                                ContigSource::Sequence,
+                            );
                         });
                 } else {
                     unreachable!()
@@ -101,7 +111,14 @@ impl Repository {
         // FIXME
         // Warning when the reference contig is not present in the BAM header.
         if let Some(bam) = alignment_repository.as_ref() {
-            contig_header.update_from_bam(bam, &settings.reference)?
+            bam.read_header()?.into_iter().for_each(|(name, length)| {
+                contig_header.update_or_add_contig(
+                    name,
+                    length,
+                    Vec::new(),
+                    ContigSource::Alignment,
+                );
+            })
         }
 
         let variant_repository = match &settings.vcf_path {

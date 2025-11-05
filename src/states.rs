@@ -90,11 +90,15 @@ impl State {
     }
 
     pub fn contig_name(&self) -> Result<&String, TGVError> {
-        self.contig_header.get_name(self.contig_index())
+        self.contig_header.try_get_name(self.contig_index())
     }
 
     pub fn current_cytoband(&self) -> Option<&Cytoband> {
-        self.contig_header.cytoband(self.contig_index())
+        self.contig_header
+            .try_get(self.contig_index())
+            .unwrap()
+            .cytoband
+            .as_ref()
     }
 
     /// Maximum length of the contig.
@@ -193,7 +197,7 @@ impl StateHandler {
             Message::GotoContigNameCoordinate(contig_str, n) => {
                 StateHandler::go_to_contig_coordinate(
                     state,
-                    state.contig_header.get_index_by_str(&contig_str)?,
+                    state.contig_header.try_get_index_by_str(&contig_str)?,
                     n,
                 )?
             }
@@ -909,7 +913,7 @@ impl StateHandler {
                         .await?;
                     state
                         .contig_header
-                        .update_cytoband(contig_index, cytoband)?;
+                        .try_update_cytoband(contig_index, cytoband)?;
                     loaded_data = true;
                 }
             }

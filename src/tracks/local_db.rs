@@ -111,7 +111,7 @@ impl LocalDbTrackService {
                 )
             };
 
-            filename_hashmap.insert(contig_header.get_index_by_str(&chrom)?, basename);
+            filename_hashmap.insert(contig_header.try_get_index_by_str(&chrom)?, basename);
         }
 
         Ok(filename_hashmap)
@@ -175,7 +175,7 @@ impl TrackService for LocalDbTrackService {
         contig_index: usize,
         contig_header: &ContigHeader,
     ) -> Result<Option<Cytoband>, TGVError> {
-        let contig_name = contig_header.get_name(contig_index)?;
+        let contig_name = contig_header.try_get_name(contig_index)?;
         let cytoband_segment_rows: Vec<CytobandSegmentRow> = sqlx::query_as(
             "SELECT chrom, chromStart, chromEnd, name, gieStain FROM cytoBandIdeo WHERE chrom = ?",
         )
@@ -233,7 +233,7 @@ impl TrackService for LocalDbTrackService {
 
         contig_header: &ContigHeader,
     ) -> Result<Vec<Gene>, TGVError> {
-        let contig_name = contig_header.get_name(region.contig_index())?;
+        let contig_name = contig_header.try_get_name(region.contig_index())?;
         let rows: Vec<UcscGeneRow> = sqlx::query_as(
             format!(
                 "SELECT * FROM {}
@@ -261,7 +261,7 @@ impl TrackService for LocalDbTrackService {
 
         contig_header: &ContigHeader,
     ) -> Result<Option<Gene>, TGVError> {
-        let contig_name = contig_header.get_name(contig_index)?;
+        let contig_name = contig_header.try_get_name(contig_index)?;
         let gene_row: Option<UcscGeneRow> = sqlx::query_as(
             format!(
                 "SELECT *
@@ -317,7 +317,7 @@ impl TrackService for LocalDbTrackService {
 
         contig_header: &ContigHeader,
     ) -> Result<Gene, TGVError> {
-        let contig_name = contig_header.get_name(contig_index)?;
+        let contig_name = contig_header.try_get_name(contig_index)?;
         if k == 0 {
             return Err(TGVError::ValueError("k cannot be 0".to_string()));
         }
@@ -353,7 +353,7 @@ impl TrackService for LocalDbTrackService {
 
         contig_header: &ContigHeader,
     ) -> Result<Gene, TGVError> {
-        let contig_name = contig_header.get_name(contig_index)?;
+        let contig_name = contig_header.try_get_name(contig_index)?;
         if k == 0 {
             return Err(TGVError::ValueError("k cannot be 0".to_string()));
         }
@@ -389,7 +389,7 @@ impl TrackService for LocalDbTrackService {
 
         contig_header: &ContigHeader,
     ) -> Result<SubGeneFeature, TGVError> {
-        let contig_name = contig_header.get_name(contig_index)?;
+        let contig_name = contig_header.try_get_name(contig_index)?;
         if k == 0 {
             return Err(TGVError::ValueError("k cannot be 0".to_string()));
         }
@@ -424,7 +424,7 @@ impl TrackService for LocalDbTrackService {
 
         contig_header: &ContigHeader,
     ) -> Result<SubGeneFeature, TGVError> {
-        let contig_name = contig_header.get_name(contig_index)?;
+        let contig_name = contig_header.try_get_name(contig_index)?;
         if k == 0 {
             return Err(TGVError::ValueError("k cannot be 0".to_string()));
         }
