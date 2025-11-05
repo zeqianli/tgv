@@ -9,57 +9,11 @@ use crate::{
 
 use async_compat::Compat;
 use itertools::Itertools;
+use noodles::bam::{self, bai};
 use noodles::sam::{self, Header};
-use noodles::{
-    bam::{self, bai},
-    vcf::header::record::value::map::contig,
-};
 use opendal::{services, FuturesAsyncReader, Operator};
 use std::path::Path;
 use tokio::fs::File;
-use tokio_util::{bytes::Bytes, io::StreamReader};
-use url::Url;
-
-// #[derive(Debug)]
-// enum RemoteSource {
-//     S3,
-//     HTTP,
-//     GS,
-// }
-
-// impl RemoteSource {
-//     fn from(path: &str) -> Result<Self, TGVError> {
-//         if path.starts_with("s3://") {
-//             Ok(Self::S3)
-//         } else if path.starts_with("http://") || path.starts_with("https://") {
-//             Ok(Self::HTTP)
-//         } else if path.starts_with("gss://") {
-//             Ok(Self::GS)
-//         } else {
-//             Err(TGVError::ValueError(format!(
-//                 "Unsupported remote path {}. Only S3, HTTP/HTTPS, and GS are supported.",
-//                 path
-//             )))
-//         }
-//     }
-// }
-
-// pub trait AlignmentRepository {
-
-//     fn index(&self) -> &bai::Index;
-
-//     fn header(&self) -> &Header;
-
-// async fn read_alignment(
-//     &mut self,
-//     region: &Region,
-//     sequence: &Sequence,
-//     contig_header: &ContigHeader,
-// ) -> Result<Alignment, TGVError>;
-
-// fn read_header(&self) -> Result<Vec<(String, Option<usize>)>, TGVError>;
-
-//}
 
 pub struct BamRepository {
     bam_path: String,
@@ -100,11 +54,6 @@ impl BamRepository {
         })
     }
 }
-
-// impl AlignmentRepository for BamRepository {
-//     /// Read an alignment from a BAM file.
-
-// }
 
 pub struct RemoteBamRepository {
     bam_path: String,
@@ -164,10 +113,15 @@ impl RemoteBamRepository {
         let builder = services::S3::default().bucket(bucket);
 
         let operator = Operator::new(builder)?.finish();
-        let stream = operator.reader(name).await?.into_bytes_stream(..).await?;
+        let future_reader = operator
+            .reader(name)
+            .await?
+            .into_futures_async_read(..)
+            .await?;
 
-        let inner = StreamReader::new(stream);
-        let mut reader = bai::r#async::io::Reader::new(inner);
+        let tokio_reader = Compat::new(future_reader);
+
+        let mut reader = bai::r#async::io::Reader::new(tokio_reader);
 
         Ok(reader.read_index().await?)
     }
