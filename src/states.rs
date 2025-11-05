@@ -90,7 +90,9 @@ impl State {
     }
 
     pub fn contig_name(&self) -> Result<&String, TGVError> {
-        self.contig_header.try_get_name(self.contig_index())
+        self.contig_header
+            .try_get(self.contig_index())
+            .map(|contig| &contig.name)
     }
 
     pub fn current_cytoband(&self) -> Option<&Cytoband> {

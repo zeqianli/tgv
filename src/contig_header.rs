@@ -248,10 +248,6 @@ impl ContigHeader {
         self.contigs.get(index)
     }
 
-    pub fn try_get_name(&self, index: usize) -> Result<&String, TGVError> {
-        Ok(&self.try_get(index)?.name)
-    }
-
     pub fn try_get_index_by_str(&self, contig_name: &str) -> Result<usize, TGVError> {
         self.contig_lookup
             .get(contig_name)
@@ -288,14 +284,14 @@ impl ContigHeader {
     ) -> usize {
         let contig_index = self.contig_lookup.get(&name).cloned().unwrap_or({
             // add a new contig
-            self.contigs.push(Contig::new(&name, length));
-            self.contig_lookup
-                .insert(name.clone(), self.contigs.len() - 1);
+            let contig = Contig::new(&name, length);
 
-            aliases.iter().for_each(|alias| {
-                self.contig_lookup
-                    .insert(alias.clone(), self.contigs.len() - 1);
+            self.contig_lookup.insert(name.clone(), self.contigs.len());
+
+            contig.aliases.iter().for_each(|alias| {
+                self.contig_lookup.insert(alias.clone(), self.contigs.len());
             });
+            self.contigs.push(contig);
 
             self.contigs.len() - 1
         });
@@ -309,6 +305,7 @@ impl ContigHeader {
         aliases.into_iter().for_each(|alias| {
             if !contig.aliases.contains(&alias) {
                 contig.add_alias(&alias);
+                self.contig_lookup.insert(alias.clone(), contig_index);
             }
         });
 

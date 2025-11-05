@@ -11,6 +11,7 @@ use crate::{
     tracks::schema::*,
 };
 use async_trait::async_trait;
+use noodles::vcf::header::record::value::map::contig;
 use reqwest::Client;
 
 // TODO: improved pattern:
@@ -42,15 +43,12 @@ impl UcscApiTrackService {
     pub async fn query_track_if_not_cached(
         &mut self,
         reference: &Reference,
+        contig_name: &str,
         contig_index: usize,
-
-        contig_header: &ContigHeader,
     ) -> Result<(), TGVError> {
         if self.cache.contig_quried(&contig_index) {
             return Ok(());
         }
-
-        let contig_name = contig_header.try_get_name(contig_index)?;
 
         let preferred_track = match &self.cache.preferred_track_name {
             None => {
@@ -204,7 +202,10 @@ impl TrackService for UcscApiTrackService {
 
         contig_header: &ContigHeader,
     ) -> Result<Option<Cytoband>, TGVError> {
-        let contig_name = contig_header.try_get_name(contig_index)?;
+        let contig_name = match contig_header.try_get(contig_index)?.get_track_name() {
+            Some(contig_name) => contig_name,
+            None => return Ok(None), // contig not included in the UCSC API
+        };
         let query_url = match reference {
             Reference::Hg19 | Reference::Hg38 | Reference::UcscGenome(_) => format!(
                 "https://api.genome.ucsc.edu/getData/track?genome={}&track=cytoBandIdeo&chrom={}",
@@ -303,10 +304,16 @@ impl TrackService for UcscApiTrackService {
         &mut self,
         reference: &Reference,
         region: &Region,
-
         contig_header: &ContigHeader,
     ) -> Result<Vec<Gene>, TGVError> {
-        self.query_track_if_not_cached(reference, region.contig_index(), contig_header)
+        let contig_name = match contig_header
+            .try_get(region.contig_index())?
+            .get_track_name()
+        {
+            Some(contig_name) => contig_name,
+            None => return Ok(Vec::new()), // Contig doesn't have track data
+        };
+        self.query_track_if_not_cached(reference, contig_name, region.contig_index())
             .await?;
 
         // TODO: now I don't really handle empty query results
@@ -333,7 +340,11 @@ impl TrackService for UcscApiTrackService {
 
         contig_header: &ContigHeader,
     ) -> Result<Option<Gene>, TGVError> {
-        self.query_track_if_not_cached(reference, contig_index, contig_header)
+        let contig_name = match contig_header.try_get(contig_index)?.get_track_name() {
+            Some(contig_name) => contig_name,
+            None => return Ok(None), // Contig doesn't have track data
+        };
+        self.query_track_if_not_cached(reference, contig_name, contig_index)
             .await?;
 
         Ok(self
@@ -356,12 +367,14 @@ impl TrackService for UcscApiTrackService {
     ) -> Result<Gene, TGVError> {
         if !self.cache.gene_quried(gene_name) {
             // query all possible tracks until the gene is found
-            for contig_index in 0..contig_header.contigs.len() {
-                self.query_track_if_not_cached(reference, contig_index, contig_header)
-                    .await?;
+            for (contig_index, contig) in contig_header.contigs.iter().enumerate() {
+                if let Some(contig_name) = contig.get_track_name() {
+                    self.query_track_if_not_cached(reference, contig_name, contig_index)
+                        .await?;
 
-                if let Some(gene) = self.cache.get_gene(gene_name) {
-                    return Ok(gene.clone());
+                    if let Some(gene) = self.cache.get_gene(gene_name) {
+                        return Ok(gene.clone());
+                    }
                 }
             }
         }
@@ -377,7 +390,18 @@ impl TrackService for UcscApiTrackService {
         k: usize,
         contig_header: &ContigHeader,
     ) -> Result<Gene, TGVError> {
-        self.query_track_if_not_cached(reference, contig_index, contig_header)
+        let contig_name = match contig_header.try_get(contig_index)?.get_track_name() {
+            Some(contig_name) => contig_name,
+            None => {
+                return Err(TGVError::StateError(format!(
+                    "Contig {} (index = {}, aliases = {}) does not have track data.",
+                    contig_header.contigs[contig_index].name,
+                    contig_index,
+                    contig_header.contigs[contig_index].aliases.join(",")
+                )))
+            }
+        };
+        self.query_track_if_not_cached(reference, contig_name, contig_index)
             .await?;
 
         self.cache
@@ -401,7 +425,18 @@ impl TrackService for UcscApiTrackService {
 
         contig_header: &ContigHeader,
     ) -> Result<Gene, TGVError> {
-        self.query_track_if_not_cached(reference, contig_index, contig_header)
+        let contig_name = match contig_header.try_get(contig_index)?.get_track_name() {
+            Some(contig_name) => contig_name,
+            None => {
+                return Err(TGVError::StateError(format!(
+                    "Contig {} (index = {}, aliases = {}) does not have track data.",
+                    contig_header.contigs[contig_index].name,
+                    contig_index,
+                    contig_header.contigs[contig_index].aliases.join(",")
+                )))
+            }
+        };
+        self.query_track_if_not_cached(reference, contig_name, contig_index)
             .await?;
 
         self.cache
@@ -425,7 +460,18 @@ impl TrackService for UcscApiTrackService {
 
         contig_header: &ContigHeader,
     ) -> Result<SubGeneFeature, TGVError> {
-        self.query_track_if_not_cached(reference, contig_index, contig_header)
+        let contig_name = match contig_header.try_get(contig_index)?.get_track_name() {
+            Some(contig_name) => contig_name,
+            None => {
+                return Err(TGVError::StateError(format!(
+                    "Contig {} (index = {}, aliases = {}) does not have track data.",
+                    contig_header.contigs[contig_index].name,
+                    contig_index,
+                    contig_header.contigs[contig_index].aliases.join(",")
+                )))
+            }
+        };
+        self.query_track_if_not_cached(reference, contig_name, contig_index)
             .await?;
 
         self.cache
@@ -448,7 +494,18 @@ impl TrackService for UcscApiTrackService {
 
         contig_header: &ContigHeader,
     ) -> Result<SubGeneFeature, TGVError> {
-        self.query_track_if_not_cached(reference, contig_index, contig_header)
+        let contig_name = match contig_header.try_get(contig_index)?.get_track_name() {
+            Some(contig_name) => contig_name,
+            None => {
+                return Err(TGVError::StateError(format!(
+                    "Contig {} (index = {}, aliases = {}) does not have track data.",
+                    contig_header.contigs[contig_index].name,
+                    contig_index,
+                    contig_header.contigs[contig_index].aliases.join(",")
+                )))
+            }
+        };
+        self.query_track_if_not_cached(reference, contig_name, contig_index)
             .await?;
 
         self.cache

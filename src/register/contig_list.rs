@@ -63,7 +63,7 @@ impl KeyRegister for ContigListModeRegister {
             }
 
             KeyCode::Char('{') => {
-                self.cursor_position = self.cursor_position.saturating_sub(1);
+                self.cursor_position = self.cursor_position.saturating_sub(30);
                 Ok(vec![])
             }
             _ => Ok(vec![]),

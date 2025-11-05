@@ -36,12 +36,10 @@ impl UCSCApiSequenceRepository {
     /// start / end: 1-based, inclusive.
     async fn get_api_url(
         &mut self,
-        contig_index: &usize,
+        contig_name: &str,
         start: usize,
         end: usize,
-        contig_header: &ContigHeader,
     ) -> Result<String, TGVError> {
-        let contig_name = contig_header.try_get_name(*contig_index)?;
         match &self.reference {
             Reference::Hg19 | Reference::Hg38 | Reference::UcscGenome(_) => Ok(format!(
                 "https://api.genome.ucsc.edu/getData/sequence?genome={};chrom={};start={};end={}",
