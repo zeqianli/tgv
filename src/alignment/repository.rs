@@ -11,8 +11,10 @@ use crate::{
 use itertools::Itertools;
 use noodles::bam::{self, bai};
 use noodles::sam::{self, Header};
+use opendal::{services, Operator};
 use std::path::Path;
 use tokio::fs::File;
+use tokio_util::io::StreamReader;
 use url::Url;
 
 #[derive(Debug)]
@@ -140,14 +142,31 @@ impl AlignmentRepository for BamRepository {
 #[derive(Debug)]
 pub struct RemoteBamRepository {
     bam_path: String,
-    source: RemoteSource,
+    // source: RemoteSource,
 }
 
 impl RemoteBamRepository {
-    pub fn new(bam_path: &str) -> Result<Self, TGVError> {
+    pub async fn new(s3_bam_path: &str) -> Result<Self, TGVError> {
+        let (bucket, name) = s3_bam_path
+            .strip_prefix("s3://")
+            .unwrap()
+            .split_once("/")
+            .unwrap();
+
+        let builder = services::S3::default().bucket(bucket);
+
+        let operator = Operator::new(builder)?.finish();
+        let stream = operator.reader(name).await?.into_bytes_stream(..).await?;
+
+        let inner = StreamReader::new(stream);
+        let mut reader = bam::r#async::io::Reader::new(inner);
+
+        let header = reader.read_header().await?;
+
+        panic!("{:?}", header);
+
         Ok(Self {
-            bam_path: bam_path.to_string(),
-            source: RemoteSource::from(bam_path)?,
+            bam_path: s3_bam_path.to_string(),
         })
     }
 }
@@ -232,6 +251,7 @@ impl AlignmentRepositoryEnum {
             None => Ok(None),
             Some(bam_path) => {
                 if is_url(bam_path) {
+                    let s3_repository = RemoteBamRepository::new(bam_path).await?;
                     todo!();
                     // Ok(Some(AlignmentRepositoryEnum::RemoteBam(
                     //     RemoteBamRepository::new(bam_path)?,
