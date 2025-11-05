@@ -48,9 +48,9 @@ impl Repository {
                     .get_all_contigs(&settings.reference)
                     .await?
                     .into_iter()
-                    .try_for_each(|contig| {
-                        contig_header.update_or_add_contig(contig).map(|_| ())
-                    })?;
+                    .for_each(|contig| {
+                        contig_header.update_or_add_contig(contig);
+                    });
 
                 if let Some(SequenceRepositoryEnum::TwoBit(twobit_sr)) = sequence_service.as_mut() {
                     track_service
@@ -80,9 +80,9 @@ impl Repository {
                         .get_all_contigs()
                         .await?
                         .into_iter()
-                        .try_for_each(|contig| {
-                            contig_header.update_or_add_contig(contig).map(|_| ())
-                        })?;
+                        .for_each(|contig| {
+                            contig_header.update_or_add_contig(contig);
+                        });
                 } else {
                     unreachable!()
                 }

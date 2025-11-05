@@ -125,12 +125,13 @@ impl GenomeInterval for Region {
 
 impl Region {
     pub fn to_bam_region_str(&self, header: &ContigHeader) -> Option<String> {
-        header.get(self.contig_index).map(|contig| {
-            format! {
+        header.get_bam_name(self.contig_index).ok().map(|s| {
+            format!(
                 "{}:{}-{}",
-                contig.name,  // TODO: implement the bam name lookup
-                self.start, self.end
-            }
+                s, // TODO: implement the bam name lookup
+                self.start,
+                self.end
+            )
         })
     }
 }

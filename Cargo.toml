@@ -36,6 +36,8 @@ nom = "8.0.0"
 futures = "0.3.31"
 opendal = { version = "0.53.3", features = ["services-s3"] }
 tokio-util = { version = "0.7.17", features = ["io"] }
+bytes = "1.10.1"
+async-compat = "0.2.5"
 
 [dev-dependencies]
 rstest = "0.25.0"

@@ -1,13 +1,17 @@
-use crate::alignment::{AlignmentRepository, AlignmentRepositoryEnum};
 use crate::error::TGVError;
 use crate::{cytoband::Cytoband, reference::Reference};
 use std::collections::HashMap;
 use std::fmt;
 use std::fmt::Display;
 
+/// None: Contig not in the data source
+/// Some(None): Contig.name is in the data source
+/// Some(Some(i)): Contig.aliases[i] is in the data source
+type ContigNameSourceIndex = Option<Option<usize>>;
+
 #[derive(Debug, Clone)]
 pub struct Contig {
-    // name should match with the UCSC genome browser.
+    /// Name for displya
     pub name: String,
 
     /// Aliases:
@@ -18,6 +22,11 @@ pub struct Contig {
     pub cytoband: Option<Cytoband>, // Cytoband
 
     cytoband_loaded: bool, // Whether this contig's cytoband has been quried.
+
+    /// Name used for the track database query
+    track_name_index: ContigNameSourceIndex,
+    sequence_name_index: ContigNameSourceIndex,
+    alignment_name_index: ContigNameSourceIndex,
 }
 
 impl Contig {
@@ -25,14 +34,6 @@ impl Contig {
         "1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11", "12", "13", "14", "15", "16",
         "17", "18", "19", "20", "21", "22", "X", "Y", "MT",
     ];
-
-    pub fn name(&self) -> &str {
-        &self.name
-    }
-
-    pub fn length(&self) -> Option<usize> {
-        self.length
-    }
 
     pub fn new(name: &str, length: Option<usize>) -> Self {
         let mut aliases = Vec::new();
@@ -50,6 +51,10 @@ impl Contig {
             length,
             cytoband: None,
             cytoband_loaded: false,
+
+            track_name_index: None,
+            sequence_name_index: None,
+            alignment_name_index: None,
         }
     }
 
@@ -135,6 +140,40 @@ impl Contig {
 
         a_name.cmp(b_name)
     }
+
+    fn get_name_by_source_index(&self, index: &ContigNameSourceIndex) -> Option<&String> {
+        index.map(|inner| match inner {
+            None => &self.name,
+            Some(i) => &self.aliases[i],
+        })
+    }
+
+    pub fn get_alignment_name(&self) -> Result<&String, TGVError> {
+        self.get_name_by_source_index(&self.alignment_name_index)
+            .ok_or(TGVError::StateError(format!(
+                "Contig {} (aliases = {}) is not found in the BAM header. ",
+                self.name,
+                self.aliases.join(",")
+            )))
+    }
+
+    pub fn get_sequence_name(&self) -> Result<&String, TGVError> {
+        self.get_name_by_source_index(&self.sequence_name_index)
+            .ok_or(TGVError::StateError(format!(
+                "Contig {} (aliases = {}) is not found in the BAM header. ",
+                self.name,
+                self.aliases.join(",")
+            )))
+    }
+
+    pub fn get_track_name(&self) -> Result<&String, TGVError> {
+        self.get_name_by_source_index(&self.track_name_index)
+            .ok_or(TGVError::StateError(format!(
+                "Contig {} (aliases = {}) is not found in the BAM header. ",
+                self.name,
+                self.aliases.join(",")
+            )))
+    }
 }
 
 impl Eq for Contig {}
@@ -165,6 +204,12 @@ impl PartialEq for Contig {
 
         false
     }
+}
+
+pub enum ContigSource {
+    Sequence,
+    Alignment,
+    Track,
 }
 
 /// A collection of contigs. This helps relative contig movements.
@@ -269,36 +314,92 @@ impl ContigHeader {
         Ok(())
     }
 
-    pub fn update_or_add_contig(&mut self, contig: Contig) -> Result<usize, TGVError> {
-        // TODO: this causes problems when the aliases have repeats.
-        let index = match self.get_index(&contig) {
-            None => {
-                self.contig_lookup
-                    .insert(contig.name.clone(), self.contigs.len());
-                for alias in contig.aliases.iter() {
-                    self.contig_lookup.insert(alias.clone(), self.contigs.len());
-                }
-                self.contigs.push(contig);
-                self.contigs.len() - 1
+    pub fn update_or_add_contig(
+        &mut self,
+        name: String,
+        length: Option<usize>,
+        aliases: Vec<String>,
+        source: ContigSource,
+    ) -> usize {
+        let contig_index = self.contig_lookup.get(&name).cloned().unwrap_or({
+            // add a new contig
+            self.contigs.push(Contig::new(&name, length));
+            self.contigs.len() - 1
+        });
+
+        let contig = &mut self.contigs[contig_index];
+
+        if length.is_some() {
+            contig.length = length
+        }
+
+        aliases.into_iter().for_each(|alias| {
+            if !contig.aliases.contains(&alias) {
+                contig.add_alias(&alias);
             }
-            Some(index) => index,
+        });
+
+        let source_index = if &name == &contig.name {
+            None
+        } else {
+            contig.aliases.iter().position(|x| x == &name)
         };
 
-        Ok(index)
+        match source {
+            ContigSource::Alignment => contig.alignment_name_index = Some(source_index),
+            ContigSource::Sequence => contig.sequence_name_index = Some(source_index),
+
+            ContigSource::Track => contig.track_name_index = Some(source_index),
+        }
+
+        contig_index
     }
 
-    pub fn update_from_bam(
-        &mut self,
-        bam: &AlignmentRepositoryEnum,
-        reference: &Reference,
-    ) -> Result<(), TGVError> {
-        bam.read_header()?
-            .into_iter()
-            .try_for_each(|(contig_name, contig_length)| {
-                self.update_or_add_contig(Contig::new(&contig_name, contig_length))
-                    .map(|_| ())
-            })
-    }
+    /// If a contig exists (found either through aliases or the main name), do nothing.
+    /// Else, add a new contig.
+    /// FIXME: this does not update contig length or add alias.
+    /// Returns:
+    ///    contig with index i
+    // pub fn update_or_add_contig(&mut self, contig: Contig) -> usize {
+    //     // TODO: this causes problems when the aliases have repeats.
+    //     self.get_index(&contig).unwrap_or({
+    //         self.contig_lookup
+    //             .insert(contig.name.clone(), self.contigs.len());
+    //         for alias in contig.aliases.iter() {
+    //             self.contig_lookup.insert(alias.clone(), self.contigs.len());
+    //         }
+    //         self.contigs.push(contig);
+    //         self.bam_contig_str.push(None);
+    //         self.contigs.len() - 1
+    //     })
+    // }
+
+    // pub fn update_from_bam(
+    //     &mut self,
+    //     bam: &AlignmentRepositoryEnum,
+    //     reference: &Reference,
+    // ) -> Result<(), TGVError> {
+    //     bam.read_header()?
+    //         .into_iter()
+    //         .for_each(|(contig_name, contig_length)| {
+    //             let index = self.update_or_add_contig(Contig::new(&contig_name, contig_length));
+
+    //             // check
+
+    //             self.bam_contig_str[index] = if contig_name == self.contigs[index].name {
+    //                 Some(None)
+    //             } else {
+    //                 Some(
+    //                     self.contigs[index]
+    //                         .aliases
+    //                         .iter()
+    //                         .position(|x| *x == contig_name),
+    //                 )
+    //             };
+    //         });
+
+    //     Ok(())
+    // }
 
     pub fn contains(&self, contig: &Contig) -> bool {
         self.get_index(contig).is_some()

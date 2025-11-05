@@ -162,7 +162,7 @@ impl TrackService for LocalDbTrackService {
             if a.name.starts_with("chr") || b.name.starts_with("chr") {
                 Contig::contigs_compare(a, b)
             } else {
-                b.length().cmp(&a.length()) // Sort by length in descending order
+                b.length.cmp(&a.length) // Sort by length in descending order
             }
         });
 

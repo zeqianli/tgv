@@ -1,7 +1,7 @@
 use crate::settings::Settings;
 use crate::tracks::TrackService;
 use crate::{
-    alignment::{Alignment, AlignmentRepository},
+    alignment::Alignment,
     contig_header::ContigHeader,
     cytoband::Cytoband,
     error::TGVError,

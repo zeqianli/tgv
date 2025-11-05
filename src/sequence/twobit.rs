@@ -40,13 +40,11 @@ impl TwoBitSequenceRepository {
         tb.chrom_names()
             .into_iter()
             .zip(tb.chrom_sizes().into_iter())
-            .map(|(chrom_name, chrom_size)| {
-                contig_header.update_or_add_contig(Contig::new(&chrom_name, Some(chrom_size)))
-            })
-            .collect::<Result<Vec<_>, _>>()?
-            .into_iter()
-            .for_each(|i| {
-                self.contig_to_buffer_index.insert(i, buffer_index);
+            .for_each(|(chrom_name, chrom_size)| {
+                let index =
+                    contig_header.update_or_add_contig(Contig::new(&chrom_name, Some(chrom_size)));
+
+                self.contig_to_buffer_index.insert(index, buffer_index);
             });
 
         self.buffers.push(tb);
