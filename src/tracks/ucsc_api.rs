@@ -491,7 +491,6 @@ impl TrackService for UcscApiTrackService {
         contig_index: usize,
         coord: usize,
         k: usize,
-
         contig_header: &ContigHeader,
     ) -> Result<SubGeneFeature, TGVError> {
         let contig_name = match contig_header.try_get(contig_index)?.get_track_name() {

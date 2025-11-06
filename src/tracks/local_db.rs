@@ -175,7 +175,10 @@ impl TrackService for LocalDbTrackService {
         contig_index: usize,
         contig_header: &ContigHeader,
     ) -> Result<Option<Cytoband>, TGVError> {
-        let contig_name = contig_header.try_get_name(contig_index)?;
+        let contig_name = match contig_header.try_get(contig_index)?.get_track_name() {
+            Some(contig_name) => contig_name,
+            None => return Ok(None),
+        };
         let cytoband_segment_rows: Vec<CytobandSegmentRow> = sqlx::query_as(
             "SELECT chrom, chromStart, chromEnd, name, gieStain FROM cytoBandIdeo WHERE chrom = ?",
         )
@@ -233,7 +236,13 @@ impl TrackService for LocalDbTrackService {
 
         contig_header: &ContigHeader,
     ) -> Result<Vec<Gene>, TGVError> {
-        let contig_name = contig_header.try_get_name(region.contig_index())?;
+        let contig_name = match contig_header
+            .try_get(region.contig_index())?
+            .get_track_name()
+        {
+            Some(contig_name) => contig_name,
+            None => return Ok(Vec::new()), // Contig doesn't have track data
+        };
         let rows: Vec<UcscGeneRow> = sqlx::query_as(
             format!(
                 "SELECT * FROM {}
@@ -261,7 +270,17 @@ impl TrackService for LocalDbTrackService {
 
         contig_header: &ContigHeader,
     ) -> Result<Option<Gene>, TGVError> {
-        let contig_name = contig_header.try_get_name(contig_index)?;
+        let contig_name = match contig_header.try_get(contig_index)?.get_track_name() {
+            Some(contig_name) => contig_name,
+            None => {
+                return Err(TGVError::StateError(format!(
+                    "Contig {} (index = {}, aliases = {}) does not have track data.",
+                    contig_header.contigs[contig_index].name,
+                    contig_index,
+                    contig_header.contigs[contig_index].aliases.join(",")
+                )));
+            }
+        };
         let gene_row: Option<UcscGeneRow> = sqlx::query_as(
             format!(
                 "SELECT *
@@ -317,7 +336,17 @@ impl TrackService for LocalDbTrackService {
 
         contig_header: &ContigHeader,
     ) -> Result<Gene, TGVError> {
-        let contig_name = contig_header.try_get_name(contig_index)?;
+        let contig_name = match contig_header.try_get(contig_index)?.get_track_name() {
+            Some(contig_name) => contig_name,
+            None => {
+                return Err(TGVError::StateError(format!(
+                    "Contig {} (index = {}, aliases = {}) does not have track data.",
+                    contig_header.contigs[contig_index].name,
+                    contig_index,
+                    contig_header.contigs[contig_index].aliases.join(",")
+                )));
+            }
+        };
         if k == 0 {
             return Err(TGVError::ValueError("k cannot be 0".to_string()));
         }
@@ -353,7 +382,17 @@ impl TrackService for LocalDbTrackService {
 
         contig_header: &ContigHeader,
     ) -> Result<Gene, TGVError> {
-        let contig_name = contig_header.try_get_name(contig_index)?;
+        let contig_name = match contig_header.try_get(contig_index)?.get_track_name() {
+            Some(contig_name) => contig_name,
+            None => {
+                return Err(TGVError::StateError(format!(
+                    "Contig {} (index = {}, aliases = {}) does not have track data.",
+                    contig_header.contigs[contig_index].name,
+                    contig_index,
+                    contig_header.contigs[contig_index].aliases.join(",")
+                )));
+            }
+        };
         if k == 0 {
             return Err(TGVError::ValueError("k cannot be 0".to_string()));
         }
@@ -389,7 +428,18 @@ impl TrackService for LocalDbTrackService {
 
         contig_header: &ContigHeader,
     ) -> Result<SubGeneFeature, TGVError> {
-        let contig_name = contig_header.try_get_name(contig_index)?;
+        let contig_name = match contig_header.try_get(contig_index)?.get_track_name() {
+            Some(contig_name) => contig_name,
+            None => {
+                return Err(TGVError::StateError(format!(
+                    "Contig {} (index = {}, aliases = {}) does not have track data. {:?}",
+                    contig_header.contigs[contig_index].name,
+                    contig_index,
+                    contig_header.contigs[contig_index].aliases.join(","),
+                    contig_header.contigs[contig_index]
+                )));
+            }
+        };
         if k == 0 {
             return Err(TGVError::ValueError("k cannot be 0".to_string()));
         }
@@ -424,7 +474,17 @@ impl TrackService for LocalDbTrackService {
 
         contig_header: &ContigHeader,
     ) -> Result<SubGeneFeature, TGVError> {
-        let contig_name = contig_header.try_get_name(contig_index)?;
+        let contig_name = match contig_header.try_get(contig_index)?.get_track_name() {
+            Some(contig_name) => contig_name,
+            None => {
+                return Err(TGVError::StateError(format!(
+                    "Contig {} (index = {}, aliases = {}) does not have track data.",
+                    contig_header.contigs[contig_index].name,
+                    contig_index,
+                    contig_header.contigs[contig_index].aliases.join(",")
+                )));
+            }
+        };
         if k == 0 {
             return Err(TGVError::ValueError("k cannot be 0".to_string()));
         }

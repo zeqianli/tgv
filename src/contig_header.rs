@@ -282,7 +282,7 @@ impl ContigHeader {
         aliases: Vec<String>,
         source: ContigSource,
     ) -> usize {
-        let contig_index = self.contig_lookup.get(&name).cloned().unwrap_or({
+        let contig_index = self.contig_lookup.get(&name).cloned().unwrap_or_else(|| {
             // add a new contig
             let contig = Contig::new(&name, length);
 
@@ -309,16 +309,15 @@ impl ContigHeader {
             }
         });
 
-        let source_index = if &name == &contig.name {
+        let source_index = if name == contig.name {
             None
         } else {
-            contig.aliases.iter().position(|x| x == &name)
+            contig.aliases.iter().position(|x| *x == name)
         };
 
         match source {
             ContigSource::Alignment => contig.alignment_name_index = Some(source_index),
             ContigSource::Sequence => contig.sequence_name_index = Some(source_index),
-
             ContigSource::Track => contig.track_name_index = Some(source_index),
         }
 

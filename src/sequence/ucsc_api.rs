@@ -95,13 +95,21 @@ impl SequenceRepository for UCSCApiSequenceRepository {
         region: &Region,
         contig_header: &ContigHeader,
     ) -> Result<Sequence, TGVError> {
+        let contig_name = match contig_header
+            .try_get(region.contig_index)?
+            .get_sequence_name()
+        {
+            Some(contig_name) => contig_name,
+            None => {
+                return Ok(Sequence {
+                    start: region.start,
+                    sequence: Vec::new(),
+                    contig_index: region.contig_index,
+                });
+            }
+        };
         let url = self
-            .get_api_url(
-                &region.contig_index,
-                region.start,
-                region.end,
-                contig_header,
-            )
+            .get_api_url(contig_name, region.start, region.end)
             .await?;
 
         let response: UcscResponse = self.client.get(&url).send().await?.json().await?;
