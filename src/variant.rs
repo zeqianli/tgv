@@ -2,8 +2,10 @@ use crate::contig_header::ContigHeader;
 use crate::error::TGVError;
 use crate::intervals::{GenomeInterval, Region, SortedIntervalCollection};
 use itertools::Itertools;
-use noodles_vcf as vcf;
-use noodles_vcf::variant::record::{AlternateBases, Filters};
+use noodles::vcf::{
+    self,
+    variant::record::{AlternateBases, Filters},
+};
 use std::collections::{BTreeMap, HashMap};
 pub struct Variant {
     /// Contig id name. This is not stored in the record.
@@ -26,7 +28,7 @@ impl Variant {
         contig_header: &ContigHeader,
     ) -> Result<Self, TGVError> {
         let contig_str = record.reference_sequence_name();
-        let contig_index = contig_header.get_index_by_str(contig_str)?;
+        let contig_index = contig_header.try_get_index_by_str(contig_str)?;
 
         let start = record
             .variant_start()

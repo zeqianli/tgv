@@ -1,21 +1,17 @@
-use crate::error::TGVError;
-use crate::intervals::GenomeInterval;
-use crate::message::AlignmentDisplayOption;
-use crate::message::AlignmentFilter;
-use crate::repository::AlignmentRepository;
-use crate::repository::Repository;
 use crate::settings::Settings;
 use crate::tracks::TrackService;
 use crate::{
     alignment::Alignment,
     contig_header::ContigHeader,
     cytoband::Cytoband,
+    error::TGVError,
     feature::Gene,
-    intervals::Region,
-    message::{DataMessage, Message},
+    intervals::{GenomeInterval, Region},
+    message::{AlignmentDisplayOption, AlignmentFilter, DataMessage, Message},
     reference::Reference,
     register::Registers,
     rendering::{layout::resize_node, MainLayout, Scene},
+    repository::Repository,
     sequence::{Sequence, SequenceRepository},
     track::Track,
     window::ViewingWindow,
@@ -94,16 +90,22 @@ impl State {
     }
 
     pub fn contig_name(&self) -> Result<&String, TGVError> {
-        self.contig_header.get_name(self.contig_index())
+        self.contig_header
+            .try_get(self.contig_index())
+            .map(|contig| &contig.name)
     }
 
     pub fn current_cytoband(&self) -> Option<&Cytoband> {
-        self.contig_header.cytoband(self.contig_index())
+        self.contig_header
+            .try_get(self.contig_index())
+            .unwrap()
+            .cytoband
+            .as_ref()
     }
 
     /// Maximum length of the contig.
     pub fn contig_length(&self) -> Result<Option<usize>, TGVError> {
-        Ok(self.contig_header.get(self.contig_index())?.length)
+        Ok(self.contig_header.try_get(self.contig_index())?.length)
     }
 
     pub fn self_correct_viewing_window(&mut self) {
@@ -197,7 +199,7 @@ impl StateHandler {
             Message::GotoContigNameCoordinate(contig_str, n) => {
                 StateHandler::go_to_contig_coordinate(
                     state,
-                    state.contig_header.get_index_by_str(&contig_str)?,
+                    state.contig_header.try_get_index_by_str(&contig_str)?,
                     n,
                 )?
             }
@@ -852,9 +854,10 @@ impl StateHandler {
                     state.alignment = {
                         let mut alignment = repository
                             .alignment_repository
-                            .as_ref()
+                            .as_mut()
                             .unwrap()
-                            .read_alignment(&region, &state.sequence, &state.contig_header)?;
+                            .read_alignment(&region, &state.sequence, &state.contig_header)
+                            .await?;
 
                         alignment.apply_options(&state.alignment_options, &state.sequence)?;
 
@@ -912,7 +915,7 @@ impl StateHandler {
                         .await?;
                     state
                         .contig_header
-                        .update_cytoband(contig_index, cytoband)?;
+                        .try_update_cytoband(contig_index, cytoband)?;
                     loaded_data = true;
                 }
             }

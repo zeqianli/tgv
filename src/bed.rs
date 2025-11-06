@@ -26,7 +26,7 @@ impl BEDInterval {
         let start = record.feature_start()?.get(); // Noodles already converted to 1-based, inclusive
         Ok(Self {
             contig_index: contig_header
-                .get_index_by_str(&record.reference_sequence_name().to_string())?,
+                .try_get_index_by_str(&record.reference_sequence_name().to_string())?,
             index,
             start, // BED start is 0-based, inclusive
             end: match record.feature_end() {
