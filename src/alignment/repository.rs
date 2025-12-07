@@ -7,7 +7,7 @@ use crate::{
     settings::Settings,
 };
 
-use async_compat::Compat;
+use async_compat::{Compat, CompatExt};
 use itertools::Itertools;
 use noodles::bam::{self, bai};
 use noodles::sam::{self, Header};
@@ -78,15 +78,16 @@ impl RemoteBamRepository {
         let builder = services::S3::default().bucket(bucket);
 
         let operator = Operator::new(builder)?.finish();
-        let future_reader = operator
+
+        let index = Self::read_index(s3_bai_path).await?;
+
+        let stream = operator
             .reader(name)
             .await?
             .into_futures_async_read(..)
             .await?;
 
-        let tokio_reader = Compat::new(future_reader);
-
-        let mut reader = bam::r#async::io::Reader::new(tokio_reader);
+        let mut reader = bam::r#async::io::Reader::new(stream.compat());
 
         let header = reader.read_header().await?;
 
