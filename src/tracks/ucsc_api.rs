@@ -11,7 +11,6 @@ use crate::{
     tracks::schema::*,
 };
 use async_trait::async_trait;
-use noodles::vcf::header::record::value::map::contig;
 use reqwest::Client;
 
 // TODO: improved pattern:

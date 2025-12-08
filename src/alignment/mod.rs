@@ -6,4 +6,4 @@ mod repository;
 pub use alignment::Alignment;
 pub use coverage::BaseCoverage;
 pub use read::{AlignedRead, RenderingContext, RenderingContextKind, RenderingContextModifier};
-pub use repository::{AlignmentRepositoryEnum, BamRepository, RemoteBamRepository};
+pub use repository::AlignmentRepositoryEnum;

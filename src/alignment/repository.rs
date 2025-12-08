@@ -10,7 +10,7 @@ use crate::{
 use async_compat::{Compat, CompatExt};
 use itertools::Itertools;
 use noodles::bam::{self, bai};
-use noodles::sam::{self, Header};
+use noodles::sam::{Header};
 use opendal::{services, FuturesAsyncReader, Operator};
 use std::path::Path;
 use tokio::fs::File;
@@ -48,9 +48,9 @@ impl BamRepository {
             bam_path: bam_path.to_string(),
             bai_path: bai_path.to_string(),
 
-            index: index,
-            header: header,
-            reader: reader,
+            index,
+            header,
+            reader,
         })
     }
 }

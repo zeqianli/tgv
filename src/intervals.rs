@@ -1,4 +1,4 @@
-use crate::{contig_header::ContigHeader, error::TGVError};
+use crate::error::TGVError;
 use std::collections::HashMap;
 
 pub trait GenomeInterval {

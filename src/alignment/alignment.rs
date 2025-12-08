@@ -292,7 +292,7 @@ impl Alignment {
                 read.start,
                 &read.cigar,
                 &read.read.sequence(),
-                &reference_sequence,
+                reference_sequence,
             )?; // TODO: seq() is called twice. Optimize this in the future.
             for (i, coverage) in read_coverage.into_iter() {
                 match coverage_hashmap.entry(i) {

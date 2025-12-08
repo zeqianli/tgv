@@ -7,7 +7,6 @@ use itertools::Itertools;
 use noodles::bam::record::{self, Cigar, Record};
 use noodles::sam::alignment::record::{
     cigar::{op::Kind, Op},
-    data::field::tag::Tag,
     Cigar as CigarTrait, Flags,
 };
 use std::collections::HashMap;
@@ -162,7 +161,7 @@ impl AlignedRead {
         // Base = C @ QV 30
         Ok(format!(
             "{}  Flags={:?}  Start={}  MAPQ={}  Cigar={:?}", // TODO
-            self.read.name().unwrap().to_string(),
+            self.read.name().unwrap(),
             self.flags,
             self.start,
             self.read.mapping_quality().unwrap().get(),
@@ -218,13 +217,13 @@ impl AlignedRead {
             let len = op.len();
 
             let next_reference_pivot = if kind.consumes_reference() {
-                reference_pivot + len as usize
+                reference_pivot + len
             } else {
                 reference_pivot
             };
 
             let next_query_pivot = if kind.consumes_read() {
-                query_pivot + len as usize
+                query_pivot + len
             } else {
                 query_pivot
             };
@@ -284,13 +283,13 @@ impl AlignedRead {
             let kind = op.kind();
 
             let next_reference_pivot = if kind.consumes_reference() {
-                reference_pivot + op.len() as usize
+                reference_pivot + op.len()
             } else {
                 reference_pivot
             };
 
             let next_query_pivot = if kind.consumes_read() {
-                query_pivot + op.len() as usize
+                query_pivot + op.len()
             } else {
                 query_pivot
             };
@@ -387,7 +386,7 @@ impl AlignedRead {
             start: read_start,
             end: read_end,
             cigar: cigars,
-            flags: flags,
+            flags,
             leading_softclips,
             trailing_softclips,
             index: read_index,
@@ -420,13 +419,13 @@ pub fn calculate_rendering_contexts(
     for (i_op, op) in cigars.iter().enumerate() {
         let kind = op.kind();
         let next_reference_pivot = if kind.consumes_reference() {
-            reference_pivot + op.len() as usize
+            reference_pivot + op.len()
         } else {
             reference_pivot
         };
 
         let next_query_pivot = if kind.consumes_read() {
-            query_pivot + op.len() as usize
+            query_pivot + op.len()
         } else {
             query_pivot
         };
@@ -442,7 +441,7 @@ pub fn calculate_rendering_contexts(
 
                 if i_op == 0 {
                     // leading softclips. base rendered at the left of reference pivot.
-                    for i_soft_clip_base in 0..l as usize {
+                    for i_soft_clip_base in 0..l {
                         if reference_pivot + i_soft_clip_base <= l + 1 {
                             //base_coordinate <= 1 (on the edge of screen)
                             // Prevent cases when a soft clip is at the very starting of the reference genome:
@@ -466,7 +465,7 @@ pub fn calculate_rendering_contexts(
                     }
                 } else {
                     // right softclips. base rendered at the right of reference pivot.
-                    for i_soft_clip_base in 0..l as usize {
+                    for i_soft_clip_base in 0..l {
                         let base_coordinate: usize = reference_pivot + i_soft_clip_base;
                         let base = seq.get(query_pivot + i_soft_clip_base - 1).unwrap();
                         new_contexts.push(RenderingContext {
@@ -482,7 +481,7 @@ pub fn calculate_rendering_contexts(
             Kind::Insertion => {
                 // The next loop catches on this flag and add an insertion modifier.
                 // Insertion is displayed at the next cigar segment.
-                annotate_insertion_in_next_cigar = Some(l as usize);
+                annotate_insertion_in_next_cigar = Some(l);
             }
 
             Kind::Deletion | Kind::Skip => {
@@ -503,7 +502,7 @@ pub fn calculate_rendering_contexts(
                     start: reference_pivot,
                     end: next_reference_pivot - 1,
                     kind: RenderingContextKind::Match,
-                    modifiers: (query_pivot..next_query_pivot as usize)
+                    modifiers: (query_pivot..next_query_pivot)
                         .map(|coordinate| {
                             let reference_coordinate = coordinate - query_pivot + reference_pivot;
 
@@ -532,12 +531,12 @@ pub fn calculate_rendering_contexts(
 
                 let modifiers: Vec<RenderingContextModifier> = (0..l)
                     .filter_map(|i| {
-                        let reference_position = reference_pivot + i as usize;
+                        let reference_position = reference_pivot + i;
                         if let Some(reference_base) = reference_sequence.base_at(reference_position)
                         // convert to 1-based
                         {
-                            let query_position = reference_pivot + i as usize;
-                            let query_base = seq.get(query_pivot + i as usize - 1).unwrap();
+                            let query_position = reference_pivot + i;
+                            let query_base = seq.get(query_pivot + i - 1).unwrap();
                             if !matches_base(query_base, reference_base) {
                                 Some(RenderingContextModifier::Mismatch(
                                     query_position,

@@ -26,13 +26,13 @@ pub fn calculate_basewise_coverage(
         let kind = op.kind();
         let len = op.len();
         let next_reference_pivot = if kind.consumes_reference() {
-            reference_pivot + op.len() as usize
+            reference_pivot + op.len()
         } else {
             reference_pivot
         };
 
         let next_query_pivot = if kind.consumes_read() {
-            query_pivot + op.len() as usize
+            query_pivot + op.len()
         } else {
             query_pivot
         };
@@ -42,7 +42,7 @@ pub fn calculate_basewise_coverage(
                 // S
                 if i_op == 0 {
                     // leading softclips. base rendered at the left of reference pivot.
-                    for i_soft_clip_base in 0..len as usize {
+                    for i_soft_clip_base in 0..len {
                         if reference_pivot + i_soft_clip_base <= len + 1 {
                             //base_coordinate <= 1 (on the edge of screen)
                             // Prevent cases when a soft clip is at the very starting of the reference genome:
@@ -66,7 +66,7 @@ pub fn calculate_basewise_coverage(
                     }
                 } else {
                     // right softclips. base rendered at the right of reference pivot.
-                    for i_soft_clip_base in 0..len as usize {
+                    for i_soft_clip_base in 0..len {
                         let base_coordinate: usize = reference_pivot + i_soft_clip_base;
                         let base = sequence.get(query_pivot + i_soft_clip_base - 1).unwrap();
                         output
@@ -85,7 +85,7 @@ pub fn calculate_basewise_coverage(
             Kind::Deletion | Kind::Skip => {}
 
             Kind::SequenceMismatch | Kind::SequenceMatch | Kind::Match => {
-                for i in 0..len as usize {
+                for i in 0..len {
                     let base_coordinate = reference_pivot + i;
                     output
                         .entry(base_coordinate)

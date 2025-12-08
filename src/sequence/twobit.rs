@@ -39,7 +39,7 @@ impl TwoBitSequenceRepository {
 
         tb.chrom_names()
             .into_iter()
-            .zip(tb.chrom_sizes().into_iter())
+            .zip(tb.chrom_sizes())
             .for_each(|(chrom_name, chrom_size)| {
                 let index = contig_header.update_or_add_contig(
                     chrom_name,

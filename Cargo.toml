@@ -5,44 +5,39 @@ edition = "2021"
 description = "Explore genomes in the terminal. Light, blazing fast 🚀, vim-motion."
 license = "MIT"
 rust-version = "1.81"
-include = [
-    "src/*",
-    "!src/snapshots",
-    "Cargo.toml",
-    "./README.md"
-]
+include = ["src/*", "!src/snapshots", "Cargo.toml", "./README.md"]
 
 [dependencies]
-ratatui = "0.28.0"
-crossterm = "0.28.1"
-clap = { version = "4.4", features = ["derive"] }
-sqlx = { version = "0.7", features = ["mysql", "sqlite", "runtime-tokio-native-tls"] }
-tokio = { version = "1", features = ["full"] }
-serde = { version = "1.0", features = ["derive"] }
-reqwest = { version = "0.12", features = ["json"] }
-itertools="0.14.0"
-url = "2.5.4"
-csv = "1.3.1"
-strum = {version = "0.27", features = ["derive"]}
-serde_json = "1"
-thiserror = {version = "2"}
-async-trait = "0.1"
-chrono = {version = "0.4", features = ["clock"]}
-shellexpand = "3.1"
-twobit = "0"
-bigtools = "0.5"
-noodles = { version = "0.99.0", features = ["async", "bam", "bed", "bgzf", "core", "cram", "fasta", "sam", "vcf"] }
-nom = "8.0.0"
-futures = "0.3.31"
-opendal = { version = "0.53.3", features = ["services-s3"] }
-bytes = "1.10.1"
 async-compat = "0.2.5"
+async-trait = "0.1"
+bigtools = "0.5"
+bytes = "1.10.1"
+chrono = { version = "0.4", features = ["clock"] }
+clap = { version = "4.4", features = ["derive"] }
+crossterm = "0.28.1"
+csv = "1.3.1"
+futures = "0.3.31"
+itertools = "0.14.0"
+nom = "8.0.0"
+noodles = { version = "0.99.0", features = ["async", "bam", "bed", "bgzf", "core", "cram", "fasta", "sam", "vcf"] }
+opendal = { version = "0.53.3", features = ["services-s3"] }
+ratatui = "0.28.0"
+reqwest = { version = "0.12", features = ["json"] }
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1"
+shellexpand = "3.1"
+sqlx = { version = "0.7", features = ["mysql", "sqlite", "runtime-tokio-native-tls"] }
+strum = { version = "0.27", features = ["derive"] }
+thiserror = { version = "2" }
+tokio = { version = "1", features = ["full"] }
+twobit = "0"
+url = "2.5.4"
 
 [dev-dependencies]
+cargo-insta = "1.42"
+insta = "1.42"
 rstest = "0.25.0"
 shlex = "1.3.0"
-insta = "1.42"
-cargo-insta = "1.42"
 tempfile = "3"
 
 [profile.release] # as recommended in https://github.com/ratatui/ratatui-website/pull/931/files
