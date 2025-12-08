@@ -114,15 +114,14 @@ impl RemoteBamRepository {
         let builder = services::S3::default().bucket(bucket);
 
         let operator = Operator::new(builder)?.finish();
-        let future_reader = operator
+
+        let stream = operator
             .reader(name)
             .await?
             .into_futures_async_read(..)
             .await?;
 
-        let tokio_reader = Compat::new(future_reader);
-
-        let mut reader = bai::r#async::io::Reader::new(tokio_reader);
+        let mut reader = bai::r#async::io::Reader::new(stream.compat());
 
         Ok(reader.read_index().await?)
     }
