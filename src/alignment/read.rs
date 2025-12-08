@@ -1,9 +1,14 @@
 use crate::error::TGVError;
 use crate::message::AlignmentFilter;
 use crate::sequence::Sequence;
-use rust_htslib::bam::ext::BamRecordExtensions;
-use rust_htslib::bam::record::{Cigar, CigarStringView};
-use rust_htslib::bam::{record::Seq, Read, Record};
+// use rust_htslib::bam::{record::Seq, Read, Record};
+//
+use itertools::Itertools;
+use noodles::bam::record::{self, Cigar, Record};
+use noodles::sam::alignment::record::{
+    cigar::{op::Kind, Op},
+    Cigar as CigarTrait, Flags,
+};
 use std::collections::HashMap;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -84,7 +89,9 @@ pub struct AlignedRead {
     /// Trailing softclips. Used for track stacking calculation.
     pub trailing_softclips: usize,
 
-    pub cigar: CigarStringView,
+    pub cigar: Vec<Op>,
+
+    pub flags: Flags,
 
     /// index in the alignment read array.
     pub index: usize,
@@ -116,11 +123,6 @@ pub struct ReadPair {
 }
 
 impl AlignedRead {
-    /// Return an 1-based range iterator that includes all bases of the alignment.
-    pub fn range(&self) -> impl Iterator<Item = usize> {
-        self.start..self.end + 1
-    }
-
     pub fn stacking_start(&self) -> usize {
         usize::max(self.start.saturating_sub(self.leading_softclips), 1)
     }
@@ -158,12 +160,12 @@ impl AlignedRead {
         // Hidden tags: MDLocation = chr20:78,249
         // Base = C @ QV 30
         Ok(format!(
-            "{}  Flags={}  Start={}  MAPQ={}  Cigar={}",
-            String::from_utf8(self.read.qname().to_vec())?,
-            self.read.flags(),
+            "{}  Flags={:?}  Start={}  MAPQ={}  Cigar={:?}", // TODO
+            self.read.name().unwrap(),
+            self.flags,
             self.start,
-            self.read.mapq(),
-            self.read.cigar().take()
+            self.read.mapping_quality().unwrap().get(),
+            self.cigar
         ))
     }
 
@@ -187,7 +189,7 @@ impl AlignedRead {
 
     /// Whether show together with the mate in paired view
     pub fn show_as_pair(&self) -> bool {
-        self.read.is_paired() && !self.read.is_supplementary() && !self.read.is_secondary()
+        self.flags.is_segmented() && !self.flags.is_supplementary() && !self.flags.is_secondary()
     }
 
     /// Return the base at coordinate.
@@ -209,14 +211,19 @@ impl AlignedRead {
                 break;
             }
 
-            let next_reference_pivot = if consumes_reference(op) {
-                reference_pivot + op.len() as usize
+            let op = op.unwrap();
+
+            let kind = op.kind();
+            let len = op.len();
+
+            let next_reference_pivot = if kind.consumes_reference() {
+                reference_pivot + len
             } else {
                 reference_pivot
             };
 
-            let next_query_pivot = if consumes_query(op) {
-                query_pivot + op.len() as usize
+            let next_query_pivot = if kind.consumes_read() {
+                query_pivot + len
             } else {
                 query_pivot
             };
@@ -227,19 +234,24 @@ impl AlignedRead {
                 continue;
             }
 
-            match op {
-                Cigar::SoftClip(l) | Cigar::Ins(l) | Cigar::HardClip(l) | Cigar::Pad(l) => {
+            match kind {
+                Kind::SoftClip | Kind::Insertion | Kind::HardClip | Kind::Pad => {
                     // This should never reach
                     reference_pivot = next_reference_pivot;
                     query_pivot = next_query_pivot;
                 }
 
-                Cigar::Del(l) | Cigar::RefSkip(l) => {
+                Kind::Deletion | Kind::Skip => {
                     return None;
                 }
 
-                Cigar::Diff(_) | Cigar::Equal(_) | Cigar::Match(_) => {
-                    return Some(self.read.seq()[query_pivot + coordinate - reference_pivot - 1]);
+                Kind::SequenceMismatch | Kind::SequenceMatch | Kind::Match => {
+                    return Some(
+                        self.read
+                            .sequence()
+                            .get(query_pivot + coordinate - reference_pivot - 1)
+                            .unwrap(),
+                    );
                 }
             }
         }
@@ -261,23 +273,23 @@ impl AlignedRead {
             return false;
         }
 
-        let cigars = self.read.cigar();
         let mut reference_pivot: usize = self.start;
         let mut query_pivot: usize = 1; // 1-based. # bases on the sequence. Note that need to substract leading softclips to get aligned base coordinate.
 
-        for op in cigars.iter() {
+        for op in self.cigar.iter() {
             if reference_pivot > coordinate {
                 break;
             }
+            let kind = op.kind();
 
-            let next_reference_pivot = if consumes_reference(op) {
-                reference_pivot + op.len() as usize
+            let next_reference_pivot = if kind.consumes_reference() {
+                reference_pivot + op.len()
             } else {
                 reference_pivot
             };
 
-            let next_query_pivot = if consumes_query(op) {
-                query_pivot + op.len() as usize
+            let next_query_pivot = if kind.consumes_read() {
+                query_pivot + op.len()
             } else {
                 query_pivot
             };
@@ -288,18 +300,18 @@ impl AlignedRead {
                 continue;
             }
 
-            match op {
-                Cigar::SoftClip(l) | Cigar::Ins(l) | Cigar::HardClip(l) | Cigar::Pad(l) => {
+            match kind {
+                Kind::SoftClip | Kind::Insertion | Kind::HardClip | Kind::Pad => {
                     // This should never reach
                     reference_pivot = next_reference_pivot;
                     query_pivot = next_query_pivot;
                 }
 
-                Cigar::Del(l) | Cigar::RefSkip(l) => {
+                Kind::Deletion | Kind::Skip => {
                     return true;
                 }
 
-                Cigar::Diff(_) | Cigar::Equal(_) | Cigar::Match(_) => {
+                Kind::SequenceMismatch | Kind::SequenceMatch | Kind::Match => {
                     return false;
                 }
             }
@@ -334,20 +346,38 @@ impl AlignedRead {
         read: Record,
         reference_sequence: &Sequence,
     ) -> Result<Self, TGVError> {
-        let read_start = read.pos() as usize + 1;
-        let read_end = read.reference_end() as usize;
-        let cigars = read.cigar();
-        let leading_softclips = cigars.leading_softclips() as usize;
-        let trailing_softclips = cigars.trailing_softclips() as usize;
+        let read_start = read.alignment_start().unwrap().unwrap().get();
+        let cigars: Cigar = read.cigar();
+        let read_end = read_start + cigars.alignment_span().unwrap() - 1;
+
+        let cigars = cigars.iter().collect::<Result<Vec<Op>, _>>().unwrap();
+        let leading_softclips = cigars
+            .first()
+            .map(|op| match op.kind() {
+                Kind::SoftClip => op.len(),
+                _ => 0,
+            })
+            .unwrap_or(0);
+        let trailing_softclips = if cigars.len() > 1 {
+            cigars
+                .last()
+                .map(|op| match op.kind() {
+                    Kind::SoftClip => op.len(),
+                    _ => 0,
+                })
+                .unwrap_or(0)
+        } else {
+            0
+        };
+        let flags = read.flags();
         // read.pos() in htslib: 0-based, inclusive, excluding leading hardclips and softclips
         // read.reference_end() in htslib: 0-based, exclusive, excluding trailing hardclips and softclips
 
         let rendering_contexts = calculate_rendering_contexts(
             read_start,
             &cigars,
-            leading_softclips,
-            &read.seq(),
-            read.is_reverse(),
+            &read.sequence(),
+            flags.is_reverse_complemented(),
             reference_sequence,
         )?;
 
@@ -356,6 +386,7 @@ impl AlignedRead {
             start: read_start,
             end: read_end,
             cigar: cigars,
+            flags,
             leading_softclips,
             trailing_softclips,
             index: read_index,
@@ -368,9 +399,8 @@ impl AlignedRead {
 /// See: https://samtools.github.io/hts-specs/SAMv1.pdf
 pub fn calculate_rendering_contexts(
     reference_start: usize, // 1-based. Alignment start, not softclip start
-    cigars: &CigarStringView,
-    leading_softclips: usize,
-    seq: &Seq,
+    cigars: &Vec<Op>,
+    seq: &record::Sequence,
     is_reverse: bool,
     reference_sequence: &Sequence,
 ) -> Result<Vec<RenderingContext>, TGVError> {
@@ -387,14 +417,15 @@ pub fn calculate_rendering_contexts(
     let mut cigar_index_with_arrow_annotation = None;
 
     for (i_op, op) in cigars.iter().enumerate() {
-        let next_reference_pivot = if consumes_reference(op) {
-            reference_pivot + op.len() as usize
+        let kind = op.kind();
+        let next_reference_pivot = if kind.consumes_reference() {
+            reference_pivot + op.len()
         } else {
             reference_pivot
         };
 
-        let next_query_pivot = if consumes_query(op) {
-            query_pivot + op.len() as usize
+        let next_query_pivot = if kind.consumes_read() {
+            query_pivot + op.len()
         } else {
             query_pivot
         };
@@ -403,14 +434,15 @@ pub fn calculate_rendering_contexts(
 
         // let mut new_contexts = Vec::new();
         let add_insertion: bool = annotate_insertion_in_next_cigar.is_some();
-        match op {
-            Cigar::SoftClip(l) => {
+        let l = op.len();
+        match kind {
+            Kind::SoftClip => {
                 // S
 
-                if query_pivot <= leading_softclips {
+                if i_op == 0 {
                     // leading softclips. base rendered at the left of reference pivot.
-                    for i_soft_clip_base in 0..*l as usize {
-                        if reference_pivot + i_soft_clip_base <= leading_softclips + 1 {
+                    for i_soft_clip_base in 0..l {
+                        if reference_pivot + i_soft_clip_base <= l + 1 {
                             //base_coordinate <= 1 (on the edge of screen)
                             // Prevent cases when a soft clip is at the very starting of the reference genome:
                             //    ----------- (ref)
@@ -421,10 +453,9 @@ pub fn calculate_rendering_contexts(
                             continue;
                         }
 
-                        let base_coordinate: usize =
-                            reference_pivot - leading_softclips + i_soft_clip_base;
+                        let base_coordinate: usize = reference_pivot - l + i_soft_clip_base;
 
-                        let base = seq[i_soft_clip_base];
+                        let base = seq.get(i_soft_clip_base).unwrap();
                         new_contexts.push(RenderingContext {
                             start: base_coordinate,
                             end: base_coordinate,
@@ -434,9 +465,9 @@ pub fn calculate_rendering_contexts(
                     }
                 } else {
                     // right softclips. base rendered at the right of reference pivot.
-                    for i_soft_clip_base in 0..*l as usize {
+                    for i_soft_clip_base in 0..l {
                         let base_coordinate: usize = reference_pivot + i_soft_clip_base;
-                        let base = seq[query_pivot + i_soft_clip_base - 1];
+                        let base = seq.get(query_pivot + i_soft_clip_base - 1).unwrap();
                         new_contexts.push(RenderingContext {
                             start: base_coordinate,
                             end: base_coordinate,
@@ -447,13 +478,13 @@ pub fn calculate_rendering_contexts(
                 }
             }
 
-            Cigar::Ins(l) => {
+            Kind::Insertion => {
                 // The next loop catches on this flag and add an insertion modifier.
                 // Insertion is displayed at the next cigar segment.
-                annotate_insertion_in_next_cigar = Some(*l as usize);
+                annotate_insertion_in_next_cigar = Some(l);
             }
 
-            Cigar::Del(l) | Cigar::RefSkip(l) => {
+            Kind::Deletion | Kind::Skip => {
                 // D / N
                 // ---------------- ref
                 // ===----===       read (lines with no bckground colors)
@@ -465,26 +496,26 @@ pub fn calculate_rendering_contexts(
                 });
             }
 
-            Cigar::Diff(l) => {
+            Kind::SequenceMismatch => {
                 // X
                 new_contexts.push(RenderingContext {
                     start: reference_pivot,
                     end: next_reference_pivot - 1,
                     kind: RenderingContextKind::Match,
-                    modifiers: (query_pivot..next_query_pivot as usize)
+                    modifiers: (query_pivot..next_query_pivot)
                         .map(|coordinate| {
                             let reference_coordinate = coordinate - query_pivot + reference_pivot;
 
                             RenderingContextModifier::Mismatch(
                                 reference_coordinate,
-                                seq[coordinate - 1],
+                                seq.get(coordinate - 1).unwrap(),
                             )
                         })
                         .collect::<Vec<_>>(),
                 })
             }
 
-            Cigar::Equal(l) => new_contexts.push(RenderingContext {
+            Kind::SequenceMatch => new_contexts.push(RenderingContext {
                 // =
                 start: reference_pivot,
                 end: next_reference_pivot - 1,
@@ -492,21 +523,20 @@ pub fn calculate_rendering_contexts(
                 modifiers: Vec::new(),
             }),
 
-            Cigar::Match(l) => {
+            Kind::Match => {
                 // M
                 // check reference sequence for mismatches
+                // FEAT:
+                // Parse base mismatches from the MD field: https://samtools.github.io/hts-specs/SAMtags.pdf#page=3
 
-                // TODO: use basemods_iter?
-                // https://docs.rs/rust-htslib/latest/rust_htslib/bam/record/struct.Record.html#method.basemods_iter
-
-                let modifiers: Vec<RenderingContextModifier> = (0..*l)
+                let modifiers: Vec<RenderingContextModifier> = (0..l)
                     .filter_map(|i| {
-                        let reference_position = reference_pivot + i as usize;
+                        let reference_position = reference_pivot + i;
                         if let Some(reference_base) = reference_sequence.base_at(reference_position)
                         // convert to 1-based
                         {
-                            let query_position = reference_pivot + i as usize;
-                            let query_base = seq[query_pivot + i as usize - 1];
+                            let query_position = reference_pivot + i;
+                            let query_base = seq.get(query_pivot + i - 1).unwrap();
                             if !matches_base(query_base, reference_base) {
                                 Some(RenderingContextModifier::Mismatch(
                                     query_position,
@@ -519,8 +549,7 @@ pub fn calculate_rendering_contexts(
                             None
                         }
                     })
-                    .collect::<Vec<_>>();
-
+                    .collect_vec();
                 new_contexts.push(RenderingContext {
                     start: reference_pivot,
                     end: next_reference_pivot - 1,
@@ -529,7 +558,7 @@ pub fn calculate_rendering_contexts(
                 });
             }
 
-            Cigar::HardClip(l) | Cigar::Pad(l) => {
+            Kind::HardClip | Kind::Pad => {
                 // P / H
                 // Don't need to do anything
             }
@@ -558,7 +587,7 @@ pub fn calculate_rendering_contexts(
             }
         } else {
             // forward: last one
-            if can_be_annotated_with_arrows(op) {
+            if can_be_annotated_with_arrows(&kind) {
                 cigar_index_with_arrow_annotation = Some(output.len() + new_contexts.len() - 1)
                 // first context
             }
@@ -859,50 +888,19 @@ pub fn matches_base(base1: u8, base2: u8) -> bool {
     }
 }
 
-/// Whether the cigar operation consumes reference.
-/// Yes: M/D/N/=/X
-/// No: I/S/H/P
-/// See: https://samtools.github.io/hts-specs/SAMv1.pdf
-pub fn consumes_reference(op: &Cigar) -> bool {
-    match op {
-        Cigar::Match(_l)
-        | Cigar::Del(_l)
-        | Cigar::RefSkip(_l)
-        | Cigar::Equal(_l)
-        | Cigar::Diff(_l) => true,
-
-        Cigar::SoftClip(_l) | Cigar::Ins(_l) | Cigar::HardClip(_l) | Cigar::Pad(_l) => false,
-    }
-}
-
-/// Whether the cigar operation consumes query.
-/// Yes: M/I/S/=/X
-/// No: D/N/H/P
-pub fn consumes_query(op: &Cigar) -> bool {
-    match op {
-        Cigar::Match(_l)
-        | Cigar::Ins(_l)
-        | Cigar::SoftClip(_l)
-        | Cigar::Equal(_l)
-        | Cigar::Diff(_l) => true,
-
-        Cigar::Del(_l) | Cigar::RefSkip(_l) | Cigar::HardClip(_l) | Cigar::Pad(_l) => false,
-    }
-}
-
 /// Whether the cigar operation can be annotated with the < / > signs.
 /// Yes: M/I/S/=/X
 /// No: D/N/H/P
-fn can_be_annotated_with_arrows(op: &Cigar) -> bool {
-    match op {
-        Cigar::Match(_l)
-        | Cigar::SoftClip(_l)
-        | Cigar::Equal(_l)
-        | Cigar::Diff(_l)
-        | Cigar::Del(_l)
-        | Cigar::RefSkip(_l) => true,
+fn can_be_annotated_with_arrows(kind: &Kind) -> bool {
+    match kind {
+        Kind::Match
+        | Kind::SoftClip
+        | Kind::SequenceMatch
+        | Kind::SequenceMismatch
+        | Kind::Deletion
+        | Kind::Skip => true,
 
-        Cigar::HardClip(_l) | Cigar::Pad(_l) | Cigar::Ins(_l) => false,
+        Kind::HardClip | Kind::Pad | Kind::Insertion => false,
     }
 }
 
@@ -910,25 +908,35 @@ fn can_be_annotated_with_arrows(op: &Cigar) -> bool {
 mod tests {
 
     use super::*;
+    // use noodles::bam::record::{Cigar, CigarString};
+    use noodles::bam;
+    use noodles::sam::{
+        self,
+        alignment::{
+            io::Write,
+            record::cigar::{op::Kind, Op},
+        },
+    };
+    use std::io;
+
     use rstest::rstest;
-    use rust_htslib::bam::record::{Cigar, CigarString};
 
     #[rstest]
-    #[case(10, vec![Cigar::Match(3)],  b"ATT", false,Sequence::default(), vec![RenderingContext{
+    #[case(10, vec![(Kind::Match, 3)],  b"ATT", false,Sequence::default(), vec![RenderingContext{
         start:10,
         end:12,
         kind: RenderingContextKind::Match,
         modifiers:vec![RenderingContextModifier::Forward]
     }])]
     // Test reverse strand
-    #[case(10, vec![Cigar::Match(3)],  b"ATT", true, Sequence::default(), vec![RenderingContext{
+    #[case(10, vec![(Kind::Match, 3)],  b"ATT", true, Sequence::default(), vec![RenderingContext{
         start:10,
         end:12,
         kind: RenderingContextKind::Match,
         modifiers:vec![RenderingContextModifier::Reverse]
     }])]
     // Test deletion
-    #[case(10, vec![Cigar::Match(3),Cigar::Del(2), Cigar::Match(3)], b"AAATTT", true, Sequence::default(), vec![RenderingContext{
+    #[case(10, vec![(Kind::Match, 3),(Kind::Deletion, 2), (Kind::Match, 3)], b"AAATTT", true, Sequence::default(), vec![RenderingContext{
         start:10,
         end:12,
         kind: RenderingContextKind::Match,
@@ -945,7 +953,7 @@ mod tests {
         modifiers:vec![]
     }])]
     // Test RefSkip
-    #[case(10, vec![Cigar::Match(3),Cigar::RefSkip(2)], b"AAA", false, Sequence::default(), vec![RenderingContext{
+    #[case(10, vec![(Kind::Match, 3),(Kind::Skip, 2)], b"AAA", false, Sequence::default(), vec![RenderingContext{
         start:10,
         end:12,
         kind: RenderingContextKind::Match,
@@ -957,7 +965,7 @@ mod tests {
         modifiers:vec![RenderingContextModifier::Forward]
     }])]
     // Test insertion
-    #[case(10, vec![Cigar::Match(3), Cigar::Ins(2), Cigar::Match(3)], b"AAATTCCC", false, Sequence::default(), vec![RenderingContext{
+    #[case(10, vec![(Kind::Match, 3), (Kind::Insertion, 2), (Kind::Match, 3)], b"AAATTCCC", false, Sequence::default(), vec![RenderingContext{
         start:10,
         end:12,
         kind: RenderingContextKind::Match,
@@ -969,7 +977,7 @@ mod tests {
         modifiers:vec![RenderingContextModifier::Insertion(2), RenderingContextModifier::Forward]
     }])]
     // Test soft clips
-    #[case(10, vec![Cigar::SoftClip(2), Cigar::Match(3), Cigar::SoftClip(1)], b"GGATTC", true, Sequence::default(), vec![
+    #[case(10, vec![(Kind::SoftClip, 2), (Kind::Match, 3), (Kind::SoftClip, 1)], b"GGATTC", true, Sequence::default(), vec![
         RenderingContext{
             start:8,
             end:8,
@@ -996,14 +1004,14 @@ mod tests {
         }
     ])]
     // Test Equal cigar (matches current implementation with query pivot)
-    #[case(10, vec![Cigar::Equal(3)], b"ATT", false, Sequence::default(), vec![RenderingContext{
+    #[case(10, vec![(Kind::SequenceMatch, 3)], b"ATT", false, Sequence::default(), vec![RenderingContext{
         start:10,
         end:12, // This matches the current implementation which uses next_query_pivot - 1
         kind: RenderingContextKind::Match,
         modifiers:vec![RenderingContextModifier::Forward]
     }])]
     // Test Diff cigar (explicit mismatch)
-    #[case(10, vec![Cigar::Diff(3)], b"ATT", false, Sequence::default(), vec![RenderingContext{
+    #[case(10, vec![(Kind::SequenceMismatch, 3)], b"ATT", false, Sequence::default(), vec![RenderingContext{
         start:10,
         end:12,
         kind: RenderingContextKind::Match,
@@ -1015,7 +1023,7 @@ mod tests {
         ]
     }])]
     // Test complex cigar: soft clip + match + insertion + match + deletion + match
-    #[case(10, vec![Cigar::SoftClip(1), Cigar::Match(2), Cigar::Ins(1), Cigar::Match(2), Cigar::Del(3), Cigar::Match(2)],
+    #[case(10, vec![(Kind::SoftClip, 1), (Kind::Match, 2), (Kind::Insertion, 1), (Kind::Match, 2), (Kind::Deletion, 3), (Kind::Match, 2)],
            b"GATCGAA", false, Sequence::default(), vec![
         RenderingContext{
             start:9,
@@ -1049,7 +1057,7 @@ mod tests {
         }
     ])]
     // Test soft clips
-    #[case(10, vec![Cigar::SoftClip(2), Cigar::Match(3), Cigar::SoftClip(1)], b"GGATTC", true, Sequence::new(10, b"AATG".to_vec(), 0), vec![
+    #[case(10, vec![(Kind::SoftClip, 2), (Kind::Match, 3), (Kind::SoftClip, 1)], b"GGATTC", true, Sequence::new(10, b"AATG".to_vec(), 0), vec![
         RenderingContext{
             start:8,
             end:8,
@@ -1077,30 +1085,49 @@ mod tests {
     ])]
     fn test_calculate_rendering_contexts(
         #[case] reference_start: usize, // 1-based
-        #[case] cigars: Vec<Cigar>,
+        #[case] cigars: Vec<(Kind, usize)>,
         #[case] seq: &[u8],
         #[case] is_reverse: bool,
         #[case] reference_sequence: Sequence,
         #[case] expected_rendering_contexts: Vec<RenderingContext>,
     ) {
-        let mut record = Record::new();
-        record.set(
-            b"test",
-            Some(&CigarString(cigars)),
-            seq,
-            "i".repeat(seq.len()).as_bytes(),
-        );
+        let cigars = cigars
+            .into_iter()
+            .map(|(kind, length)| Op::new(kind, length))
+            .collect::<Vec<Op>>();
+
+        let header = sam::Header::default();
+
+        let record_buf = sam::alignment::RecordBuf::builder()
+            .set_sequence(sam::alignment::record_buf::Sequence::from(seq))
+            .build();
+        let record = serialize_as_bam_record(&header, &record_buf).unwrap();
 
         let contexts = calculate_rendering_contexts(
             reference_start,
-            &record.cigar(),
-            record.cigar().leading_softclips() as usize,
-            &record.seq(),
+            &cigars,
+            &record.sequence(),
             is_reverse,
             &reference_sequence,
         )
         .unwrap();
 
         assert_eq!(contexts, expected_rendering_contexts)
+    }
+
+    /// Helper function to create bam::Record test cases
+    fn serialize_as_bam_record(
+        header: &sam::Header,
+        record_buf: &sam::alignment::RecordBuf,
+    ) -> io::Result<bam::Record> {
+        let mut writer = bam::io::Writer::from(Vec::new());
+        writer.write_alignment_record(header, record_buf)?;
+
+        let src = writer.into_inner();
+        let mut reader = bam::io::Reader::from(&src[..]);
+        let mut record = bam::Record::default();
+        reader.read_record(&mut record)?;
+
+        Ok(record)
     }
 }

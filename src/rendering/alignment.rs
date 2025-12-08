@@ -6,11 +6,7 @@ use crate::{
     states::State,
     window::{OnScreenCoordinate, ViewingWindow},
 };
-use ratatui::{
-    buffer::Buffer,
-    layout::Rect,
-    style::Style,
-};
+use ratatui::{buffer::Buffer, layout::Rect, style::Style};
 
 /// Render an alignment on the alignment area.
 pub fn render_alignment(

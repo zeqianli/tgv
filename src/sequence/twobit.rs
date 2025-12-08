@@ -1,4 +1,4 @@
-use crate::contig_header::{Contig, ContigHeader};
+use crate::contig_header::{Contig, ContigHeader, ContigSource};
 use crate::error::TGVError;
 use crate::intervals::Region;
 use crate::reference::Reference;
@@ -39,14 +39,16 @@ impl TwoBitSequenceRepository {
 
         tb.chrom_names()
             .into_iter()
-            .zip(tb.chrom_sizes().into_iter())
-            .map(|(chrom_name, chrom_size)| {
-                contig_header.update_or_add_contig(Contig::new(&chrom_name, Some(chrom_size)))
-            })
-            .collect::<Result<Vec<_>, _>>()?
-            .into_iter()
-            .for_each(|i| {
-                self.contig_to_buffer_index.insert(i, buffer_index);
+            .zip(tb.chrom_sizes())
+            .for_each(|(chrom_name, chrom_size)| {
+                let index = contig_header.update_or_add_contig(
+                    chrom_name,
+                    Some(chrom_size),
+                    Vec::new(),
+                    ContigSource::Sequence,
+                );
+
+                self.contig_to_buffer_index.insert(index, buffer_index);
             });
 
         self.buffers.push(tb);
@@ -62,10 +64,15 @@ impl SequenceRepository for TwoBitSequenceRepository {
 
         contig_header: &ContigHeader,
     ) -> Result<Sequence, TGVError> {
-        let contig_name = contig_header.get_name(region.contig_index)?;
+        let contig_name = contig_header
+            .try_get(region.contig_index)?
+            .get_sequence_name();
 
-        match self.contig_to_buffer_index.get(&region.contig_index) {
-            Some(buffer_index) => {
+        match (
+            self.contig_to_buffer_index.get(&region.contig_index),
+            contig_name,
+        ) {
+            (Some(buffer_index), Some(contig_name)) => {
                 let buffer = &mut self.buffers[*buffer_index];
                 let sequence_string = buffer.read_sequence(
                     contig_name,
@@ -77,7 +84,7 @@ impl SequenceRepository for TwoBitSequenceRepository {
                     contig_index: region.contig_index,
                 })
             }
-            None => {
+            _ => {
                 // Going to a contig that's not in twobit file.
                 // Can happen when there are contig mismatches between data sources (e.g. BAM and reference)
                 Ok(Sequence {

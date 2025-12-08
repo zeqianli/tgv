@@ -3,10 +3,7 @@ mod contig_list;
 mod help;
 mod mouse;
 mod normal;
-use crate::{
-    error::TGVError, message::Message,
-    states::State,
-};
+use crate::{error::TGVError, message::Message, states::State};
 use crossterm::event::{KeyEvent, MouseEvent};
 
 pub use crate::{

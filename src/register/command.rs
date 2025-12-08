@@ -76,23 +76,19 @@ impl KeyRegister for CommandModeRegister {
                     Message::ClearAllKeyRegisters,
                     Message::SwitchKeyRegister(KeyRegisterType::Help),
                 ]),
-                "ls" | "contigs" => {
-                    Ok(vec![
-                        Message::SwitchScene(Scene::ContigList),
-                        Message::ClearAllKeyRegisters,
-                        Message::SwitchKeyRegister(KeyRegisterType::ContigList),
-                    ])
-                }
+                "ls" | "contigs" => Ok(vec![
+                    Message::SwitchScene(Scene::ContigList),
+                    Message::ClearAllKeyRegisters,
+                    Message::SwitchKeyRegister(KeyRegisterType::ContigList),
+                ]),
                 _ => Ok(self
                     .parse()
                     .unwrap_or_else(|e| vec![Message::Message(format!("{}", e))])
                     .into_iter()
-                    .chain(
-                        vec![
-                            Message::ClearAllKeyRegisters,
-                            Message::SwitchKeyRegister(KeyRegisterType::Normal),
-                        ],
-                    )
+                    .chain(vec![
+                        Message::ClearAllKeyRegisters,
+                        Message::SwitchKeyRegister(KeyRegisterType::Normal),
+                    ])
                     .collect_vec()),
             },
             KeyCode::Char(c) => {

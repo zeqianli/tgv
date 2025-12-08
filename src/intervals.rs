@@ -94,8 +94,6 @@ where
     }
 }
 
-use std::fmt;
-
 /// A genomic region.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Region {
@@ -122,16 +120,6 @@ impl GenomeInterval for Region {
 
     fn contig_index(&self) -> usize {
         self.contig_index
-    }
-}
-
-impl fmt::Display for Region {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(
-            f,
-            "contig_index={}:{}-{}",
-            self.contig_index, self.start, self.end
-        )
     }
 }
 

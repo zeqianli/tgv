@@ -291,8 +291,7 @@ impl Alignment {
             let read_coverage = calculate_basewise_coverage(
                 read.start,
                 &read.cigar,
-                read.leading_softclips,
-                &read.read.seq(),
+                &read.read.sequence(),
                 reference_sequence,
             )?; // TODO: seq() is called twice. Optimize this in the future.
             for (i, coverage) in read_coverage.into_iter() {
@@ -366,7 +365,7 @@ fn calculate_mate_map(reads: &Vec<AlignedRead>) -> Result<Vec<usize>, TGVError> 
 
     for (i, read) in reads.iter().enumerate() {
         if read.show_as_pair() {
-            let read_name = read.read.qname().to_vec();
+            let read_name = read.read.name().unwrap().to_vec();
             match read_id_map.remove(&read_name) {
                 Some(mate_index) => {
                     output[i] = mate_index;
