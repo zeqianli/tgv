@@ -1,0 +1,25 @@
+---
+source: src/main.rs
+assertion_line: 192
+expression: terminal.backend()
+---
+"                 20bp                40bp         "
+"                   |                   |          "
+"[0-10]                                            "
+"                                                  "
+"                                                  "
+"                                                  "
+"                                                  "
+"                                                  "
+"                                                  "
+"                                                  "
+"                                                  "
+"                                                  "
+"                                                  "
+"                                                  "
+"                                                  "
+"ATTAAAGGTTTATACCTTCCCAGGTAACAAACCAACCAACTTTCGATCTC"
+"                                                  "
+"                                                  "
+"                                   NC_045512v2: 26"
+"                                      100% (1 / 1)"

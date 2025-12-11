@@ -1,0 +1,25 @@
+---
+source: src/main.rs
+assertion_line: 103
+expression: terminal.backend()
+---
+"hg19:chr17  ▅▅ ▅▅▅▅▅>▅▅▅▅▅▅▅▅▅▅▅▅▅▅▅▅▅▅▅▅▅▅ 81Mb  "
+"                                                  "
+"               7,571,760bp         7,571,780bp    "
+"                    |                   |         "
+"                                                  "
+"                                                  "
+"                                                  "
+"                                                  "
+"                                                  "
+"                                                  "
+"                                                  "
+"                                                  "
+"                                                  "
+"GGCAGCAAAGTTTTATTGTAAAATAAGAGATCGATATAAAAATGGGATAT"
+"▅▅▅▅▅▅▅▅▅▅▅▅▅▅▅▅▅▅▅▅▅▅▅▅▅▅▅▅▅▅▅▅▅▅▅▅▅▅▅▅▅▅▅▅▅▅▅▅▅▅"
+"                       TP53                       "
+"                                                  "
+"                                                  "
+"                                                  "
+"                                                  "
