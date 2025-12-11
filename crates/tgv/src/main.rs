@@ -1,34 +1,15 @@
-mod alignment;
 mod app;
-mod bed;
-mod contig_header;
-mod cytoband;
-mod error;
-mod feature;
-mod helpers;
-mod intervals;
-mod message;
-mod reference;
-mod register;
 mod rendering;
-mod repository;
-mod sequence;
-mod settings;
-mod states;
-mod strand;
-mod track;
-mod variant;
-mod window;
-use app::App;
-use clap::Parser;
-use error::TGVError;
-mod tracks;
+
 use crate::reference::Reference;
 use crate::tracks::{UCSCDownloader, UcscDbTrackService};
+use app::App;
+use clap::Parser;
 use crossterm::{
     event::{DisableMouseCapture, EnableMouseCapture},
     execute,
 };
+use error::TGVError;
 use settings::{Cli, Commands, Settings};
 use std::io::stdout;
 #[tokio::main]
@@ -123,7 +104,7 @@ fn set_panic_hook() {
 mod tests {
     use super::*;
     use insta::assert_snapshot;
-    use ratatui::{backend::TestBackend, Terminal};
+    use ratatui::{Terminal, backend::TestBackend};
     use rstest::rstest;
     use std::env;
     use std::path::Path;
@@ -142,7 +123,9 @@ mod tests {
     )]
     #[case(
         Some("ncbi.sorted.bam"),
-        Some("-r chr22:33121120 -v tests/data/simple.vcf -b tests/data/simple.bed --no-reference --offline")
+        Some(
+            "-r chr22:33121120 -v tests/data/simple.vcf -b tests/data/simple.bed --no-reference --offline"
+        )
     )]
     #[case(
         Some("covid.sorted.bam"),
@@ -207,9 +190,11 @@ mod tests {
         downloader.download().await.unwrap();
 
         assert!(Path::new(&temp_dir).join(reference.to_string()).exists());
-        assert!(Path::new(&temp_dir)
-            .join(reference.to_string())
-            .join("tracks.sqlite")
-            .exists());
+        assert!(
+            Path::new(&temp_dir)
+                .join(reference.to_string())
+                .join("tracks.sqlite")
+                .exists()
+        );
     }
 }

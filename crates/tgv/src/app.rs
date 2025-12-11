@@ -1,14 +1,14 @@
 /// The main app object
 ///
 use crossterm::event::{self, Event, KeyEventKind};
-use ratatui::{prelude::Backend, Terminal};
+use ratatui::{Terminal, prelude::Backend};
 
-use crate::error::TGVError;
-use crate::register::{KeyRegister, MouseRegister, Registers};
-use crate::rendering::Renderer;
-use crate::repository::Repository;
-use crate::settings::Settings;
-use crate::states::{State, StateHandler};
+use gv_core::error::TGVError;
+use gv_core::register::{KeyRegister, MouseRegister, Registers};
+use gv_core::rendering::Renderer;
+use gv_core::repository::Repository;
+use gv_core::settings::Settings;
+use gv_core::states::{State, StateHandler};
 pub struct App {
     pub state: State,
     pub settings: Settings,

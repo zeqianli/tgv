@@ -10,14 +10,13 @@ use crate::{
     message::{AlignmentDisplayOption, AlignmentFilter, DataMessage, Message},
     reference::Reference,
     register::Registers,
-    rendering::{layout::resize_node, MainLayout, Scene},
+    rendering::{MainLayout, Scene, layout::resize_node},
     repository::Repository,
     sequence::{Sequence, SequenceRepository},
     track::Track,
-    window::ViewingWindow,
+    window::{Rect, ViewingWindow},
 };
 use itertools::Itertools;
-use ratatui::layout::Rect;
 
 /// Holds states of the application.
 pub struct State {

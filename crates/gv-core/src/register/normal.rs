@@ -4,7 +4,6 @@ use crate::{
     register::{KeyRegister, KeyRegisterType},
     states::State,
 };
-use crossterm::event::{KeyCode, KeyEvent};
 
 #[derive(Clone, Debug, Default)]
 pub struct NormalModeRegister {

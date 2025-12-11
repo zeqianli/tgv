@@ -1,4 +1,4 @@
-use crate::{
+use gv_core::{
     alignment::{RenderingContext, RenderingContextKind, RenderingContextModifier},
     error::TGVError,
     message::AlignmentDisplayOption,

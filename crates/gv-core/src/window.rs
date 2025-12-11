@@ -1,5 +1,55 @@
 use crate::error::TGVError;
-use ratatui::layout::Rect;
+
+/// A Rectangular area. Copied from ratatui::core::rect
+///
+/// A simple rectangle used in the computation of the layout and to give widgets a hint about the
+/// area they are supposed to render to.
+#[derive(Debug, Default, Clone, Copy, Eq, PartialEq, Hash)]
+pub struct Rect {
+    /// The x coordinate of the top left corner of the `Rect`.
+    pub x: u16,
+    /// The y coordinate of the top left corner of the `Rect`.
+    pub y: u16,
+    /// The width of the `Rect`.
+    pub width: u16,
+    /// The height of the `Rect`.
+    pub height: u16,
+}
+
+impl Rect {
+    /// Returns true if the `Rect` has no area.
+    pub const fn is_empty(self) -> bool {
+        self.width == 0 || self.height == 0
+    }
+
+    /// Returns the left coordinate of the `Rect`.
+    pub const fn left(self) -> u16 {
+        self.x
+    }
+
+    /// Returns the right coordinate of the `Rect`. This is the first coordinate outside of the
+    /// `Rect`.
+    ///
+    /// If the right coordinate is larger than the maximum value of u16, it will be clamped to
+    /// `u16::MAX`.
+    pub const fn right(self) -> u16 {
+        self.x.saturating_add(self.width)
+    }
+
+    /// Returns the top coordinate of the `Rect`.
+    pub const fn top(self) -> u16 {
+        self.y
+    }
+
+    /// Returns the bottom coordinate of the `Rect`. This is the first coordinate outside of the
+    /// `Rect`.
+    ///
+    /// If the bottom coordinate is larger than the maximum value of u16, it will be clamped to
+    /// `u16::MAX`.
+    pub const fn bottom(self) -> u16 {
+        self.y.saturating_add(self.height)
+    }
+}
 
 #[derive(Clone)]
 pub struct ViewingWindow {

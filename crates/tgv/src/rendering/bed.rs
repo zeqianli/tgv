@@ -1,4 +1,4 @@
-use crate::{
+use gv_core::{
     bed::BEDIntervals,
     error::TGVError,
     rendering::{colors::Palette, intervals::render_simple_intervals},

@@ -6,16 +6,15 @@ use crate::{
     rendering::Scene,
     states::State,
 };
-use crossterm::event::{KeyCode, KeyEvent};
 use itertools::Itertools;
 use nom::{
+    IResult, Parser,
     branch::alt,
     bytes::complete::{tag, tag_no_case},
     character::complete::{char, multispace0, usize},
     combinator::{opt, value},
     multi::{many0, separated_list0},
     sequence::{delimited, preceded, separated_pair, terminated},
-    IResult, Parser,
 };
 
 #[derive(Default, Debug)]

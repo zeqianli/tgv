@@ -8,7 +8,6 @@ use crate::{
     repository::Repository,
     states::State,
 };
-use crossterm::event;
 use itertools::Itertools;
 pub struct NormalMouseRegister {
     /// Resize event handling
