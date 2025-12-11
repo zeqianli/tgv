@@ -8,29 +8,14 @@ rust-version = "1.88"
 include = ["src/*", "!src/snapshots", "Cargo.toml", "./README.md"]
 
 [dependencies]
-async-compat.workspace = true
-async-trait.workspace = true
-bigtools.workspace = true
-bytes.workspace = true
-chrono.workspace = true
 clap.workspace = true
-csv.workspace = true
 futures.workspace = true
 gv-core.workspace = true
 itertools.workspace = true
 nom.workspace = true
-noodles.workspace = true
-opendal.workspace = true
-reqwest.workspace = true
-serde.workspace = true
-serde_json.workspace = true
 shellexpand.workspace = true
-sqlx.workspace = true
-strum.workspace = true
 thiserror.workspace = true
 tokio.workspace = true
-twobit.workspace = true
-url.workspace = true
 
 [dev-dependencies]
 cargo-insta = "1.42"
