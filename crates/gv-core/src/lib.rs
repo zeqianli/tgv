@@ -1,14 +1,18 @@
-pub fn add(left: u64, right: u64) -> u64 {
-    left + right
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn it_works() {
-        let result = add(2, 2);
-        assert_eq!(result, 4);
-    }
-}
+pub mod alignment;
+pub mod bed;
+pub mod contig_header;
+pub mod cytoband;
+pub mod error;
+pub mod feature;
+pub mod intervals;
+pub mod message;
+pub mod reference;
+pub mod register;
+pub mod repository;
+pub mod sequence;
+pub mod settings;
+pub mod states;
+pub mod strand;
+pub mod tracks;
+pub mod variant;
+pub mod window;

@@ -1,5 +1,4 @@
 use crate::{error::TGVError, reference::Reference};
-use ratatui::style::Color;
 
 #[derive(Debug, Clone, Eq, PartialEq)]
 pub enum Stain {
@@ -31,35 +30,6 @@ impl Stain {
                     Ok(Stain::Other(stain.to_string()))
                 }
             }
-        }
-    }
-
-    /// Returns the color associated with the stain type.
-    pub fn get_color(&self) -> Color {
-        // FIXME: This function is AI code. I haven't verified the correctness.
-        // FIXME: Mvoe to Pallete.
-        match self {
-            Stain::Gneg => Color::from_u32(0xffffff),
-            Stain::Gpos(p) => {
-                let start_r = 240.0;
-                let start_g = 253.0;
-                let start_b = 244.0;
-                let end_r = 5.0;
-                let end_g = 46.0;
-                let end_b = 22.0;
-
-                let t = *p as f32 / 100.0;
-
-                let r = (start_r * (1.0 - t) + end_r * t).round() as u8;
-                let g = (start_g * (1.0 - t) + end_g * t).round() as u8;
-                let b = (start_b * (1.0 - t) + end_b * t).round() as u8;
-
-                Color::Rgb(r, g, b)
-            }
-            Stain::Acen => Color::from_u32(0xdc2626),
-            Stain::Gvar => Color::from_u32(0x60a5fa),
-            Stain::Stalk => Color::from_u32(0xc026d3),
-            Stain::Other(_) => Color::from_u32(0x4b5563),
         }
     }
 }

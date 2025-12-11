@@ -31,4 +31,4 @@ url = "2.5.4"
 
 # local crates
 
-gv-core = { path = '.crates/gv-core', version = "0.0.0" }
+gv-core = { path = 'crates/gv-core', version = "0" }
