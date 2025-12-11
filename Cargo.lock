@@ -1112,6 +1112,37 @@ dependencies = [
 [[package]]
 name = "gv-core"
 version = "0.1.0"
+dependencies = [
+ "async-compat",
+ "async-trait",
+ "bigtools",
+ "bytes",
+ "cargo-insta",
+ "chrono",
+ "clap",
+ "crossterm",
+ "csv",
+ "futures",
+ "insta",
+ "itertools 0.14.0",
+ "nom 8.0.0",
+ "noodles",
+ "opendal",
+ "ratatui",
+ "reqwest",
+ "rstest",
+ "serde",
+ "serde_json",
+ "shellexpand",
+ "shlex",
+ "sqlx",
+ "strum 0.27.2",
+ "tempfile",
+ "thiserror 2.0.17",
+ "tokio",
+ "twobit",
+ "url",
+]
 
 [[package]]
 name = "h2"
