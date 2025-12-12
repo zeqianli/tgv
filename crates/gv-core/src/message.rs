@@ -52,8 +52,7 @@ pub enum Message {
     AddAlignmentChange(Vec<AlignmentDisplayOption>),
     SetAlignmentChange(Vec<AlignmentDisplayOption>),
 
-    Quit,
-
+    //Quit,
     ClearKeyRegister(KeyRegisterType),
     ClearAllKeyRegisters,
     SwitchKeyRegister(KeyRegisterType),

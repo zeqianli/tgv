@@ -13,6 +13,10 @@ pub trait GenomeInterval {
         self.start() <= position && self.end() >= position
     }
 
+    fn middle(&self) -> usize {
+        (self.start() + self.end()) / 2
+    }
+
     fn overlaps(&self, other: &impl GenomeInterval) -> bool {
         self.contig_index() == other.contig_index()
             && self.start() <= other.end()

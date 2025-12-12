@@ -1,5 +1,5 @@
 use crate::error::TGVError;
-use crate::rendering::{Palette, DARK_THEME};
+use crate::rendering::{DARK_THEME, Palette};
 use crate::tracks::UcscHost;
 use crate::{message::Message, reference::Reference};
 use clap::{Parser, Subcommand, ValueEnum};
@@ -139,8 +139,7 @@ pub struct Settings {
     pub ucsc_host: UcscHost,
 
     pub cache_dir: String,
-
-    pub palette: Palette,
+    //pub palette: Palette,
 }
 
 /// Settings to browse alignments
@@ -250,7 +249,7 @@ impl Settings {
                     return Err(TGVError::CliError(format!(
                         "Invalid genome region: {}",
                         region_string
-                    )))
+                    )));
                 }
             }
         }

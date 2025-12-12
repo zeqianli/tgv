@@ -10,7 +10,6 @@ use crate::{
     message::{AlignmentDisplayOption, AlignmentFilter, DataMessage, Message},
     reference::Reference,
     register::Registers,
-    rendering::{MainLayout, Scene, layout::resize_node},
     repository::Repository,
     sequence::{Sequence, SequenceRepository},
     track::Track,
@@ -20,11 +19,8 @@ use itertools::Itertools;
 
 /// Holds states of the application.
 pub struct State {
-    pub exit: bool,
+    pub region: Region,
 
-    pub window: ViewingWindow,
-    pub scene: Scene,
-    pub layout: MainLayout,
     pub messages: Vec<String>,
 
     pub contig_header: ContigHeader,
@@ -39,14 +35,12 @@ pub struct State {
 impl State {
     pub fn new(
         settings: &Settings,
-        initial_area: Rect,
+        region: Region,
         contigs: ContigHeader,
     ) -> Result<Self, TGVError> {
         Ok(Self {
-            window: ViewingWindow::default(),
-            exit: false,
-
             reference: settings.reference.clone(),
+            region: region,
 
             // /settings: settings.clone(),
             messages: Vec::new(),
@@ -56,36 +50,17 @@ impl State {
             track: Track::<Gene>::default(),
             sequence: Sequence::default(),
             contig_header: contigs,
-
-            scene: Scene::Main,
-            layout: MainLayout::initialize(settings, initial_area)?,
         })
-    }
-
-    pub fn area(&self) -> &Rect {
-        &self.layout.main_area
-    }
-
-    pub fn set_area(&mut self, area: Rect) -> Result<(), TGVError> {
-        self.layout.set_area(area).map(|_| ())
-    }
-
-    pub fn viewing_region(&self) -> Region {
-        Region {
-            contig_index: self.window.contig_index,
-            start: self.window.left(),
-            end: self.window.right(self.area()),
-        }
     }
 
     /// Middle coordinate of bases displayed on the screen.
     /// 1-based, inclusive.
     pub fn middle(&self) -> usize {
-        self.window.middle(self.area())
+        self.region.middle()
     }
 
     pub fn contig_index(&self) -> usize {
-        self.window.contig_index
+        self.region.contig_index
     }
 
     pub fn contig_name(&self) -> Result<&String, TGVError> {
@@ -105,11 +80,6 @@ impl State {
     /// Maximum length of the contig.
     pub fn contig_length(&self) -> Result<Option<usize>, TGVError> {
         Ok(self.contig_header.try_get(self.contig_index())?.length)
-    }
-
-    pub fn self_correct_viewing_window(&mut self) {
-        self.window
-            .self_correct(&self.layout.main_area, self.contig_length().unwrap());
     }
 }
 
@@ -186,9 +156,6 @@ impl StateHandler {
         message: Message,
     ) -> Result<Vec<DataMessage>, TGVError> {
         match message {
-            // Swithching modes
-            Message::Quit => state.exit = true,
-
             // Movement handling
             Message::MoveLeft(n) => StateHandler::move_left(state, n)?,
             Message::MoveRight(n) => StateHandler::move_right(state, n)?,
@@ -329,8 +296,6 @@ impl StateHandler {
         repository: &mut Repository, // settings: &Settings,
     ) -> Result<Vec<DataMessage>, TGVError> {
         let mut data_messages = Vec::new();
-
-        let viewing_region = state.viewing_region();
 
         // It's important to load sequence first!
         // Alignment IO requires calculating mismatches with the reference sequence.
