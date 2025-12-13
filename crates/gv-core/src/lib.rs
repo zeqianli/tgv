@@ -1,5 +1,6 @@
 pub mod alignment;
 pub mod bed;
+pub mod command;
 pub mod contig_header;
 pub mod cytoband;
 pub mod error;
@@ -7,7 +8,6 @@ pub mod feature;
 pub mod intervals;
 pub mod message;
 pub mod reference;
-pub mod register;
 pub mod repository;
 pub mod sequence;
 pub mod settings;

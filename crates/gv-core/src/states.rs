@@ -9,13 +9,21 @@ use crate::{
     intervals::{GenomeInterval, Region},
     message::{AlignmentDisplayOption, AlignmentFilter, DataMessage, Message},
     reference::Reference,
-    register::Registers,
+    //register::Registers,
+    //rendering::{MainLayout, layout::resize_node},
     repository::Repository,
     sequence::{Sequence, SequenceRepository},
     track::Track,
     window::{Rect, ViewingWindow},
 };
 use itertools::Itertools;
+
+#[derive(Debug, Clone, Eq, PartialEq)]
+pub enum Scene {
+    Main,
+    Help,
+    ContigList,
+}
 
 /// Holds states of the application.
 pub struct State {
@@ -223,26 +231,25 @@ impl StateHandler {
                 state.scene = display_mode;
             }
 
-            Message::ResizeTrack {
-                mouse_down_x,
-                mouse_down_y,
-                mouse_released_x,
-                mouse_released_y,
-            } => {
-                let mut new_node = state.layout.root.clone();
+            // Message::ResizeTrack {
+            //     mouse_down_x,
+            //     mouse_down_y,
+            //     mouse_released_x,
+            //     mouse_released_y,
+            // } => {
+            //     let mut new_node = state.layout.root.clone();
 
-                resize_node(
-                    &mut new_node,
-                    *state.area(),
-                    mouse_down_x,
-                    mouse_down_y,
-                    mouse_released_x,
-                    mouse_released_y,
-                )?;
+            //     resize_node(
+            //         &mut new_node,
+            //         *state.area(),
+            //         mouse_down_x,
+            //         mouse_down_y,
+            //         mouse_released_x,
+            //         mouse_released_y,
+            //     )?;
 
-                state.layout.root = new_node;
-            }
-
+            //     state.layout.root = new_node;
+            // }
             Message::SetAlignmentChange(options) => {
                 let middle = state.middle();
 
@@ -404,7 +411,7 @@ impl StateHandler {
 impl StateHandler {
     fn move_left(state: &mut State, n: usize) -> Result<(), TGVError> {
         let contig_length = state.contig_length()?;
-        let area = &state.layout.main_area;
+        let area = &state.main_area;
 
         state.window.set_left(
             state.window.left().saturating_sub(n * state.window.zoom),
@@ -418,7 +425,7 @@ impl StateHandler {
 
         state.window.set_left(
             state.window.left().saturating_add(n * state.window.zoom),
-            &state.layout.main_area,
+            &state.main_area,
             contig_length,
         );
         Ok(())
@@ -426,7 +433,7 @@ impl StateHandler {
     fn move_up(state: &mut State, n: usize) -> Result<(), TGVError> {
         state.window.set_top(
             state.window.top().saturating_sub(n),
-            &state.layout.main_area,
+            &state.main_area,
             state.alignment.depth(),
         );
         Ok(())
@@ -434,7 +441,7 @@ impl StateHandler {
     fn move_down(state: &mut State, n: usize) -> Result<(), TGVError> {
         state.window.set_top(
             state.window.top().saturating_add(n),
-            &state.layout.main_area,
+            &state.main_area,
             state.alignment.depth(),
         );
         Ok(())
@@ -442,9 +449,7 @@ impl StateHandler {
     fn go_to_coordinate(state: &mut State, n: usize) -> Result<(), TGVError> {
         let contig_length = state.contig_length()?;
 
-        state
-            .window
-            .set_middle(&state.layout.main_area, n, contig_length);
+        state.window.set_middle(&state.main_area, n, contig_length);
         Ok(())
     }
     fn go_to_contig_coordinate(
@@ -455,10 +460,10 @@ impl StateHandler {
         state.window.contig_index = contig_index;
         state
             .window
-            .set_middle(&state.layout.main_area, n, state.contig_length()?);
+            .set_middle(&state.main_area, n, state.contig_length()?);
         state
             .window
-            .set_top(0, &state.layout.main_area, state.alignment.depth());
+            .set_top(0, &state.main_area, state.alignment.depth());
 
         Ok(())
     }
@@ -466,7 +471,7 @@ impl StateHandler {
     fn go_to_y(state: &mut State, y: usize) -> Result<(), TGVError> {
         state
             .window
-            .set_top(y, &state.layout.main_area, state.alignment.depth());
+            .set_top(y, &state.main_area, state.alignment.depth());
 
         Ok(())
     }
@@ -474,7 +479,7 @@ impl StateHandler {
     fn handle_zoom_out(state: &mut State, r: usize) -> Result<(), TGVError> {
         state
             .window
-            .zoom_out(r, &state.layout.main_area, state.contig_length()?)
+            .zoom_out(r, &state.main_area, state.contig_length()?)
             .unwrap();
         Ok(())
     }
@@ -482,7 +487,7 @@ impl StateHandler {
     fn handle_zoom_in(state: &mut State, r: usize) -> Result<(), TGVError> {
         state
             .window
-            .zoom_in(r, &state.layout.main_area, state.contig_length()?)
+            .zoom_in(r, &state.main_area, state.contig_length()?)
             .unwrap();
         Ok(())
     }

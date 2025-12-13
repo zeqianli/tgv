@@ -15,7 +15,7 @@ mod track;
 mod variants;
 pub use alignment::render_alignment;
 pub use bed::render_bed;
-pub use colors::{Palette, DARK_THEME};
+pub use colors::{DARK_THEME, Palette};
 pub use console::render_console;
 pub use contig_list::render_contig_list;
 pub use coordinate::render_coordinates;
@@ -36,13 +36,6 @@ use crate::{
     states::State,
 };
 use ratatui::{buffer::Buffer, layout::Rect};
-
-#[derive(Debug, Clone, Eq, PartialEq)]
-pub enum Scene {
-    Main,
-    Help,
-    ContigList,
-}
 
 #[derive(Debug, Default)]
 pub struct Renderer {

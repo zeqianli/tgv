@@ -3,8 +3,7 @@ use crate::{
     message::Message,
     message::{AlignmentDisplayOption, AlignmentFilter, AlignmentSort},
     register::{KeyRegister, KeyRegisterType},
-    rendering::Scene,
-    states::State,
+    states::{Scene, State},
 };
 use itertools::Itertools;
 use nom::{
@@ -121,55 +120,7 @@ impl CommandModeRegister {
     /// :1234: Go to position 1234 on the same contig.
     /// :12:1234: Go to position 1234 on contig 12.
     pub fn parse(&self) -> Result<Vec<Message>, TGVError> {
-        if self.buffer.input == "q" {
-            return Ok(vec![Message::Quit]);
-        }
-
-        if self.buffer.input == "h" {
-            return Err(TGVError::RegisterError(
-                "TODO: help screen is not implemented".to_string(),
-            ));
-        }
-
-        if let Ok((_, true)) = restore_default_options(&self.buffer.input) {
-            // TODO: this results in resetting twice now.
-            return Ok(vec![Message::SetAlignmentChange(vec![])]);
-        }
-
-        if let Ok((_, true)) = view_as_pair(&self.buffer.input) {
-            return Ok(vec![Message::SetAlignmentChange(vec![
-                AlignmentDisplayOption::ViewAsPairs,
-            ])]);
-        }
-
-        if let Ok((remaining, options)) = parse_display_options(&self.buffer.input) {
-            if remaining.is_empty() {
-                return Ok(vec![Message::SetAlignmentChange(options)]);
-            }
-        }
-
-        let split = self.buffer.input.split(":").collect::<Vec<&str>>();
-
-        match split.len() {
-            1 => match split[0].parse::<usize>() {
-                Ok(n) => Ok(vec![Message::GotoCoordinate(n)]),
-                Err(_) => Ok(vec![Message::GoToGene(split[0].to_string())]),
-            },
-            2 => match split[1].parse::<usize>() {
-                Ok(n) => Ok(vec![Message::GotoContigNameCoordinate(
-                    split[0].to_string(),
-                    n,
-                )]),
-                Err(_) => Err(TGVError::RegisterError(format!(
-                    "Invalid command mode input: {}",
-                    self.buffer.input
-                ))),
-            },
-            _ => Err(TGVError::RegisterError(format!(
-                "Invalid command mode input: {}",
-                self.buffer.input
-            ))),
-        }
+        gv_core::command::parse(self.buffer.input)
     }
 }
 

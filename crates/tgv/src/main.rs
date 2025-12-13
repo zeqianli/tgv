@@ -1,4 +1,5 @@
 mod app;
+mod register;
 mod rendering;
 
 use crate::reference::Reference;

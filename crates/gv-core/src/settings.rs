@@ -1,5 +1,5 @@
+use crate::colors::{DARK_THEME, Palette};
 use crate::error::TGVError;
-use crate::rendering::{DARK_THEME, Palette};
 use crate::tracks::UcscHost;
 use crate::{message::Message, reference::Reference};
 use clap::{Parser, Subcommand, ValueEnum};
