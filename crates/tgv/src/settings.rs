@@ -214,6 +214,7 @@ impl Settings {
             test_mode: false,
             debug: cli.debug,
             cache_dir,
+            palette: DARK_THEME,
         })
     }
 
@@ -257,8 +258,16 @@ impl Settings {
     }
 }
 
-impl Default for Settings {
-    fn default() -> Settings {
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    use crate::message::Message;
+    use crate::reference::Reference;
+    use rstest::rstest;
+
+    // Helper function to create default settings for comparison
+    fn default_settings() -> Settings {
         Settings {
             bam_path: None,
             bai_path: None,
@@ -271,48 +280,40 @@ impl Default for Settings {
             debug: false,
             ucsc_host: UcscHost::Us,
             cache_dir: shellexpand::tilde("~/.tgv").to_string(),
+            palette: DARK_THEME,
         }
     }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    use crate::message::Message;
-    use crate::reference::Reference;
-    use rstest::rstest;
 
     #[rstest]
-    #[case("tgv", Ok(Settings::Default()))]
+    #[case("tgv", Ok(default_settings()))]
     #[case("tgv input.bam", Ok(Settings {
         bam_path: Some("input.bam".to_string()),
         bai_path: Some("input.bam.bai".to_string()),
-        ..Settings::default()
+        ..default_settings()
     }))]
     #[case("tgv input.bam -b some.bed", Ok(Settings {
         bam_path: Some("input.bam".to_string()),
         bai_path: Some("input.bam.bai".to_string()),
         bed_path: Some("some.bed".to_string()),
-        ..Settings::default()
+        ..default_settings()
     }))]
     #[case("tgv input.bam -v some.vcf", Ok(Settings {
         bam_path: Some("input.bam".to_string()),
         bai_path: Some("input.bam.bai".to_string()),
         vcf_path: Some("some.vcf".to_string()),
-        ..Settings::default()
+        ..default_settings()
     }))]
     #[case("tgv input.bam --offline", Ok(Settings {
         bam_path: Some("input.bam".to_string()),
         bai_path: Some("input.bam.bai".to_string()),
         backend: BackendType::Local,
-        ..Settings::default()
+        ..default_settings()
     }))]
     #[case("tgv input.bam --online", Ok(Settings {
         bam_path: Some("input.bam".to_string()),
         bai_path: Some("input.bam.bai".to_string()),
         backend: BackendType::Ucsc,
-        ..Settings::default()
+        ..default_settings()
     }))]
     #[case("tgv input.bam -r chr1:12345", Ok(Settings {
         bam_path: Some("input.bam".to_string()),
@@ -321,7 +322,7 @@ mod tests {
             "chr1".to_string(),
             12345,
         )],
-        ..Settings::default()
+        ..default_settings()
     }))]
     #[case("tgv input.bam -r chr1:invalid", Err(TGVError::CliError("".to_string())))]
     #[case("tgv input.bam -r chr1:12:12345", Err(TGVError::CliError("".to_string())))]
@@ -329,21 +330,21 @@ mod tests {
         bam_path: Some("input.bam".to_string()),
         bai_path: Some("input.bam.bai".to_string()),
         initial_state_messages: vec![Message::GoToGene("TP53".to_string())],
-        ..Settings::default()
+        ..default_settings()
     }))]
     #[case("tgv input.bam -r TP53 -g hg19", Ok(Settings {
         bam_path: Some("input.bam".to_string()),
         bai_path: Some("input.bam.bai".to_string()),
         reference: Reference::Hg19,
         initial_state_messages: vec![Message::GoToGene("TP53".to_string())],
-        ..Settings::default()
+        ..default_settings()
     }))]
     #[case("tgv input.bam -r TP53 -g mm39", Ok(Settings {
         bam_path: Some("input.bam".to_string()),
         bai_path: Some("input.bam.bai".to_string()),
         reference: Reference::UcscGenome("mm39".to_string()),
         initial_state_messages: vec![Message::GoToGene("TP53".to_string())],
-        ..Settings::default()
+        ..default_settings()
     }))]
     #[case("tgv input.bam -r 1:12345 --no-reference", Ok(Settings {
         bam_path: Some("input.bam".to_string()),
@@ -353,7 +354,7 @@ mod tests {
             "1".to_string(),
             12345,
         )],
-        ..Settings::default()
+        ..default_settings()
     }))]
     #[case("tgv input.bam -r TP53 -g hg19 --no-reference", Err(TGVError::CliError("".to_string())))]
     #[case("tgv --no-reference", Err(TGVError::CliError("".to_string())))]

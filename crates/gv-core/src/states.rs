@@ -6,7 +6,7 @@ use crate::{
     cytoband::Cytoband,
     error::TGVError,
     feature::Gene,
-    intervals::{GenomeInterval, Region},
+    intervals::{Focus, GenomeInterval, Region},
     message::{AlignmentDisplayOption, AlignmentFilter, DataMessage, Message},
     reference::Reference,
     //register::Registers,
@@ -27,8 +27,6 @@ pub enum Scene {
 
 /// Holds states of the application.
 pub struct State {
-    pub region: Region,
-
     pub messages: Vec<String>,
 
     pub contig_header: ContigHeader,
@@ -41,14 +39,9 @@ pub struct State {
 
 /// Getters
 impl State {
-    pub fn new(
-        settings: &Settings,
-        region: Region,
-        contigs: ContigHeader,
-    ) -> Result<Self, TGVError> {
+    pub fn new(settings: &Settings, contigs: ContigHeader) -> Result<Self, TGVError> {
         Ok(Self {
             reference: settings.reference.clone(),
-            region: region,
 
             // /settings: settings.clone(),
             messages: Vec::new(),
@@ -61,100 +54,225 @@ impl State {
         })
     }
 
-    /// Middle coordinate of bases displayed on the screen.
-    /// 1-based, inclusive.
-    pub fn middle(&self) -> usize {
-        self.region.middle()
-    }
-
-    pub fn contig_index(&self) -> usize {
-        self.region.contig_index
-    }
-
-    pub fn contig_name(&self) -> Result<&String, TGVError> {
+    pub fn contig_name(&self, region: &Region) -> Result<&String, TGVError> {
         self.contig_header
-            .try_get(self.contig_index())
+            .try_get(region.contig_index)
             .map(|contig| &contig.name)
     }
 
-    pub fn current_cytoband(&self) -> Option<&Cytoband> {
+    pub fn current_cytoband(&self, region: &Region) -> Option<&Cytoband> {
         self.contig_header
-            .try_get(self.contig_index())
+            .try_get(region.contig_index)
             .unwrap()
             .cytoband
             .as_ref()
     }
 
     /// Maximum length of the contig.
-    pub fn contig_length(&self) -> Result<Option<usize>, TGVError> {
-        Ok(self.contig_header.try_get(self.contig_index())?.length)
+    pub fn contig_length(&self, region: &Region) -> Result<Option<usize>, TGVError> {
+        Ok(self.contig_header.try_get(region.contig_index)?.length)
+    }
+
+    const ALIGNMENT_CACHE_RATIO: usize = 3;
+
+    pub fn alignment_cache_region(state: &State, region: &Region) -> Result<Region, TGVError> {
+        let left = region
+            .start
+            .saturating_sub(Self::ALIGNMENT_CACHE_RATIO * region.width() / 2)
+            .max(1);
+        let right = region
+            .end
+            .saturating_add(Self::ALIGNMENT_CACHE_RATIO * region.width() / 2)
+            .min(if let Some(contig_length) = state.contig_length()? {
+                contig_length
+            } else {
+                usize::MAX
+            });
+        Ok(Region {
+            contig_index: region.contig_index,
+            start: left,
+            end: right,
+        })
+    }
+
+    const SEQUENCE_CACHE_RATIO: usize = 6;
+
+    pub fn sequence_cache_region(state: &State, region: &Region) -> Result<Region, TGVError> {
+        let left = region
+            .start
+            .saturating_sub(Self::SEQUENCE_CACHE_RATIO * region.width() / 2)
+            .max(1);
+        let right = region
+            .end
+            .saturating_add(Self::SEQUENCE_CACHE_RATIO * region.width() / 2)
+            .min(if let Some(contig_length) = state.contig_length()? {
+                contig_length
+            } else {
+                usize::MAX
+            });
+        Ok(Region {
+            contig_index: region.contig_index,
+            start: left,
+            end: right,
+        })
+    }
+
+    const TRACK_CACHE_RATIO: usize = 10;
+
+    pub fn track_cache_region(state: &State, region: &Region) -> Result<Region, TGVError> {
+        let left = region
+            .start
+            .saturating_sub(Self::TRACK_CACHE_RATIO * region.width() / 2)
+            .max(1);
+        let right = region
+            .end
+            .saturating_add(Self::TRACK_CACHE_RATIO * region.width() / 2)
+            .min(if let Some(contig_length) = state.contig_length()? {
+                contig_length
+            } else {
+                usize::MAX
+            });
+        Ok(Region {
+            contig_index: region.contig_index,
+            start: left,
+            end: right,
+        })
     }
 }
 
-pub struct StateHandler {}
+impl State {
+    fn add_message(&mut self, message: String) -> Result<(), TGVError> {
+        self.messages.push(message);
+        Ok(())
+    }
 
-impl StateHandler {
-    /// Handle initial messages.
-    /// This has different error handling strategy (loud) vs handle(...), which suppresses errors.
-    pub async fn handle_initial_messages(
-        state: &mut State,
-        repository: &mut Repository,
-        registers: &mut Registers,
-        settings: &Settings,
-        messages: Vec<Message>,
-    ) -> Result<(), TGVError> {
+    fn get_data_requirements(
+        &self,
+        region: &Region,
+        repository: &mut Repository, // settings: &Settings,
+    ) -> Result<Vec<DataMessage>, TGVError> {
         let mut data_messages = Vec::new();
 
-        for message in messages {
-            data_messages.extend(
-                StateHandler::handle_state_message(state, repository, registers, settings, message)
-                    .await?,
-            );
+        // It's important to load sequence first!
+        // Alignment IO requires calculating mismatches with the reference sequence.
+
+        if repository.sequence_service.is_some()
+            && self.sequence_renderable()
+            && !self.sequence.has_complete_data(&region)
+        {
+            let sequence_cache_region = self.sequence_cache_region(region)?;
+            data_messages.push(DataMessage::RequiresCompleteSequences(
+                sequence_cache_region,
+            ));
+        }
+        if repository.alignment_repository.is_some()
+            && self.alignment_renderable()
+            && !self.alignment.has_complete_data(&region)
+        {
+            let alignment_cache_region = self.alignment_cache_region(region)?;
+            data_messages.push(DataMessage::RequiresCompleteAlignments(
+                alignment_cache_region,
+            ));
         }
 
-        let mut loaded_data = false;
-        for data_message in data_messages {
-            loaded_data = Self::handle_data_message(state, repository, data_message).await?;
+        if repository.track_service.is_some() {
+            if !self.track.has_complete_data(&region) {
+                // viewing_window.zoom <= Self::MAX_ZOOM_TO_DISPLAY_FEATURES is always true
+                let track_cache_region = self.track_cache_region(&region)?;
+                data_messages.push(DataMessage::RequiresCompleteFeatures(track_cache_region));
+            }
+
+            // Cytobands
+            data_messages.push(DataMessage::RequiresCytobands(region.contig_index));
         }
 
-        Ok(())
+        Ok(data_messages)
     }
 
-    /// Handle messages after initialization. This blocks any error messages instead of propagating them.
-    pub async fn handle(
-        state: &mut State,
+    pub async fn handle_data_message(
+        &mut self,
         repository: &mut Repository,
-        registers: &mut Registers,
-        settings: &Settings,
-        messages: Vec<Message>,
-    ) -> Result<(), TGVError> {
-        state.messages.clear();
+        data_message: DataMessage,
+    ) -> Result<bool, TGVError> {
+        let mut loaded_data = false;
 
-        let mut data_messages: Vec<DataMessage> = Vec::new();
+        match data_message {
+            DataMessage::RequiresCompleteAlignments(region) => {
+                if !self.alignment.has_complete_data(&region) {
+                    self.alignment = {
+                        let mut alignment = repository
+                            .alignment_repository
+                            .as_mut()
+                            .unwrap()
+                            .read_alignment(&region, &self.sequence, &self.contig_header)
+                            .await?;
 
-        for message in messages {
-            match StateHandler::handle_state_message(
-                state, repository, registers, settings, message,
-            )
-            .await
-            {
-                Ok(messages) => data_messages.extend(messages),
-                Err(e) => return StateHandler::add_message(state, e.to_string()),
+                        alignment.apply_options(&self.alignment_options, &self.sequence)?;
+
+                        alignment
+                    };
+
+                    // apply sorting and filtering
+
+                    loaded_data = true;
+                }
+            }
+            DataMessage::RequiresCompleteFeatures(region) => {
+                let has_complete_track = self.track.has_complete_data(&region);
+                if let Some(track_service) = repository.track_service.as_mut() {
+                    if !has_complete_track {
+                        if let Ok(track) = track_service
+                            .query_gene_track(&self.reference, &region, &self.contig_header)
+                            .await
+                        {
+                            self.track = track;
+                            loaded_data = true;
+                        } else {
+                            // Do nothing (track not found). TODO: fix this shit properly.
+                        }
+                    }
+                } else {
+                    loaded_data = match self.reference {
+                        // FIXME: this is duplicate code as Settings.
+                        Reference::BYOIndexedFasta(_) => false,
+                        _ => true,
+                    };
+                }
+            }
+            DataMessage::RequiresCompleteSequences(region) => {
+                let sequence_service = repository.sequence_service_checked()?;
+
+                if !self.sequence.has_complete_data(&region) {
+                    let sequence = sequence_service
+                        .query_sequence(&region, &self.contig_header)
+                        .await?;
+
+                    self.sequence = sequence;
+                    loaded_data = true;
+                }
+            }
+
+            DataMessage::RequiresCytobands(contig_index) => {
+                if self.contig_header.cytoband_is_loaded(contig_index)? {
+                    return Ok(false);
+                }
+
+                if let Some(track_service) = repository.track_service.as_mut() {
+                    let cytoband = track_service
+                        .get_cytoband(&self.reference, contig_index, &self.contig_header)
+                        .await?;
+                    self.contig_header
+                        .try_update_cytoband(contig_index, cytoband)?;
+                    loaded_data = true;
+                }
             }
         }
 
-        let data_messages = StateHandler::get_data_requirements(state, repository)?;
-
-        for data_message in data_messages {
-            match Self::handle_data_message(state, repository, data_message).await {
-                Ok(_) => {}
-                Err(e) => return StateHandler::add_message(state, e.to_string()),
-            }
-        }
-
-        Ok(())
+        Ok(loaded_data)
     }
+}
 
+impl StateHandler {
     /// Main function to route state message handling.
     async fn handle_state_message(
         state: &mut State,
@@ -227,9 +345,9 @@ impl StateHandler {
             // Error messages
             Message::Message(message) => StateHandler::add_message(state, message)?,
 
-            Message::SwitchScene(display_mode) => {
-                state.scene = display_mode;
-            }
+            // Message::SwitchScene(display_mode) => {
+            //     state.scene = display_mode;
+            // }
 
             // Message::ResizeTrack {
             //     mouse_down_x,
@@ -276,251 +394,44 @@ impl StateHandler {
             }
 
             Message::AddAlignmentChange(options) => {}
-
-            Message::ClearAllKeyRegisters => registers.clear(),
-
-            Message::ClearKeyRegister(register_type) => {
-                todo!()
-            }
-
-            Message::SwitchKeyRegister(register_type) => registers.current = register_type,
         }
 
         Self::get_data_requirements(state, repository)
     }
 }
 
-// Data message handling
-
-impl StateHandler {
-    fn add_message(state: &mut State, message: String) -> Result<(), TGVError> {
-        state.messages.push(message);
-        Ok(())
-    }
-
-    fn get_data_requirements(
-        state: &State,
-        repository: &mut Repository, // settings: &Settings,
-    ) -> Result<Vec<DataMessage>, TGVError> {
-        let mut data_messages = Vec::new();
-
-        // It's important to load sequence first!
-        // Alignment IO requires calculating mismatches with the reference sequence.
-
-        if repository.sequence_service.is_some()
-            && state.window.sequence_renderable()
-            && !state.sequence.has_complete_data(&viewing_region)
-        {
-            let sequence_cache_region = Self::sequence_cache_region(state, &viewing_region)?;
-            data_messages.push(DataMessage::RequiresCompleteSequences(
-                sequence_cache_region,
-            ));
-        }
-        if repository.alignment_repository.is_some()
-            && state.window.alignment_renderable()
-            && !state.alignment.has_complete_data(&viewing_region)
-        {
-            let alignment_cache_region = Self::alignment_cache_region(state, &viewing_region)?;
-            data_messages.push(DataMessage::RequiresCompleteAlignments(
-                alignment_cache_region,
-            ));
-        }
-
-        if repository.track_service.is_some() {
-            if !state.track.has_complete_data(&viewing_region) {
-                // viewing_window.zoom <= Self::MAX_ZOOM_TO_DISPLAY_FEATURES is always true
-                let track_cache_region = Self::track_cache_region(state, &viewing_region)?;
-                data_messages.push(DataMessage::RequiresCompleteFeatures(track_cache_region));
-            }
-
-            // Cytobands
-            data_messages.push(DataMessage::RequiresCytobands(state.contig_index()));
-        }
-
-        Ok(data_messages)
-    }
-
-    const ALIGNMENT_CACHE_RATIO: usize = 3;
-
-    fn alignment_cache_region(state: &State, region: &Region) -> Result<Region, TGVError> {
-        let left = region
-            .start
-            .saturating_sub(Self::ALIGNMENT_CACHE_RATIO * region.width() / 2)
-            .max(1);
-        let right = region
-            .end
-            .saturating_add(Self::ALIGNMENT_CACHE_RATIO * region.width() / 2)
-            .min(if let Some(contig_length) = state.contig_length()? {
-                contig_length
-            } else {
-                usize::MAX
-            });
-        Ok(Region {
-            contig_index: region.contig_index,
-            start: left,
-            end: right,
-        })
-    }
-
-    const SEQUENCE_CACHE_RATIO: usize = 6;
-
-    fn sequence_cache_region(state: &State, region: &Region) -> Result<Region, TGVError> {
-        let left = region
-            .start
-            .saturating_sub(Self::SEQUENCE_CACHE_RATIO * region.width() / 2)
-            .max(1);
-        let right = region
-            .end
-            .saturating_add(Self::SEQUENCE_CACHE_RATIO * region.width() / 2)
-            .min(if let Some(contig_length) = state.contig_length()? {
-                contig_length
-            } else {
-                usize::MAX
-            });
-        Ok(Region {
-            contig_index: region.contig_index,
-            start: left,
-            end: right,
-        })
-    }
-
-    const TRACK_CACHE_RATIO: usize = 10;
-
-    fn track_cache_region(state: &State, region: &Region) -> Result<Region, TGVError> {
-        let left = region
-            .start
-            .saturating_sub(Self::TRACK_CACHE_RATIO * region.width() / 2)
-            .max(1);
-        let right = region
-            .end
-            .saturating_add(Self::TRACK_CACHE_RATIO * region.width() / 2)
-            .min(if let Some(contig_length) = state.contig_length()? {
-                contig_length
-            } else {
-                usize::MAX
-            });
-        Ok(Region {
-            contig_index: region.contig_index,
-            start: left,
-            end: right,
-        })
-    }
-}
-
 // Movement handling
-impl StateHandler {
-    fn move_left(state: &mut State, n: usize) -> Result<(), TGVError> {
-        let contig_length = state.contig_length()?;
-        let area = &state.main_area;
-
-        state.window.set_left(
-            state.window.left().saturating_sub(n * state.window.zoom),
-            area,
-            contig_length,
-        );
-        Ok(())
-    }
-    fn move_right(state: &mut State, n: usize) -> Result<(), TGVError> {
-        let contig_length: Option<usize> = state.contig_length()?;
-
-        state.window.set_left(
-            state.window.left().saturating_add(n * state.window.zoom),
-            &state.main_area,
-            contig_length,
-        );
-        Ok(())
-    }
-    fn move_up(state: &mut State, n: usize) -> Result<(), TGVError> {
-        state.window.set_top(
-            state.window.top().saturating_sub(n),
-            &state.main_area,
-            state.alignment.depth(),
-        );
-        Ok(())
-    }
-    fn move_down(state: &mut State, n: usize) -> Result<(), TGVError> {
-        state.window.set_top(
-            state.window.top().saturating_add(n),
-            &state.main_area,
-            state.alignment.depth(),
-        );
-        Ok(())
-    }
-    fn go_to_coordinate(state: &mut State, n: usize) -> Result<(), TGVError> {
-        let contig_length = state.contig_length()?;
-
-        state.window.set_middle(&state.main_area, n, contig_length);
-        Ok(())
-    }
-    fn go_to_contig_coordinate(
-        state: &mut State,
-        contig_index: usize,
-        n: usize,
-    ) -> Result<(), TGVError> {
-        state.window.contig_index = contig_index;
-        state
-            .window
-            .set_middle(&state.main_area, n, state.contig_length()?);
-        state
-            .window
-            .set_top(0, &state.main_area, state.alignment.depth());
-
-        Ok(())
-    }
-
-    fn go_to_y(state: &mut State, y: usize) -> Result<(), TGVError> {
-        state
-            .window
-            .set_top(y, &state.main_area, state.alignment.depth());
-
-        Ok(())
-    }
-
-    fn handle_zoom_out(state: &mut State, r: usize) -> Result<(), TGVError> {
-        state
-            .window
-            .zoom_out(r, &state.main_area, state.contig_length()?)
-            .unwrap();
-        Ok(())
-    }
-
-    fn handle_zoom_in(state: &mut State, r: usize) -> Result<(), TGVError> {
-        state
-            .window
-            .zoom_in(r, &state.main_area, state.contig_length()?)
-            .unwrap();
-        Ok(())
-    }
-
-    async fn go_to_next_genes_start(
-        state: &mut State,
+impl State {
+    async fn next_genes_start(
+        &self,
+        region: Region,
         repository: &mut Repository,
         n: usize,
-    ) -> Result<(), TGVError> {
+    ) -> Result<Region, TGVError> {
         if n == 0 {
-            return Ok(());
+            return Ok(region);
         }
 
-        let middle = state.middle();
+        let middle = region.middle();
 
         // The gene is in the track.
-        if let Some(target_gene) = state.track.get_k_genes_after(middle, n) {
-            return Self::go_to_coordinate(state, target_gene.start() + 1);
+        if let Some(target_gene) = self.track.get_k_genes_after(middle, n) {
+            return Ok(region.move_to(target_gene.start()));
         }
 
         // Query for the target gene
         let gene = repository
             .track_service_checked()?
             .query_k_genes_after(
-                &state.reference,
-                state.contig_index(),
+                &self.reference,
+                region.contig_index,
                 middle,
                 n,
-                &state.contig_header,
+                &self.contig_header,
             )
             .await?;
 
-        Self::go_to_coordinate(state, gene.start() + 1)
+        Ok(region.move_to(gene.start()))
     }
 
     async fn go_to_next_genes_end(
@@ -735,20 +646,25 @@ impl StateHandler {
     }
 
     async fn go_to_gene(
-        state: &mut State,
+        &self,
         repository: &mut Repository,
         gene_name: String,
-    ) -> Result<(), TGVError> {
-        let gene = repository
+    ) -> Result<Focus, TGVError> {
+        repository
             .track_service_checked()?
-            .query_gene_name(&state.reference, &gene_name, &state.contig_header)
-            .await?;
-
-        Self::go_to_contig_coordinate(state, gene.contig_index(), gene.start() + 1)
+            .query_gene_name(&self.reference, &gene_name, &self.contig_header)
+            .await
+            .map(|gene| Focus {
+                contig_index: gene.contig_index(),
+                position: gene.start() + 1,
+            })
     }
 
-    async fn go_to_next_contig(state: &mut State, n: usize) -> Result<(), TGVError> {
-        Self::go_to_contig_coordinate(state, state.contig_header.next(&state.contig_index(), n), 1)
+    async fn go_to_next_contig(&self, region: Region, n: usize) -> Focus {
+        Focus {
+            contig_index: self.contig_header.next(&region.contig_index(), n),
+            position: 1,
+        }
     }
 
     async fn go_to_previous_contig(state: &mut State, n: usize) -> Result<(), TGVError> {
@@ -763,8 +679,8 @@ impl StateHandler {
         Self::go_to_contig_coordinate(state, contig_index, 1)
     }
 
-    async fn go_to_default(state: &mut State, repository: &mut Repository) -> Result<(), TGVError> {
-        match state.reference {
+    async fn default_region(&self, repository: &mut Repository) -> Result<(), TGVError> {
+        match self.reference {
             Reference::Hg38 | Reference::Hg19 => {
                 return Self::go_to_gene(state, repository, "TP53".to_string()).await;
             }
@@ -805,91 +721,5 @@ impl StateHandler {
             "Failed to find a default initial region. Please provide a starting region with -r."
                 .to_string(),
         ))
-    }
-}
-
-impl StateHandler {
-    // TODO: async
-    pub async fn handle_data_message(
-        state: &mut State,
-        repository: &mut Repository,
-        data_message: DataMessage,
-    ) -> Result<bool, TGVError> {
-        let mut loaded_data = false;
-
-        match data_message {
-            DataMessage::RequiresCompleteAlignments(region) => {
-                if !state.alignment.has_complete_data(&region) {
-                    state.alignment = {
-                        let mut alignment = repository
-                            .alignment_repository
-                            .as_mut()
-                            .unwrap()
-                            .read_alignment(&region, &state.sequence, &state.contig_header)
-                            .await?;
-
-                        alignment.apply_options(&state.alignment_options, &state.sequence)?;
-
-                        alignment
-                    };
-
-                    // apply sorting and filtering
-
-                    loaded_data = true;
-                }
-            }
-            DataMessage::RequiresCompleteFeatures(region) => {
-                let has_complete_track = state.track.has_complete_data(&region);
-                if let Some(track_service) = repository.track_service.as_mut() {
-                    if !has_complete_track {
-                        if let Ok(track) = track_service
-                            .query_gene_track(&state.reference, &region, &state.contig_header)
-                            .await
-                        {
-                            state.track = track;
-                            loaded_data = true;
-                        } else {
-                            // Do nothing (track not found). TODO: fix this shit properly.
-                        }
-                    }
-                } else {
-                    loaded_data = match state.reference {
-                        // FIXME: this is duplicate code as Settings.
-                        Reference::BYOIndexedFasta(_) => false,
-                        _ => true,
-                    };
-                }
-            }
-            DataMessage::RequiresCompleteSequences(region) => {
-                let sequence_service = repository.sequence_service_checked()?;
-
-                if !state.sequence.has_complete_data(&region) {
-                    let sequence = sequence_service
-                        .query_sequence(&region, &state.contig_header)
-                        .await?;
-
-                    state.sequence = sequence;
-                    loaded_data = true;
-                }
-            }
-
-            DataMessage::RequiresCytobands(contig_index) => {
-                if state.contig_header.cytoband_is_loaded(contig_index)? {
-                    return Ok(false);
-                }
-
-                if let Some(track_service) = repository.track_service.as_mut() {
-                    let cytoband = track_service
-                        .get_cytoband(&state.reference, contig_index, &state.contig_header)
-                        .await?;
-                    state
-                        .contig_header
-                        .try_update_cytoband(contig_index, cytoband)?;
-                    loaded_data = true;
-                }
-            }
-        }
-
-        Ok(loaded_data)
     }
 }

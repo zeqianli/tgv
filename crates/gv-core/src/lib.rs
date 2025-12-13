@@ -16,4 +16,3 @@ pub mod strand;
 pub mod track;
 pub mod tracks;
 pub mod variant;
-pub mod window;

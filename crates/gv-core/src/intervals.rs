@@ -36,10 +36,6 @@ pub trait GenomeInterval {
             None => self.start() <= self.end(),
         }
     }
-
-    fn middle(&self) -> usize {
-        (self.start() + self.end()).div_ceil(2)
-    }
 }
 
 #[derive(Debug, Clone)]
@@ -132,4 +128,18 @@ impl Region {
     pub fn width(&self) -> usize {
         self.length()
     }
+
+    pub fn move_to(self, n: usize) -> Self {
+        Self {
+            contig_index: self.contig_index,
+            start: n,
+            end: n + self.width() - 1,
+        }
+    }
+}
+
+pub struct Focus {
+    pub contig_index: usize,
+
+    pub position: usize,
 }
