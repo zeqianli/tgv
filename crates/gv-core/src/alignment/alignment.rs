@@ -86,21 +86,14 @@ impl Alignment {
     }
 
     /// Return the read at x_coordinate, yth track
-    pub fn read_overlapping(
-        &self,
-        x_left_coordinate: u64,
-        x_right_coordinate: u64,
-        y: usize,
-    ) -> Option<&AlignedRead> {
+    pub fn read_overlapping(&self, left: u64, right: u64, y: usize) -> Option<&AlignedRead> {
         if y >= self.depth() {
             return None;
         }
 
         self.ys_index[y]
             .iter()
-            .find(|i_read| {
-                self.reads[**i_read].full_read_overlaps(x_left_coordinate, x_right_coordinate)
-            })
+            .find(|i_read| self.reads[**i_read].full_read_overlaps(left, right))
             .map(|index| &self.reads[*index])
     }
 
@@ -114,17 +107,18 @@ impl Alignment {
 
     pub fn from_aligned_reads(
         reads: Vec<AlignedRead>,
-        region: &Region,
+        contig_index: usize,
+        data_complete_bound: (u64, u64),
         reference_sequence: &Sequence,
     ) -> Result<Self, TGVError> {
         let show_reads = vec![true; reads.len()];
         let ys = stack_tracks_for_reads(&reads, &show_reads);
         let mut alignment = Self {
             reads,
-            contig_index: region.contig_index,
+            contig_index: contig_index,
             coverage: BTreeMap::new(),
-            data_complete_left_bound: region.start,
-            data_complete_right_bound: region.end,
+            data_complete_left_bound: data_complete_bound.0,
+            data_complete_right_bound: data_complete_bound.1,
             ys: ys.clone(),
             default_ys: ys,
             show_read: show_reads,
@@ -250,8 +244,8 @@ impl Alignment {
             Some(read_index_2) => {
                 let (read_1, read_2) = (&self.reads[read_index_1], &self.reads[read_index_2]);
 
-                let stacking_start = usize::min(read_1.stacking_start(), read_2.stacking_start());
-                let stacking_end = usize::max(read_1.stacking_end(), read_2.stacking_end());
+                let stacking_start = u64::min(read_1.stacking_start(), read_2.stacking_start());
+                let stacking_end = u64::max(read_1.stacking_end(), read_2.stacking_end());
                 let rendering_contexts = calculate_paired_context(
                     read_1.rendering_contexts.clone(),
                     read_2.rendering_contexts.clone(),
@@ -382,8 +376,8 @@ fn calculate_mate_map(reads: &Vec<AlignedRead>) -> Result<Vec<usize>, TGVError> 
 }
 
 fn stack_tracks_for_reads(reads: &Vec<AlignedRead>, show_reads: &Vec<bool>) -> Vec<usize> {
-    let mut track_left_bounds: Vec<usize> = Vec::new();
-    let mut track_right_bounds: Vec<usize> = Vec::new();
+    let mut track_left_bounds: Vec<u64> = Vec::new();
+    let mut track_right_bounds: Vec<u64> = Vec::new();
 
     let ys = reads
         .iter()
@@ -406,8 +400,8 @@ fn stack_tracks_for_reads(reads: &Vec<AlignedRead>, show_reads: &Vec<bool>) -> V
     ys
 }
 fn stack_tracks_for_paired_reads(reads: &Vec<ReadPair>, show_reads: &Vec<bool>) -> Vec<usize> {
-    let mut track_left_bounds: Vec<usize> = Vec::new();
-    let mut track_right_bounds: Vec<usize> = Vec::new();
+    let mut track_left_bounds: Vec<u64> = Vec::new();
+    let mut track_right_bounds: Vec<u64> = Vec::new();
 
     let ys = reads
         .iter()
@@ -431,11 +425,11 @@ fn stack_tracks_for_paired_reads(reads: &Vec<ReadPair>, show_reads: &Vec<bool>) 
 }
 
 fn find_track(
-    start: usize,
-    end: usize,
-    track_left_bounds: &mut Vec<usize>,
-    track_right_bounds: &mut Vec<usize>,
-    min_gap: usize,
+    start: u64,
+    end: u64,
+    track_left_bounds: &mut Vec<u64>,
+    track_right_bounds: &mut Vec<u64>,
+    min_gap: u64,
 ) -> usize {
     for (y, left_bound) in track_left_bounds.iter_mut().enumerate() {
         if end + min_gap < *left_bound {

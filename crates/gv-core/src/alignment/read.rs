@@ -123,11 +123,11 @@ pub struct ReadPair {
 }
 
 impl AlignedRead {
-    pub fn stacking_start(&self) -> usize {
-        usize::max(self.start.saturating_sub(self.leading_softclips), 1)
+    pub fn stacking_start(&self) -> u64 {
+        u64::max(self.start.saturating_sub(self.leading_softclips), 1)
     }
 
-    pub fn stacking_end(&self) -> usize {
+    pub fn stacking_end(&self) -> u64 {
         self.end.saturating_add(self.trailing_softclips)
     }
 
@@ -170,21 +170,21 @@ impl AlignedRead {
     }
 
     /// Whether the alignment segment (excluding softclips) covers a x_coordinate (1-based).
-    pub fn covers(&self, x_coordinate: u64) -> bool {
-        self.start <= x_coordinate && self.end >= x_coordinate
+    pub fn covers(&self, posiion: u64) -> bool {
+        self.start <= posiion && self.end >= posiion
     }
-    /// Whether the alignment segment (including softclips) covers a x_coordinate (1-based).
-    pub fn full_read_covers(&self, x_coordinate: u64) -> bool {
-        self.stacking_start() <= x_coordinate && self.stacking_end() >= x_coordinate
+    /// Whether the alignment segment (including softclips) covers a posiion (1-based).
+    pub fn full_read_covers(&self, posiion: u64) -> bool {
+        self.stacking_start() <= posiion && self.stacking_end() >= posiion
     }
 
     /// Whether the alignment segment (excluding softclips) covers a x_coordinate (1-based).
-    pub fn overlaps(&self, x_left_coordinate: u64, x_right_coordinate: u64) -> bool {
-        self.start <= x_right_coordinate && self.end >= x_left_coordinate
+    pub fn overlaps(&self, left: u64, right: u64) -> bool {
+        self.start <= right && self.end >= left
     }
     /// Whether the alignment segment (including softclips) covers a x_coordinate (1-based).
-    pub fn full_read_overlaps(&self, x_left_coordinate: u64, x_right_coordinate: u64) -> bool {
-        self.stacking_start() <= x_right_coordinate && self.stacking_end() >= x_left_coordinate
+    pub fn full_read_overlaps(&self, left: u64, right: u64) -> bool {
+        self.stacking_start() <= right && self.stacking_end() >= left
     }
 
     /// Whether show together with the mate in paired view
@@ -349,15 +349,15 @@ impl AlignedRead {
         read: Record,
         reference_sequence: &Sequence,
     ) -> Result<Self, TGVError> {
-        let read_start = read.alignment_start().unwrap().unwrap().get();
+        let start = read.alignment_start().unwrap().unwrap().get() as u64;
         let cigars: Cigar = read.cigar();
-        let read_end = read_start + cigars.alignment_span().unwrap() - 1;
+        let end = start + cigars.alignment_span().unwrap() as u64 - 1;
 
         let cigars = cigars.iter().collect::<Result<Vec<Op>, _>>().unwrap();
         let leading_softclips = cigars
             .first()
             .map(|op| match op.kind() {
-                Kind::SoftClip => op.len(),
+                Kind::SoftClip => op.len() as u64,
                 _ => 0,
             })
             .unwrap_or(0);
@@ -365,7 +365,7 @@ impl AlignedRead {
             cigars
                 .last()
                 .map(|op| match op.kind() {
-                    Kind::SoftClip => op.len(),
+                    Kind::SoftClip => op.len() as u64,
                     _ => 0,
                 })
                 .unwrap_or(0)
@@ -377,7 +377,7 @@ impl AlignedRead {
         // read.reference_end() in htslib: 0-based, exclusive, excluding trailing hardclips and softclips
 
         let rendering_contexts = calculate_rendering_contexts(
-            read_start,
+            start,
             &cigars,
             &read.sequence(),
             flags.is_reverse_complemented(),
@@ -386,8 +386,8 @@ impl AlignedRead {
 
         Ok(Self {
             read,
-            start: read_start,
-            end: read_end,
+            start,
+            end,
             cigar: cigars,
             flags,
             leading_softclips,
@@ -401,7 +401,7 @@ impl AlignedRead {
 
 /// See: https://samtools.github.io/hts-specs/SAMv1.pdf
 pub fn calculate_rendering_contexts(
-    reference_start: usize, // 1-based. Alignment start, not softclip start
+    reference_start: u64, // 1-based. Alignment start, not softclip start
     cigars: &Vec<Op>,
     seq: &record::Sequence,
     is_reverse: bool,
@@ -412,7 +412,7 @@ pub fn calculate_rendering_contexts(
         return Ok(output);
     }
 
-    let mut reference_pivot: usize = reference_start;
+    let mut reference_pivot: usize = reference_start as usize;
     let mut query_pivot: usize = 1; // 1-based. # bases on the sequence. Note that need to substract leading softclips to get aligned base coordinate.
 
     let mut annotate_insertion_in_next_cigar = None;
@@ -1087,7 +1087,7 @@ mod tests {
         }
     ])]
     fn test_calculate_rendering_contexts(
-        #[case] reference_start: usize, // 1-based
+        #[case] reference_start: u64, // 1-based
         #[case] cigars: Vec<(Kind, usize)>,
         #[case] seq: &[u8],
         #[case] is_reverse: bool,

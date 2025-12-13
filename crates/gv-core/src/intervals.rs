@@ -1,4 +1,5 @@
-use crate::error::TGVError;
+use crate::{contig_header::ContigHeader, error::TGVError};
+use noodles;
 use std::collections::HashMap;
 
 pub trait GenomeInterval {
@@ -132,6 +133,22 @@ impl Region {
             focus: self.focus.move_to(position),
             half_width: self.half_width,
         }
+    }
+
+    pub fn alignment(
+        &self,
+        header: &ContigHeader,
+    ) -> Result<Option<noodles::core::Region>, TGVError> {
+        let start = noodles::core::Position::try_from(self.start() as usize).map_err(|_| {
+            TGVError::StateError(format!("Failed to convert to alignment region: {:?}", self))
+        })?;
+        let end = noodles::core::Position::try_from(self.end() as usize).map_err(|_| {
+            TGVError::StateError(format!("Failed to convert to alignment region: {:?}", self))
+        })?;
+        Ok(header
+            .try_get(self.contig_index())?
+            .get_alignment_name()
+            .map(|name| noodles::core::Region::new(name, start..=end)))
     }
 }
 

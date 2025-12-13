@@ -141,22 +141,22 @@ impl Contig {
         a_name.cmp(b_name)
     }
 
-    fn get_name_by_source_index(&self, index: &ContigNameSourceIndex) -> Option<&String> {
+    fn get_name_by_source_index(&self, index: &ContigNameSourceIndex) -> Option<&str> {
         index.map(|inner| match inner {
-            None => &self.name,
+            None => self.name.as_str(),
             Some(i) => &self.aliases[i],
         })
     }
 
-    pub fn get_alignment_name(&self) -> Option<&String> {
+    pub fn get_alignment_name(&self) -> Option<&str> {
         self.get_name_by_source_index(&self.alignment_name_index)
     }
 
-    pub fn get_sequence_name(&self) -> Option<&String> {
+    pub fn get_sequence_name(&self) -> Option<&str> {
         self.get_name_by_source_index(&self.sequence_name_index)
     }
 
-    pub fn get_track_name(&self) -> Option<&String> {
+    pub fn get_track_name(&self) -> Option<&str> {
         self.get_name_by_source_index(&self.track_name_index)
     }
 }

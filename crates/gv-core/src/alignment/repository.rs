@@ -171,20 +171,13 @@ impl AlignmentRepositoryEnum {
     ) -> Result<Alignment, TGVError> {
         use futures::TryStreamExt;
 
-        match contig_header
-            .try_get(region.contig_index())?
-            .get_alignment_name()
-        {
-            Some(region_str) => {
+        let records = match region.alignment(contig_header)? {
+            Some(region) => {
                 let mut records = Vec::new();
                 let mut index = 0;
                 match self {
                     AlignmentRepositoryEnum::Bam(inner) => {
-                        let mut query = inner.reader.query(
-                            &inner.header,
-                            &inner.index,
-                            &region_str.parse()?,
-                        )?;
+                        let mut query = inner.reader.query(&inner.header, &inner.index, &region)?;
 
                         while let Some(record) = query.try_next().await? {
                             records.push(AlignedRead::from_bam_record(
@@ -196,11 +189,7 @@ impl AlignmentRepositoryEnum {
                         }
                     }
                     AlignmentRepositoryEnum::RemoteBam(inner) => {
-                        let mut query = inner.reader.query(
-                            &inner.header,
-                            &inner.index,
-                            &region_str.parse()?,
-                        )?;
+                        let mut query = inner.reader.query(&inner.header, &inner.index, &region)?;
 
                         while let Some(record) = query.try_next().await? {
                             records.push(AlignedRead::from_bam_record(
@@ -213,10 +202,17 @@ impl AlignmentRepositoryEnum {
                     }
                 };
 
-                Alignment::from_aligned_reads(records, region, reference_sequence)
+                records
             }
-            None => Alignment::from_aligned_reads(Vec::new(), region, reference_sequence),
-        }
+            None => Vec::new(),
+        };
+
+        Alignment::from_aligned_reads(
+            records,
+            region.contig_index(),
+            (region.start(), region.end()),
+            reference_sequence,
+        )
     }
 
     /// Read BAM headers and return contig namesa and lengths.

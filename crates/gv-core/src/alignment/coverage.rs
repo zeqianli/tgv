@@ -1,13 +1,13 @@
 use crate::error::TGVError;
 use crate::sequence::Sequence;
 use noodles::bam::record::{self};
-use noodles::sam::alignment::record::cigar::{op::Kind, Op};
+use noodles::sam::alignment::record::cigar::{Op, op::Kind};
 use std::collections::HashMap;
 use std::default::Default;
 
 /// See: https://samtools.github.io/hts-specs/SAMv1.pdf
 pub fn calculate_basewise_coverage(
-    reference_start: usize, // 1-based. Alignment start, not softclip start
+    reference_start: u64, // 1-based. Alignment start, not softclip start
     cigars: &Vec<Op>,
     sequence: &record::Sequence,
     reference_sequence: &Sequence,
@@ -17,7 +17,7 @@ pub fn calculate_basewise_coverage(
         return Ok(output);
     }
 
-    let mut reference_pivot: usize = reference_start;
+    let mut reference_pivot: usize = reference_start as usize;
     let mut query_pivot: usize = 1; // 1-based. # bases on the sequence. Note that need to substract leading softclips to get aligned base coordinate.
 
     // FIXME:
