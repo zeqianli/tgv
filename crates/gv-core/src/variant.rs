@@ -12,7 +12,7 @@ pub struct Variant {
     pub contig_index: usize,
 
     /// Variant start. 1-based, inclusive.
-    start: usize,
+    start: u64,
 
     /// Index in the VCF file
     pub index: usize,
@@ -76,12 +76,12 @@ impl GenomeInterval for Variant {
         self.contig_index
     }
 
-    fn start(&self) -> usize {
+    fn start(&self) -> u64 {
         self.start
     }
 
-    fn end(&self) -> usize {
-        self.start + self.record.reference_bases().len() - 1
+    fn end(&self) -> u64 {
+        self.start + self.record.reference_bases().len() as u64 - 1
     }
 }
 pub struct VariantRepository {

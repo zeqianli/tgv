@@ -335,7 +335,7 @@ impl TrackService for UcscApiTrackService {
         &mut self,
         reference: &Reference,
         contig_index: usize,
-        position: usize,
+        position: u64,
 
         contig_header: &ContigHeader,
     ) -> Result<Option<Gene>, TGVError> {
@@ -385,7 +385,7 @@ impl TrackService for UcscApiTrackService {
         &mut self,
         reference: &Reference,
         contig_index: usize,
-        coord: usize,
+        coord: u64,
         k: usize,
         contig_header: &ContigHeader,
     ) -> Result<Gene, TGVError> {
@@ -419,9 +419,8 @@ impl TrackService for UcscApiTrackService {
         &mut self,
         reference: &Reference,
         contig_index: usize,
-        coord: usize,
+        coord: u64,
         k: usize,
-
         contig_header: &ContigHeader,
     ) -> Result<Gene, TGVError> {
         let contig_name = match contig_header.try_get(contig_index)?.get_track_name() {
@@ -454,7 +453,7 @@ impl TrackService for UcscApiTrackService {
         &mut self,
         reference: &Reference,
         contig_index: usize,
-        coord: usize,
+        coord: u64,
         k: usize,
 
         contig_header: &ContigHeader,
@@ -488,7 +487,7 @@ impl TrackService for UcscApiTrackService {
         &mut self,
         reference: &Reference,
         contig_index: usize,
-        coord: usize,
+        coord: u64,
         k: usize,
         contig_header: &ContigHeader,
     ) -> Result<SubGeneFeature, TGVError> {

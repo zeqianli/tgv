@@ -65,32 +65,32 @@ impl SequenceRepository for TwoBitSequenceRepository {
         contig_header: &ContigHeader,
     ) -> Result<Sequence, TGVError> {
         let contig_name = contig_header
-            .try_get(region.contig_index)?
+            .try_get(region.contig_index())?
             .get_sequence_name();
 
         match (
-            self.contig_to_buffer_index.get(&region.contig_index),
+            self.contig_to_buffer_index.get(&region.contig_index()),
             contig_name,
         ) {
             (Some(buffer_index), Some(contig_name)) => {
                 let buffer = &mut self.buffers[*buffer_index];
                 let sequence_string = buffer.read_sequence(
                     contig_name,
-                    (region.start - 1)..region.end, // Convert to 0-based range
+                    (region.start() as usize - 1)..region.end() as usize, // Convert to 0-based range
                 )?;
                 Ok(Sequence {
-                    start: region.start,
+                    start: region.start(),
                     sequence: sequence_string.into_bytes(),
-                    contig_index: region.contig_index,
+                    contig_index: region.contig_index(),
                 })
             }
             _ => {
                 // Going to a contig that's not in twobit file.
                 // Can happen when there are contig mismatches between data sources (e.g. BAM and reference)
                 Ok(Sequence {
-                    start: region.start,
+                    start: region.start(),
                     sequence: "".to_string().into_bytes(),
-                    contig_index: region.contig_index,
+                    contig_index: region.contig_index(),
                 })
             }
         }

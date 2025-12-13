@@ -3,7 +3,7 @@ use crate::error::TGVError;
 use crate::intervals::Region;
 use crate::reference::Reference;
 use crate::sequence::{Sequence, SequenceRepository};
-use crate::tracks::{schema::*, UcscHost};
+use crate::tracks::{UcscHost, schema::*};
 use reqwest::Client;
 use serde::Deserialize;
 
@@ -37,8 +37,8 @@ impl UCSCApiSequenceRepository {
     async fn get_api_url(
         &mut self,
         contig_name: &str,
-        start: usize,
-        end: usize,
+        start: u64,
+        end: u64,
     ) -> Result<String, TGVError> {
         match &self.reference {
             Reference::Hg19 | Reference::Hg38 | Reference::UcscGenome(_) => Ok(format!(
@@ -56,7 +56,11 @@ impl UCSCApiSequenceRepository {
                 let hub_url = self.hub_url.as_ref().unwrap();
                 Ok(format!(
                     "https://api.genome.ucsc.edu/getData/sequence?hubUrl={}&genome={};chrom={};start={};end={}",
-                    hub_url, genome, contig_name, start - 1, end
+                    hub_url,
+                    genome,
+                    contig_name,
+                    start - 1,
+                    end
                 ))
             }
             _ => Err(TGVError::StateError(
@@ -96,28 +100,28 @@ impl SequenceRepository for UCSCApiSequenceRepository {
         contig_header: &ContigHeader,
     ) -> Result<Sequence, TGVError> {
         let contig_name = match contig_header
-            .try_get(region.contig_index)?
+            .try_get(region.contig_index())?
             .get_sequence_name()
         {
             Some(contig_name) => contig_name,
             None => {
                 return Ok(Sequence {
-                    start: region.start,
+                    start: region.start(),
                     sequence: Vec::new(),
-                    contig_index: region.contig_index,
+                    contig_index: region.contig_index(),
                 });
             }
         };
         let url = self
-            .get_api_url(contig_name, region.start, region.end)
+            .get_api_url(contig_name, region.start(), region.end())
             .await?;
 
         let response: UcscResponse = self.client.get(&url).send().await?.json().await?;
 
         Ok(Sequence {
-            start: region.start,
+            start: region.start(),
             sequence: response.dna.into_bytes(),
-            contig_index: region.contig_index,
+            contig_index: region.contig_index(),
         })
     }
 

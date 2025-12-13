@@ -35,7 +35,7 @@ impl Contig {
         "17", "18", "19", "20", "21", "22", "X", "Y", "MT",
     ];
 
-    pub fn new(name: &str, length: Option<usize>) -> Self {
+    pub fn new(name: &str, length: Option<u64>) -> Self {
         let mut aliases = Vec::new();
         if Contig::APPREVIATABLE_CHROMOSOMES.contains(&name) {
             aliases.push(format!("chr{}", name));
@@ -278,7 +278,7 @@ impl ContigHeader {
     pub fn update_or_add_contig(
         &mut self,
         name: String,
-        length: Option<usize>,
+        length: Option<u64>,
         aliases: Vec<String>,
         source: ContigSource,
     ) -> usize {

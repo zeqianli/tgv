@@ -4,14 +4,14 @@ use crate::{
     intervals::Region,
     sequence::{Sequence, SequenceRepository},
 };
-use noodles::core::region::Region as noodlesRegion;
 use noodles::fasta::{
     fai::Index,
     io::{
-        indexed_reader::{Builder, IndexedReader},
         BufReader,
+        indexed_reader::{Builder, IndexedReader},
     },
 };
+use noodles::{core::region::Region as noodlesRegion, vcf::header::record::value::map::contig};
 use std::str::FromStr;
 
 pub struct IndexedFastaSequenceRepository {
@@ -34,24 +34,18 @@ impl SequenceRepository for IndexedFastaSequenceRepository {
         region: &Region,
         contig_header: &ContigHeader,
     ) -> Result<Sequence, TGVError> {
-        let region_string = format!(
-            "{}:{}-{}",
-            contig_header.try_get(region.contig_index)?.name,
-            region.start,
-            region.end
-        );
+        let sequence = if let Some(region) = region.noodles_sequence(contig_header)? {
+            self.reader.query(&region)?.sequence().as_ref().to_vec()
+        } else {
+            vec![]
+        };
 
         Ok(Sequence {
-            start: region.start,
+            start: region.start(),
 
             // FIXME: pre-allocate the sequence array to read more efficiently
-            sequence: self
-                .reader
-                .query(&noodlesRegion::from_str(&region_string)?)?
-                .sequence()
-                .as_ref()
-                .to_vec(),
-            contig_index: region.contig_index,
+            sequence: sequence,
+            contig_index: region.contig_index(),
         })
     }
 

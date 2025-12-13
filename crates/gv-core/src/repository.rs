@@ -114,7 +114,7 @@ impl Repository {
             bam.read_header()?.into_iter().for_each(|(name, length)| {
                 contig_header.update_or_add_contig(
                     name,
-                    length,
+                    length.map(|l| l as u64),
                     Vec::new(),
                     ContigSource::Alignment,
                 );

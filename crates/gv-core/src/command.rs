@@ -7,7 +7,7 @@ use nom::{
     IResult, Parser,
     branch::alt,
     bytes::complete::{tag, tag_no_case},
-    character::complete::{char, multispace0, usize},
+    character::complete::{char, multispace0, u64},
     combinator::{opt, value},
     multi::{many0, separated_list0},
     sequence::{delimited, preceded, separated_pair, terminated},
@@ -93,8 +93,8 @@ fn view_as_pair(input: &str) -> IResult<&str, bool> {
     Ok((input, (input.is_empty() && !parsed.is_empty())))
 }
 
-fn parse_optional_parenthesis(input: &str) -> IResult<&str, Option<Option<usize>>> {
-    opt(delimited(tag("("), opt(usize), tag(")"))).parse(input)
+fn parse_optional_parenthesis(input: &str) -> IResult<&str, Option<Option<u64>>> {
+    opt(delimited(tag("("), opt(u64), tag(")"))).parse(input)
 }
 
 // Parse STRAND with optional number in parentheses

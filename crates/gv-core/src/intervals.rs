@@ -150,6 +150,28 @@ impl Region {
             .get_alignment_name()
             .map(|name| noodles::core::Region::new(name, start..=end)))
     }
+
+    pub fn noodles_sequence(
+        &self,
+        header: &ContigHeader,
+    ) -> Result<Option<noodles::core::Region>, TGVError> {
+        let start = noodles::core::Position::try_from(self.start() as usize).map_err(|_| {
+            TGVError::StateError(format!(
+                "Failed to convert to noodles sequence region: {:?}",
+                self
+            ))
+        })?;
+        let end = noodles::core::Position::try_from(self.end() as usize).map_err(|_| {
+            TGVError::StateError(format!(
+                "Failed to convert to noodles sequence region: {:?}",
+                self
+            ))
+        })?;
+        Ok(header
+            .try_get(self.contig_index())?
+            .get_sequence_name()
+            .map(|name| noodles::core::Region::new(name, start..=end)))
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Default)]

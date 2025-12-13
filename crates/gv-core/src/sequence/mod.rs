@@ -19,7 +19,7 @@ use std::path::Path;
 pub struct Sequence {
     /// 1-based genome coordinate of sequence[0].
     /// 1-based, inclusive.
-    pub start: usize,
+    pub start: u64,
 
     /// Genome sequence
     pub sequence: Vec<u8>,
@@ -29,27 +29,14 @@ pub struct Sequence {
 }
 
 impl Sequence {
-    pub fn new(start: usize, sequence: Vec<u8>, contig_index: usize) -> Self {
-        Self {
-            contig_index,
-            start,
-            sequence,
-        }
-    }
-
-    /// Sequence start. 1-based, inclusive.
-    pub fn start(&self) -> usize {
-        self.start
-    }
-
     /// Sequence length.
     pub fn len(&self) -> usize {
         self.sequence.len()
     }
 
     /// Sequence end. 1-based, inclusive.
-    pub fn end(&self) -> usize {
-        (self.start + self.sequence.len()).saturating_sub(1)
+    pub fn end(&self) -> u64 {
+        (self.start + self.sequence.len() as u64).saturating_sub(1)
     }
 
     /// Get the sequence in [left, right].
@@ -61,14 +48,16 @@ impl Sequence {
 
         Some(
             self.sequence
-                .get(region.start - self.start..region.end - self.start + 1)
+                .get(
+                    ((region.start() - self.start) as usize..=(region.end() - self.start) as usize),
+                )
                 .unwrap()
                 .to_vec(),
         )
     }
 
-    pub fn base_at(&self, coordinate: usize) -> Option<u8> {
-        if coordinate < self.start() {
+    pub fn base_at(&self, coordinate: u64) -> Option<u8> {
+        if coordinate < self.start {
             return None;
         }
 
@@ -76,14 +65,14 @@ impl Sequence {
             return None;
         }
 
-        Some(self.sequence[coordinate - self.start])
+        Some(self.sequence[(coordinate - self.start) as usize])
     }
 
     /// Whether the sequence has complete data in [left, right].
     /// 1-based, inclusive.
     pub fn has_complete_data(&self, region: &Region) -> bool {
-        (region.contig_index == self.contig_index)
-            && ((region.start >= self.start()) && (region.end <= self.end()))
+        (region.contig_index() == self.contig_index)
+            && ((region.start() >= self.start) && (region.end() <= self.end()))
     }
 }
 

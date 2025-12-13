@@ -14,7 +14,6 @@ use crate::{
     repository::Repository,
     sequence::{Sequence, SequenceRepository},
     track::Track,
-    window::{Rect, ViewingWindow},
 };
 use itertools::Itertools;
 
@@ -56,13 +55,13 @@ impl State {
 
     pub fn contig_name(&self, region: &Region) -> Result<&String, TGVError> {
         self.contig_header
-            .try_get(region.contig_index)
+            .try_get(region.contig_index())
             .map(|contig| &contig.name)
     }
 
     pub fn current_cytoband(&self, region: &Region) -> Option<&Cytoband> {
         self.contig_header
-            .try_get(region.contig_index)
+            .try_get(region.contig_index())
             .unwrap()
             .cytoband
             .as_ref()

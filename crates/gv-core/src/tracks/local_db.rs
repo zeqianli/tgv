@@ -1,4 +1,4 @@
-use crate::tracks::{TrackCache, TrackService, TRACK_PREFERENCES};
+use crate::tracks::{TRACK_PREFERENCES, TrackCache, TrackService};
 use crate::{
     contig_header::{Contig, ContigHeader},
     cytoband::{Cytoband, CytobandSegment},
@@ -12,8 +12,8 @@ use crate::{
 };
 use async_trait::async_trait;
 use sqlx::{
-    sqlite::{SqliteConnectOptions, SqlitePool, SqlitePoolOptions},
     Column, Row,
+    sqlite::{SqliteConnectOptions, SqlitePool, SqlitePoolOptions},
 };
 use std::collections::HashMap;
 use std::path::Path;
@@ -252,8 +252,8 @@ impl TrackService for LocalDbTrackService {
             .as_str(),
         )
         .bind(contig_name)
-        .bind(region.end as i64) // end is 1-based inclusive, UCSC is 0-based exclusive
-        .bind(region.start.saturating_sub(1) as i64) // start is 1-based inclusive, UCSC is 0-based inclusive
+        .bind(region.end() as i64) // end is 1-based inclusive, UCSC is 0-based exclusive
+        .bind(region.start().saturating_sub(1) as i64) // start is 1-based inclusive, UCSC is 0-based inclusive
         .fetch_all(&*self.pool)
         .await?;
 
@@ -266,7 +266,7 @@ impl TrackService for LocalDbTrackService {
         &mut self,
         reference: &Reference,
         contig_index: usize,
-        coord: usize,
+        coord: u64,
 
         contig_header: &ContigHeader,
     ) -> Result<Option<Gene>, TGVError> {
@@ -302,7 +302,7 @@ impl TrackService for LocalDbTrackService {
     async fn query_gene_name(
         &mut self,
         reference: &Reference,
-        gene_name: &String,
+        gene_name: &str,
 
         contig_header: &ContigHeader,
     ) -> Result<Gene, TGVError> {
@@ -331,7 +331,7 @@ impl TrackService for LocalDbTrackService {
         &mut self,
         reference: &Reference,
         contig_index: usize,
-        coord: usize,
+        coord: u64,
         k: usize,
 
         contig_header: &ContigHeader,
@@ -377,7 +377,7 @@ impl TrackService for LocalDbTrackService {
         &mut self,
         reference: &Reference,
         contig_index: usize,
-        coord: usize,
+        coord: u64,
         k: usize,
 
         contig_header: &ContigHeader,
@@ -423,7 +423,7 @@ impl TrackService for LocalDbTrackService {
         &mut self,
         reference: &Reference,
         contig_index: usize,
-        coord: usize,
+        coord: u64,
         k: usize,
 
         contig_header: &ContigHeader,
@@ -469,7 +469,7 @@ impl TrackService for LocalDbTrackService {
         &mut self,
         reference: &Reference,
         contig_index: usize,
-        coord: usize,
+        coord: u64,
         k: usize,
 
         contig_header: &ContigHeader,

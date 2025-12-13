@@ -7,11 +7,11 @@ use crate::{
     intervals::Region,
     reference::Reference,
     track::Track,
-    tracks::schema::*,
     tracks::UcscHost,
+    tracks::schema::*,
 };
 use async_trait::async_trait;
-use sqlx::{mysql::MySqlPoolOptions, Column, MySqlPool, Row};
+use sqlx::{Column, MySqlPool, Row, mysql::MySqlPoolOptions};
 use std::collections::HashMap;
 use std::sync::Arc;
 
@@ -21,7 +21,7 @@ pub struct UcscDbTrackService {
 
     cache: TrackCache,
 }
-use crate::tracks::{TrackCache, TrackService, TRACK_PREFERENCES};
+use crate::tracks::{TRACK_PREFERENCES, TrackCache, TrackService};
 
 impl UcscDbTrackService {
     // Initialize the database connections. Reference is needed to find the corresponding schema.
@@ -290,8 +290,8 @@ impl TrackService for UcscDbTrackService {
             .as_str(),
         )
         .bind(contig_name)
-        .bind(u64::try_from(region.end).unwrap()) // end is 1-based inclusive, UCSC is 0-based exclusive
-        .bind(u64::try_from(region.start.saturating_sub(1)).unwrap()) // start is 1-based inclusive, UCSC is 0-based inclusive
+        .bind(u64::try_from(region.end()).unwrap()) // end is 1-based inclusive, UCSC is 0-based exclusive
+        .bind(u64::try_from(region.start().saturating_sub(1)).unwrap()) // start is 1-based inclusive, UCSC is 0-based inclusive
         .fetch_all(&*self.pool)
         .await?;
 
@@ -305,8 +305,7 @@ impl TrackService for UcscDbTrackService {
         &mut self,
         reference: &Reference,
         contig_index: usize,
-        coord: usize,
-
+        coord: u64,
         contig_header: &ContigHeader,
     ) -> Result<Option<Gene>, TGVError> {
         let contig_name = match contig_header.try_get(contig_index)?.get_track_name() {
@@ -317,7 +316,7 @@ impl TrackService for UcscDbTrackService {
                     contig_header.contigs[contig_index].name,
                     contig_index,
                     contig_header.contigs[contig_index].aliases.join(",")
-                )))
+                )));
             }
         };
         let gene_row: Option<UcscGeneRow> = sqlx::query_as(
@@ -341,7 +340,7 @@ impl TrackService for UcscDbTrackService {
     async fn query_gene_name(
         &mut self,
         reference: &Reference,
-        gene_name: &String,
+        gene_name: &str,
 
         contig_header: &ContigHeader,
     ) -> Result<Gene, TGVError> {
@@ -370,7 +369,7 @@ impl TrackService for UcscDbTrackService {
         &mut self,
         reference: &Reference,
         contig_index: usize,
-        coord: usize,
+        coord: u64,
         k: usize,
 
         contig_header: &ContigHeader,
@@ -383,7 +382,7 @@ impl TrackService for UcscDbTrackService {
                     contig_header.contigs[contig_index].name,
                     contig_index,
                     contig_header.contigs[contig_index].aliases.join(",")
-                )))
+                )));
             }
         };
 
@@ -417,9 +416,8 @@ impl TrackService for UcscDbTrackService {
         &mut self,
         reference: &Reference,
         contig_index: usize,
-        coord: usize,
+        coord: u64,
         k: usize,
-
         contig_header: &ContigHeader,
     ) -> Result<Gene, TGVError> {
         let contig_name = match contig_header.try_get(contig_index)?.get_track_name() {
@@ -430,7 +428,7 @@ impl TrackService for UcscDbTrackService {
                     contig_header.contigs[contig_index].name,
                     contig_index,
                     contig_header.contigs[contig_index].aliases.join(",")
-                )))
+                )));
             }
         };
         if k == 0 {
@@ -463,7 +461,7 @@ impl TrackService for UcscDbTrackService {
         &mut self,
         reference: &Reference,
         contig_index: usize,
-        coord: usize,
+        coord: u64,
         k: usize,
 
         contig_header: &ContigHeader,
@@ -476,7 +474,7 @@ impl TrackService for UcscDbTrackService {
                     contig_header.contigs[contig_index].name,
                     contig_index,
                     contig_header.contigs[contig_index].aliases.join(",")
-                )))
+                )));
             }
         };
         if k == 0 {
@@ -508,9 +506,8 @@ impl TrackService for UcscDbTrackService {
         &mut self,
         reference: &Reference,
         contig_index: usize,
-        coord: usize,
+        coord: u64,
         k: usize,
-
         contig_header: &ContigHeader,
     ) -> Result<SubGeneFeature, TGVError> {
         let contig_name = match contig_header.try_get(contig_index)?.get_track_name() {
@@ -521,7 +518,7 @@ impl TrackService for UcscDbTrackService {
                     contig_header.contigs[contig_index].name,
                     contig_index,
                     contig_header.contigs[contig_index].aliases.join(",")
-                )))
+                )));
             }
         };
         if k == 0 {

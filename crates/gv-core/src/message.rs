@@ -191,14 +191,14 @@ pub enum AlignmentSort {
 
     /// Stand of reads covering a location
     #[strum(to_string = "Strand({0})")]
-    StrandAt(usize),
+    StrandAt(u64),
 
     /// Base of reads at the current location
     BaseAtCurrentPosition,
 
     /// Stand of reads covering a location
     #[strum(to_string = "Base({0})")]
-    BaseAt(usize),
+    BaseAt(u64),
 
     /// MAPQ, reversed order
     MappingQuality,

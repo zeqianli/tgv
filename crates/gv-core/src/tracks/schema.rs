@@ -8,11 +8,12 @@ use crate::{
     track::Track,
 };
 use serde::Deserialize;
-use sqlx::{mysql::MySqlRow, sqlite::SqliteRow, FromRow, Row};
+use sqlx::{FromRow, Row, mysql::MySqlRow, sqlite::SqliteRow};
 use std::collections::HashMap;
 
 /// Deserialization target for a row in the gene table.
 /// Converting to Gene needs the header information and is done downstream.
+#[allow(non_snake_case)]
 #[derive(Debug)]
 pub struct UcscGeneRow {
     pub name: String,
@@ -27,6 +28,7 @@ pub struct UcscGeneRow {
     pub exonEnds: Vec<u8>,
 }
 
+#[allow(non_snake_case)]
 impl FromRow<'_, SqliteRow> for UcscGeneRow {
     fn from_row(row: &SqliteRow) -> sqlx::Result<Self> {
         let txStart: i64 = row.try_get("txStart")?;
@@ -66,14 +68,15 @@ impl FromRow<'_, MySqlRow> for UcscGeneRow {
     }
 }
 
+#[allow(non_snake_case)]
 impl UcscGeneRow {
     // Helper function to parse BLOB of comma-separated coordinates
-    fn parse_blob_to_coords(blob: &[u8]) -> Vec<usize> {
+    fn parse_blob_to_coords(blob: &[u8]) -> Vec<u64> {
         let coords_str = String::from_utf8_lossy(blob);
         coords_str
             .trim_end_matches(',')
             .split(',')
-            .filter_map(|s| s.parse::<usize>().ok())
+            .filter_map(|s| s.parse::<u64>().ok())
             .collect()
     }
 
@@ -85,10 +88,10 @@ impl UcscGeneRow {
             name: self.name2.unwrap_or(self.name.clone()),
             strand: Strand::from_str(self.strand)?,
             contig_index: contig_header.try_get_index_by_str(&self.chrom)?,
-            transcription_start: self.txStart as usize + 1,
-            transcription_end: self.txEnd as usize,
-            cds_start: self.cdsStart as usize + 1,
-            cds_end: self.cdsEnd as usize,
+            transcription_start: self.txStart + 1,
+            transcription_end: self.txEnd,
+            cds_start: self.cdsStart + 1,
+            cds_end: self.cdsEnd,
             exon_starts: Self::parse_blob_to_coords(&self.exonStarts)
                 .iter()
                 .map(|v| v + 1)
@@ -117,6 +120,7 @@ impl Track<Gene> {
     }
 }
 
+#[allow(non_snake_case)]
 #[derive(Debug, Deserialize)]
 pub struct CytobandSegmentRow {
     chromStart: u64, // sqlite doesn't support unsigned int
@@ -125,6 +129,7 @@ pub struct CytobandSegmentRow {
     gieStain: String,
 }
 
+#[allow(non_snake_case)]
 impl FromRow<'_, SqliteRow> for CytobandSegmentRow {
     fn from_row(row: &SqliteRow) -> sqlx::Result<Self> {
         let chromStart: i64 = row.try_get("chromStart")?;
@@ -138,6 +143,7 @@ impl FromRow<'_, SqliteRow> for CytobandSegmentRow {
     }
 }
 
+#[allow(non_snake_case)]
 impl FromRow<'_, MySqlRow> for CytobandSegmentRow {
     fn from_row(row: &MySqlRow) -> sqlx::Result<Self> {
         Ok(CytobandSegmentRow {
@@ -161,6 +167,7 @@ impl CytobandSegmentRow {
     }
 }
 
+#[allow(non_snake_case)]
 #[derive(Debug)]
 pub struct ContigRow {
     pub chrom: String,
@@ -208,11 +215,11 @@ pub enum UcscGeneResponse {
 
         strand: String,
 
-        txStart: usize,
-        txEnd: usize,
-        cdsStart: usize,
+        txStart: u64,
+        txEnd: u64,
+        cdsStart: u64,
 
-        cdsEnd: usize,
+        cdsEnd: u64,
         exonStarts: String,
         exonEnds: String,
     },
@@ -248,15 +255,16 @@ pub enum UcscGeneResponse {
         I'm not sure if the implementation is correct.
 
         */
-        chromStart: usize,
-        chromEnd: usize,
+        chromStart: u64,
+        chromEnd: u64,
         name: String,
         strand: String,
-        thickStart: usize,
-        thickEnd: usize,
+        thickStart: u64,
+        thickEnd: u64,
     },
 }
 
+#[allow(non_snake_case)]
 impl UcscGeneResponse {
     /// Custom deserializer for strand field
     pub fn to_gene(self, contig_index: usize) -> Result<Gene, TGVError> {
@@ -308,12 +316,12 @@ impl UcscGeneResponse {
         }
     }
     /// Custom deserializer for comma-separated lists in UCSC response
-    fn parse_comma_separated_list(s: &str) -> Result<Vec<usize>, TGVError> {
+    fn parse_comma_separated_list(s: &str) -> Result<Vec<u64>, TGVError> {
         s.trim_end_matches(',')
             .split(',')
             .filter(|s| !s.is_empty())
             .map(|num| {
-                num.parse::<usize>()
+                num.parse::<u64>()
                     .map_err(|_| TGVError::ValueError(format!("Failed to parse {}", num)))
             })
             .collect()
@@ -347,6 +355,7 @@ impl UcscGeneResponse {
 //   ],
 //   "itemsReturned": 1
 // }
+#[allow(non_snake_case)]
 #[derive(Debug, Clone, Deserialize)]
 pub struct UcscApiListGeneResponse {
     #[serde(flatten)]
@@ -403,6 +412,7 @@ pub struct GenarkGenome {
 ///    }
 /// }
 
+#[allow(non_snake_case)]
 #[derive(Debug, Clone, Deserialize)]
 pub struct UcscListChromosomeResponse {
     pub chromosomes: HashMap<String, usize>,
@@ -418,11 +428,13 @@ pub struct UcscListChromosomeResponse {
 //       "name": "qA1",
 //       "gieStain": "gpos100"
 //     },
+#[allow(non_snake_case)]
 #[derive(Debug, Deserialize, Default)]
 pub struct UcscApiCytobandResponse {
     cytoBandIdeo: Vec<CytobandSegmentRow>,
 }
 
+#[allow(non_snake_case)]
 impl UcscApiCytobandResponse {
     pub fn to_cytoband(
         self,
