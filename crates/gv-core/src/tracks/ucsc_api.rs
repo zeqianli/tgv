@@ -1,4 +1,4 @@
-use crate::tracks::{TrackCache, TrackService, TRACK_PREFERENCES};
+use crate::tracks::{TRACK_PREFERENCES, TrackCache, TrackService};
 use crate::{
     contig_header::{Contig, ContigHeader},
     cytoband::Cytoband,
@@ -361,7 +361,7 @@ impl TrackService for UcscApiTrackService {
     async fn query_gene_name(
         &mut self,
         reference: &Reference,
-        gene_name: &String,
+        gene_name: &str,
         contig_header: &ContigHeader,
     ) -> Result<Gene, TGVError> {
         if !self.cache.gene_quried(gene_name) {
@@ -397,7 +397,7 @@ impl TrackService for UcscApiTrackService {
                     contig_header.contigs[contig_index].name,
                     contig_index,
                     contig_header.contigs[contig_index].aliases.join(",")
-                )))
+                )));
             }
         };
         self.query_track_if_not_cached(reference, contig_name, contig_index)
@@ -432,7 +432,7 @@ impl TrackService for UcscApiTrackService {
                     contig_header.contigs[contig_index].name,
                     contig_index,
                     contig_header.contigs[contig_index].aliases.join(",")
-                )))
+                )));
             }
         };
         self.query_track_if_not_cached(reference, contig_name, contig_index)
@@ -467,7 +467,7 @@ impl TrackService for UcscApiTrackService {
                     contig_header.contigs[contig_index].name,
                     contig_index,
                     contig_header.contigs[contig_index].aliases.join(",")
-                )))
+                )));
             }
         };
         self.query_track_if_not_cached(reference, contig_name, contig_index)
@@ -500,7 +500,7 @@ impl TrackService for UcscApiTrackService {
                     contig_header.contigs[contig_index].name,
                     contig_index,
                     contig_header.contigs[contig_index].aliases.join(",")
-                )))
+                )));
             }
         };
         self.query_track_if_not_cached(reference, contig_name, contig_index)

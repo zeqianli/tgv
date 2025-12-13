@@ -69,81 +69,41 @@ impl State {
     }
 
     /// Maximum length of the contig.
-    pub fn contig_length(&self, region: &Region) -> Result<Option<usize>, TGVError> {
-        Ok(self.contig_header.try_get(region.contig_index)?.length)
+    pub fn contig_length(&self, region: &Region) -> Result<Option<u64>, TGVError> {
+        Ok(self.contig_header.try_get(region.contig_index())?.length)
     }
 
-    const ALIGNMENT_CACHE_RATIO: usize = 3;
+    const ALIGNMENT_CACHE_RATIO: u64 = 3;
 
-    pub fn alignment_cache_region(state: &State, region: &Region) -> Result<Region, TGVError> {
-        let left = region
-            .start
-            .saturating_sub(Self::ALIGNMENT_CACHE_RATIO * region.width() / 2)
-            .max(1);
-        let right = region
-            .end
-            .saturating_add(Self::ALIGNMENT_CACHE_RATIO * region.width() / 2)
-            .min(if let Some(contig_length) = state.contig_length()? {
-                contig_length
-            } else {
-                usize::MAX
-            });
-        Ok(Region {
-            contig_index: region.contig_index,
-            start: left,
-            end: right,
-        })
+    pub fn alignment_cache_region(&self, region: Region) -> Region {
+        Region {
+            focus: region.focus,
+            half_width: region.half_width * Self::ALIGNMENT_CACHE_RATIO,
+        }
     }
 
-    const SEQUENCE_CACHE_RATIO: usize = 6;
+    const SEQUENCE_CACHE_RATIO: u64 = 6;
 
-    pub fn sequence_cache_region(state: &State, region: &Region) -> Result<Region, TGVError> {
-        let left = region
-            .start
-            .saturating_sub(Self::SEQUENCE_CACHE_RATIO * region.width() / 2)
-            .max(1);
-        let right = region
-            .end
-            .saturating_add(Self::SEQUENCE_CACHE_RATIO * region.width() / 2)
-            .min(if let Some(contig_length) = state.contig_length()? {
-                contig_length
-            } else {
-                usize::MAX
-            });
-        Ok(Region {
-            contig_index: region.contig_index,
-            start: left,
-            end: right,
-        })
+    pub fn sequence_cache_region(&self, region: Region) -> Region {
+        Region {
+            focus: region.focus,
+            half_width: region.half_width * Self::SEQUENCE_CACHE_RATIO,
+        }
     }
 
-    const TRACK_CACHE_RATIO: usize = 10;
+    const TRACK_CACHE_RATIO: u64 = 10;
 
-    pub fn track_cache_region(state: &State, region: &Region) -> Result<Region, TGVError> {
-        let left = region
-            .start
-            .saturating_sub(Self::TRACK_CACHE_RATIO * region.width() / 2)
-            .max(1);
-        let right = region
-            .end
-            .saturating_add(Self::TRACK_CACHE_RATIO * region.width() / 2)
-            .min(if let Some(contig_length) = state.contig_length()? {
-                contig_length
-            } else {
-                usize::MAX
-            });
-        Ok(Region {
-            contig_index: region.contig_index,
-            start: left,
-            end: right,
-        })
+    pub fn track_cache_region(&self, region: Region) -> Region {
+        Region {
+            focus: region.focus,
+            half_width: region.half_width * Self::TRACK_CACHE_RATIO,
+        }
     }
 }
 
 impl State {
-    fn add_message(&mut self, message: String) -> Result<(), TGVError> {
+    fn add_message(&mut self, message: String) {
         self.messages.push(message);
-        Ok(())
     }
 
     fn get_data_requirements(
@@ -272,151 +232,56 @@ impl State {
     }
 }
 
-impl StateHandler {
+impl State {
     /// Main function to route state message handling.
-    async fn handle_state_message(
-        state: &mut State,
-        repository: &mut Repository,
-        registers: &mut Registers,
-        settings: &Settings,
-        message: Message,
-    ) -> Result<Vec<DataMessage>, TGVError> {
-        match message {
-            // Movement handling
-            Message::MoveLeft(n) => StateHandler::move_left(state, n)?,
-            Message::MoveRight(n) => StateHandler::move_right(state, n)?,
-            Message::MoveUp(n) => StateHandler::move_up(state, n)?,
-            Message::MoveDown(n) => StateHandler::move_down(state, n)?,
-            Message::GotoCoordinate(n) => StateHandler::go_to_coordinate(state, n)?,
-            Message::GotoContigNameCoordinate(contig_str, n) => {
-                StateHandler::go_to_contig_coordinate(
-                    state,
-                    state.contig_header.try_get_index_by_str(&contig_str)?,
-                    n,
-                )?
-            }
+    pub fn set_alignment_change(
+        &self,
+        focus: &Focus,
+        options: Vec<AlignmentDisplayOption>,
+    ) -> Result<(), TGVError> {
+        self.alignment.reset(&self.sequence)?;
 
-            Message::GotoY(y) => StateHandler::go_to_y(state, y)?,
-            Message::GotoYBottom => StateHandler::go_to_y(state, state.alignment.depth())?,
+        let options = options
+            .into_iter()
+            .map(|option| match option {
+                AlignmentDisplayOption::Filter(AlignmentFilter::BaseAtCurrentPosition(base)) => {
+                    AlignmentDisplayOption::Filter(AlignmentFilter::Base(focus.position, base))
+                }
 
-            // Zoom handling
-            Message::ZoomOut(r) => StateHandler::handle_zoom_out(state, r)?,
-            Message::ZoomIn(r) => StateHandler::handle_zoom_in(state, r)?,
+                AlignmentDisplayOption::Filter(AlignmentFilter::BaseAtCurrentPositionSoftClip) => {
+                    AlignmentDisplayOption::Filter(AlignmentFilter::BaseSoftclip(focus.position))
+                }
 
-            // Relative feature movement handling
-            Message::GotoNextExonsStart(n) => {
-                StateHandler::go_to_next_exons_start(state, repository, n).await?
-            }
-            Message::GotoNextExonsEnd(n) => {
-                StateHandler::go_to_next_exons_end(state, repository, n).await?
-            }
-            Message::GotoPreviousExonsStart(n) => {
-                StateHandler::go_to_previous_exons_start(state, repository, n).await?
-            }
-            Message::GotoPreviousExonsEnd(n) => {
-                StateHandler::go_to_previous_exons_end(state, repository, n).await?
-            }
-            Message::GotoNextGenesStart(n) => {
-                StateHandler::go_to_next_genes_start(state, repository, n).await?
-            }
-            Message::GotoNextGenesEnd(n) => {
-                StateHandler::go_to_next_genes_end(state, repository, n).await?
-            }
-            Message::GotoPreviousGenesStart(n) => {
-                StateHandler::go_to_previous_genes_start(state, repository, n).await?
-            }
-            Message::GotoPreviousGenesEnd(n) => {
-                StateHandler::go_to_previous_genes_end(state, repository, n).await?
-            }
-            Message::GotoNextContig(n) => StateHandler::go_to_next_contig(state, n).await?,
-            Message::GotoPreviousContig(n) => StateHandler::go_to_previous_contig(state, n).await?,
-            Message::GotoContigIndex(index) => {
-                StateHandler::go_to_contig_index(state, index).await?
-            }
-
-            // Absolute feature handling
-            Message::GoToGene(gene_id) => {
-                StateHandler::go_to_gene(state, repository, gene_id).await?
-            }
-
-            // Find the default region
-            Message::GoToDefault => StateHandler::go_to_default(state, repository).await?,
-
-            // Error messages
-            Message::Message(message) => StateHandler::add_message(state, message)?,
-
-            // Message::SwitchScene(display_mode) => {
-            //     state.scene = display_mode;
-            // }
-
-            // Message::ResizeTrack {
-            //     mouse_down_x,
-            //     mouse_down_y,
-            //     mouse_released_x,
-            //     mouse_released_y,
-            // } => {
-            //     let mut new_node = state.layout.root.clone();
-
-            //     resize_node(
-            //         &mut new_node,
-            //         *state.area(),
-            //         mouse_down_x,
-            //         mouse_down_y,
-            //         mouse_released_x,
-            //         mouse_released_y,
-            //     )?;
-
-            //     state.layout.root = new_node;
-            // }
-            Message::SetAlignmentChange(options) => {
-                let middle = state.middle();
-
-                state.alignment.reset(&state.sequence)?;
-
-                let options = options
-                    .into_iter()
-                    .map(|option| match option {
-                        AlignmentDisplayOption::Filter(AlignmentFilter::BaseAtCurrentPosition(
-                            base,
-                        )) => AlignmentDisplayOption::Filter(AlignmentFilter::Base(middle, base)),
-
-                        AlignmentDisplayOption::Filter(
-                            AlignmentFilter::BaseAtCurrentPositionSoftClip,
-                        ) => AlignmentDisplayOption::Filter(AlignmentFilter::BaseSoftclip(middle)),
-
-                        _ => option,
-                    })
-                    .collect_vec();
-                state.alignment_options = options;
-                let _ = state
-                    .alignment
-                    .apply_options(&state.alignment_options, &state.sequence)?;
-            }
-
-            Message::AddAlignmentChange(options) => {}
-        }
-
-        Self::get_data_requirements(state, repository)
+                _ => option,
+            })
+            .collect_vec();
+        self.alignment_options = options;
+        self.alignment
+            .apply_options(options, &self.sequence)
+            .map(|_| {})
     }
+
+    //Self::get_data_requirements(state, repository)
 }
 
 // Movement handling
 impl State {
     async fn next_genes_start(
         &self,
-        region: Region,
+        focus: Focus,
         repository: &mut Repository,
         n: usize,
-    ) -> Result<Region, TGVError> {
+    ) -> Result<Focus, TGVError> {
         if n == 0 {
-            return Ok(region);
+            return Ok(focus);
         }
 
-        let middle = region.middle();
-
         // The gene is in the track.
-        if let Some(target_gene) = self.track.get_k_genes_after(middle, n) {
-            return Ok(region.move_to(target_gene.start()));
+        if let Some(gene) = self.track.get_k_genes_after(focus.position, n) {
+            return Ok(Focus {
+                contig_index: gene.contig_index,
+                position: gene.start(),
+            });
         }
 
         // Query for the target gene
@@ -424,235 +289,273 @@ impl State {
             .track_service_checked()?
             .query_k_genes_after(
                 &self.reference,
-                region.contig_index,
-                middle,
+                focus.contig_index,
+                focus.position,
                 n,
                 &self.contig_header,
             )
             .await?;
 
-        Ok(region.move_to(gene.start()))
+        Ok(Focus {
+            contig_index: gene.contig_index,
+            position: gene.start(),
+        })
     }
 
-    async fn go_to_next_genes_end(
-        state: &mut State,
+    async fn next_genes_end(
+        &self,
+        focus: Focus,
         repository: &mut Repository,
         n: usize,
-    ) -> Result<(), TGVError> {
+    ) -> Result<Focus, TGVError> {
         if n == 0 {
-            return Ok(());
+            return Ok(focus);
         }
 
-        let middle = state.middle();
-
-        if let Some(target_gene) = state.track.get_k_genes_after(middle, n) {
-            return Self::go_to_coordinate(state, target_gene.end() + 1);
+        if let Some(gene) = self.track.get_k_genes_after(focus.position, n) {
+            return Ok(Focus {
+                contig_index: gene.contig_index,
+                position: gene.end() + 1,
+            });
         }
 
         // Query for the target gene
         let gene = repository
             .track_service_checked()?
             .query_k_genes_after(
-                &state.reference,
-                state.contig_index(),
-                middle,
+                &self.reference,
+                focus.contig_index,
+                focus.position,
                 n,
-                &state.contig_header,
+                &self.contig_header,
             )
             .await?;
 
-        Self::go_to_coordinate(state, gene.end() + 1)
+        Ok(Focus {
+            contig_index: gene.contig_index,
+            position: gene.end() + 1,
+        })
     }
 
     async fn go_to_previous_genes_start(
-        state: &mut State,
+        &self,
+        focus: Focus,
         repository: &mut Repository,
         n: usize,
-    ) -> Result<(), TGVError> {
+    ) -> Result<Focus, TGVError> {
         if n == 0 {
-            return Ok(());
+            return Ok(focus);
         }
 
-        let middle = state.middle();
-
-        if let Some(target_gene) = state.track.get_k_genes_before(middle, n) {
-            return Self::go_to_coordinate(state, target_gene.start() - 1);
+        if let Some(gene) = self.track.get_k_genes_before(focus.position, n) {
+            return Ok(Focus {
+                contig_index: gene.contig_index,
+                position: gene.start() - 1,
+            });
         }
 
         // Query for the target gene
         let gene = repository
             .track_service_checked()?
             .query_k_genes_before(
-                &state.reference,
-                state.contig_index(),
-                middle,
+                &self.reference,
+                focus.contig_index,
+                focus.position,
                 n,
-                &state.contig_header,
+                &self.contig_header,
             )
             .await?;
 
-        Self::go_to_coordinate(state, gene.start() - 1)
+        Ok(Focus {
+            contig_index: gene.contig_index,
+            position: gene.start() - 1,
+        })
     }
 
     async fn go_to_previous_genes_end(
-        state: &mut State,
+        &self,
+        focus: Focus,
         repository: &mut Repository,
         n: usize,
-    ) -> Result<(), TGVError> {
+    ) -> Result<Focus, TGVError> {
         if n == 0 {
-            return Ok(());
+            return Ok(focus);
         }
 
-        let middle = state.middle();
-
-        if let Some(target_gene) = state.track.get_k_genes_before(middle, n) {
-            return Self::go_to_coordinate(state, target_gene.end() - 1);
+        if let Some(gene) = self.track.get_k_genes_before(focus.position, n) {
+            return Ok(Focus {
+                contig_index: gene.contig_index,
+                position: gene.end() - 1,
+            });
         }
 
         // Query for the target gene
         let gene = repository
             .track_service_checked()?
             .query_k_genes_before(
-                &state.reference,
-                state.contig_index(),
-                middle,
+                &self.reference,
+                focus.contig_index,
+                focus.position,
                 n,
-                &state.contig_header,
+                &self.contig_header,
             )
             .await?;
 
-        Self::go_to_coordinate(state, gene.end() - 1)
+        Ok(Focus {
+            contig_index: gene.contig_index,
+            position: gene.end() - 1,
+        })
     }
 
     async fn go_to_next_exons_start(
-        state: &mut State,
+        &self,
+        focus: Focus,
         repository: &mut Repository,
         n: usize,
-    ) -> Result<(), TGVError> {
+    ) -> Result<Focus, TGVError> {
         if n == 0 {
-            return Ok(());
+            return Ok(focus);
         }
 
-        let middle = state.middle();
-
-        if let Some(target_exon) = state.track.get_k_exons_after(middle, n) {
-            return Self::go_to_coordinate(state, target_exon.start() + 1);
+        if let Some(exon) = self.track.get_k_exons_after(focus.position, n) {
+            return Ok(Focus {
+                contig_index: exon.contig_index,
+                position: exon.start() + 1,
+            });
         }
 
         // Query for the target exon
         let exon = repository
             .track_service_checked()?
             .query_k_exons_after(
-                &state.reference,
-                state.contig_index(),
-                middle,
+                &self.reference,
+                focus.contig_index,
+                focus.position,
                 n,
-                &state.contig_header,
+                &self.contig_header,
             )
             .await?;
 
-        Self::go_to_coordinate(state, exon.start() + 1)
+        Ok(Focus {
+            contig_index: exon.contig_index,
+            position: exon.start() + 1,
+        })
     }
 
     async fn go_to_next_exons_end(
-        state: &mut State,
+        &self,
+        focus: Focus,
         repository: &mut Repository,
         n: usize,
-    ) -> Result<(), TGVError> {
+    ) -> Result<Focus, TGVError> {
         if n == 0 {
-            return Ok(());
+            return Ok(focus);
         }
 
-        let middle = state.middle();
-
-        if let Some(target_exon) = state.track.get_k_exons_after(middle, n) {
-            return Self::go_to_coordinate(state, target_exon.end() + 1);
+        if let Some(exon) = self.track.get_k_exons_after(focus.position, n) {
+            return Ok(Focus {
+                contig_index: exon.contig_index,
+                position: exon.end() + 1,
+            });
         }
 
         // Query for the target exon
         let exon = repository
             .track_service_checked()?
             .query_k_exons_after(
-                &state.reference,
-                state.contig_index(),
-                middle,
+                &self.reference,
+                focus.contig_index,
+                focus.position,
                 n,
-                &state.contig_header,
+                &self.contig_header,
             )
             .await?;
 
-        Self::go_to_coordinate(state, exon.end() + 1)
+        Ok(Focus {
+            contig_index: exon.contig_index,
+            position: exon.end() + 1,
+        })
     }
 
     async fn go_to_previous_exons_start(
-        state: &mut State,
+        &self,
+        focus: Focus,
         repository: &mut Repository,
         n: usize,
-    ) -> Result<(), TGVError> {
+    ) -> Result<Focus, TGVError> {
         if n == 0 {
-            return Ok(());
+            return Ok(focus);
         }
 
-        let middle = state.middle();
-
-        if let Some(target_exon) = state.track.get_k_exons_before(middle, n) {
-            return Self::go_to_coordinate(state, target_exon.start() - 1);
+        if let Some(exon) = self.track.get_k_exons_before(focus.position, n) {
+            return Ok(Focus {
+                contig_index: exon.contig_index,
+                position: exon.start() - 1,
+            });
         }
 
         // Query for the target exon
         let exon = repository
             .track_service_checked()?
             .query_k_exons_before(
-                &state.reference,
-                state.contig_index(),
-                middle,
+                &self.reference,
+                focus.contig_index,
+                focus.position,
                 n,
-                &state.contig_header,
+                &self.contig_header,
             )
             .await?;
 
-        Self::go_to_coordinate(state, exon.start() - 1)
+        Ok(Focus {
+            contig_index: exon.contig_index,
+            position: exon.start() - 1,
+        })
     }
 
     async fn go_to_previous_exons_end(
-        state: &mut State,
+        &self,
+        focus: Focus,
         repository: &mut Repository,
         n: usize,
-    ) -> Result<(), TGVError> {
+    ) -> Result<Focus, TGVError> {
         if n == 0 {
-            return Ok(());
+            return Ok(focus);
         }
 
-        let middle = state.middle();
-
-        let target_exon = state.track.get_k_exons_before(middle, n);
-        if let Some(target_exon) = target_exon {
-            return Self::go_to_coordinate(state, target_exon.end() - 1);
+        let exon = self.track.get_k_exons_before(focus.position, n);
+        if let Some(exon) = exon {
+            return Ok(Focus {
+                contig_index: exon.contig_index,
+                position: exon.end() - 1,
+            });
         }
 
         // Query for the target exon
         let exon = repository
             .track_service_checked()?
             .query_k_exons_before(
-                &state.reference,
-                state.contig_index(),
-                middle,
+                &self.reference,
+                focus.contig_index,
+                focus.position,
                 n,
-                &state.contig_header,
+                &self.contig_header,
             )
             .await?;
 
-        Self::go_to_coordinate(state, exon.end() - 1)
+        Ok(Focus {
+            contig_index: exon.contig_index,
+            position: exon.end() - 1,
+        })
     }
 
     async fn go_to_gene(
         &self,
         repository: &mut Repository,
-        gene_name: String,
+        gene_name: &str,
     ) -> Result<Focus, TGVError> {
         repository
             .track_service_checked()?
-            .query_gene_name(&self.reference, &gene_name, &self.contig_header)
+            .query_gene_name(&self.reference, gene_name, &self.contig_header)
             .await
             .map(|gene| Focus {
                 contig_index: gene.contig_index(),
@@ -660,50 +563,45 @@ impl State {
             })
     }
 
-    async fn go_to_next_contig(&self, region: Region, n: usize) -> Focus {
+    async fn go_to_next_contig(&self, focus: Focus, n: usize) -> Focus {
         Focus {
-            contig_index: self.contig_header.next(&region.contig_index(), n),
+            contig_index: self.contig_header.next(focus.contig_index, n),
             position: 1,
         }
     }
 
-    async fn go_to_previous_contig(state: &mut State, n: usize) -> Result<(), TGVError> {
-        Self::go_to_contig_coordinate(
-            state,
-            state.contig_header.previous(&state.contig_index(), n),
-            1,
-        )
+    async fn go_to_previous_contig(&self, focus: Focus, n: usize) -> Focus {
+        Focus {
+            contig_index: self.contig_header.previous(focus.contig_index, n),
+
+            position: 1,
+        }
     }
 
-    async fn go_to_contig_index(state: &mut State, contig_index: usize) -> Result<(), TGVError> {
-        Self::go_to_contig_coordinate(state, contig_index, 1)
-    }
-
-    async fn default_region(&self, repository: &mut Repository) -> Result<(), TGVError> {
+    async fn default_focus(&self, repository: &mut Repository) -> Result<Focus, TGVError> {
         match self.reference {
             Reference::Hg38 | Reference::Hg19 => {
-                return Self::go_to_gene(state, repository, "TP53".to_string()).await;
+                return self.go_to_gene(repository, "TP53").await;
             }
 
             Reference::UcscGenome(_) | Reference::UcscAccession(_) => {
                 // Find the first gene on the first contig. If anything is not found, handle it later.
 
-                let first_contig = state.contig_header.first()?;
+                let first_contig = self.contig_header.first()?;
 
                 // Try to get the first gene in the first contig.
                 // We use query_k_genes_after starting from coordinate 0 with k=1.
                 match repository
                     .track_service_checked()?
-                    .query_k_genes_after(&state.reference, first_contig, 0, 1, &state.contig_header)
+                    .query_k_genes_after(&self.reference, first_contig, 0, 1, &self.contig_header)
                     .await
                 {
                     Ok(gene) => {
                         // Found a gene, go to its start (using 1-based coordinates for Goto)
-                        return Self::go_to_contig_coordinate(
-                            state,
-                            gene.contig_index(),
-                            gene.start() + 1,
-                        );
+                        return Ok(Focus {
+                            contig_index: gene.contig_index,
+                            position: gene.start() + 1,
+                        });
                     }
                     Err(_) => {} // Gene not found. Handle later.
                 }
@@ -713,13 +611,16 @@ impl State {
         };
 
         // If reaches here, go to the first contig:1
-        if let Ok(_) = Self::go_to_contig_coordinate(state, state.contig_header.first()?, 1) {
-            return Ok(());
-        }
-
-        Err(TGVError::StateError(
+        self.contig_header
+            .first()
+            .map(|contig_index| Focus {
+                contig_index,
+                position: 1,
+            })
+            .map_err(|_| {
+                TGVError::StateError(
             "Failed to find a default initial region. Please provide a starting region with -r."
-                .to_string(),
-        ))
+                .to_string() )
+            })
     }
 }

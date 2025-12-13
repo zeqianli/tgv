@@ -3,17 +3,17 @@ use std::collections::HashMap;
 
 pub trait GenomeInterval {
     fn contig_index(&self) -> usize;
-    fn start(&self) -> usize;
-    fn end(&self) -> usize;
-    fn length(&self) -> usize {
+    fn start(&self) -> u64;
+    fn end(&self) -> u64;
+    fn length(&self) -> u64 {
         self.end() - self.start() + 1
     }
 
-    fn covers(&self, position: usize) -> bool {
+    fn covers(&self, position: u64) -> bool {
         self.start() <= position && self.end() >= position
     }
 
-    fn middle(&self) -> usize {
+    fn middle(&self) -> u64 {
         (self.start() + self.end()) / 2
     }
 
@@ -30,7 +30,7 @@ pub trait GenomeInterval {
     }
 
     // The region ends at the end of the genome. Inclusive.
-    fn is_properly_bounded(&self, end: Option<usize>) -> bool {
+    fn is_properly_bounded(&self, end: Option<u64>) -> bool {
         match end {
             Some(e) => self.start() <= self.end() && self.end() <= e,
             None => self.start() <= self.end(),
@@ -95,51 +95,58 @@ where
 }
 
 /// A genomic region.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct Region {
     /// contig id. Need to read the header for full contig string name.
-    pub contig_index: usize,
-
-    /// Start coordinate of a genome region.
-    /// 1-based, inclusive.
-    pub start: usize,
+    pub focus: Focus,
 
     /// End coordinate of a genome region.
     /// 1-based, inclusive.
-    pub end: usize,
-}
-
-impl GenomeInterval for Region {
-    fn start(&self) -> usize {
-        self.start
-    }
-
-    fn end(&self) -> usize {
-        self.end
-    }
-
-    fn contig_index(&self) -> usize {
-        self.contig_index
-    }
+    pub half_width: u64,
 }
 
 impl Region {
-    /// Width of a genome region.
-    pub fn width(&self) -> usize {
-        self.length()
+    pub fn start(&self) -> u64 {
+        self.focus.position.saturating_sub(self.half_width)
     }
 
-    pub fn move_to(self, n: usize) -> Self {
+    pub fn end(&self) -> u64 {
+        self.focus.position + self.half_width
+    }
+
+    pub fn contig_index(&self) -> usize {
+        self.focus.contig_index
+    }
+
+    pub fn middle(&self) -> u64 {
+        self.focus.position
+    }
+
+    /// Width of a genome region.
+    pub fn width(&self) -> u64 {
+        self.half_width + 2 + 1
+    }
+
+    pub fn move_to(self, position: u64) -> Self {
         Self {
-            contig_index: self.contig_index,
-            start: n,
-            end: n + self.width() - 1,
+            focus: self.focus.move_to(position),
+            half_width: self.half_width,
         }
     }
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct Focus {
     pub contig_index: usize,
 
-    pub position: usize,
+    pub position: u64,
+}
+
+impl Focus {
+    pub fn move_to(self, position: u64) -> Self {
+        Self {
+            contig_index: self.contig_index,
+            position,
+        }
+    }
 }

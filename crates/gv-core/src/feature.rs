@@ -13,17 +13,17 @@ pub enum SubGeneFeatureType {
 #[derive(Debug, Clone)]
 pub struct SubGeneFeature {
     pub contig_index: usize,
-    pub start: usize,
-    pub end: usize,
+    pub start: u64,
+    pub end: u64,
     pub feature_type: SubGeneFeatureType,
 }
 
 impl GenomeInterval for SubGeneFeature {
-    fn start(&self) -> usize {
+    fn start(&self) -> u64 {
         self.start
     }
 
-    fn end(&self) -> usize {
+    fn end(&self) -> u64 {
         self.end
     }
 
@@ -77,26 +77,26 @@ pub struct Gene {
 
     pub strand: Strand,
     pub contig_index: usize,
-    pub transcription_start: usize,
-    pub transcription_end: usize,
+    pub transcription_start: u64,
+    pub transcription_end: u64,
 
-    pub cds_start: usize,
+    pub cds_start: u64,
 
-    pub cds_end: usize,
+    pub cds_end: u64,
 
-    pub exon_starts: Vec<usize>,
+    pub exon_starts: Vec<u64>,
 
-    pub exon_ends: Vec<usize>,
+    pub exon_ends: Vec<u64>,
 
     pub has_exons: bool,
 }
 
 impl GenomeInterval for Gene {
-    fn start(&self) -> usize {
+    fn start(&self) -> u64 {
         self.transcription_start
     }
 
-    fn end(&self) -> usize {
+    fn end(&self) -> u64 {
         self.transcription_end
     }
 
@@ -131,9 +131,9 @@ impl Gene {
         self.exon_starts.len()
     }
 
-    pub fn features(&self) -> Vec<(usize, usize, SubGeneFeatureType, usize)> {
+    pub fn features(&self) -> Vec<(u64, u64, SubGeneFeatureType, usize)> {
         // TODO: prevent labeling overlap.
-        let mut features: Vec<(usize, usize, SubGeneFeatureType)> = Vec::new();
+        let mut features: Vec<(u64, u64, SubGeneFeatureType)> = Vec::new();
         let mut last_exon_end = self.transcription_start;
 
         let mut n_cds_exons = 0;
@@ -205,7 +205,7 @@ impl Gene {
             last_exon_end = *exon_end;
         }
 
-        let mut output: Vec<(usize, usize, SubGeneFeatureType, usize)> = Vec::new();
+        let mut output: Vec<(u64, u64, SubGeneFeatureType, usize)> = Vec::new();
         let mut i_cds_exon = 0;
         let mut i_intron = 0;
         for (start, end, feature_type) in features {

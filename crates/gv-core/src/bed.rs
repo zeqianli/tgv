@@ -11,8 +11,8 @@ pub struct BEDInterval {
 
     pub index: usize,
 
-    start: usize,
-    end: usize,
+    start: u64,
+    end: u64,
 
     record: bed::Record<3>,
 }
@@ -23,14 +23,14 @@ impl BEDInterval {
         index: usize,
         contig_header: &ContigHeader,
     ) -> Result<Self, TGVError> {
-        let start = record.feature_start()?.get(); // Noodles already converted to 1-based, inclusive
+        let start = record.feature_start()?.get() as u64; // Noodles already converted to 1-based, inclusive
         Ok(Self {
             contig_index: contig_header
                 .try_get_index_by_str(&record.reference_sequence_name().to_string())?,
             index,
             start, // BED start is 0-based, inclusive
             end: match record.feature_end() {
-                Some(end) => end?.get(),
+                Some(end) => end?.get() as u64,
                 None => start, // BED end is 0-based, exclusive
             },
             record,
@@ -52,11 +52,11 @@ impl GenomeInterval for BEDInterval {
         self.contig_index
     }
 
-    fn start(&self) -> usize {
+    fn start(&self) -> u64 {
         self.start
     }
 
-    fn end(&self) -> usize {
+    fn end(&self) -> u64 {
         self.end
     }
 }

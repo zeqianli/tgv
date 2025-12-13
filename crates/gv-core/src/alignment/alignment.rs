@@ -4,12 +4,12 @@ use crate::message::{AlignmentFilter, AlignmentSort};
 use crate::sequence::Sequence;
 use crate::{
     alignment::{
-        coverage::{calculate_basewise_coverage, BaseCoverage, DEFAULT_COVERAGE},
-        read::{calculate_paired_context, AlignedRead, ReadPair},
+        coverage::{BaseCoverage, DEFAULT_COVERAGE, calculate_basewise_coverage},
+        read::{AlignedRead, ReadPair, calculate_paired_context},
     },
     message::AlignmentDisplayOption,
 };
-use std::collections::{hash_map::Entry, BTreeMap, HashMap};
+use std::collections::{BTreeMap, HashMap, hash_map::Entry};
 
 /// A alignment region on a contig.
 #[derive(Debug, Default)]
@@ -23,11 +23,11 @@ pub struct Alignment {
 
     /// The left bound of region with complete data.
     /// 1-based, inclusive.
-    data_complete_left_bound: usize,
+    data_complete_left_bound: u64,
 
     /// The right bound of region with complete data.
     /// 1-based, inclusive.
-    data_complete_right_bound: usize,
+    data_complete_right_bound: u64,
 
     // read index -> y locations
     pub ys: Vec<usize>,
@@ -54,9 +54,9 @@ impl Alignment {
     /// Check if data in [left, right] is all loaded.
     /// 1-based, inclusive.
     pub fn has_complete_data(&self, region: &Region) -> bool {
-        (region.contig_index == self.contig_index)
-            && (region.start >= self.data_complete_left_bound)
-            && (region.end <= self.data_complete_right_bound)
+        (region.contig_index() == self.contig_index)
+            && (region.start() >= self.data_complete_left_bound)
+            && (region.end() <= self.data_complete_right_bound)
     }
 
     /// Return the number of alignment tracks.
@@ -74,7 +74,7 @@ impl Alignment {
     }
 
     /// Return the read at x_coordinate, yth track
-    pub fn read_at(&self, x_coordinate: usize, y: usize) -> Option<&AlignedRead> {
+    pub fn read_at(&self, x_coordinate: u64, y: usize) -> Option<&AlignedRead> {
         if y >= self.depth() {
             return None;
         }
@@ -88,8 +88,8 @@ impl Alignment {
     /// Return the read at x_coordinate, yth track
     pub fn read_overlapping(
         &self,
-        x_left_coordinate: usize,
-        x_right_coordinate: usize,
+        x_left_coordinate: u64,
+        x_right_coordinate: u64,
         y: usize,
     ) -> Option<&AlignedRead> {
         if y >= self.depth() {

@@ -102,13 +102,13 @@ pub enum AlignmentFilter {
 
     /// Base at position (1-based) equal to the character
     #[strum(to_string = "Base({0})={1}")]
-    Base(u64, char),
+    Base(usize, char),
 
     BaseAtCurrentPosition(char),
 
     /// Base at position (1-based is softclip)
     #[strum(to_string = "Base({0})=SOFTCLIP")]
-    BaseSoftclip(u64),
+    BaseSoftclip(usize),
 
     BaseAtCurrentPositionSoftClip,
 

@@ -122,7 +122,7 @@ impl<T: GenomeInterval> GenomeInterval for Track<T> {
 impl<T: GenomeInterval> Track<T> {
     /// Get the feature covering a given position.
     /// position: 1-based.
-    pub fn get_feature_at(&self, position: usize) -> Option<&T> {
+    pub fn get_feature_at(&self, position: u64) -> Option<&T> {
         if !self.covers(position) {
             return None;
         }
@@ -166,7 +166,7 @@ impl<T: GenomeInterval> Track<T> {
         features
     }
 
-    pub fn get_k_features_before(&self, position: usize, k: usize) -> Option<&T> {
+    pub fn get_k_features_before(&self, position: u64, k: usize) -> Option<&T> {
         if k == 0 {
             return self.get_feature_at(position);
         }
@@ -190,7 +190,7 @@ impl<T: GenomeInterval> Track<T> {
         }
     }
 
-    pub fn get_k_features_after(&self, position: usize, k: usize) -> Option<&T> {
+    pub fn get_k_features_after(&self, position: u64, k: usize) -> Option<&T> {
         if k == 0 {
             return self.get_feature_at(position);
         }
@@ -214,7 +214,7 @@ impl<T: GenomeInterval> Track<T> {
         }
     }
 
-    pub fn get_saturating_k_features_after(&self, position: usize, k: usize) -> Option<&T> {
+    pub fn get_saturating_k_features_after(&self, position: u64, k: usize) -> Option<&T> {
         if k == 0 {
             return None;
         }
@@ -229,7 +229,7 @@ impl<T: GenomeInterval> Track<T> {
         }
     }
 
-    pub fn get_saturating_k_features_before(&self, position: usize, k: usize) -> Option<&T> {
+    pub fn get_saturating_k_features_before(&self, position: u64, k: usize) -> Option<&T> {
         if k == 0 {
             return None;
         }
@@ -309,27 +309,27 @@ impl Track<Gene> {
     }
 
     /// Alias for get_feature_at when the track is a gene track.
-    pub fn get_gene_at(&self, position: usize) -> Option<&Gene> {
+    pub fn get_gene_at(&self, position: u64) -> Option<&Gene> {
         self.get_feature_at(position)
     }
 
     /// Alias for get_k_features_before when the track is a gene track.
-    pub fn get_k_genes_before(&self, position: usize, k: usize) -> Option<&Gene> {
+    pub fn get_k_genes_before(&self, position: u64, k: usize) -> Option<&Gene> {
         self.get_k_features_before(position, k)
     }
 
     /// Alias for get_k_features_after when the track is a gene track.
-    pub fn get_k_genes_after(&self, position: usize, k: usize) -> Option<&Gene> {
+    pub fn get_k_genes_after(&self, position: u64, k: usize) -> Option<&Gene> {
         self.get_k_features_after(position, k)
     }
 
     /// Alias for get_saturating_k_features_after when the track is a gene track.
-    pub fn get_saturating_k_genes_after(&self, position: usize, k: usize) -> Option<&Gene> {
+    pub fn get_saturating_k_genes_after(&self, position: u64, k: usize) -> Option<&Gene> {
         self.get_saturating_k_features_after(position, k)
     }
 
     /// Alias for get_saturating_k_features_before when the track is a gene track.
-    pub fn get_saturating_k_genes_before(&self, position: usize, k: usize) -> Option<&Gene> {
+    pub fn get_saturating_k_genes_before(&self, position: u64, k: usize) -> Option<&Gene> {
         self.get_saturating_k_features_before(position, k)
     }
 
@@ -339,7 +339,7 @@ impl Track<Gene> {
     }
 
     /// position: 1-based.
-    pub fn get_exon_at(&self, position: usize) -> Option<SubGeneFeature> {
+    pub fn get_exon_at(&self, position: u64) -> Option<SubGeneFeature> {
         let exons_by_start = self.exons_by_start.as_ref().unwrap();
         let exons_by_end = self.exons_by_end.as_ref().unwrap();
 
@@ -369,7 +369,7 @@ impl Track<Gene> {
         }
     }
 
-    pub fn get_k_exons_before(&self, position: usize, k: usize) -> Option<SubGeneFeature> {
+    pub fn get_k_exons_before(&self, position: u64, k: usize) -> Option<SubGeneFeature> {
         if k == 0 {
             return self.get_exon_at(position);
         }
@@ -396,7 +396,7 @@ impl Track<Gene> {
         }
     }
 
-    pub fn get_k_exons_after(&self, position: usize, k: usize) -> Option<SubGeneFeature> {
+    pub fn get_k_exons_after(&self, position: u64, k: usize) -> Option<SubGeneFeature> {
         if k == 0 {
             return self.get_exon_at(position);
         }
@@ -423,11 +423,7 @@ impl Track<Gene> {
         }
     }
 
-    pub fn get_saturating_k_exons_after(
-        &self,
-        position: usize,
-        k: usize,
-    ) -> Option<SubGeneFeature> {
+    pub fn get_saturating_k_exons_after(&self, position: u64, k: usize) -> Option<SubGeneFeature> {
         let exons_by_start = self.exons_by_start.as_ref().unwrap();
 
         if k == 0 {
@@ -447,11 +443,7 @@ impl Track<Gene> {
         }
     }
 
-    pub fn get_saturating_k_exons_before(
-        &self,
-        position: usize,
-        k: usize,
-    ) -> Option<SubGeneFeature> {
+    pub fn get_saturating_k_exons_before(&self, position: u64, k: usize) -> Option<SubGeneFeature> {
         let exons_by_start = self.exons_by_start.as_ref().unwrap();
         if k == 0 {
             return None;
@@ -533,7 +525,7 @@ mod tests {
     #[case(10, Some("gene1"))]
     #[case(42, Some("gene2"))]
     #[case(51, None)]
-    fn test_get_genes_at(#[case] position: usize, #[case] expected: Option<&str>) {
+    fn test_get_genes_at(#[case] position: u64, #[case] expected: Option<&str>) {
         let track = get_test_track();
         match expected {
             Some(gene_name) => assert_eq!(track.get_feature_at(position).unwrap().name, gene_name),
@@ -549,7 +541,7 @@ mod tests {
     #[case(51, 0, None)]
     #[case(51, 1, Some("gene2"))]
     fn test_get_k_genes_before(
-        #[case] position: usize,
+        #[case] position: u64,
         #[case] k: usize,
         #[case] expected: Option<&str>,
     ) {
@@ -573,7 +565,7 @@ mod tests {
     #[case(1, 1, Some("gene1"))]
     #[case(1, 0, None)]
     fn test_get_k_genes_after(
-        #[case] position: usize,
+        #[case] position: u64,
         #[case] k: usize,
         #[case] expected: Option<&str>,
     ) {
@@ -593,7 +585,7 @@ mod tests {
     #[case(15, None)]
     #[case(25, None)]
     #[case(51, None)]
-    fn test_get_exon_at(#[case] position: usize, #[case] expected: Option<usize>) {
+    fn test_get_exon_at(#[case] position: u64, #[case] expected: Option<usize>) {
         let track = get_test_track();
         match expected {
             Some(exon_idx) => assert_eq!(track.get_exon_at(position).unwrap().start(), exon_idx),
@@ -609,7 +601,7 @@ mod tests {
     #[case(51, 1, Some(41))]
     #[case(51, 2, Some(8))]
     fn test_get_k_exons_before(
-        #[case] position: usize,
+        #[case] position: u64,
         #[case] k: usize,
         #[case] expected: Option<usize>,
     ) {
@@ -633,7 +625,7 @@ mod tests {
     #[case(51, 0, None)]
     #[case(51, 1, None)]
     fn test_get_k_exons_after(
-        #[case] position: usize,
+        #[case] position: u64,
         #[case] k: usize,
         #[case] expected: Option<usize>,
     ) {

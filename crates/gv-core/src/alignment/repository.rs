@@ -10,8 +10,8 @@ use crate::{
 use async_compat::{Compat, CompatExt};
 use itertools::Itertools;
 use noodles::bam::{self, bai};
-use noodles::sam::{Header};
-use opendal::{services, FuturesAsyncReader, Operator};
+use noodles::sam::Header;
+use opendal::{FuturesAsyncReader, Operator, services};
 use std::path::Path;
 use tokio::fs::File;
 
@@ -172,7 +172,7 @@ impl AlignmentRepositoryEnum {
         use futures::TryStreamExt;
 
         match contig_header
-            .try_get(region.contig_index)?
+            .try_get(region.contig_index())?
             .get_alignment_name()
         {
             Some(region_str) => {

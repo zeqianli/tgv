@@ -284,7 +284,7 @@ mod tests {
     use rstest::rstest;
 
     #[rstest]
-    #[case("tgv", Ok(Settings::Default()))]
+    #[case("tgv", Ok(Settings::default()))]
     #[case("tgv input.bam", Ok(Settings {
         bam_path: Some("input.bam".to_string()),
         bai_path: Some("input.bam.bai".to_string()),

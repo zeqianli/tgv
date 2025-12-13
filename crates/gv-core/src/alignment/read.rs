@@ -6,8 +6,8 @@ use crate::sequence::Sequence;
 use itertools::Itertools;
 use noodles::bam::record::{self, Cigar, Record};
 use noodles::sam::alignment::record::{
-    cigar::{op::Kind, Op},
     Cigar as CigarTrait, Flags,
+    cigar::{Op, op::Kind},
 };
 use std::collections::HashMap;
 
@@ -77,17 +77,17 @@ pub struct AlignedRead {
 
     /// Non-clipped start genome coordinate on the alignment view
     /// 1-based, inclusive
-    pub start: usize,
+    pub start: u64,
     /// Non-clipped end genome coordinate on the alignment view
     /// Note that this includes the soft-clipped reads and differ from the built-in methods. TODO
     /// 1-based, inclusive
-    pub end: usize,
+    pub end: u64,
 
     /// Leading softclips. Used for track stacking calculation.
-    pub leading_softclips: usize,
+    pub leading_softclips: u64,
 
     /// Trailing softclips. Used for track stacking calculation.
-    pub trailing_softclips: usize,
+    pub trailing_softclips: u64,
 
     pub cigar: Vec<Op>,
 
@@ -110,10 +110,10 @@ pub struct ReadPair {
     pub read_2_index: Option<usize>,
 
     /// 1-based start (including soft-clips)
-    pub stacking_start: usize,
+    pub stacking_start: u64,
 
     /// 1-based end (including soft-clips)
-    pub stacking_end: usize,
+    pub stacking_end: u64,
 
     /// Index in the alignment
     pub index: usize,
@@ -170,20 +170,20 @@ impl AlignedRead {
     }
 
     /// Whether the alignment segment (excluding softclips) covers a x_coordinate (1-based).
-    pub fn covers(&self, x_coordinate: usize) -> bool {
+    pub fn covers(&self, x_coordinate: u64) -> bool {
         self.start <= x_coordinate && self.end >= x_coordinate
     }
     /// Whether the alignment segment (including softclips) covers a x_coordinate (1-based).
-    pub fn full_read_covers(&self, x_coordinate: usize) -> bool {
+    pub fn full_read_covers(&self, x_coordinate: u64) -> bool {
         self.stacking_start() <= x_coordinate && self.stacking_end() >= x_coordinate
     }
 
     /// Whether the alignment segment (excluding softclips) covers a x_coordinate (1-based).
-    pub fn overlaps(&self, x_left_coordinate: usize, x_right_coordinate: usize) -> bool {
+    pub fn overlaps(&self, x_left_coordinate: u64, x_right_coordinate: u64) -> bool {
         self.start <= x_right_coordinate && self.end >= x_left_coordinate
     }
     /// Whether the alignment segment (including softclips) covers a x_coordinate (1-based).
-    pub fn full_read_overlaps(&self, x_left_coordinate: usize, x_right_coordinate: usize) -> bool {
+    pub fn full_read_overlaps(&self, x_left_coordinate: u64, x_right_coordinate: u64) -> bool {
         self.stacking_start() <= x_right_coordinate && self.stacking_end() >= x_left_coordinate
     }
 
@@ -197,13 +197,15 @@ impl AlignedRead {
     /// Insertion: the inserted sequences are not returned.
     ///
     /// coordinate: 1-based
-    pub fn base_at(&self, coordinate: usize) -> Option<u8> {
+    pub fn base_at(&self, coordinate: u64) -> Option<u8> {
         if coordinate < self.start || coordinate > self.end {
             return None;
         }
 
+        let coordinate = coordinate as usize;
+
         let cigars = self.read.cigar();
-        let mut reference_pivot: usize = self.start;
+        let mut reference_pivot = self.start as usize;
         let mut query_pivot: usize = 1; // 1-based. # bases on the sequence. Note that need to substract leading softclips to get aligned base coordinate.
 
         for op in cigars.iter() {
@@ -258,7 +260,7 @@ impl AlignedRead {
         None
     }
 
-    pub fn is_softclip_at(&self, coordinate: usize) -> bool {
+    pub fn is_softclip_at(&self, coordinate: u64) -> bool {
         if coordinate < self.start && coordinate + self.leading_softclips >= self.start {
             return true;
         }
@@ -268,12 +270,13 @@ impl AlignedRead {
         false
     }
 
-    pub fn is_deletion_at(&self, coordinate: usize) -> bool {
+    pub fn is_deletion_at(&self, coordinate: u64) -> bool {
         if coordinate < self.start || coordinate > self.end {
             return false;
         }
 
-        let mut reference_pivot: usize = self.start;
+        let coordinate = coordinate as usize;
+        let mut reference_pivot: usize = self.start as usize;
         let mut query_pivot: usize = 1; // 1-based. # bases on the sequence. Note that need to substract leading softclips to get aligned base coordinate.
 
         for op in self.cigar.iter() {
@@ -914,7 +917,7 @@ mod tests {
         self,
         alignment::{
             io::Write,
-            record::cigar::{op::Kind, Op},
+            record::cigar::{Op, op::Kind},
         },
     };
     use std::io;

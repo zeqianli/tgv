@@ -18,7 +18,7 @@ pub struct Contig {
     /// - chr1 -> 1
     /// - chromAlias table in the UCSC database
     pub aliases: Vec<String>,
-    pub length: Option<usize>,      // Length
+    pub length: Option<u64>,        // Length
     pub cytoband: Option<Cytoband>, // Cytoband
 
     cytoband_loaded: bool, // Whether this contig's cytoband has been quried.
@@ -324,11 +324,11 @@ impl ContigHeader {
         contig_index
     }
 
-    pub fn next(&self, contig_index: &usize, k: usize) -> usize {
+    pub fn next(&self, contig_index: usize, k: usize) -> usize {
         (contig_index + k) % self.contigs.len() // TODO: bound check
     }
 
-    pub fn previous(&self, contig_index: &usize, k: usize) -> usize {
+    pub fn previous(&self, contig_index: usize, k: usize) -> usize {
         (contig_index + self.contigs.len() - k % self.contigs.len()) % self.contigs.len()
         // TODO: bound check
     }

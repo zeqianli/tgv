@@ -121,7 +121,7 @@ pub trait TrackService {
         let genes = self
             .query_genes_overlapping(reference, region, contig_header)
             .await?;
-        Track::from_genes(genes, region.contig_index)
+        Track::from_genes(genes, region.contig_index())
     }
 
     /// Given a reference, return the prefered track name.
@@ -143,14 +143,14 @@ pub trait TrackService {
         &mut self,
         reference: &Reference,
         contig_index: usize,
-        coord: usize,
+        coord: u64,
         contig_header: &ContigHeader,
     ) -> Result<Option<Gene>, TGVError>;
 
     async fn query_gene_name(
         &mut self,
         reference: &Reference,
-        gene_name: &String,
+        gene_name: &str,
         contig_header: &ContigHeader,
     ) -> Result<Gene, TGVError>;
 
@@ -159,7 +159,7 @@ pub trait TrackService {
         &mut self,
         reference: &Reference,
         contig_index: usize,
-        coord: usize,
+        coord: u64,
         k: usize,
         contig_header: &ContigHeader,
     ) -> Result<Gene, TGVError>;
@@ -169,7 +169,7 @@ pub trait TrackService {
         &mut self,
         reference: &Reference,
         contig_index: usize,
-        coord: usize,
+        coord: u64,
         k: usize,
         contig_header: &ContigHeader,
     ) -> Result<Gene, TGVError>;
@@ -179,7 +179,7 @@ pub trait TrackService {
         &mut self,
         reference: &Reference,
         contig_index: usize,
-        coord: usize,
+        coord: u64,
         k: usize,
         contig_header: &ContigHeader,
     ) -> Result<SubGeneFeature, TGVError>;
@@ -189,7 +189,7 @@ pub trait TrackService {
         &mut self,
         reference: &Reference,
         contig_index: usize,
-        coord: usize,
+        coord: u64,
         k: usize,
         contig_header: &ContigHeader,
     ) -> Result<SubGeneFeature, TGVError>;
@@ -354,7 +354,7 @@ impl TrackService for TrackServiceEnum {
         &mut self,
         reference: &Reference,
         contig_index: usize,
-        coord: usize,
+        coord: u64,
         contig_header: &ContigHeader,
     ) -> Result<Option<Gene>, TGVError> {
         match self {
@@ -379,7 +379,7 @@ impl TrackService for TrackServiceEnum {
     async fn query_gene_name(
         &mut self,
         reference: &Reference,
-        gene_name: &String,
+        gene_name: &str,
         contig_header: &ContigHeader,
     ) -> Result<Gene, TGVError> {
         match self {
@@ -405,7 +405,7 @@ impl TrackService for TrackServiceEnum {
         &mut self,
         reference: &Reference,
         contig_index: usize,
-        coord: usize,
+        coord: u64,
         k: usize,
         contig_header: &ContigHeader,
     ) -> Result<Gene, TGVError> {
@@ -432,7 +432,7 @@ impl TrackService for TrackServiceEnum {
         &mut self,
         reference: &Reference,
         contig_index: usize,
-        coord: usize,
+        coord: u64,
         k: usize,
         contig_header: &ContigHeader,
     ) -> Result<Gene, TGVError> {
@@ -459,7 +459,7 @@ impl TrackService for TrackServiceEnum {
         &mut self,
         reference: &Reference,
         contig_index: usize,
-        coord: usize,
+        coord: u64,
         k: usize,
         contig_header: &ContigHeader,
     ) -> Result<SubGeneFeature, TGVError> {
@@ -486,7 +486,7 @@ impl TrackService for TrackServiceEnum {
         &mut self,
         reference: &Reference,
         contig_index: usize,
-        coord: usize,
+        coord: u64,
         k: usize,
         contig_header: &ContigHeader,
     ) -> Result<SubGeneFeature, TGVError> {
