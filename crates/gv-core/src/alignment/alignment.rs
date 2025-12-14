@@ -1,5 +1,5 @@
 use crate::error::TGVError;
-use crate::intervals::Region;
+use crate::intervals::{GenomeInterval, Region};
 use crate::message::{AlignmentFilter, AlignmentSort};
 use crate::sequence::Sequence;
 use crate::{

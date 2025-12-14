@@ -1,8 +1,7 @@
 use crate::{
     error::TGVError,
     feature::{Gene, SubGeneFeature},
-    intervals::GenomeInterval,
-    intervals::Region,
+    intervals::{GenomeInterval, Region},
 };
 
 use std::collections::{BTreeMap, HashMap};
@@ -14,21 +13,21 @@ pub struct Track<T: GenomeInterval> {
     pub features: Vec<T>, // TODO: what about hierarchy in features? e.g. exons of a gene?
     pub contig_index: usize,
 
-    features_by_start: BTreeMap<usize, usize>, // start -> index in features
-    features_by_end: BTreeMap<usize, usize>,   // end -> index in features
+    features_by_start: BTreeMap<u64, usize>, // start -> index in features
+    features_by_end: BTreeMap<u64, usize>,   // end -> index in features
 
     /// Left bound
     /// 1-based, inclusive.
-    most_left_bound: usize,
+    most_left_bound: u64,
 
     /// Right bound
     /// 1-based, exclusive.
-    most_right_bound: usize,
+    most_right_bound: u64,
 
     /// Only for Track<Gene>
     /// (i, j) -> exon [self.genes[i].exon_starts[j], self.genes[i].exon_ends[j]]
-    exons_by_start: Option<BTreeMap<usize, (usize, usize)>>,
-    exons_by_end: Option<BTreeMap<usize, (usize, usize)>>,
+    exons_by_start: Option<BTreeMap<u64, (usize, usize)>>,
+    exons_by_end: Option<BTreeMap<u64, (usize, usize)>>,
 
     /// feature name -> index in features
     feature_lookup: HashMap<String, usize>,
@@ -42,8 +41,8 @@ impl<T: GenomeInterval> Default for Track<T> {
             features_by_start: BTreeMap::new(),
             features_by_end: BTreeMap::new(),
 
-            most_left_bound: usize::MAX,
-            most_right_bound: usize::MIN,
+            most_left_bound: u64::MAX,
+            most_right_bound: u64::MIN,
 
             exons_by_start: None,
             exons_by_end: None,
@@ -62,8 +61,8 @@ impl<T: GenomeInterval> Track<T> {
         let mut features_by_start = BTreeMap::new();
         let mut features_by_end = BTreeMap::new();
 
-        let mut most_left_bound = usize::MAX;
-        let mut most_right_bound = usize::MIN;
+        let mut most_left_bound = u64::MAX;
+        let mut most_right_bound = u64::MIN;
 
         for (i_feature, feature) in features.iter().enumerate() {
             if feature.start() < most_left_bound {
@@ -106,11 +105,11 @@ impl<T: GenomeInterval> Track<T> {
 }
 
 impl<T: GenomeInterval> GenomeInterval for Track<T> {
-    fn start(&self) -> usize {
+    fn start(&self) -> u64 {
         self.most_left_bound
     }
 
-    fn end(&self) -> usize {
+    fn end(&self) -> u64 {
         self.most_right_bound
     }
 
@@ -126,14 +125,8 @@ impl<T: GenomeInterval> Track<T> {
         if !self.covers(position) {
             return None;
         }
-        let range_right = self
-            .features_by_end
-            .range((Included(position), Excluded(usize::MAX)))
-            .next();
-        let range_left = self
-            .features_by_start
-            .range((Included(0), Included(position)))
-            .next_back();
+        let range_right = self.features_by_end.range(position..).next();
+        let range_left = self.features_by_start.range(0..=position).next_back();
 
         match (range_left, range_right) {
             (Some((_, start_index)), Some((_, end_index))) => {
@@ -203,10 +196,7 @@ impl<T: GenomeInterval> Track<T> {
             return None;
         }
 
-        let range = self
-            .features_by_start
-            .range((Excluded(position), Excluded(usize::MAX)))
-            .nth(k - 1);
+        let range = self.features_by_start.range(position..).nth(k - 1);
 
         match range {
             Some((_, index)) => Some(&self.features[*index]),
@@ -244,9 +234,9 @@ impl<T: GenomeInterval> Track<T> {
         }
     }
 
-    pub fn get_features_between(&self, start: usize, end: usize) -> Vec<&T> {
+    pub fn get_features_between(&self, start: u64, end: u64) -> Vec<&T> {
         self.features_by_start
-            .range((Included(start), Included(end)))
+            .range(start..=end)
             .filter(|(_, index)| self.features[**index].end() <= end)
             .map(|(_, index)| &self.features[*index])
             .collect()
@@ -272,8 +262,8 @@ impl Track<Gene> {
 
         let mut features_by_start = BTreeMap::new();
         let mut features_by_end = BTreeMap::new();
-        let mut most_left_bound = usize::MAX;
-        let mut most_right_bound = usize::MIN;
+        let mut most_left_bound = u64::MAX;
+        let mut most_right_bound = u64::MIN;
 
         let mut exons_by_start = BTreeMap::new();
         let mut exons_by_end = BTreeMap::new();
@@ -334,7 +324,7 @@ impl Track<Gene> {
     }
 
     /// Alias for get_features_between when the track is a gene track.
-    pub fn get_genes_between(&self, start: usize, end: usize) -> Vec<&Gene> {
+    pub fn get_genes_between(&self, start: u64, end: u64) -> Vec<&Gene> {
         self.get_features_between(start, end)
     }
 
@@ -343,12 +333,8 @@ impl Track<Gene> {
         let exons_by_start = self.exons_by_start.as_ref().unwrap();
         let exons_by_end = self.exons_by_end.as_ref().unwrap();
 
-        let range_end = exons_by_end
-            .range((Included(position), Excluded(usize::MAX)))
-            .next();
-        let range_start = exons_by_start
-            .range((Included(0), Included(position)))
-            .next_back();
+        let range_end = exons_by_end.range(position..).next();
+        let range_start = exons_by_start.range(0..=position).next_back();
 
         match (range_start, range_end) {
             (
@@ -384,9 +370,7 @@ impl Track<Gene> {
 
         let exons_by_end = self.exons_by_end.as_ref().unwrap();
 
-        let range = exons_by_end
-            .range((Included(0), Included(position)))
-            .nth_back(k - 1);
+        let range = exons_by_end.range(0..=position).nth_back(k - 1);
 
         match range {
             Some((_, (gene_idx, exon_idx))) => {
@@ -411,9 +395,7 @@ impl Track<Gene> {
 
         let exons_by_start = self.exons_by_start.as_ref().unwrap();
 
-        let range = exons_by_start
-            .range((Excluded(position), Excluded(usize::MAX)))
-            .nth(k - 1);
+        let range = exons_by_start.range(position..).nth(k - 1);
 
         match range {
             Some((_, (gene_idx, exon_idx))) => {
@@ -585,7 +567,7 @@ mod tests {
     #[case(15, None)]
     #[case(25, None)]
     #[case(51, None)]
-    fn test_get_exon_at(#[case] position: u64, #[case] expected: Option<usize>) {
+    fn test_get_exon_at(#[case] position: u64, #[case] expected: Option<u64>) {
         let track = get_test_track();
         match expected {
             Some(exon_idx) => assert_eq!(track.get_exon_at(position).unwrap().start(), exon_idx),
@@ -603,7 +585,7 @@ mod tests {
     fn test_get_k_exons_before(
         #[case] position: u64,
         #[case] k: usize,
-        #[case] expected: Option<usize>,
+        #[case] expected: Option<u64>,
     ) {
         let track = get_test_track();
         match expected {
@@ -627,7 +609,7 @@ mod tests {
     fn test_get_k_exons_after(
         #[case] position: u64,
         #[case] k: usize,
-        #[case] expected: Option<usize>,
+        #[case] expected: Option<u64>,
     ) {
         let track = get_test_track();
         match expected {

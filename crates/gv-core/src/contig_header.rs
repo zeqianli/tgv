@@ -18,6 +18,8 @@ pub struct Contig {
     /// - chr1 -> 1
     /// - chromAlias table in the UCSC database
     pub aliases: Vec<String>,
+
+    // TODO: drop the option and set it to u64::MAX if the length is unknown?
     pub length: Option<u64>,        // Length
     pub cytoband: Option<Cytoband>, // Cytoband
 

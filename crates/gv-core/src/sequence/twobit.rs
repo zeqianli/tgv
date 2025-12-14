@@ -1,6 +1,6 @@
 use crate::contig_header::{Contig, ContigHeader, ContigSource};
 use crate::error::TGVError;
-use crate::intervals::Region;
+use crate::intervals::{GenomeInterval, Region};
 use crate::reference::Reference;
 use crate::sequence::{Sequence, SequenceRepository};
 use std::collections::HashMap;
@@ -43,7 +43,7 @@ impl TwoBitSequenceRepository {
             .for_each(|(chrom_name, chrom_size)| {
                 let index = contig_header.update_or_add_contig(
                     chrom_name,
-                    Some(chrom_size),
+                    Some(chrom_size as u64),
                     Vec::new(),
                     ContigSource::Sequence,
                 );

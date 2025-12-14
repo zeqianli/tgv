@@ -106,28 +106,32 @@ pub struct Region {
     pub half_width: u64,
 }
 
-impl Region {
-    pub fn start(&self) -> u64 {
+impl GenomeInterval for Region {
+    fn start(&self) -> u64 {
         self.focus.position.saturating_sub(self.half_width)
     }
 
-    pub fn end(&self) -> u64 {
+    fn end(&self) -> u64 {
         self.focus.position + self.half_width
     }
 
-    pub fn contig_index(&self) -> usize {
+    fn contig_index(&self) -> usize {
         self.focus.contig_index
     }
 
-    pub fn middle(&self) -> u64 {
+    // override
+    fn middle(&self) -> u64 {
         self.focus.position
     }
 
     /// Width of a genome region.
-    pub fn width(&self) -> u64 {
+    // override
+    fn length(&self) -> u64 {
         self.half_width + 2 + 1
     }
+}
 
+impl Region {
     pub fn move_to(self, position: u64) -> Self {
         Self {
             focus: self.focus.move_to(position),

@@ -1,7 +1,7 @@
 use crate::{
     contig_header::{Contig, ContigHeader},
     error::TGVError,
-    intervals::Region,
+    intervals::{GenomeInterval, Region},
     sequence::{Sequence, SequenceRepository},
 };
 use noodles::fasta::{
@@ -58,12 +58,7 @@ impl SequenceRepository for IndexedFastaSequenceRepository {
             .index
             .as_ref()
             .iter()
-            .map(|record| {
-                Contig::new(
-                    record.name().to_string().as_ref(),
-                    Some(record.length() as usize),
-                )
-            })
+            .map(|record| Contig::new(record.name().to_string().as_ref(), Some(record.length())))
             .collect::<Vec<Contig>>())
     }
 }

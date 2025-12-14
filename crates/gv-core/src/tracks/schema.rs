@@ -198,7 +198,7 @@ impl FromRow<'_, MySqlRow> for ContigRow {
 
 impl ContigRow {
     pub fn to_contig(self) -> Result<Contig, TGVError> {
-        let mut contig = Contig::new(&self.chrom, Some(self.size as usize));
+        let mut contig = Contig::new(&self.chrom, Some(self.size));
         for alias in self.aliases.split(',') {
             contig.add_alias(alias);
         }
@@ -415,7 +415,7 @@ pub struct GenarkGenome {
 #[allow(non_snake_case)]
 #[derive(Debug, Clone, Deserialize)]
 pub struct UcscListChromosomeResponse {
-    pub chromosomes: HashMap<String, usize>,
+    pub chromosomes: HashMap<String, u64>,
 }
 
 ///{

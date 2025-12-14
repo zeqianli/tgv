@@ -33,7 +33,7 @@ impl Variant {
         let start = record
             .variant_start()
             .ok_or(TGVError::ValueError("VCF record parsing error".to_string()))??
-            .get();
+            .get() as u64;
 
         Ok(Self {
             contig_index,
@@ -101,19 +101,20 @@ impl VariantRepository {
             .collect::<Result<Vec<Variant>, _>>()?;
 
         // lookup
+        // contig_index -> {varaiant start -> variant ids}
 
-        let mut variant_lookup: HashMap<usize, BTreeMap<usize, Vec<usize>>> = HashMap::new();
+        // let mut variant_lookup: HashMap<usize, BTreeMap<u64, Vec<usize>>> = HashMap::new();
 
-        for (i, variant) in variants.iter().enumerate() {
-            variant_lookup
-                .entry(variant.contig_index)
-                .and_modify(|vs| {
-                    vs.entry(variant.start())
-                        .and_modify(|vvs| vvs.push(i))
-                        .or_insert(vec![i]);
-                })
-                .or_insert(BTreeMap::from([(variant.start(), vec![i])]));
-        }
+        // for (i, variant) in variants.iter().enumerate() {
+        //     variant_lookup
+        //         .entry(variant.contig_index)
+        //         .and_modify(|vs| {
+        //             vs.entry(variant.start())
+        //                 .and_modify(|vvs| vvs.push(i))
+        //                 .or_insert(vec![i]);
+        //         })
+        //         .or_insert(BTreeMap::from([(variant.start(), vec![i])]));
+        // }
 
         Ok(VariantRepository {
             variants: SortedIntervalCollection::new(variants)?,

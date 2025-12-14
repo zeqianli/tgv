@@ -2,7 +2,7 @@ use crate::{
     alignment::{AlignedRead, Alignment},
     contig_header::ContigHeader,
     error::TGVError,
-    intervals::Region,
+    intervals::{GenomeInterval, Region},
     sequence::Sequence,
     settings::Settings,
 };

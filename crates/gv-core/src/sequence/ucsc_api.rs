@@ -1,6 +1,6 @@
 use crate::contig_header::{Contig, ContigHeader};
 use crate::error::TGVError;
-use crate::intervals::Region;
+use crate::intervals::{GenomeInterval, Region};
 use crate::reference::Reference;
 use crate::sequence::{Sequence, SequenceRepository};
 use crate::tracks::{UcscHost, schema::*};
@@ -166,7 +166,7 @@ impl SequenceRepository for UCSCApiSequenceRepository {
 
         let mut output = Vec::new();
         for (name_string, length) in response.chromosomes.into_iter() {
-            output.push(Contig::new(&name_string, Some(length)));
+            output.push(Contig::new(&name_string, Some(length as u64)));
         }
 
         output.sort_by(|a, b| {

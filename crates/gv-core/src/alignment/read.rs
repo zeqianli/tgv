@@ -1,4 +1,5 @@
 use crate::error::TGVError;
+use crate::intervals::{GenomeInterval, Region};
 use crate::message::AlignmentFilter;
 use crate::sequence::Sequence;
 // use rust_htslib::bam::{record::Seq, Read, Record};
@@ -535,7 +536,8 @@ pub fn calculate_rendering_contexts(
                 let modifiers: Vec<RenderingContextModifier> = (0..l)
                     .filter_map(|i| {
                         let reference_position = reference_pivot + i;
-                        if let Some(reference_base) = reference_sequence.base_at(reference_position)
+                        if let Some(reference_base) =
+                            reference_sequence.base_at(reference_position as u64)
                         // convert to 1-based
                         {
                             let query_position = reference_pivot + i;
@@ -1060,7 +1062,7 @@ mod tests {
         }
     ])]
     // Test soft clips
-    #[case(10, vec![(Kind::SoftClip, 2), (Kind::Match, 3), (Kind::SoftClip, 1)], b"GGATTC", true, Sequence::new(10, b"AATG".to_vec(), 0), vec![
+    #[case(10, vec![(Kind::SoftClip, 2), (Kind::Match, 3), (Kind::SoftClip, 1)], b"GGATTC", true, Sequence{start: 10, sequence: b"AATG".to_vec(), contig_index: 0}, vec![
         RenderingContext{
             start:8,
             end:8,

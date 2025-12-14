@@ -60,7 +60,9 @@ pub fn calculate_basewise_coverage(
                             .entry(base_coordinate)
                             .or_insert(BaseCoverage::new(
                                 // FIXME: This can cause problems when sequence cache didn't catch up with alignment.
-                                reference_sequence.base_at(base_coordinate).unwrap_or(b'N'),
+                                reference_sequence
+                                    .base_at(base_coordinate as u64)
+                                    .unwrap_or(b'N'),
                             ))
                             .update_softclip(base)
                     }
@@ -73,7 +75,9 @@ pub fn calculate_basewise_coverage(
                             .entry(base_coordinate)
                             .or_insert(BaseCoverage::new(
                                 // FIXME: This can cause problems when sequence cache didn't catch up with alignment.
-                                reference_sequence.base_at(base_coordinate).unwrap_or(b'N'),
+                                reference_sequence
+                                    .base_at(base_coordinate as u64)
+                                    .unwrap_or(b'N'),
                             ))
                             .update_softclip(base);
                     }
@@ -91,7 +95,9 @@ pub fn calculate_basewise_coverage(
                         .entry(base_coordinate)
                         .or_insert(BaseCoverage::new(
                             // FIXME: This can cause problems when sequence cache didn't catch up with alignment.
-                            reference_sequence.base_at(base_coordinate).unwrap_or(b'N'),
+                            reference_sequence
+                                .base_at(base_coordinate as u64)
+                                .unwrap_or(b'N'),
                         ))
                         .update(sequence.get(query_pivot + i - 1).unwrap())
                 }

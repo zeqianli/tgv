@@ -32,11 +32,12 @@ pub struct State {
     pub reference: Reference,
     pub alignment: Alignment,
     pub alignment_options: Vec<AlignmentDisplayOption>,
+
     pub track: Track<Gene>,
+
     pub sequence: Sequence,
 }
 
-/// Getters
 impl State {
     pub fn new(settings: &Settings, contigs: ContigHeader) -> Result<Self, TGVError> {
         Ok(Self {
@@ -103,49 +104,6 @@ impl State {
 impl State {
     fn add_message(&mut self, message: String) {
         self.messages.push(message);
-    }
-
-    fn get_data_requirements(
-        &self,
-        region: &Region,
-        repository: &mut Repository, // settings: &Settings,
-    ) -> Result<Vec<DataMessage>, TGVError> {
-        let mut data_messages = Vec::new();
-
-        // It's important to load sequence first!
-        // Alignment IO requires calculating mismatches with the reference sequence.
-
-        if repository.sequence_service.is_some()
-            && self.sequence_renderable()
-            && !self.sequence.has_complete_data(&region)
-        {
-            let sequence_cache_region = self.sequence_cache_region(region)?;
-            data_messages.push(DataMessage::RequiresCompleteSequences(
-                sequence_cache_region,
-            ));
-        }
-        if repository.alignment_repository.is_some()
-            && self.alignment_renderable()
-            && !self.alignment.has_complete_data(&region)
-        {
-            let alignment_cache_region = self.alignment_cache_region(region)?;
-            data_messages.push(DataMessage::RequiresCompleteAlignments(
-                alignment_cache_region,
-            ));
-        }
-
-        if repository.track_service.is_some() {
-            if !self.track.has_complete_data(&region) {
-                // viewing_window.zoom <= Self::MAX_ZOOM_TO_DISPLAY_FEATURES is always true
-                let track_cache_region = self.track_cache_region(&region)?;
-                data_messages.push(DataMessage::RequiresCompleteFeatures(track_cache_region));
-            }
-
-            // Cytobands
-            data_messages.push(DataMessage::RequiresCytobands(region.contig_index));
-        }
-
-        Ok(data_messages)
     }
 
     pub async fn handle_data_message(
@@ -234,7 +192,7 @@ impl State {
 impl State {
     /// Main function to route state message handling.
     pub fn set_alignment_change(
-        &self,
+        &mut self,
         focus: &Focus,
         options: Vec<AlignmentDisplayOption>,
     ) -> Result<(), TGVError> {
@@ -256,7 +214,7 @@ impl State {
             .collect_vec();
         self.alignment_options = options;
         self.alignment
-            .apply_options(options, &self.sequence)
+            .apply_options(&self.alignment_options, &self.sequence)
             .map(|_| {})
     }
 
