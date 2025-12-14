@@ -223,7 +223,7 @@ impl State {
 
 // Movement handling
 impl State {
-    async fn next_genes_start(
+    pub async fn next_genes_start(
         &self,
         focus: Focus,
         repository: &mut Repository,
@@ -259,7 +259,7 @@ impl State {
         })
     }
 
-    async fn next_genes_end(
+    pub async fn next_genes_end(
         &self,
         focus: Focus,
         repository: &mut Repository,
@@ -294,7 +294,7 @@ impl State {
         })
     }
 
-    async fn go_to_previous_genes_start(
+    pub async fn go_to_previous_genes_start(
         &self,
         focus: Focus,
         repository: &mut Repository,
@@ -329,7 +329,7 @@ impl State {
         })
     }
 
-    async fn go_to_previous_genes_end(
+    pub async fn go_to_previous_genes_end(
         &self,
         focus: Focus,
         repository: &mut Repository,
@@ -364,7 +364,7 @@ impl State {
         })
     }
 
-    async fn go_to_next_exons_start(
+    pub async fn go_to_next_exons_start(
         &self,
         focus: Focus,
         repository: &mut Repository,
@@ -399,7 +399,7 @@ impl State {
         })
     }
 
-    async fn go_to_next_exons_end(
+    pub async fn go_to_next_exons_end(
         &self,
         focus: Focus,
         repository: &mut Repository,
@@ -434,7 +434,7 @@ impl State {
         })
     }
 
-    async fn go_to_previous_exons_start(
+    pub async fn go_to_previous_exons_start(
         &self,
         focus: Focus,
         repository: &mut Repository,
@@ -469,7 +469,7 @@ impl State {
         })
     }
 
-    async fn go_to_previous_exons_end(
+    pub async fn go_to_previous_exons_end(
         &self,
         focus: Focus,
         repository: &mut Repository,
@@ -505,7 +505,7 @@ impl State {
         })
     }
 
-    async fn go_to_gene(
+    pub async fn go_to_gene(
         &self,
         repository: &mut Repository,
         gene_name: &str,
@@ -535,7 +535,7 @@ impl State {
         }
     }
 
-    async fn default_focus(&self, repository: &mut Repository) -> Result<Focus, TGVError> {
+    pub async fn default_focus(&self, repository: &mut Repository) -> Result<Focus, TGVError> {
         match self.reference {
             Reference::Hg38 | Reference::Hg19 => {
                 return self.go_to_gene(repository, "TP53").await;
