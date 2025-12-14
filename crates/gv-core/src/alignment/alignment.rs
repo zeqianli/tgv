@@ -207,10 +207,10 @@ impl Alignment {
     }
 
     pub fn apply_options(
-        &mut self,
+        mut self,
         options: &Vec<AlignmentDisplayOption>,
         reference_sequence: &Sequence,
-    ) -> Result<&mut Self, TGVError> {
+    ) -> Result<Self, TGVError> {
         options.iter().try_for_each(|option| match option {
             AlignmentDisplayOption::Filter(filter) => {
                 self.filter(filter, reference_sequence).map(|_| ())
@@ -309,16 +309,18 @@ impl Alignment {
     }
 
     pub fn filter(
-        &mut self,
+        mut self,
         filter: &AlignmentFilter,
         reference_sequence: &Sequence,
-    ) -> Result<&mut Self, TGVError> {
+    ) -> Result<Self, TGVError> {
         for (i, read) in self.reads.iter().enumerate() {
             self.show_read[i] = read.passes_filter(filter)
         }
 
         self.ys = stack_tracks_for_reads(&self.reads, &self.show_read);
-        self.build_y_index()?.build_coverage(reference_sequence)
+        self.build_y_index()?.build_coverage(reference_sequence);
+
+        Ok(self)
     }
 }
 
@@ -327,7 +329,7 @@ pub fn sort_alignment(alignment: &mut Alignment, option: AlignmentSort) -> Resul
     todo!();
 }
 
-pub fn view_as_pairs(alignment: &mut Alignment) -> Result<(), TGVError> {
+pub fn view_as_pairs(mut alignment: Alignment) -> Result<Alignment, TGVError> {
     if alignment.mate_map.is_none() {
         alignment.build_mate_index()?;
     }
@@ -349,7 +351,7 @@ pub fn view_as_pairs(alignment: &mut Alignment) -> Result<(), TGVError> {
     alignment.ys = ys;
     alignment.build_y_index()?;
 
-    Ok(())
+    Ok(alignment)
 }
 
 fn calculate_mate_map(reads: &Vec<AlignedRead>) -> Result<Vec<usize>, TGVError> {

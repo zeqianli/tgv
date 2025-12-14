@@ -1,6 +1,6 @@
 use crate::error::TGVError;
+use crate::reference::Reference;
 use crate::tracks::UcscHost;
-use crate::{message::Message, reference::Reference};
 use clap::{Parser, Subcommand, ValueEnum};
 
 #[derive(Clone, Debug, PartialEq, Eq, ValueEnum)]

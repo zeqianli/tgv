@@ -7,7 +7,7 @@ use crate::{
     error::TGVError,
     feature::Gene,
     intervals::{Focus, GenomeInterval, Region},
-    message::{AlignmentDisplayOption, AlignmentFilter, DataMessage, Message},
+    message::{AlignmentDisplayOption, AlignmentFilter},
     reference::Reference,
     //register::Registers,
     //rendering::{MainLayout, layout::resize_node},
@@ -106,96 +106,102 @@ impl State {
         self.messages.push(message);
     }
 
-    pub async fn handle_data_message(
+    pub async fn ensure_complete_alignment_data(
         &mut self,
+        region: &Region,
         repository: &mut Repository,
-        data_message: DataMessage,
     ) -> Result<bool, TGVError> {
-        let mut loaded_data = false;
+        if !self.alignment.has_complete_data(&region) {
+            Ok(false)
+        } else {
+            self.alignment = repository
+                .alignment_repository
+                .as_mut()
+                .unwrap()
+                .read_alignment(&region, &self.sequence, &self.contig_header)
+                .await?
+                .apply_options(&self.alignment_options, &self.sequence)?;
 
-        match data_message {
-            DataMessage::RequiresCompleteAlignments(region) => {
-                if !self.alignment.has_complete_data(&region) {
-                    self.alignment = {
-                        let mut alignment = repository
-                            .alignment_repository
-                            .as_mut()
-                            .unwrap()
-                            .read_alignment(&region, &self.sequence, &self.contig_header)
-                            .await?;
-
-                        alignment.apply_options(&self.alignment_options, &self.sequence)?;
-
-                        alignment
-                    };
-
-                    // apply sorting and filtering
-
-                    loaded_data = true;
-                }
-            }
-            DataMessage::RequiresCompleteFeatures(region) => {
-                let has_complete_track = self.track.has_complete_data(&region);
-                if let Some(track_service) = repository.track_service.as_mut() {
-                    if !has_complete_track {
-                        if let Ok(track) = track_service
-                            .query_gene_track(&self.reference, &region, &self.contig_header)
-                            .await
-                        {
-                            self.track = track;
-                            loaded_data = true;
-                        } else {
-                            // Do nothing (track not found). TODO: fix this shit properly.
-                        }
-                    }
-                } else {
-                    loaded_data = match self.reference {
-                        // FIXME: this is duplicate code as Settings.
-                        Reference::BYOIndexedFasta(_) => false,
-                        _ => true,
-                    };
-                }
-            }
-            DataMessage::RequiresCompleteSequences(region) => {
-                let sequence_service = repository.sequence_service_checked()?;
-
-                if !self.sequence.has_complete_data(&region) {
-                    let sequence = sequence_service
-                        .query_sequence(&region, &self.contig_header)
-                        .await?;
-
-                    self.sequence = sequence;
-                    loaded_data = true;
-                }
-            }
-
-            DataMessage::RequiresCytobands(contig_index) => {
-                if self.contig_header.cytoband_is_loaded(contig_index)? {
-                    return Ok(false);
-                }
-
-                if let Some(track_service) = repository.track_service.as_mut() {
-                    let cytoband = track_service
-                        .get_cytoband(&self.reference, contig_index, &self.contig_header)
-                        .await?;
-                    self.contig_header
-                        .try_update_cytoband(contig_index, cytoband)?;
-                    loaded_data = true;
-                }
-            }
+            Ok(true)
         }
+    }
 
-        Ok(loaded_data)
+    pub async fn ensure_complete_track_data(
+        &mut self,
+        region: &Region,
+        repository: &mut Repository,
+    ) -> Result<bool, TGVError> {
+        if let Some(track_service) = repository.track_service.as_mut() {
+            if !self.track.has_complete_data(&region) {
+                if let Ok(track) = track_service
+                    .query_gene_track(&self.reference, &region, &self.contig_header)
+                    .await
+                {
+                    self.track = track;
+                    Ok(true)
+                } else {
+                    // Do nothing (track not found). TODO: fix this shit properly.
+                    Ok(false)
+                }
+            } else {
+                Ok(false)
+            }
+        } else {
+            Ok(false)
+        }
+    }
+
+    pub async fn ensure_complete_sequence_data(
+        &mut self,
+        region: &Region,
+        repository: &mut Repository,
+    ) -> Result<bool, TGVError> {
+        if let Some(sequence_service) = repository.sequence_service.as_mut() {
+            if !self.sequence.has_complete_data(&region) {
+                let sequence = sequence_service
+                    .query_sequence(&region, &self.contig_header)
+                    .await?;
+
+                self.sequence = sequence;
+                Ok(true)
+            } else {
+                Ok(false)
+            }
+        } else {
+            Ok(false)
+        }
+    }
+
+    pub async fn ensure_complete_cytoband_data(
+        &mut self,
+        region: &Region,
+        repository: &mut Repository,
+    ) -> Result<bool, TGVError> {
+        if self
+            .contig_header
+            .cytoband_is_loaded(region.contig_index())?
+        {
+            Ok(false)
+        } else if let Some(track_service) = repository.track_service.as_mut() {
+            let cytoband = track_service
+                .get_cytoband(&self.reference, region.contig_index(), &self.contig_header)
+                .await?;
+            self.contig_header
+                .try_update_cytoband(region.contig_index(), cytoband)?;
+            Ok(true)
+        } else {
+            Ok(false)
+        }
     }
 }
 
 impl State {
     /// Main function to route state message handling.
     pub fn set_alignment_change(
-        &mut self,
+        mut self,
         focus: &Focus,
         options: Vec<AlignmentDisplayOption>,
-    ) -> Result<(), TGVError> {
+    ) -> Result<Self, TGVError> {
         self.alignment.reset(&self.sequence)?;
 
         let options = options
@@ -213,9 +219,10 @@ impl State {
             })
             .collect_vec();
         self.alignment_options = options;
-        self.alignment
-            .apply_options(&self.alignment_options, &self.sequence)
-            .map(|_| {})
+        self.alignment = self
+            .alignment
+            .apply_options(&self.alignment_options, &self.sequence)?;
+        Ok(self)
     }
 
     //Self::get_data_requirements(state, repository)
