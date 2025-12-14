@@ -8,7 +8,7 @@ use gv_core::register::{KeyRegister, MouseRegister, Registers};
 use gv_core::rendering::Renderer;
 use gv_core::repository::Repository;
 use gv_core::settings::Settings;
-use gv_core::states::{State, StateHandler};
+use gv_core::state::{State, StateHandler};
 pub struct App {
     pub state: State,
     pub settings: Settings,

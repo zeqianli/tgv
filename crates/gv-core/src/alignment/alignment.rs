@@ -85,6 +85,31 @@ impl Alignment {
             .map(|index| &self.reads[*index])
     }
 
+    fn view_as_pairs(mut self) -> Result<Self, TGVError> {
+        if self.mate_map.is_none() {
+            self.build_mate_index()?;
+        }
+        self.build_mate_rendering_contexts()?;
+
+        // build y index
+        let paired_ys = stack_tracks_for_paired_reads(
+            self.read_pairs.as_ref().unwrap(),
+            self.show_pairs.as_ref().unwrap(),
+        );
+
+        let mut ys = vec![0; self.reads.len()];
+        for (pair, y) in self.read_pairs.as_ref().unwrap().iter().zip(paired_ys) {
+            ys[pair.read_1_index] = y;
+            if let Some(read_2_index) = pair.read_2_index {
+                ys[read_2_index] = y;
+            }
+        }
+        self.ys = ys;
+        self.build_y_index()?;
+
+        Ok(self)
+    }
+
     /// Return the read at x_coordinate, yth track
     pub fn read_overlapping(&self, left: u64, right: u64, y: usize) -> Option<&AlignedRead> {
         if y >= self.depth() {
@@ -207,22 +232,22 @@ impl Alignment {
     }
 
     pub fn apply_options(
-        mut self,
+        self,
         options: &Vec<AlignmentDisplayOption>,
         reference_sequence: &Sequence,
     ) -> Result<Self, TGVError> {
-        options.iter().try_for_each(|option| match option {
-            AlignmentDisplayOption::Filter(filter) => {
-                self.filter(filter, reference_sequence).map(|_| ())
-            }
-            AlignmentDisplayOption::Sort(sort) => {
-                // TODO
-                Ok(())
-            }
-            AlignmentDisplayOption::ViewAsPairs => view_as_pairs(self),
-        })?;
-
-        Ok(self)
+        options
+            .iter()
+            .try_fold(self, |alignment, option| match option {
+                AlignmentDisplayOption::Filter(filter) => {
+                    alignment.filter(filter, reference_sequence)
+                }
+                AlignmentDisplayOption::Sort(sort) => {
+                    // TODO
+                    alignment.sort(sort)
+                }
+                AlignmentDisplayOption::ViewAsPairs => alignment.view_as_pairs(),
+            })
     }
 
     /// Reset alignment options
@@ -322,39 +347,15 @@ impl Alignment {
 
         Ok(self)
     }
-}
 
-pub fn sort_alignment(alignment: &mut Alignment, option: AlignmentSort) -> Result<(), TGVError> {
-    // FIXME
-    todo!();
-}
-
-pub fn view_as_pairs(mut alignment: Alignment) -> Result<Alignment, TGVError> {
-    if alignment.mate_map.is_none() {
-        alignment.build_mate_index()?;
+    pub fn sort(mut self, option: &AlignmentSort) -> Result<Self, TGVError> {
+        // FIXME
+        todo!();
+        Ok(self)
     }
-    alignment.build_mate_rendering_contexts()?;
-
-    // build y index
-    let paired_ys = stack_tracks_for_paired_reads(
-        alignment.read_pairs.as_ref().unwrap(),
-        alignment.show_pairs.as_ref().unwrap(),
-    );
-
-    let mut ys = vec![0; alignment.reads.len()];
-    for (pair, y) in alignment.read_pairs.as_ref().unwrap().iter().zip(paired_ys) {
-        ys[pair.read_1_index] = y;
-        if let Some(read_2_index) = pair.read_2_index {
-            ys[read_2_index] = y;
-        }
-    }
-    alignment.ys = ys;
-    alignment.build_y_index()?;
-
-    Ok(alignment)
 }
 
-fn calculate_mate_map(reads: &Vec<AlignedRead>) -> Result<Vec<usize>, TGVError> {
+pub fn calculate_mate_map(reads: &Vec<AlignedRead>) -> Result<Vec<usize>, TGVError> {
     let mut read_id_map = HashMap::<Vec<u8>, usize>::new();
 
     let mut output = vec![reads.len(); reads.len()];

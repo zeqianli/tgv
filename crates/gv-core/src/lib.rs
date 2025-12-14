@@ -11,7 +11,7 @@ pub mod reference;
 pub mod repository;
 pub mod sequence;
 pub mod settings;
-pub mod states;
+pub mod state;
 pub mod strand;
 pub mod track;
 pub mod tracks;

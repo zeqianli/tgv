@@ -2,7 +2,7 @@ use gv_core::{
     bed::BEDIntervals,
     error::TGVError,
     rendering::{colors::Palette, intervals::render_simple_intervals},
-    states::State,
+    state::State,
 };
 use ratatui::{buffer::Buffer, layout::Rect};
 

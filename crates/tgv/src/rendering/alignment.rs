@@ -3,7 +3,7 @@ use gv_core::{
     error::TGVError,
     message::AlignmentDisplayOption,
     rendering::colors::Palette,
-    states::State,
+    state::State,
     window::{OnScreenCoordinate, ViewingWindow},
 };
 use ratatui::{buffer::Buffer, layout::Rect, style::Style};

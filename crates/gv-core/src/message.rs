@@ -1,4 +1,4 @@
-use crate::{intervals::Region, states::Scene, strand::Strand};
+use crate::{intervals::Region, state::Scene, strand::Strand};
 
 use strum::Display;
 
