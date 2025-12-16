@@ -7,7 +7,7 @@ use crate::{
     error::TGVError,
     feature::Gene,
     intervals::{Focus, GenomeInterval, Region},
-    message::{AlignmentDisplayOption, AlignmentFilter},
+    message::{AlignmentDisplayOption, AlignmentFilter, Movement},
     reference::Reference,
     //register::Registers,
     //rendering::{MainLayout, layout::resize_node},
@@ -102,6 +102,26 @@ impl State {
 }
 
 impl State {
+    pub async fn movement(
+        &self,
+        focus: Focus,
+        repository: &mut Repository,
+        movement: Movement,
+    ) -> Result<Focus, TGVError> {
+        match movement {
+            Movement::Left(n) => Ok(focus.move_to(focus.position.saturating_sub(n))),
+            Movement::Right(n) => Ok(focus.move_to(focus.position.saturating_add(n))),
+            Movement::Position(position) => Ok(focus.move_to(position)),
+            Movement::ContigNamePosition(contig_name, position) => Ok(Focus {
+                contig_index: self
+                    .contig_header
+                    .try_get_index_by_str(contig_name.as_ref())?,
+                position,
+            }),
+            Movement::NextExonsStart(n) => self.go_to_next_exons_start(focus, repository, n).await,
+        }
+    }
+
     fn add_message(&mut self, message: String) {
         self.messages.push(message);
     }

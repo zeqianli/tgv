@@ -1,7 +1,6 @@
 use crate::{
     error::TGVError,
-    message::Message,
-    message::{AlignmentDisplayOption, AlignmentFilter, AlignmentSort},
+    message::{AlignmentDisplayOption, AlignmentFilter, AlignmentSort, Message, Movement},
 };
 use nom::{
     IResult, Parser,
@@ -31,33 +30,33 @@ pub fn parse(input: &str) -> Result<Vec<Message>, TGVError> {
 
     if let Ok((_, true)) = restore_default_options(input) {
         // TODO: this results in resetting twice now.
-        return Ok(vec![Message::SetAlignmentChange(vec![])]);
+        return Ok(vec![Message::SetAlignmentOption(vec![])]);
     }
 
     if let Ok((_, true)) = view_as_pair(input) {
-        return Ok(vec![Message::SetAlignmentChange(vec![
+        return Ok(vec![Message::SetAlignmentOption(vec![
             AlignmentDisplayOption::ViewAsPairs,
         ])]);
     }
 
     if let Ok((remaining, options)) = parse_display_options(input) {
         if remaining.is_empty() {
-            return Ok(vec![Message::SetAlignmentChange(options)]);
+            return Ok(vec![Message::SetAlignmentOption(options)]);
         }
     }
 
     let split = input.split(":").collect::<Vec<&str>>();
 
     match split.len() {
-        1 => match split[0].parse::<usize>() {
-            Ok(n) => Ok(vec![Message::GotoCoordinate(n)]),
-            Err(_) => Ok(vec![Message::GoToGene(split[0].to_string())]),
+        1 => match split[0].parse::<u64>() {
+            Ok(n) => Ok(vec![Message::Move(Movement::Position(n))]),
+            Err(_) => Ok(vec![Message::Move(Movement::Gene(split[0].to_string()))]),
         },
-        2 => match split[1].parse::<usize>() {
-            Ok(n) => Ok(vec![Message::GotoContigNameCoordinate(
+        2 => match split[1].parse::<u64>() {
+            Ok(n) => Ok(vec![Message::Move(Movement::ContigNamePosition(
                 split[0].to_string(),
                 n,
-            )]),
+            ))]),
             Err(_) => Err(TGVError::RegisterError(format!(
                 "Invalid command mode input: {}",
                 input
@@ -353,16 +352,16 @@ mod tests {
 
     #[rstest]
     #[case("q", Ok(vec![Message::Quit]))]
-    #[case("1234", Ok(vec![Message::GotoCoordinate(1234)]))]
-    #[case("chr1:1000", Ok(vec![Message::GotoContigNameCoordinate(
+    #[case("1234", Ok(vec![Message::Move(Movement::Position(1234))]))]
+    #[case("chr1:1000", Ok(vec![Message::Move(Movement::ContigNamePosition(
         "chr1".to_string(),
         1000,
-    )]))]
-    #[case("17:7572659", Ok(vec![Message::GotoContigNameCoordinate(
+    ))]))]
+    #[case("17:7572659", Ok(vec![Message::Move(Movement::ContigNamePosition(
         "17".to_string(),
         7572659,
-    )]))]
-    #[case("TP53", Ok(vec![Message::GoToGene("TP53".to_string())]))]
+    ))]))]
+    #[case("TP53", Ok(vec![Message::Move(Movement::Gene("TP53".to_string()))]))]
     #[case("invalid:command:format", Err(TGVError::RegisterError("Invalid command mode input: invalid:command:format".to_string())))]
     #[case("chr1:invalid", Err(TGVError::RegisterError("Invalid command mode input: chr1:invalid".to_string())))]
     fn test_command_parse(#[case] input: &str, #[case] expected: Result<Vec<Message>, TGVError>) {

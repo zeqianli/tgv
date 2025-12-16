@@ -1,6 +1,60 @@
-use crate::{intervals::Region, state::Scene, strand::Strand};
+use crate::{alignment::Alignment, intervals::Region, state::Scene, strand::Strand};
 
 use strum::Display;
+
+#[derive(Debug, Clone, Eq, PartialEq, Display)]
+pub enum Message {
+    Move(Movement),
+
+    Quit,
+
+    SetAlignmentOption(Vec<AlignmentDisplayOption>),
+
+    Message(String),
+}
+
+#[derive(Debug, Clone, Eq, PartialEq, Display)]
+pub enum Movement {
+    /// State messages
+    Left(u64),
+    Right(u64),
+
+    Position(u64),
+    //GotoContigName(String), // Here is string because it can be an alias. The handler will look up the string from the contig collection.
+    ContigNamePosition(String, u64), // Here is string because it can be an alias. The handler will look up the string from the contig collection.
+
+    NextExonsStart(usize),
+    NextExonsEnd(usize),
+    PreviousExonsStart(usize),
+    PreviousExonsEnd(usize),
+    NextGenesStart(usize),
+    NextGenesEnd(usize),
+    PreviousGenesStart(usize),
+    PreviousGenesEnd(usize),
+
+    NextContig(usize),
+    PreviousContig(usize),
+    ContigIndex(usize),
+
+    Gene(String),
+
+    Default, // Calculate a default location based on the genome context
+
+             // ResizeTrack {
+             //     mouse_down_x: u16,
+             //     mouse_down_y: u16,
+
+             //     mouse_released_x: u16,
+             //     mouse_released_y: u16,
+             // },
+             // AddAlignmentChange(Vec<AlignmentDisplayOption>),
+             // SetAlignmentChange(Vec<AlignmentDisplayOption>),
+
+             // Quit,
+             // ClearKeyRegister(KeyRegisterType),
+             // ClearAllKeyRegisters,
+             // SwitchKeyRegister(KeyRegisterType),
+}
 
 #[derive(Debug, Clone, Eq, PartialEq, Display)]
 pub enum AlignmentDisplayOption {

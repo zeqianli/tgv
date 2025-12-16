@@ -1,6 +1,6 @@
-use crate::settings::Settings;
-use crate::tracks::TrackService;
-use crate::{
+use gv_core::settings::Settings;
+use gv_core::tracks::TrackService;
+use gv_core::{
     alignment::Alignment,
     contig_header::ContigHeader,
     cytoband::Cytoband,
