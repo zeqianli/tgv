@@ -39,9 +39,9 @@ pub struct State {
 }
 
 impl State {
-    pub fn new(settings: &Settings, contigs: ContigHeader) -> Result<Self, TGVError> {
+    pub fn new(reference: Reference, contigs: ContigHeader) -> Result<Self, TGVError> {
         Ok(Self {
-            reference: settings.reference.clone(),
+            reference,
 
             // /settings: settings.clone(),
             messages: Vec::new(),

@@ -3,13 +3,35 @@
 use crossterm::event::{self, Event, KeyEventKind};
 use ratatui::{Terminal, prelude::Backend};
 
+use crate::rendering::layout::MainLayout;
+use crate::settings::Settings;
 use gv_core::error::TGVError;
+use gv_core::intervals::{Focus, GenomeInterval, Region};
 use gv_core::register::{KeyRegister, MouseRegister, Registers};
 use gv_core::rendering::Renderer;
 use gv_core::repository::Repository;
 use gv_core::settings::Settings;
 use gv_core::state::{State, StateHandler};
+
+pub struct UIState {
+    pub exit: bool,
+
+    pub layout: MainLayout,
+}
+
+impl UIState {
+    pub fn region(&self) -> Region {
+        Region {
+            focus: self.focus,
+            half_width: self.zoom * self.layout.main_area.width() / 2,
+        }
+    }
+}
+
 pub struct App {
+    pub exit: bool,
+
+    pub layout: MainLayout,
     pub state: State,
     pub settings: Settings,
     pub repository: Repository,
@@ -25,7 +47,7 @@ impl App {
         // Gather resources before initializing the state.
         let (mut repository, contig_header) = Repository::new(&settings).await?;
 
-        let mut state = State::new(&settings, terminal.get_frame().area(), contig_header)?;
+        let mut state = State::new(settings.reference.clone(), contig_header)?;
         let mut registers = Registers::new(&state)?;
 
         StateHandler::handle_initial_messages(
@@ -38,6 +60,8 @@ impl App {
         .await?;
 
         Ok(Self {
+            exit: false,
+            layout: MainLayout::new(&Settings, area: todo, focus: todo),
             state,
             settings: settings.clone(),
             repository,

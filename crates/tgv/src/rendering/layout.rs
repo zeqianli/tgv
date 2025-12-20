@@ -90,7 +90,13 @@ impl LayoutNode {
         }
     }
 
-    fn get_areas(&self, area: Rect, areas: &mut Vec<(AreaType, Rect)>) -> Result<(), TGVError> {
+    fn get_areas(&self, area: Rect) -> Vec<(AreaType, Rect)> {
+        let mut areas: Vec<(AreaType, Rect)> = Vec::new();
+        self.root.get_areas(self.main_area, &mut areas);
+        areas
+    }
+
+    fn get_areas_in_place(&self, area: Rect, areas: &mut Vec<(AreaType, Rect)>) {
         match self {
             LayoutNode::Split {
                 direction,
@@ -103,7 +109,7 @@ impl LayoutNode {
                     .split(area);
 
                 for (child, &child_area) in children.iter().zip(child_areas.iter()) {
-                    child.get_areas(child_area, areas)?;
+                    child.get_areas_in_place(child_area, areas);
                 }
             }
             LayoutNode::Area {
@@ -113,39 +119,9 @@ impl LayoutNode {
                 areas.push((*area_type, area));
             }
         }
-        Ok(())
-    }
-}
-
-enum MousePosition {
-    Top,
-    Left,
-    Bottom,
-    Right,
-    Center,
-}
-
-/// Main page layout
-pub struct MainLayout {
-    pub root: LayoutNode,
-
-    pub main_area: Rect,
-
-    pub areas: Vec<(AreaType, Rect)>,
-}
-
-impl MainLayout {
-    pub fn new(root: LayoutNode) -> Result<Self, TGVError> {
-        Ok(Self {
-            root,
-            main_area: Rect::default(),
-            areas: Vec::new(),
-        })
     }
 
-    pub fn initialize(settings: &Settings, initial_area: Rect) -> Result<Self, TGVError> {
-        let mut children = Vec::new();
-
+    pub fn root(settings: &Settings) -> Self {
         if settings.reference.needs_track() {
             children.extend(vec![LayoutNode::Area {
                 constraint: Constraint::Length(2),
@@ -209,24 +185,52 @@ impl MainLayout {
             },
         ]);
 
-        let root = LayoutNode::Split {
+        LayoutNode::Split {
             constraint: Constraint::Fill(1), // Doesn't matter
             direction: Direction::Vertical,
             children,
-        };
+        }
+    }
+}
 
-        let mut layout = Self::new(root)?;
-        layout.set_area(initial_area)?;
-        Ok(layout)
+enum MousePosition {
+    Top,
+    Left,
+    Bottom,
+    Right,
+    Center,
+}
+
+/// Main page layout
+pub struct MainLayout {
+    pub focus: Focus,
+    pub zoom: u64,
+    pub root: LayoutNode,
+
+    pub main_area: Rect,
+
+    pub areas: Vec<(AreaType, Rect)>,
+}
+
+impl MainLayout {
+    pub fn new(settings: &Settings, area: Rect, focus: Focus) -> Self {
+        let root = LayoutNode::root(&settings);
+        let areas = root.get_areas(area);
+        MainLayout {
+            focus,
+            zoom: 1,
+            root: LayoutNode::root(settings),
+            main_area: area,
+            areas: areas,
+        }
     }
 
-    pub fn set_area(&mut self, area: Rect) -> Result<&mut Self, TGVError> {
+    pub fn set_area(mut self, area: Rect) -> Self {
         self.main_area = area;
         let mut areas: Vec<(AreaType, Rect)> = Vec::new();
-        self.root.get_areas(self.main_area, &mut areas)?;
+        self.root.get_areas_in_place(self.main_area, &mut areas);
         self.areas = areas;
-
-        Ok(self)
+        self
     }
 
     pub fn get_area_type_at_position(&self, x: u16, y: u16) -> Option<&(AreaType, Rect)> {
