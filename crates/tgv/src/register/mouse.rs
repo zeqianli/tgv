@@ -21,11 +21,12 @@ pub struct NormalMouseRegister {
     pub mouse_drag_y: u16,
 
     /// root layout at mousedown.
-    pub root: LayoutNode,
+    //pub root: LayoutNode,
 }
 
-impl NormalMouseRegister {
-    pub fn new(root: &LayoutNode) -> Self {
+impl Default for NormalMouseRegister {
+    fn default() -> Self {
+
         Self {
             mouse_down_x: 0,
             mouse_down_y: 0,
@@ -33,7 +34,7 @@ impl NormalMouseRegister {
             resizing: false,
             mouse_drag_x: 0,
             mouse_drag_y: 0,
-            root: root.clone(),
+            //root: root.clone(),
         }
     }
 }
@@ -50,7 +51,7 @@ impl MouseRegister for NormalMouseRegister {
             event::MouseEventKind::Down(_) => {
                 self.mouse_down_x = event.column;
                 self.mouse_down_y = event.row;
-                self.root = state.layout.root.clone();
+                //self.root = state.layout.root.clone();
 
                 if let Some((area_type, area)) = state
                     .layout

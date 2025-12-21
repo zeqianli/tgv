@@ -3,6 +3,7 @@
 use crossterm::event::{self, Event, KeyEventKind};
 use ratatui::{Terminal, prelude::Backend};
 
+use crate::register::Registers;
 use crate::rendering::layout::MainLayout;
 use crate::settings::Settings;
 use gv_core::error::TGVError;
@@ -47,25 +48,18 @@ impl App {
         // Gather resources before initializing the state.
         let (mut repository, contig_header) = Repository::new(&settings).await?;
 
-        let mut state = State::new(settings.reference.clone(), contig_header)?;
-        let mut registers = Registers::new(&state)?;
+        let state = State::new(settings.reference.clone(), contig_header)?;
+        let focus = state.default_focus(repository).await?;
 
-        StateHandler::handle_initial_messages(
-            &mut state,
-            &mut repository,
-            &mut registers,
-            &settings,
-            settings.initial_state_messages.clone(),
-        )
-        .await?;
+        // TODO: go to foucs?
 
         Ok(Self {
             exit: false,
-            layout: MainLayout::new(&Settings, area: todo, focus: todo),
+            layout: MainLayout::new(&Settings, terminal.area(), focus),
             state,
             settings: settings.clone(),
             repository,
-            registers,
+            registers: Registers::default(),
             renderer: Renderer::default(),
         })
     }

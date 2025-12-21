@@ -7,6 +7,7 @@ pub mod error;
 pub mod feature;
 pub mod intervals;
 pub mod message;
+pub mod normal;
 pub mod reference;
 pub mod repository;
 pub mod sequence;

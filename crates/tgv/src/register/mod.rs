@@ -50,8 +50,8 @@ pub struct Registers {
     pub mouse_register: NormalMouseRegister,
 }
 
-impl Registers {
-    pub fn new(state: &State) -> Result<Self, TGVError> {
+impl Default for Registers {
+    fn default() -> Self {
         Ok(Self {
             current: KeyRegisterType::Normal,
             normal: NormalModeRegister::default(),
@@ -59,10 +59,12 @@ impl Registers {
             help: HelpModeRegister::default(),
             contig_list: ContigListModeRegister::default(),
             //contig_list_command: ContigListCommandModeRegister::default(),
-            mouse_register: NormalMouseRegister::new(&state.layout.root),
+            mouse_register: NormalMouseRegister::default(),
         })
     }
+}
 
+impl Registers {
     pub fn update(&mut self, state: &State) -> Result<(), TGVError> {
         if self.current != KeyRegisterType::ContigList {
             self.contig_list.cursor_position = state.contig_index();

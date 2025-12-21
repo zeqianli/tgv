@@ -6,11 +6,26 @@ use strum::Display;
 pub enum Message {
     Move(Movement),
 
+    Scroll(Scroll),
+
+    Zoom(Zoom),
+
     Quit,
 
     SetAlignmentOption(Vec<AlignmentDisplayOption>),
 
     Message(String),
+}
+
+#[derive(Debug, Clone, Eq, PartialEq, Display)]
+pub enum Zoom {
+    Out(u64),
+    In(u64),
+}
+#[derive(Debug, Clone, Eq, PartialEq, Display)]
+pub enum Scroll {
+    Up(usize),
+    Down(usize),
 }
 
 #[derive(Debug, Clone, Eq, PartialEq, Display)]
