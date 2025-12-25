@@ -225,6 +225,7 @@ impl MainLayout {
         MainLayout {
             focus,
             zoom: 1,
+            y: 0,
             root: LayoutNode::root(settings),
             main_area: area,
             areas: areas,

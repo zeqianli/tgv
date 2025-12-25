@@ -12,7 +12,7 @@ use gv_core::register::{KeyRegister, MouseRegister, Registers};
 use gv_core::rendering::Renderer;
 use gv_core::repository::Repository;
 use gv_core::settings::Settings;
-use gv_core::state::{State, StateHandler};
+use gv_core::state::State;
 
 pub struct UIState {
     pub exit: bool,
@@ -25,15 +25,6 @@ pub enum Scene {
     Main,
     Help,
     ContigList,
-}
-
-impl UIState {
-    pub fn region(&self) -> Region {
-        Region {
-            focus: self.focus,
-            half_width: self.zoom * self.layout.main_area.width() / 2,
-        }
-    }
 }
 
 pub struct App {

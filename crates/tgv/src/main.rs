@@ -1,9 +1,9 @@
 mod app;
 mod message;
+mod mouse;
 mod register;
 mod rendering;
 mod settings;
-mod state;
 
 use crate::reference::Reference;
 use crate::tracks::{UCSCDownloader, UcscDbTrackService};
