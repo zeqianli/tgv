@@ -14,12 +14,6 @@ use gv_core::repository::Repository;
 use gv_core::settings::Settings;
 use gv_core::state::State;
 
-pub struct UIState {
-    pub exit: bool,
-
-    pub layout: MainLayout,
-}
-
 #[derive(Debug, Clone, Eq, PartialEq)]
 pub enum Scene {
     Main,
