@@ -24,10 +24,12 @@ pub enum Zoom {
 }
 #[derive(Debug, Clone, Eq, PartialEq, Display)]
 pub enum Scroll {
+    // TODO: go to y coordinate?
     Up(usize),
     Down(usize),
 }
 
+// TODO: indicate which movement requires resetting y to 0
 #[derive(Debug, Clone, Eq, PartialEq, Display)]
 pub enum Movement {
     /// State messages

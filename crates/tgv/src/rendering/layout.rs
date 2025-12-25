@@ -1,5 +1,9 @@
 use crate::error::TGVError;
 use crate::settings::Settings;
+use gv_core::{
+    alignment::Alignment,
+    message::{Scroll, Zoom},
+};
 use ratatui::layout::{Constraint, Direction, Layout, Rect};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -207,6 +211,8 @@ pub struct MainLayout {
     pub zoom: u64,
     pub root: LayoutNode,
 
+    pub y: usize,
+
     pub main_area: Rect,
 
     pub areas: Vec<(AreaType, Rect)>,
@@ -237,6 +243,25 @@ impl MainLayout {
         self.areas.iter().find(|(area_type, area)| {
             x >= area.x && x < area.right() && y >= area.y && y < area.bottom()
         })
+    }
+
+    pub fn zoom(&mut self, zoom: Zoom, area: &Rect, contig_length: Option<u64>) {
+        match zoom {
+            Zoom::In(r) => self.zoom = u64::max(self.zoom / r, 1),
+            Zoom::out(r) => u64::min(
+                self.zoom * r,
+                contig_length
+                    .map(|len| len / area.width() as u64)
+                    .unwrap_or(u64::MAX),
+            ),
+        }
+    }
+
+    pub fn scroll(&mut self, scroll: Scroll, alignment: &Alignment) {
+        match scroll {
+            Scroll::Up(n) => self.y = self.y.saturating_sub(n),
+            Scroll::Down(n) => self.y = u64::min(self.y.saturating_add(n), alignment.depth()),
+        }
     }
 }
 
