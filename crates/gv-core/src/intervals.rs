@@ -192,4 +192,18 @@ impl Focus {
             position,
         }
     }
+
+    pub fn move_left(self, n: u64) -> Self {
+        Self {
+            contig_index: self.contig_index,
+            position: self.position.saturating_sub(n),
+        }
+    }
+
+    pub fn move_right(self, n: u64) -> Self {
+        Self {
+            contig_index: self.contig_index,
+            position: self.position.saturating_add(n),
+        }
+    }
 }

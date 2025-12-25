@@ -54,23 +54,23 @@ impl State {
         })
     }
 
-    pub fn contig_name(&self, region: &Region) -> Result<&String, TGVError> {
+    pub fn contig_name(&self, focus: &Focus) -> Result<&String, TGVError> {
         self.contig_header
-            .try_get(region.contig_index())
+            .try_get(focus.contig_index)
             .map(|contig| &contig.name)
     }
 
-    pub fn current_cytoband(&self, region: &Region) -> Option<&Cytoband> {
+    pub fn current_cytoband(&self, focus: &Focus) -> Result<Option<&Cytoband>, TGVError> {
         self.contig_header
-            .try_get(region.contig_index())
-            .unwrap()
-            .cytoband
-            .as_ref()
+            .try_get(focus.contig_index)
+            .map(|contig| contig.cytoband.as_ref())
     }
 
     /// Maximum length of the contig.
-    pub fn contig_length(&self, region: &Region) -> Result<Option<u64>, TGVError> {
-        Ok(self.contig_header.try_get(region.contig_index())?.length)
+    pub fn contig_length(&self, focus: &Focus) -> Result<Option<u64>, TGVError> {
+        self.contig_header
+            .try_get(focus.contig_index)
+            .map(|contig| contig.length)
     }
 
     const ALIGNMENT_CACHE_RATIO: u64 = 3;
@@ -109,8 +109,8 @@ impl State {
         movement: Movement,
     ) -> Result<Focus, TGVError> {
         match movement {
-            Movement::Left(n) => Ok(focus.move_to(focus.position.saturating_sub(n))),
-            Movement::Right(n) => Ok(focus.move_to(focus.position.saturating_add(n))),
+            Movement::Left(n) => Ok(focus.move_left(n)),
+            Movement::Right(n) => Ok(focus.move_right(n)),
             Movement::Position(position) => Ok(focus.move_to(position)),
             Movement::ContigNamePosition(contig_name, position) => Ok(Focus {
                 contig_index: self
@@ -118,7 +118,29 @@ impl State {
                     .try_get_index_by_str(contig_name.as_ref())?,
                 position,
             }),
-            Movement::NextExonsStart(n) => self.go_to_next_exons_start(focus, repository, n).await,
+            Movement::NextExonsStart(n) => self.next_exons_start(focus, repository, n).await,
+            Movement::NextExonsEnd(n) => self.next_exons_end(focus, repository, n).await,
+            Movement::PreviousExonsStart(n) => {
+                self.previous_exons_start(focus, repository, n).await
+            }
+            Movement::PreviousExonsEnd(n) => self.previous_exons_end(focus, repository, n).await,
+            Movement::NextGenesStart(n) => self.next_genes_start(focus, repository, n).await,
+            Movement::NextGenesEnd(n) => self.next_genes_end(focus, repository, n).await,
+            Movement::PreviousGenesStart(n) => {
+                self.previous_genes_start(focus, repository, n).await
+            }
+            Movement::PreviousGenesEnd(n) => self.previous_genes_end(focus, repository, n).await,
+
+            Movement::NextContig(n) => Ok(self.next_contig(focus, n)),
+            Movement::PreviousContig(n) => Ok(self.previous_contig(focus, n)),
+            Movement::ContigIndex(contig_index) => Ok(Focus {
+                contig_index,
+                position: 1,
+            }),
+
+            Movement::Gene(name) => self.gene(repository, name.as_ref()).await,
+
+            Movement::Default => self.default_focus(repository).await,
         }
     }
 
@@ -321,7 +343,7 @@ impl State {
         })
     }
 
-    pub async fn go_to_previous_genes_start(
+    pub async fn previous_genes_start(
         &self,
         focus: Focus,
         repository: &mut Repository,
@@ -356,7 +378,7 @@ impl State {
         })
     }
 
-    pub async fn go_to_previous_genes_end(
+    pub async fn previous_genes_end(
         &self,
         focus: Focus,
         repository: &mut Repository,
@@ -391,7 +413,7 @@ impl State {
         })
     }
 
-    pub async fn go_to_next_exons_start(
+    pub async fn next_exons_start(
         &self,
         focus: Focus,
         repository: &mut Repository,
@@ -426,7 +448,7 @@ impl State {
         })
     }
 
-    pub async fn go_to_next_exons_end(
+    pub async fn next_exons_end(
         &self,
         focus: Focus,
         repository: &mut Repository,
@@ -461,7 +483,7 @@ impl State {
         })
     }
 
-    pub async fn go_to_previous_exons_start(
+    pub async fn previous_exons_start(
         &self,
         focus: Focus,
         repository: &mut Repository,
@@ -496,7 +518,7 @@ impl State {
         })
     }
 
-    pub async fn go_to_previous_exons_end(
+    pub async fn previous_exons_end(
         &self,
         focus: Focus,
         repository: &mut Repository,
@@ -532,7 +554,7 @@ impl State {
         })
     }
 
-    pub async fn go_to_gene(
+    pub async fn gene(
         &self,
         repository: &mut Repository,
         gene_name: &str,
@@ -547,14 +569,14 @@ impl State {
             })
     }
 
-    async fn go_to_next_contig(&self, focus: Focus, n: usize) -> Focus {
+    fn next_contig(&self, focus: Focus, n: usize) -> Focus {
         Focus {
             contig_index: self.contig_header.next(focus.contig_index, n),
             position: 1,
         }
     }
 
-    async fn go_to_previous_contig(&self, focus: Focus, n: usize) -> Focus {
+    fn previous_contig(&self, focus: Focus, n: usize) -> Focus {
         Focus {
             contig_index: self.contig_header.previous(focus.contig_index, n),
 
@@ -565,7 +587,7 @@ impl State {
     pub async fn default_focus(&self, repository: &mut Repository) -> Result<Focus, TGVError> {
         match self.reference {
             Reference::Hg38 | Reference::Hg19 => {
-                return self.go_to_gene(repository, "TP53").await;
+                return self.gene(repository, "TP53").await;
             }
 
             Reference::UcscGenome(_) | Reference::UcscAccession(_) => {
