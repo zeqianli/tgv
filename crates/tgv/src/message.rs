@@ -10,6 +10,8 @@ pub enum Message {
     SwitchScene(Scene),
 
     SwitchKeyRegister(KeyRegisterType),
+
+    ClearAllKeyRegisters,
     // ResizeTrack {
     //     mouse_down_x: u16,
     //     mouse_down_y: u16,

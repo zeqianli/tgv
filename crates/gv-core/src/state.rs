@@ -144,7 +144,7 @@ impl State {
         }
     }
 
-    fn add_message(&mut self, message: String) {
+    pub fn add_message(&mut self, message: String) {
         self.messages.push(message);
     }
 

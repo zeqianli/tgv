@@ -3,7 +3,8 @@
 use crossterm::event::{self, Event, KeyEventKind};
 use ratatui::{Terminal, prelude::Backend};
 
-use crate::register::Registers;
+use crate::message::Message;
+use crate::register::{KeyRegisterType, Registers};
 use crate::rendering::layout::MainLayout;
 use crate::settings::Settings;
 use gv_core::error::TGVError;
@@ -59,10 +60,10 @@ impl App {
 
 impl App {
     /// Main loop
-    pub async fn run<B: Backend>(&mut self, terminal: &mut Terminal<B>) -> Result<(), TGVError> {
+    pub async fn run<B: Backend>(mut self, terminal: &mut Terminal<B>) -> Result<Self, TGVError> {
         while !self.state.exit {
             // Prepare rendering
-            self.registers.update(&self.state)?;
+            //self.registers.update(&self.state)?;
             self.renderer.update(&self.state)?;
             if self.renderer.needs_refresh {
                 let _ = terminal.clear();
@@ -95,10 +96,11 @@ impl App {
             match event::read() {
                 Ok(Event::Key(key_event)) if key_event.kind == KeyEventKind::Press => {
                     let state_messages = self.registers.handle_key_event(key_event, &self.state)?;
-                    StateHandler::handle(
+                    Self::handle(
                         &mut self.state,
                         &mut self.repository,
                         &mut self.registers,
+                        &self.focus,
                         &self.settings,
                         state_messages,
                     )
@@ -112,7 +114,7 @@ impl App {
                         mouse_event,
                     )?;
 
-                    StateHandler::handle(
+                    Self::handle(
                         &mut self.state,
                         &mut self.repository,
                         &mut self.registers,
@@ -129,11 +131,11 @@ impl App {
                 _ => {}
             }
         }
-        Ok(())
+        Ok(self)
     }
 
     /// close connections
-    pub async fn close(&mut self) -> Result<(), TGVError> {
+    pub async fn close(mut self) -> Result<(), TGVError> {
         self.repository.close().await
     }
     /// Handle initial messages.
@@ -167,6 +169,7 @@ impl App {
         state: &mut State,
         repository: &mut Repository,
         registers: &mut Registers,
+        focus: &Focus,
         settings: &Settings,
         messages: Vec<Message>,
     ) -> Result<(), TGVError> {
@@ -175,13 +178,32 @@ impl App {
         let mut data_messages: Vec<DataMessage> = Vec::new();
 
         for message in messages {
+            match message {
+                Message::Core(message) => {
+                    // TODO
+                }
+                Message::SwitchScene(scene) => {
+                    // TODO
+                }
+                Message::SwitchKeyRegister(register) => {
+                    if register == KeyRegisterType::ContigList {
+                        registers.contig_list_cursor = focus.contig_index
+                    }
+                    registers.current = register
+                }
+                Message::ClearAllKeyRegisters => registers.clear(),
+                Message::Quit => self.exit = true,
+            }
             match StateHandler::handle_state_message(
                 state, repository, registers, settings, message,
             )
             .await
             {
                 Ok(messages) => data_messages.extend(messages),
-                Err(e) => return StateHandler::add_message(state, e.to_string()),
+                Err(e) => {
+                    state.add_message(e.to_string());
+                    Ok(())
+                }
             }
         }
 
