@@ -19,7 +19,6 @@ pub enum Message {
     //     mouse_released_x: u16,
     //     mouse_released_y: u16,
     // },
-    Quit,
     // ClearKeyRegister(KeyRegisterType),
     // ClearAllKeyRegisters,
     // SwitchKeyRegister(KeyRegisterType),

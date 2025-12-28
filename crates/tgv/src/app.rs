@@ -45,6 +45,7 @@ impl App {
         let focus = state.default_focus(repository).await?;
 
         // TODO: go to foucs?
+        // TODO: handle initial message with stricter error handling
 
         Ok(Self {
             exit: false,
@@ -96,15 +97,7 @@ impl App {
             match event::read() {
                 Ok(Event::Key(key_event)) if key_event.kind == KeyEventKind::Press => {
                     let state_messages = self.registers.handle_key_event(key_event, &self.state)?;
-                    Self::handle(
-                        &mut self.state,
-                        &mut self.repository,
-                        &mut self.registers,
-                        &self.focus,
-                        &self.settings,
-                        state_messages,
-                    )
-                    .await?;
+                    self::handle(state_messages).await?; // TODO: distinguish th
                 }
 
                 Ok(Event::Mouse(mouse_event)) => {
@@ -114,15 +107,7 @@ impl App {
                         mouse_event,
                     )?;
 
-                    Self::handle(
-                        &mut self.state,
-                        &mut self.repository,
-                        &mut self.registers,
-                        &self.layout,
-                        &self.settings,
-                        state_messages,
-                    )
-                    .await?;
+                    self.handle(state_messages).await?;
                 }
 
                 Ok(Event::Resize(_width, _height)) => {
@@ -139,48 +124,41 @@ impl App {
     pub async fn close(mut self) -> Result<(), TGVError> {
         self.repository.close().await
     }
-    /// Handle initial messages.
-    /// This has different error handling strategy (loud) vs handle(...), which suppresses errors.
-    pub async fn handle_initial_messages(
-        state: &mut State,
-        repository: &mut Repository,
-        registers: &mut Registers,
-        settings: &Settings,
-        messages: Vec<Message>,
-    ) -> Result<(), TGVError> {
-        let mut data_messages = Vec::new();
-
-        for message in messages {
-            data_messages.extend(
-                StateHandler::handle_state_message(state, repository, registers, settings, message)
-                    .await?,
-            );
-        }
-
-        let mut loaded_data = false;
-        for data_message in data_messages {
-            loaded_data = Self::handle_data_message(state, repository, data_message).await?;
-        }
-
-        Ok(())
-    }
 
     /// Handle messages after initialization. This blocks any error messages instead of propagating them.
-    pub async fn handle(
-        state: &mut State,
-        repository: &mut Repository,
-        registers: &mut Registers,
-        layout: &MainLayout,
-        settings: &Settings,
-        messages: Vec<Message>,
-    ) -> Result<(), TGVError> {
+    pub async fn handle(&mut self, messages: Vec<Message>) -> Result<(), TGVError> {
         state.messages.clear();
 
         for message in messages {
             match message {
-                Message::Core(message) => {
-                    // TODO
+                Message::Core(gv_core::message::Message::Move(movement)) => {
+                    let focus = self
+                        .state
+                        .movement(self.layout.focus.clone(), &mut self.repository, movement)
+                        .await?;
+
+                    self.layout.focus = focus;
                 }
+
+                Message::Core(gv_core::message::Message::Quit) => self.exit = true,
+
+                Message::Core(gv_core::message::Message::Scroll(scroll)) => {
+                    self.layout.scroll(scroll, &self.state.alignment);
+                }
+
+                Message::Core(gv_core::message::Message::Zoom(zoom)) => {
+                    self.layout.zoom(zoom, area, contig_length); // TODO
+                }
+
+                Message::Core(gv_core::message::Message::SetAlignmentOption(options)) => {
+                    self.state
+                        .set_alignment_change(self.layout.focus, options)?;
+                }
+
+                Message::Core(gv_core::message::Message::Message(message)) => {
+                    state.add_message(message);
+                }
+
                 Message::SwitchScene(scene) => {
                     // TODO
                 }
@@ -191,22 +169,10 @@ impl App {
                     registers.current = register
                 }
                 Message::ClearAllKeyRegisters => registers.clear(),
-                Message::Quit => self.exit = true,
-            }
-            match StateHandler::handle_state_message(
-                state, repository, registers, settings, message,
-            )
-            .await
-            {
-                Ok(messages) => data_messages.extend(messages),
-                Err(e) => {
-                    state.add_message(e.to_string());
-                    Ok(())
-                }
             }
         }
 
-        self.load_data(state, repository, layout)?;
+        self.load_data(&mut self.state, &mut self.repository, &self.layout)?;
 
         Ok(())
     }
@@ -246,6 +212,7 @@ impl App {
         }
 
         // Cytobands
+        // TODO
 
         Ok(data_messages)
     }
