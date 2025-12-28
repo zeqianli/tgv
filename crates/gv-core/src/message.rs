@@ -10,7 +10,7 @@ pub enum Message {
 
     Zoom(Zoom),
 
-    //Quit,
+    Quit,
     SetAlignmentOption(Vec<AlignmentDisplayOption>),
 
     Message(String),

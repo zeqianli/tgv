@@ -1,7 +1,8 @@
+use crate::sequence::SequenceRepositoryEnum;
 use crate::settings::Settings;
-use crate::tracks::TrackService;
+use crate::tracks::{TrackService, TrackServiceEnum};
 use crate::{
-    alignment::Alignment,
+    alignment::{Alignment, AlignmentRepositoryEnum},
     contig_header::ContigHeader,
     cytoband::Cytoband,
     error::TGVError,
@@ -148,70 +149,44 @@ impl State {
         self.messages.push(message);
     }
 
-    pub async fn ensure_complete_alignment_data(
+    pub async fn load_alignment_data(
         &mut self,
         region: &Region,
-        repository: &mut Repository,
-    ) -> Result<bool, TGVError> {
-        if !self.alignment.has_complete_data(&region) {
-            Ok(false)
-        } else {
-            self.alignment = repository
-                .alignment_repository
-                .as_mut()
-                .unwrap()
-                .read_alignment(&region, &self.sequence, &self.contig_header)
-                .await?
-                .apply_options(&self.alignment_options, &self.sequence)?;
+        alignment_repository: &mut AlignmentRepositoryEnum,
+    ) -> Result<&mut Self, TGVError> {
+        // if !self.alignment.has_complete_data(&region) {
+        //     Ok(false)
+        // } else {
+        self.alignment = alignment_repository
+            .read_alignment(&region, &self.sequence, &self.contig_header)
+            .await?
+            .apply_options(&self.alignment_options, &self.sequence)?;
 
-            Ok(true)
-        }
+        Ok(self)
     }
 
-    pub async fn ensure_complete_track_data(
+    pub async fn load_track_data(
         &mut self,
         region: &Region,
-        repository: &mut Repository,
-    ) -> Result<bool, TGVError> {
-        if let Some(track_service) = repository.track_service.as_mut() {
-            if !self.track.has_complete_data(&region) {
-                if let Ok(track) = track_service
-                    .query_gene_track(&self.reference, &region, &self.contig_header)
-                    .await
-                {
-                    self.track = track;
-                    Ok(true)
-                } else {
-                    // Do nothing (track not found). TODO: fix this shit properly.
-                    Ok(false)
-                }
-            } else {
-                Ok(false)
-            }
-        } else {
-            Ok(false)
-        }
+        track_service: &mut TrackServiceEnum,
+    ) -> Result<&mut Self, TGVError> {
+        self.track = track_service
+            .query_gene_track(&self.reference, &region, &self.contig_header)
+            .await?;
+
+        Ok(self)
     }
 
-    pub async fn ensure_complete_sequence_data(
+    pub async fn load_sequence_data(
         &mut self,
         region: &Region,
-        repository: &mut Repository,
-    ) -> Result<bool, TGVError> {
-        if let Some(sequence_service) = repository.sequence_service.as_mut() {
-            if !self.sequence.has_complete_data(&region) {
-                let sequence = sequence_service
-                    .query_sequence(&region, &self.contig_header)
-                    .await?;
+        sequence_repository: &mut SequenceRepositoryEnum,
+    ) -> Result<&mut Self, TGVError> {
+        self.sequence = sequence_repository
+            .query_sequence(&region, &self.contig_header)
+            .await?;
 
-                self.sequence = sequence;
-                Ok(true)
-            } else {
-                Ok(false)
-            }
-        } else {
-            Ok(false)
-        }
+        Ok(self)
     }
 
     pub async fn ensure_complete_cytoband_data(

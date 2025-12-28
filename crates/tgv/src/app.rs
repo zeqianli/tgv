@@ -118,6 +118,7 @@ impl App {
                         &mut self.state,
                         &mut self.repository,
                         &mut self.registers,
+                        &self.layout,
                         &self.settings,
                         state_messages,
                     )
@@ -169,13 +170,11 @@ impl App {
         state: &mut State,
         repository: &mut Repository,
         registers: &mut Registers,
-        focus: &Focus,
+        layout: &MainLayout,
         settings: &Settings,
         messages: Vec<Message>,
     ) -> Result<(), TGVError> {
         state.messages.clear();
-
-        let mut data_messages: Vec<DataMessage> = Vec::new();
 
         for message in messages {
             match message {
@@ -187,7 +186,7 @@ impl App {
                 }
                 Message::SwitchKeyRegister(register) => {
                     if register == KeyRegisterType::ContigList {
-                        registers.contig_list_cursor = focus.contig_index
+                        registers.contig_list_cursor = layout.focus.contig_index
                     }
                     registers.current = register
                 }
@@ -207,57 +206,50 @@ impl App {
             }
         }
 
-        let data_messages = StateHandler::get_data_requirements(state, repository)?;
-
-        for data_message in data_messages {
-            match Self::handle_data_message(state, repository, data_message).await {
-                Ok(_) => {}
-                Err(e) => return StateHandler::add_message(state, e.to_string()),
-            }
-        }
+        self.load_data(state, repository, layout)?;
 
         Ok(())
     }
 
-    fn get_data_requirements(
-        state: &State,
-        repository: &mut Repository, // settings: &Settings,
-    ) -> Result<Vec<DataMessage>, TGVError> {
-        let mut data_messages = Vec::new();
-
+    fn load_data(
+        state: &mut State,
+        repository: &mut Repository,
+        layout: &MainLayout, // settings: &Settings,
+    ) -> Result<bool, TGVError> {
         // It's important to load sequence first!
         // Alignment IO requires calculating mismatches with the reference sequence.
 
-        if repository.sequence_service.is_some()
-            && state.window.sequence_renderable()
+        if let Some(sequence_service) = repository.sequence_service.as_mut()
+            && layout.zoom <= Self::MAX_ZOOM_TO_DISPLAY_SEQUENCES
             && !state.sequence.has_complete_data(&viewing_region)
         {
             let sequence_cache_region = Self::sequence_cache_region(state, &viewing_region)?;
-            data_messages.push(DataMessage::RequiresCompleteSequences(
-                sequence_cache_region,
-            ));
+            state.load_sequence_data(sequence_cache_region, sequence_service)
         }
-        if repository.alignment_repository.is_some()
-            && state.window.alignment_renderable()
+
+        if let Some(alignment_repository) = repository.alignment_repository.as_mut()
+            && self.zoom <= Self::MAX_ZOOM_TO_DISPLAY_ALIGNMENTS
             && !state.alignment.has_complete_data(&viewing_region)
         {
-            let alignment_cache_region = Self::alignment_cache_region(state, &viewing_region)?;
-            data_messages.push(DataMessage::RequiresCompleteAlignments(
-                alignment_cache_region,
-            ));
+            sate.load_alignment_data(
+                state.alignment_cache_region(&viewing_region)?,
+                alignment_repository,
+            );
         }
 
-        if repository.track_service.is_some() {
-            if !state.track.has_complete_data(&viewing_region) {
-                // viewing_window.zoom <= Self::MAX_ZOOM_TO_DISPLAY_FEATURES is always true
-                let track_cache_region = Self::track_cache_region(state, &viewing_region)?;
-                data_messages.push(DataMessage::RequiresCompleteFeatures(track_cache_region));
-            }
+        if let Some(track_service) = repository.track_service
+            && !state.track.has_complete_data(&viewing_region)
+        {
+            // viewing_window.zoom <= Self::MAX_ZOOM_TO_DISPLAY_FEATURES is always true
 
-            // Cytobands
-            data_messages.push(DataMessage::RequiresCytobands(state.contig_index()));
+            state.load_track_data(state.track_cache_region(&viewing_region)?, track_service)
         }
+
+        // Cytobands
 
         Ok(data_messages)
     }
+
+    pub const MAX_ZOOM_TO_DISPLAY_ALIGNMENTS: usize = 32;
+    pub const MAX_ZOOM_TO_DISPLAY_SEQUENCES: usize = 2;
 }
