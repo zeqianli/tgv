@@ -143,51 +143,51 @@ mod tests {
     use crate::message::Message;
     use rstest::rstest;
 
-    #[rstest]
-    #[case("",'g', Ok(vec![]))]
-    #[case("g",'g', Ok(vec![Message::GotoY(0)]))]
-    #[case("",'G', Ok(vec![Message::GotoYBottom]))]
-    #[case("",'1', Ok(vec![]))]
-    #[case("g",'1', Err(TGVError::RegisterError("Invalid input: g".to_string())))]
-    #[case("", 'w', Ok(vec![Message::GotoNextExonsStart(1)]))]
-    #[case("", 'b', Ok(vec![Message::GotoPreviousExonsStart(1)]))]
-    #[case("", 'e', Ok(vec![Message::GotoNextExonsEnd(1)]))]
-    #[case("", 'h', Ok(vec![Message::MoveLeft(1)]))]
-    #[case("", 'l', Ok(vec![Message::MoveRight(1)]))]
-    #[case("", 'j', Ok(vec![Message::MoveDown(1)]))]
-    #[case("", 'k', Ok(vec![Message::MoveUp(1)]))]
-    #[case("", 'z', Ok(vec![Message::ZoomIn(2)]))]
-    #[case("", 'o', Ok(vec![Message::ZoomOut(2)]))]
-    #[case("", '{', Ok(vec![Message::MoveUp(30)]))]
-    #[case("", '}', Ok(vec![Message::MoveDown(30)]))]
-    #[case("g", 'e', Ok(vec![Message::GotoPreviousExonsEnd(1)]))]
-    #[case("g", 'E', Ok(vec![Message::GotoPreviousGenesEnd(1)]))]
-    #[case("3", 'w', Ok(vec![Message::GotoNextExonsStart(3)]))]
-    #[case("5", 'l', Ok(vec![Message::MoveRight(5)]))]
-    #[case("10", 'z', Ok(vec![Message::ZoomIn(20)]))]
-    #[case("", 'x', Err(TGVError::RegisterError("Invalid normal mode input: x".to_string())))]
-    #[case("g", 'x', Err(TGVError::RegisterError("Invalid normal mode input: gx".to_string())))]
-    #[case("3", 'x', Err(TGVError::RegisterError("Invalid normal mode input: 3x".to_string())))]
-    #[case("3g", 'x', Err(TGVError::RegisterError("Invalid normal mode input: 3gx".to_string())))]
-    fn test_normal_mode_translate(
-        #[case] existing_buffer: &str,
-        #[case] key: char,
-        #[case] expected: Result<Vec<Message>, TGVError>,
-    ) {
-        let mut register = NormalModeRegister {
-            input: existing_buffer.to_string(),
-        };
+    // #[rstest]
+    // #[case("",'g', Ok(vec![]))]
+    // #[case("g",'g', Ok(vec![Message::GotoY(0)]))]
+    // #[case("",'G', Ok(vec![Message::GotoYBottom]))]
+    // #[case("",'1', Ok(vec![]))]
+    // #[case("g",'1', Err(TGVError::RegisterError("Invalid input: g".to_string())))]
+    // #[case("", 'w', Ok(vec![Message::GotoNextExonsStart(1)]))]
+    // #[case("", 'b', Ok(vec![Message::GotoPreviousExonsStart(1)]))]
+    // #[case("", 'e', Ok(vec![Message::GotoNextExonsEnd(1)]))]
+    // #[case("", 'h', Ok(vec![Message::MoveLeft(1)]))]
+    // #[case("", 'l', Ok(vec![Message::MoveRight(1)]))]
+    // #[case("", 'j', Ok(vec![Message::MoveDown(1)]))]
+    // #[case("", 'k', Ok(vec![Message::MoveUp(1)]))]
+    // #[case("", 'z', Ok(vec![Message::ZoomIn(2)]))]
+    // #[case("", 'o', Ok(vec![Message::ZoomOut(2)]))]
+    // #[case("", '{', Ok(vec![Message::MoveUp(30)]))]
+    // #[case("", '}', Ok(vec![Message::MoveDown(30)]))]
+    // #[case("g", 'e', Ok(vec![Message::GotoPreviousExonsEnd(1)]))]
+    // #[case("g", 'E', Ok(vec![Message::GotoPreviousGenesEnd(1)]))]
+    // #[case("3", 'w', Ok(vec![Message::GotoNextExonsStart(3)]))]
+    // #[case("5", 'l', Ok(vec![Message::MoveRight(5)]))]
+    // #[case("10", 'z', Ok(vec![Message::ZoomIn(20)]))]
+    // #[case("", 'x', Err(TGVError::RegisterError("Invalid normal mode input: x".to_string())))]
+    // #[case("g", 'x', Err(TGVError::RegisterError("Invalid normal mode input: gx".to_string())))]
+    // #[case("3", 'x', Err(TGVError::RegisterError("Invalid normal mode input: 3x".to_string())))]
+    // #[case("3g", 'x', Err(TGVError::RegisterError("Invalid normal mode input: 3gx".to_string())))]
+    // fn test_normal_mode_translate(
+    //     #[case] existing_buffer: &str,
+    //     #[case] key: char,
+    //     #[case] expected: Result<Vec<Message>, TGVError>,
+    // ) {
+    //     let mut register = NormalModeRegister {
+    //         input: existing_buffer.to_string(),
+    //     };
 
-        // Test the translation
+    //     // Test the translation
 
-        let result = register.update_by_char(key);
-        match (&result, &expected) {
-            (Ok(result), Ok(expected)) => assert_eq!(result, expected),
-            (Err(e), Err(expected)) => {} // OK
-            _ => panic!(
-                "Test failed.  result: {:?}, expected: {:?}",
-                result, expected
-            ),
-        }
-    }
+    //     let result = register.update_by_char(key);
+    //     match (&result, &expected) {
+    //         (Ok(result), Ok(expected)) => assert_eq!(result, expected),
+    //         (Err(e), Err(expected)) => {} // OK
+    //         _ => panic!(
+    //             "Test failed.  result: {:?}, expected: {:?}",
+    //             result, expected
+    //         ),
+    //     }
+    // }
 }

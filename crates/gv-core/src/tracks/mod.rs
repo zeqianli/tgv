@@ -541,6 +541,12 @@ pub enum UcscHost {
     Eu,
 }
 
+impl Default for UcscHost {
+    fn default() -> Self {
+        UcscHost::Us
+    }
+}
+
 impl UcscHost {
     pub fn url(&self) -> String {
         match self {

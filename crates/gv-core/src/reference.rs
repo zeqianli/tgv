@@ -140,6 +140,11 @@ impl Reference {
     }
 }
 
+impl Default for Reference {
+    fn default() -> Self {
+        Reference::Hg38
+    }
+}
 // to lowercase; remove ."-_
 fn standardize_common_genome_name(s: &str) -> Result<String, TGVError> {
     let lower_s = s
