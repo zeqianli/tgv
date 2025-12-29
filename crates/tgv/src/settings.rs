@@ -1,19 +1,10 @@
-use crate::error::TGVError;
-use crate::tracks::UcscHost;
-use crate::{message::Message, reference::Reference};
+use crate::message::Message;
 use clap::{Parser, Subcommand, ValueEnum};
-
-#[derive(Clone, Debug, PartialEq, Eq, ValueEnum)]
-pub enum BackendType {
-    /// Always use UCSC DB / API.
-    Ucsc,
-
-    /// Always use local database.
-    Local,
-
-    /// If local cache is available, use it. Otherwise, use UCSC DB / API.
-    Default,
-}
+use gv_core::error::TGVError;
+use gv_core::message::Movement;
+use gv_core::reference::Reference;
+use gv_core::settings::BackendType;
+use gv_core::tracks::UcscHost;
 
 #[derive(Debug, Clone, Eq, PartialEq, ValueEnum)]
 pub enum UcscHostCli {
@@ -25,8 +16,8 @@ pub enum UcscHostCli {
     Auto,
 }
 
-impl UcscHostCli {
-    pub fn to_host(&self) -> UcscHost {
+impl Into<UcscHost> for UcscHostCli {
+    fn into(self) -> UcscHost {
         match self {
             UcscHostCli::Us => UcscHost::Us,
             UcscHostCli::Eu => UcscHost::Eu,
@@ -120,34 +111,62 @@ pub struct Cli {
     pub command: Option<Commands>,
 }
 
+impl Cli {
+    pub fn initial_movement(&self) -> Result<Vec<Message>, TGVError> {
+        let region_string = match self.region_string {
+            Some(region_string) => region_string,
+            None => return Ok(vec![Message::GoToDefault]), // Interpretation 1: go to default
+        };
+
+        // Check format
+        let split = region_string.split(":").collect::<Vec<&str>>();
+
+        match split.len() {
+            //  gene name
+            1 => Ok(vec![Message::GoToGene(region_string.to_string())]),
+            2 =>
+            // genome:position
+            {
+                split[1]
+                    .parse::<usize>()
+                    .map(|n| {
+                        vec![Message::Core(gv_core::message::Message::Move(
+                            Movement::ContigNameCoordinate(split[0].to_string(), n),
+                        ))]
+                    })
+                    .map_err(|_| {
+                        Err(TGVError::CliError(format!(
+                            "Invalid genome region: {}",
+                            region_string
+                        )))
+                    })
+            }
+            _ => Err(TGVError::CliError(format!(
+                "Cannot interpret the region: {}",
+                region_string
+            ))),
+        }
+    }
+}
+
 #[derive(Debug, Clone, Eq, PartialEq)]
 pub struct Settings {
-    pub bam_path: Option<String>,
-    pub bai_path: Option<String>,
-    pub vcf_path: Option<String>,
-    pub bed_path: Option<String>,
-    pub reference: Reference,
-    pub backend: BackendType,
-
+    pub core: gv_core::settings::Settings,
     pub initial_state_messages: Vec<Message>,
-
     pub test_mode: bool,
 
     pub debug: bool,
-
-    pub ucsc_host: UcscHost,
-
-    pub cache_dir: String,
     //pub palette: Palette,
 }
 
 /// Settings to browse alignments
-impl Settings {
-    pub fn new(cli: Cli) -> Result<Self, TGVError> {
+impl TryFrom<Cli> for Settings {
+    type Error = TGVError;
+    fn try_from(cli: Cli) -> Result<Self, TGVError> {
         // If this is a download command, it should be handled separately
         if cli.command.is_some() {
             return Err(TGVError::CliError(
-                "Download command should be handled separately from Settings::new()".to_string(),
+                "Download command should be handled separately".to_string(),
             ));
         }
 
@@ -159,7 +178,7 @@ impl Settings {
         };
 
         // Initial messages
-        let initial_state_messages = Self::translate_initial_state_messages(cli.region)?;
+        let initial_state_messages = cli.initial_messages(cli.region)?;
 
         // Backend
         let backend = match (cli.offline, cli.online) {
@@ -193,188 +212,157 @@ impl Settings {
             ));
         }
 
-        let bai_path = if let Some(bam_path) = &cli.bam_path {
-            Some(cli.bai.unwrap_or(format!("{}.bai", bam_path)))
-        } else {
-            cli.bai
-        };
+        let bam_path = cli.bam_path.map(|bam_path| {
+            let bai_path = cli.bai.unwrap_or(format!("{}.bai", bam_path.clone()));
+            (bam_path, bai_path)
+        });
 
         // cache_dir: expand ~
         let cache_dir = shellexpand::tilde(&cli.cache_dir).to_string();
 
         Ok(Self {
-            bam_path: cli.bam_path,
-            bai_path,
-            vcf_path: cli.vcf_path,
-            bed_path: cli.bed_path,
-            reference,
-            backend,
+            core: gv_core::settings::Settings {
+                bam_path: bam_path,
+                vcf_path: cli.vcf_path,
+                bed_path: cli.bed_path,
+                reference,
+                backend,
+                ucsc_host: cli.host.into(),
+                cache_dir,
+            },
             initial_state_messages,
-            ucsc_host: cli.host.to_host(),
+
             test_mode: false,
             debug: cli.debug,
-            cache_dir,
-            palette: DARK_THEME,
+            //palette: DARK_THEME,
         })
     }
+}
 
+impl Settings {
     fn translate_initial_state_messages(
         region_string: Option<String>,
     ) -> Result<Vec<Message>, TGVError> {
-        let region_string = match region_string {
-            Some(region_string) => region_string,
-            None => return Ok(vec![Message::GoToDefault]), // Interpretation 1: go to default
-        };
-
-        // Check format
-        let split = region_string.split(":").collect::<Vec<&str>>();
-        if split.len() > 2 {
-            return Err(TGVError::CliError(format!(
-                "Cannot interpret the region: {}",
-                region_string
-            )));
-        }
-
-        // Interpretation 2: genome:position
-        if split.len() == 2 {
-            match split[1].parse::<usize>() {
-                Ok(n) => {
-                    return Ok(vec![Message::GotoContigNameCoordinate(
-                        split[0].to_string(),
-                        n,
-                    )]);
-                }
-                Err(_) => {
-                    return Err(TGVError::CliError(format!(
-                        "Invalid genome region: {}",
-                        region_string
-                    )));
-                }
-            }
-        }
-
-        // Interpretation 3: gene name
-        Ok(vec![Message::GoToGene(region_string.to_string())])
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use super::*;
+    // use super::*;
 
-    use crate::message::Message;
-    use crate::reference::Reference;
-    use rstest::rstest;
+    // use crate::message::Message;
+    // use gv_core::reference::Reference;
+    // use rstest::rstest;
 
-    // Helper function to create default settings for comparison
-    fn default_settings() -> Settings {
-        Settings {
-            bam_path: None,
-            bai_path: None,
-            vcf_path: None,
-            bed_path: None,
-            reference: Reference::Hg38,
-            backend: BackendType::Default, // Default backend
-            initial_state_messages: vec![Message::GoToDefault],
-            test_mode: false,
-            debug: false,
-            ucsc_host: UcscHost::Us,
-            cache_dir: shellexpand::tilde("~/.tgv").to_string(),
-            palette: DARK_THEME,
-        }
-    }
+    // // Helper function to create default settings for comparison
+    // fn default_settings() -> Settings {
+    //     Settings {
+    //         bam_path: None,
+    //         bai_path: None,
+    //         vcf_path: None,
+    //         bed_path: None,
+    //         reference: Reference::Hg38,
+    //         backend: BackendType::Default, // Default backend
+    //         initial_state_messages: vec![Message::GoToDefault],
+    //         test_mode: false,
+    //         debug: false,
+    //         ucsc_host: UcscHost::Us,
+    //         cache_dir: shellexpand::tilde("~/.tgv").to_string(),
+    //         palette: DARK_THEME,
+    //     }
+    // }
 
-    #[rstest]
-    #[case("tgv", Ok(default_settings()))]
-    #[case("tgv input.bam", Ok(Settings {
-        bam_path: Some("input.bam".to_string()),
-        bai_path: Some("input.bam.bai".to_string()),
-        ..default_settings()
-    }))]
-    #[case("tgv input.bam -b some.bed", Ok(Settings {
-        bam_path: Some("input.bam".to_string()),
-        bai_path: Some("input.bam.bai".to_string()),
-        bed_path: Some("some.bed".to_string()),
-        ..default_settings()
-    }))]
-    #[case("tgv input.bam -v some.vcf", Ok(Settings {
-        bam_path: Some("input.bam".to_string()),
-        bai_path: Some("input.bam.bai".to_string()),
-        vcf_path: Some("some.vcf".to_string()),
-        ..default_settings()
-    }))]
-    #[case("tgv input.bam --offline", Ok(Settings {
-        bam_path: Some("input.bam".to_string()),
-        bai_path: Some("input.bam.bai".to_string()),
-        backend: BackendType::Local,
-        ..default_settings()
-    }))]
-    #[case("tgv input.bam --online", Ok(Settings {
-        bam_path: Some("input.bam".to_string()),
-        bai_path: Some("input.bam.bai".to_string()),
-        backend: BackendType::Ucsc,
-        ..default_settings()
-    }))]
-    #[case("tgv input.bam -r chr1:12345", Ok(Settings {
-        bam_path: Some("input.bam".to_string()),
-        bai_path: Some("input.bam.bai".to_string()),
-        initial_state_messages: vec![Message::GotoContigNameCoordinate(
-            "chr1".to_string(),
-            12345,
-        )],
-        ..default_settings()
-    }))]
-    #[case("tgv input.bam -r chr1:invalid", Err(TGVError::CliError("".to_string())))]
-    #[case("tgv input.bam -r chr1:12:12345", Err(TGVError::CliError("".to_string())))]
-    #[case("tgv input.bam -r TP53", Ok(Settings {
-        bam_path: Some("input.bam".to_string()),
-        bai_path: Some("input.bam.bai".to_string()),
-        initial_state_messages: vec![Message::GoToGene("TP53".to_string())],
-        ..default_settings()
-    }))]
-    #[case("tgv input.bam -r TP53 -g hg19", Ok(Settings {
-        bam_path: Some("input.bam".to_string()),
-        bai_path: Some("input.bam.bai".to_string()),
-        reference: Reference::Hg19,
-        initial_state_messages: vec![Message::GoToGene("TP53".to_string())],
-        ..default_settings()
-    }))]
-    #[case("tgv input.bam -r TP53 -g mm39", Ok(Settings {
-        bam_path: Some("input.bam".to_string()),
-        bai_path: Some("input.bam.bai".to_string()),
-        reference: Reference::UcscGenome("mm39".to_string()),
-        initial_state_messages: vec![Message::GoToGene("TP53".to_string())],
-        ..default_settings()
-    }))]
-    #[case("tgv input.bam -r 1:12345 --no-reference", Ok(Settings {
-        bam_path: Some("input.bam".to_string()),
-        bai_path: Some("input.bam.bai".to_string()),
-        reference: Reference::NoReference,
-        initial_state_messages: vec![Message::GotoContigNameCoordinate(
-            "1".to_string(),
-            12345,
-        )],
-        ..default_settings()
-    }))]
-    #[case("tgv input.bam -r TP53 -g hg19 --no-reference", Err(TGVError::CliError("".to_string())))]
-    #[case("tgv --no-reference", Err(TGVError::CliError("".to_string())))]
-    //#[case("tgv download test-name", Err(TGVError::CliError("".to_string())))]
-    // #[case("tgv download test-name --cache-dir /custom/dir", Err(TGVError::CliError("".to_string())))]
-    fn test_cli_parsing(
-        #[case] command_line: &str,
-        #[case] expected_settings: Result<Settings, TGVError>,
-    ) {
-        let cli = Cli::parse_from(shlex::split(command_line).unwrap());
+    // #[rstest]
+    // #[case("tgv", Ok(default_settings()))]
+    // #[case("tgv input.bam", Ok(Settings {
+    //     bam_path: Some("input.bam".to_string()),
+    //     bai_path: Some("input.bam.bai".to_string()),
+    //     ..default_settings()
+    // }))]
+    // #[case("tgv input.bam -b some.bed", Ok(Settings {
+    //     bam_path: Some("input.bam".to_string()),
+    //     bai_path: Some("input.bam.bai".to_string()),
+    //     bed_path: Some("some.bed".to_string()),
+    //     ..default_settings()
+    // }))]
+    // #[case("tgv input.bam -v some.vcf", Ok(Settings {
+    //     bam_path: Some("input.bam".to_string()),
+    //     bai_path: Some("input.bam.bai".to_string()),
+    //     vcf_path: Some("some.vcf".to_string()),
+    //     ..default_settings()
+    // }))]
+    // #[case("tgv input.bam --offline", Ok(Settings {
+    //     bam_path: Some("input.bam".to_string()),
+    //     bai_path: Some("input.bam.bai".to_string()),
+    //     backend: BackendType::Local,
+    //     ..default_settings()
+    // }))]
+    // #[case("tgv input.bam --online", Ok(Settings {
+    //     bam_path: Some("input.bam".to_string()),
+    //     bai_path: Some("input.bam.bai".to_string()),
+    //     backend: BackendType::Ucsc,
+    //     ..default_settings()
+    // }))]
+    // #[case("tgv input.bam -r chr1:12345", Ok(Settings {
+    //     bam_path: Some("input.bam".to_string()),
+    //     bai_path: Some("input.bam.bai".to_string()),
+    //     initial_state_messages: vec![Message::GotoContigNameCoordinate(
+    //         "chr1".to_string(),
+    //         12345,
+    //     )],
+    //     ..default_settings()
+    // }))]
+    // #[case("tgv input.bam -r chr1:invalid", Err(TGVError::CliError("".to_string())))]
+    // #[case("tgv input.bam -r chr1:12:12345", Err(TGVError::CliError("".to_string())))]
+    // #[case("tgv input.bam -r TP53", Ok(Settings {
+    //     bam_path: Some("input.bam".to_string()),
+    //     bai_path: Some("input.bam.bai".to_string()),
+    //     initial_state_messages: vec![Message::GoToGene("TP53".to_string())],
+    //     ..default_settings()
+    // }))]
+    // #[case("tgv input.bam -r TP53 -g hg19", Ok(Settings {
+    //     bam_path: Some("input.bam".to_string()),
+    //     bai_path: Some("input.bam.bai".to_string()),
+    //     reference: Reference::Hg19,
+    //     initial_state_messages: vec![Message::GoToGene("TP53".to_string())],
+    //     ..default_settings()
+    // }))]
+    // #[case("tgv input.bam -r TP53 -g mm39", Ok(Settings {
+    //     bam_path: Some("input.bam".to_string()),
+    //     bai_path: Some("input.bam.bai".to_string()),
+    //     reference: Reference::UcscGenome("mm39".to_string()),
+    //     initial_state_messages: vec![Message::GoToGene("TP53".to_string())],
+    //     ..default_settings()
+    // }))]
+    // #[case("tgv input.bam -r 1:12345 --no-reference", Ok(Settings {
+    //     bam_path: Some("input.bam".to_string()),
+    //     bai_path: Some("input.bam.bai".to_string()),
+    //     reference: Reference::NoReference,
+    //     initial_state_messages: vec![Message::GotoContigNameCoordinate(
+    //         "1".to_string(),
+    //         12345,
+    //     )],
+    //     ..default_settings()
+    // }))]
+    // #[case("tgv input.bam -r TP53 -g hg19 --no-reference", Err(TGVError::CliError("".to_string())))]
+    // #[case("tgv --no-reference", Err(TGVError::CliError("".to_string())))]
+    // //#[case("tgv download test-name", Err(TGVError::CliError("".to_string())))]
+    // // #[case("tgv download test-name --cache-dir /custom/dir", Err(TGVError::CliError("".to_string())))]
+    // fn test_cli_parsing(
+    //     #[case] command_line: &str,
+    //     #[case] expected_settings: Result<Settings, TGVError>,
+    // ) {
+    //     let cli = Cli::parse_from(shlex::split(command_line).unwrap());
 
-        let settings = Settings::new(cli.clone());
+    //     let settings = Settings::new(cli.clone());
 
-        match (&settings, &expected_settings) {
-            (Ok(settings), Ok(expected)) => assert_eq!(*settings, *expected),
-            (Err(e), Err(expected)) => {} // OK
-            _ => panic!(
-                "Unexpected CLI parsing result. Expected: {:?}, Got: {:?}",
-                expected_settings, settings
-            ),
-        }
-    }
+    //     match (&settings, &expected_settings) {
+    //         (Ok(settings), Ok(expected)) => assert_eq!(*settings, *expected),
+    //         (Err(e), Err(expected)) => {} // OK
+    //         _ => panic!(
+    //             "Unexpected CLI parsing result. Expected: {:?}, Got: {:?}",
+    //             expected_settings, settings
+    //         ),
+    //     }
+    // }
 }

@@ -1,9 +1,10 @@
-use crate::{
+use gv_core::{
     alignment::BaseCoverage,
     error::TGVError,
-    intervals::Region,
+    intervals::Region};
+use crate::{
     message::Message,
-    register::MouseRegister,
+    mouse::MouseRegister,
     rendering::layout::{AreaType, LayoutNode},
     repository::Repository,
     states::State,

@@ -143,21 +143,15 @@ pub enum AlignmentRepositoryEnum {
 }
 
 impl AlignmentRepositoryEnum {
-    pub async fn new(settings: &Settings) -> Result<Option<Self>, TGVError> {
-        match &settings.bam_path {
-            None => Ok(None),
-            Some(bam_path) => {
-                if is_url(bam_path) {
-                    Ok(Some(AlignmentRepositoryEnum::RemoteBam(
-                        RemoteBamRepository::new(bam_path, settings.bai_path.as_ref().unwrap())
-                            .await?,
-                    )))
-                } else {
-                    Ok(Some(AlignmentRepositoryEnum::Bam(
-                        BamRepository::new(bam_path, settings.bai_path.as_ref().unwrap()).await?,
-                    )))
-                }
-            }
+    pub async fn new(bam_path: &str, bai_path: &str) -> Result<Self, TGVError> {
+        if is_url(bam_path) {
+            Ok(AlignmentRepositoryEnum::RemoteBam(
+                RemoteBamRepository::new(bam_path, bai_path).await?,
+            ))
+        } else {
+            Ok(AlignmentRepositoryEnum::Bam(
+                BamRepository::new(bam_path, bai_path).await?,
+            ))
         }
     }
 }

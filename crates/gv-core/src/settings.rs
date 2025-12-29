@@ -22,8 +22,8 @@ impl Default for BackendType {
 
 #[derive(Debug, Clone, Eq, PartialEq)]
 pub struct Settings {
-    pub bam_path: Option<String>,
-    pub bai_path: Option<String>,
+    /// bam path, bai path
+    pub bam_path: Option<(String, String)>,
     pub vcf_path: Option<String>,
     pub bed_path: Option<String>,
     pub reference: Reference,
@@ -39,7 +39,6 @@ impl Default for Settings {
     fn default() -> Settings {
         Settings {
             bam_path: None,
-            bai_path: None,
             vcf_path: None,
             bed_path: None,
             reference: Reference::default(),
