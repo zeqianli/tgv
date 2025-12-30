@@ -1,13 +1,7 @@
-pub use crate::{
-    app::Scene,
-    register::{
-        command::CommandModeRegister, contig_list::ContigListModeRegister, help::HelpModeRegister,
-        mouse::NormalMouseRegister, normal::NormalModeRegister,
-    },
-    repository::Repository,
-};
-use crate::{error::TGVError, message::Message, states::State};
+use crate::{app::Scene, message::Message};
+use crossterm::event::{KeyCode, KeyEvent};
 use gv_core::normal::update_by_char;
+use gv_core::{error::TGVError, state::State};
 
 #[derive(Debug, Clone, Eq, PartialEq)]
 pub enum KeyRegisterType {
@@ -34,7 +28,7 @@ impl Default for Registers {
         Ok(Self {
             current: KeyRegisterType::Normal,
             normal: "".to_string(),
-            command: CommandModeRegister::default(),
+            command: "".to_string(),
             command_cursor: 0,
 
             contig_list_cursor: 0,
@@ -60,7 +54,7 @@ impl Registers {
     }
 }
 
-impl KeyRegister for Registers {
+impl Registers {
     fn handle_help(&mut self, key_event: KeyEvent) -> Result<Vec<Message>, TGVError> {
         match key_event.code {
             KeyCode::Esc => Ok(vec![
@@ -164,13 +158,13 @@ impl KeyRegister for Registers {
                 Ok(vec![])
             }
             KeyCode::Left => {
-                self.cursor_position = self.cursor_position.saturating_sub(by);
+                self.cursor_position = self.cursor_position.saturating_sub(1);
                 Ok(vec![])
             }
             KeyCode::Right => {
                 self.cursor_position = self
                     .cursor_position
-                    .saturating_add(by)
+                    .saturating_add(1)
                     .clamp(0, self.input.len());
                 Ok(vec![])
             }

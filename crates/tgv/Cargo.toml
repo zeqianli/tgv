@@ -9,11 +9,14 @@ include = ["src/*", "!src/snapshots", "Cargo.toml", "./README.md"]
 
 [dependencies]
 clap.workspace = true
+crossterm.workspace = true
 futures.workspace = true
 gv-core.workspace = true
 itertools.workspace = true
 nom.workspace = true
+ratatui.workspace = true
 shellexpand.workspace = true
+strum.workspace = true
 thiserror.workspace = true
 tokio.workspace = true
 

@@ -4,15 +4,14 @@ use crossterm::event::{self, Event, KeyEventKind};
 use ratatui::{Terminal, prelude::Backend};
 
 use crate::message::Message;
+use crate::mouse::MouseRegister;
 use crate::register::{KeyRegisterType, Registers};
+use crate::rendering::Renderer;
 use crate::rendering::layout::MainLayout;
 use crate::settings::Settings;
 use gv_core::error::TGVError;
 use gv_core::intervals::{Focus, GenomeInterval, Region};
-use gv_core::register::{KeyRegister, MouseRegister, Registers};
-use gv_core::rendering::Renderer;
 use gv_core::repository::Repository;
-use gv_core::settings::Settings;
 use gv_core::state::State;
 
 #[derive(Debug, Clone, Eq, PartialEq)]
@@ -49,7 +48,7 @@ impl App {
 
         Ok(Self {
             exit: false,
-            layout: MainLayout::new(&Settings, terminal.area(), focus),
+            layout: MainLayout::new(&settings.core, terminal.area(), focus),
             state,
             settings: settings.clone(),
             repository,
@@ -97,7 +96,7 @@ impl App {
             match event::read() {
                 Ok(Event::Key(key_event)) if key_event.kind == KeyEventKind::Press => {
                     let state_messages = self.registers.handle_key_event(key_event, &self.state)?;
-                    self::handle(state_messages).await?; // TODO: distinguish th
+                    self.handle(state_messages).await?; // TODO: distinguish th
                 }
 
                 Ok(Event::Mouse(mouse_event)) => {
@@ -127,7 +126,7 @@ impl App {
 
     /// Handle messages after initialization. This blocks any error messages instead of propagating them.
     pub async fn handle(&mut self, messages: Vec<Message>) -> Result<(), TGVError> {
-        state.messages.clear();
+        self.state.messages.clear();
 
         for message in messages {
             match message {
@@ -147,7 +146,8 @@ impl App {
                 }
 
                 Message::Core(gv_core::message::Message::Zoom(zoom)) => {
-                    self.layout.zoom(zoom, area, contig_length); // TODO
+                    let contig_length = self.state.contig_length(&self.layout.focus)?;
+                    self.layout.zoom(zoom, contig_length); // TODO
                 }
 
                 Message::Core(gv_core::message::Message::SetAlignmentOption(options)) => {
@@ -156,7 +156,7 @@ impl App {
                 }
 
                 Message::Core(gv_core::message::Message::Message(message)) => {
-                    state.add_message(message);
+                    self.state.add_message(message);
                 }
 
                 Message::SwitchScene(scene) => {
@@ -164,57 +164,56 @@ impl App {
                 }
                 Message::SwitchKeyRegister(register) => {
                     if register == KeyRegisterType::ContigList {
-                        registers.contig_list_cursor = layout.focus.contig_index
+                        self.registers.contig_list_cursor = self.layout.focus.contig_index
                     }
-                    registers.current = register
+                    self.registers.current = register
                 }
-                Message::ClearAllKeyRegisters => registers.clear(),
+                Message::ClearAllKeyRegisters => self.registers.clear(),
             }
         }
 
-        self.load_data(&mut self.state, &mut self.repository, &self.layout)?;
-
-        Ok(())
+        self.load_data()
     }
 
-    fn load_data(
-        state: &mut State,
-        repository: &mut Repository,
-        layout: &MainLayout, // settings: &Settings,
-    ) -> Result<bool, TGVError> {
+    fn load_data(&mut self) -> Result<(), TGVError> {
+        // TODO: return whether data were loaded?
         // It's important to load sequence first!
         // Alignment IO requires calculating mismatches with the reference sequence.
+        //
+        let region = self.layout.region();
 
-        if let Some(sequence_service) = repository.sequence_service.as_mut()
-            && layout.zoom <= Self::MAX_ZOOM_TO_DISPLAY_SEQUENCES
-            && !state.sequence.has_complete_data(&viewing_region)
+        if let Some(sequence_service) = self.repository.sequence_service.as_mut()
+            && self.layout.zoom <= Self::MAX_ZOOM_TO_DISPLAY_SEQUENCES
+            && !self.state.sequence.has_complete_data(&region)
         {
-            let sequence_cache_region = Self::sequence_cache_region(state, &viewing_region)?;
-            state.load_sequence_data(sequence_cache_region, sequence_service)
+            let sequence_cache_region = Self::sequence_cache_region(self.state, &region)?;
+            self.state
+                .load_sequence_data(sequence_cache_region, sequence_service)
         }
 
-        if let Some(alignment_repository) = repository.alignment_repository.as_mut()
-            && self.zoom <= Self::MAX_ZOOM_TO_DISPLAY_ALIGNMENTS
-            && !state.alignment.has_complete_data(&viewing_region)
+        if let Some(alignment_repository) = self.repository.alignment_repository.as_mut()
+            && self.layout.zoom <= Self::MAX_ZOOM_TO_DISPLAY_ALIGNMENTS
+            && !self.state.alignment.has_complete_data(&region)
         {
-            sate.load_alignment_data(
-                state.alignment_cache_region(&viewing_region)?,
+            self.state.load_alignment_data(
+                self.state.alignment_cache_region(&region)?,
                 alignment_repository,
             );
         }
 
-        if let Some(track_service) = repository.track_service
-            && !state.track.has_complete_data(&viewing_region)
+        if let Some(track_service) = self.repository.track_service
+            && !self.state.track.has_complete_data(&region)
         {
             // viewing_window.zoom <= Self::MAX_ZOOM_TO_DISPLAY_FEATURES is always true
 
-            state.load_track_data(state.track_cache_region(&viewing_region)?, track_service)
+            self.state
+                .load_track_data(self.state.track_cache_region(&region)?, track_service)
         }
 
         // Cytobands
         // TODO
-
-        Ok(data_messages)
+        //
+        Ok(())
     }
 
     pub const MAX_ZOOM_TO_DISPLAY_ALIGNMENTS: usize = 32;

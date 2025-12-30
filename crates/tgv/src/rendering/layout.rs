@@ -2,6 +2,7 @@ use crate::error::TGVError;
 use crate::settings::Settings;
 use gv_core::{
     alignment::Alignment,
+    intervals::{Focus, Region},
     message::{Scroll, Zoom},
 };
 use ratatui::layout::{Constraint, Direction, Layout, Rect};
@@ -126,6 +127,7 @@ impl LayoutNode {
     }
 
     pub fn root(settings: &Settings) -> Self {
+        let mut children = vec![];
         if settings.reference.needs_track() {
             children.extend(vec![LayoutNode::Area {
                 constraint: Constraint::Length(2),
@@ -246,13 +248,13 @@ impl MainLayout {
         })
     }
 
-    pub fn zoom(&mut self, zoom: Zoom, area: &Rect, contig_length: Option<u64>) {
+    pub fn zoom(&mut self, zoom: Zoom, contig_length: Option<u64>) {
         match zoom {
             Zoom::In(r) => self.zoom = u64::max(self.zoom / r, 1),
             Zoom::out(r) => u64::min(
                 self.zoom * r,
                 contig_length
-                    .map(|len| len / area.width() as u64)
+                    .map(|len| len / self.main_area.width() as u64)
                     .unwrap_or(u64::MAX),
             ),
         }
@@ -262,6 +264,13 @@ impl MainLayout {
         match scroll {
             Scroll::Up(n) => self.y = self.y.saturating_sub(n),
             Scroll::Down(n) => self.y = u64::min(self.y.saturating_add(n), alignment.depth()),
+        }
+    }
+
+    pub fn region(&self) -> Region {
+        Region {
+            focus: self.focus.clone(),
+            half_width: (self.main_area.width() as u64 * self.zoom) / 2,
         }
     }
 }

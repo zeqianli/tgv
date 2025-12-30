@@ -1,16 +1,15 @@
-use gv_core::{
-    alignment::BaseCoverage,
-    error::TGVError,
-    intervals::Region};
 use crate::{
     message::Message,
-    mouse::MouseRegister,
     rendering::layout::{AreaType, LayoutNode},
-    repository::Repository,
-    states::State,
+};
+use crossterm::event;
+use gv_core::{
+    alignment::BaseCoverage, error::TGVError, intervals::Region, repository::Repository,
+    state::State,
 };
 use itertools::Itertools;
-pub struct NormalMouseRegister {
+
+pub struct MouseRegister {
     /// Resize event handling
     pub mouse_down_x: u16,
     pub mouse_down_y: u16,
@@ -20,14 +19,12 @@ pub struct NormalMouseRegister {
     // Track mouse dragging
     pub mouse_drag_x: u16,
     pub mouse_drag_y: u16,
-
-    /// root layout at mousedown.
+    // root layout at mousedown.
     //pub root: LayoutNode,
 }
 
-impl Default for NormalMouseRegister {
+impl Default for MouseRegister {
     fn default() -> Self {
-
         Self {
             mouse_down_x: 0,
             mouse_down_y: 0,
@@ -40,7 +37,7 @@ impl Default for NormalMouseRegister {
     }
 }
 
-impl MouseRegister for NormalMouseRegister {
+impl MouseRegister {
     fn handle_mouse_event(
         &mut self,
         state: &State,

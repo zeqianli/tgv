@@ -5,15 +5,15 @@ mod register;
 mod rendering;
 mod settings;
 
-use crate::reference::Reference;
-use crate::tracks::{UCSCDownloader, UcscDbTrackService};
 use app::App;
 use clap::Parser;
 use crossterm::{
     event::{DisableMouseCapture, EnableMouseCapture},
     execute,
 };
-use error::TGVError;
+use gv_core::error::TGVError;
+use gv_core::reference::Reference;
+use gv_core::tracks::{UCSCDownloader, UcscDbTrackService};
 use settings::{Cli, Commands, Settings};
 use std::io::stdout;
 #[tokio::main]
