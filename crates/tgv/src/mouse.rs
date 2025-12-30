@@ -1,12 +1,9 @@
 use crate::{
     message::Message,
-    rendering::layout::{AreaType, LayoutNode},
+    rendering::layout::{AreaType, LayoutNode, MainLayout},
 };
 use crossterm::event;
-use gv_core::{
-    alignment::BaseCoverage, error::TGVError, intervals::Region, repository::Repository,
-    state::State,
-};
+use gv_core::{alignment::BaseCoverage, error::TGVError, intervals::Region, state::State};
 use itertools::Itertools;
 
 pub struct MouseRegister {
@@ -41,7 +38,7 @@ impl MouseRegister {
     fn handle_mouse_event(
         &mut self,
         state: &State,
-        repository: &Repository,
+        layout: &MainLayout,
         event: event::MouseEvent,
     ) -> Result<Vec<Message>, TGVError> {
         let mut messages = Vec::new();
