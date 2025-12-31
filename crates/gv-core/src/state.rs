@@ -1,9 +1,10 @@
 use crate::sequence::SequenceRepositoryEnum;
 use crate::settings::Settings;
 use crate::tracks::{TrackService, TrackServiceEnum};
+use crate::variant::VariantRepository;
 use crate::{
     alignment::{Alignment, AlignmentRepositoryEnum},
-    bed::BEDInterval,
+    bed::{BEDInterval, BEDRepository},
     contig_header::ContigHeader,
     cytoband::Cytoband,
     error::TGVError,
@@ -40,7 +41,7 @@ pub struct State {
     pub variants: SortedIntervalCollection<Variant>,
     variant_loaded: bool, // Temporary hack before proper implemetation for the indexed VCF IO
 
-    pub bed_repository: SortedIntervalCollection<BEDInterval>,
+    pub bed_intervals: SortedIntervalCollection<BEDInterval>,
     bed_loaded: bool, // Temporary hack before proper implemetation for large bed file io
 
     pub track: Track<Gene>,
@@ -62,7 +63,7 @@ impl State {
             sequence: Sequence::default(),
             variants: SortedIntervalCollection::<Variant>::default(),
             variant_loaded: false,
-            bed_repository: SortedIntervalCollection::<BEDInterval>::default(),
+            bed_intervals: SortedIntervalCollection::<BEDInterval>::default(),
             bed_loaded: false,
             contig_header: contigs,
         })
@@ -199,6 +200,28 @@ impl State {
             .query_sequence(&region, &self.contig_header)
             .await?;
 
+        Ok(self)
+    }
+
+    pub async fn load_variant_data(
+        &mut self,
+        region: &Region,
+        variant_repository: &mut VariantRepository,
+    ) -> Result<&mut Self, TGVError> {
+        if !self.variant_loaded {
+            self.variants = variant_repository.read_variants(&self.contig_header)?;
+        }
+        Ok(self)
+    }
+
+    pub async fn load_bed_data(
+        &mut self,
+        region: &Region,
+        bed_repository: &mut BEDRepository,
+    ) -> Result<&mut Self, TGVError> {
+        if !self.bed_loaded {
+            self.bed_intervals = bed_repository.read_bed(&self.contig_header)?;
+        }
         Ok(self)
     }
 

@@ -66,7 +66,7 @@ pub struct BEDRepository {
 }
 
 impl BEDRepository {
-    pub fn from_bed(
+    pub fn read_bed(
         &self,
         contig_header: &ContigHeader,
     ) -> Result<SortedIntervalCollection<BEDInterval>, TGVError> {
