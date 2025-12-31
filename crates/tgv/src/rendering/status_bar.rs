@@ -1,4 +1,4 @@
-use crate::{error::TGVError, states::State};
+use gv_core::{error::TGVError, state::State};
 
 use itertools::Itertools;
 use ratatui::{buffer::Buffer, layout::Rect, style::Style};

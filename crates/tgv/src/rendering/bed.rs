@@ -5,11 +5,10 @@ use ratatui::{buffer::Buffer, layout::Rect};
 pub fn render_bed(
     area: &Rect,
     buf: &mut Buffer,
-    bed: &BEDRepository,
     state: &State,
     pallete: &Palette,
 ) -> Result<(), TGVError> {
-    let intervals = bed.intervals.overlapping(&state.viewing_region())?;
+    let intervals = state.bed_intervals.overlapping(&state.viewing_region())?;
     if !intervals.is_empty() {
         let first_color_index = intervals[0].index % 2;
         render_simple_intervals(

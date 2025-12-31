@@ -1,3 +1,4 @@
+use gv_core::cytoband::Stain;
 use ratatui::style::{Color, palette::tailwind};
 
 // Background
@@ -108,7 +109,7 @@ impl Palette {
     }
 
     /// Returns the color associated with the stain type.
-    pub fn cytoband_color(stain: gv_core::cytoband::Stain) -> Color {
+    pub fn cytoband_color(stain: Stain) -> Color {
         // FIXME: This function is AI code. I haven't verified the correctness.
         // FIXME: Mvoe to Pallete.
         match stain {

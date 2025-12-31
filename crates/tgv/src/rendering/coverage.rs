@@ -7,15 +7,15 @@ use ratatui::{
     widgets::Widget,
 };
 
-use ratatui::symbols::bar::{Set, NINE_LEVELS};
+use ratatui::symbols::bar::{NINE_LEVELS, Set};
 
-use crate::{
+use gv_core::{
     alignment::{Alignment, BaseCoverage},
     error::TGVError,
-    rendering::Palette,
-    states::State,
+    state::State,
 };
 
+use crate::rendering::Palette;
 const MIN_AREA_WIDTH: u16 = 2;
 const MIN_AREA_HEIGHT: u16 = 1;
 

@@ -10,8 +10,10 @@ pub enum Stain {
     Other(String),
 }
 
-impl Stain {
-    pub fn from(s: &str) -> Result<Self, TGVError> {
+impl TryFrom<&str> for Stain {
+    type Error = TGVError;
+
+    fn try_from(s: &str) -> Result<Self, TGVError> {
         match s {
             "gneg" => Ok(Stain::Gneg),
             "acen" => Ok(Stain::Acen),

@@ -3,16 +3,20 @@
 use crossterm::event::{self, Event, KeyEventKind};
 use ratatui::{Terminal, prelude::Backend};
 
-use crate::message::Message;
-use crate::mouse::MouseRegister;
-use crate::register::{KeyRegisterType, Registers};
-use crate::rendering::Renderer;
-use crate::rendering::layout::MainLayout;
-use crate::settings::Settings;
-use gv_core::error::TGVError;
-use gv_core::intervals::{Focus, GenomeInterval, Region};
-use gv_core::repository::Repository;
-use gv_core::state::State;
+use crate::{
+    layout::MainLayout,
+    message::Message,
+    mouse::MouseRegister,
+    register::{KeyRegisterType, Registers},
+    rendering::Renderer,
+    settings::Settings,
+};
+use gv_core::{
+    error::TGVError,
+    intervals::{Focus, GenomeInterval, Region},
+    repository::Repository,
+    state::State,
+};
 
 #[derive(Debug, Clone, Eq, PartialEq)]
 pub enum Scene {
@@ -207,7 +211,19 @@ impl App {
             // viewing_window.zoom <= Self::MAX_ZOOM_TO_DISPLAY_FEATURES is always true
 
             self.state
-                .load_track_data(self.state.track_cache_region(&region)?, track_service)
+                .load_track_data(self.state.track_cache_region(&region)?, track_service);
+        }
+
+        if let Some(variant_repository) = self.repository.variant_repository.as_ref()
+            && !self.state.variant_loaded
+        {
+            self.state.load_variant_data(region, variant_repository);
+        }
+
+        if let Some(bed_repository) = self.repository.bed_repository.as_ref()
+            && !self.state.bed_loaded
+        {
+            self.state.load_bed_data(region, bed_repository);
         }
 
         // Cytobands

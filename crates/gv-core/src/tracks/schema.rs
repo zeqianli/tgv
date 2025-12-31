@@ -162,7 +162,7 @@ impl CytobandSegmentRow {
             start: self.chromStart as usize + 1,
             end: self.chromEnd as usize,
             name: self.name,
-            stain: Stain::from(&self.gieStain)?,
+            stain: Stain::try_from(self.gieStain.as_str())?,
         })
     }
 }

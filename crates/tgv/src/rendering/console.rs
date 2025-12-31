@@ -1,4 +1,5 @@
-use crate::{error::TGVError, register::command::CommandBuffer};
+use crate::register::Registers;
+use gv_core::error::TGVError;
 use ratatui::{
     buffer::Buffer,
     layout::Rect,
@@ -8,11 +9,7 @@ use ratatui::{
 /// Render the command mode console.
 const MIN_AREA_WIDTH: u16 = 2;
 const MIN_AREA_HEIGHT: u16 = 1;
-pub fn render_console(
-    area: &Rect,
-    buf: &mut Buffer,
-    buffer: &CommandBuffer,
-) -> Result<(), TGVError> {
+pub fn render_console(area: &Rect, buf: &mut Buffer, buffer: &Registers) -> Result<(), TGVError> {
     if area.width < MIN_AREA_WIDTH || area.height < MIN_AREA_HEIGHT {
         return Ok(());
     }
@@ -20,7 +17,7 @@ pub fn render_console(
     let cursor_char = buffer
         .input
         .chars()
-        .nth(buffer.cursor_position)
+        .nth(buffer.command_cursor)
         .unwrap_or(' ');
     let cursor_char_position = area.x + 1 + buffer.cursor_position as u16;
     let cursor_char_style = Style::default().bg(Color::Red);

@@ -1,7 +1,5 @@
-use crate::error::TGVError;
-
-use crate::intervals::GenomeInterval;
-use crate::{states::State, window::OnScreenCoordinate};
+use crate::layout::OnScreenCoordinate;
+use gv_core::{error::TGVError, intervals::GenomeInterval, state::State};
 
 use ratatui::{buffer::Buffer, layout::Rect, style::Color, style::Style};
 

@@ -1,10 +1,6 @@
-use gv_core::error::TGVError;
+use gv_core::{error::TGVError, state::State, variant::VariantRepository};
 
-use crate::variant::VariantRepository;
-use crate::{
-    rendering::{colors::Palette, intervals::render_simple_intervals},
-    states::State,
-};
+use crate::rendering::{colors::Palette, intervals::render_simple_intervals};
 use ratatui::{buffer::Buffer, layout::Rect};
 
 pub fn render_variants(

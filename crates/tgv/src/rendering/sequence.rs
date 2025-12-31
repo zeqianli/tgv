@@ -1,6 +1,5 @@
 use crate::rendering::colors::Palette;
-use crate::states::State;
-use crate::{error::TGVError, intervals::Region, sequence::Sequence};
+use gv_core::{error::TGVError, intervals::Region, sequence::Sequence, state::State};
 use ratatui::{buffer::Buffer, layout::Rect, style::Style};
 
 const MIN_AREA_WIDTH: u16 = 2;

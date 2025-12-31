@@ -14,9 +14,9 @@ pub enum KeyRegisterType {
 
 pub struct Registers {
     pub current: KeyRegisterType,
-    normal: String,
-    command: String,
-    command_cursor: usize,
+    pub normal: String,
+    pub command: String,
+    pub command_cursor: usize,
 
     /// Index of the current focused contig.
     /// Indexes in the contig list view is identical to the contig header.

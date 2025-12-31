@@ -1,10 +1,11 @@
-use crate::{
+use gv_core::{
     cytoband::{Cytoband, CytobandSegment, Stain},
     error::TGVError,
-    helpers::get_abbreviated_length_string,
-    rendering::colors::Palette,
-    states::State,
-    window::linear_scale,
+    state::State,
+};
+
+use crate::{
+    layout::linear_scale, rendering::colors::Palette, rendering::get_abbreviated_length_string,
 };
 
 use ratatui::{

@@ -39,10 +39,10 @@ pub struct State {
     pub alignment_options: Vec<AlignmentDisplayOption>,
 
     pub variants: SortedIntervalCollection<Variant>,
-    variant_loaded: bool, // Temporary hack before proper implemetation for the indexed VCF IO
+    pub variant_loaded: bool, // Temporary hack before proper implemetation for the indexed VCF IO
 
     pub bed_intervals: SortedIntervalCollection<BEDInterval>,
-    bed_loaded: bool, // Temporary hack before proper implemetation for large bed file io
+    pub bed_loaded: bool, // Temporary hack before proper implemetation for large bed file io
 
     pub track: Track<Gene>,
 
@@ -208,9 +208,8 @@ impl State {
         region: &Region,
         variant_repository: &mut VariantRepository,
     ) -> Result<&mut Self, TGVError> {
-        if !self.variant_loaded {
-            self.variants = variant_repository.read_variants(&self.contig_header)?;
-        }
+        self.variants = variant_repository.read_variants(&self.contig_header)?;
+        self.variant_loaded = true;
         Ok(self)
     }
 
@@ -219,9 +218,8 @@ impl State {
         region: &Region,
         bed_repository: &mut BEDRepository,
     ) -> Result<&mut Self, TGVError> {
-        if !self.bed_loaded {
-            self.bed_intervals = bed_repository.read_bed(&self.contig_header)?;
-        }
+        self.bed_intervals = bed_repository.read_bed(&self.contig_header)?;
+        self.bed_loaded = true;
         Ok(self)
     }
 

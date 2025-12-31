@@ -1,15 +1,12 @@
-use crate::contig_header::Contig;
-use crate::error::TGVError;
 use crate::register::Registers;
-use crate::states::State;
+use gv_core::{contig_header::Contig, error::TGVError, state::State};
 use ratatui::{
     buffer::Buffer,
     layout::{Position, Rect},
     style::Style,
 };
 
-use crate::helpers::get_abbreviated_length_string;
-use crate::rendering::colors::Palette;
+use crate::rendering::{colors::Palette, get_abbreviated_length_string};
 const MIN_CONTIG_NAME_SPACING: u16 = 10;
 const MIN_CONTIG_LENGTH_SPACING: u16 = 10;
 

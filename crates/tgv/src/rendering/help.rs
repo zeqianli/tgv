@@ -1,4 +1,4 @@
-use crate::error::TGVError;
+use gv_core::error::TGVError;
 use ratatui::{
     buffer::Buffer,
     layout::Rect,

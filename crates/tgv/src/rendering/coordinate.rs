@@ -1,9 +1,6 @@
-use crate::{
-    error::TGVError,
-    window::{OnScreenCoordinate, ViewingWindow},
-};
+use crate::layout::{MainLayout, OnScreenCoordinate};
+use gv_core::{error::TGVError, state::State};
 
-use crate::states::State;
 use itertools::izip;
 use ratatui::{buffer::Buffer, layout::Rect, style::Style};
 
