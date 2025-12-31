@@ -1,4 +1,5 @@
 mod app;
+mod layout;
 mod message;
 mod mouse;
 mod register;

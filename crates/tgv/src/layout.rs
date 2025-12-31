@@ -1,7 +1,7 @@
-use crate::error::TGVError;
 use crate::settings::Settings;
 use gv_core::{
     alignment::Alignment,
+    error::TGVError,
     intervals::{Focus, Region},
     message::{Scroll, Zoom},
 };
@@ -474,4 +474,238 @@ pub fn resize_node(
     }
 
     Ok(())
+}
+
+pub enum OnScreenCoordinate {
+    /// Coordinate on left side of the screen.
+    /// The last pixel is 1.
+    Left(usize),
+
+    /// Coordinate on screen.
+    /// First pixel is 0.
+    OnScreen(usize),
+
+    /// Coordinate on right side of the screen.
+    /// The first pixel is 1.
+    Right(usize),
+}
+
+impl OnScreenCoordinate {
+    pub fn width(
+        left: &OnScreenCoordinate,  // inclusive
+        right: &OnScreenCoordinate, // inclusive
+        area: &Rect,
+    ) -> usize {
+        match (left, right) {
+            (OnScreenCoordinate::OnScreen(a), OnScreenCoordinate::OnScreen(b))
+            | (OnScreenCoordinate::Left(a), OnScreenCoordinate::Left(b))
+            | (OnScreenCoordinate::Right(a), OnScreenCoordinate::Right(b)) => a.abs_diff(*b) + 1,
+
+            (OnScreenCoordinate::Left(a), OnScreenCoordinate::OnScreen(b))
+            | (OnScreenCoordinate::OnScreen(a), OnScreenCoordinate::Left(b)) => b + a + 1,
+
+            (OnScreenCoordinate::Left(a), OnScreenCoordinate::Right(b))
+            | (OnScreenCoordinate::Right(a), OnScreenCoordinate::Left(b)) => {
+                a + b + area.width as usize
+            }
+
+            (OnScreenCoordinate::OnScreen(a), OnScreenCoordinate::Right(b)) => {
+                area.width as usize - a + b
+            }
+            (OnScreenCoordinate::Right(a), OnScreenCoordinate::OnScreen(b)) => {
+                area.width as usize - b + a
+            }
+        }
+    }
+
+    pub fn get(&self) -> usize {
+        match self {
+            OnScreenCoordinate::Left(a) => *a,
+            OnScreenCoordinate::OnScreen(a) => *a,
+            OnScreenCoordinate::Right(a) => *a,
+        }
+    }
+
+    pub fn onscreen_start_and_length(
+        left: &OnScreenCoordinate,  // inclusive
+        right: &OnScreenCoordinate, // inclusive
+        area: &Rect,
+    ) -> Option<(u16, u16)> {
+        match (left, right) {
+            (OnScreenCoordinate::Left(_a), OnScreenCoordinate::Left(_b)) => None,
+
+            (OnScreenCoordinate::Left(_a), OnScreenCoordinate::OnScreen(b)) => {
+                Some((0, (b + 1) as u16))
+            }
+
+            (OnScreenCoordinate::Left(_a), OnScreenCoordinate::Right(_b)) => Some((0, area.width)),
+
+            (OnScreenCoordinate::OnScreen(_a), OnScreenCoordinate::Left(_b)) => None,
+
+            (OnScreenCoordinate::OnScreen(a), OnScreenCoordinate::OnScreen(b)) => {
+                if a > b {
+                    return None;
+                }
+                Some((*a as u16, (b - a + 1) as u16))
+            }
+
+            (OnScreenCoordinate::OnScreen(a), OnScreenCoordinate::Right(_b)) => {
+                Some((*a as u16, (area.width - *a as u16)))
+            }
+            (OnScreenCoordinate::Right(_a), OnScreenCoordinate::Left(_b)) => None,
+
+            (OnScreenCoordinate::Right(_a), OnScreenCoordinate::OnScreen(_b)) => None,
+
+            (OnScreenCoordinate::Right(_a), OnScreenCoordinate::Right(_b)) => None,
+        }
+    }
+}
+
+/// Horizontal coordinates
+impl MainLayout {
+    /// Move the viewing window be within the contig range.
+    pub fn self_correct(&mut self, contig_length: Option<usize>) {
+        if let Some(contig_length) = contig_length {
+            // 1. Zoom: cannot be large than contig_length / area.width
+            self.zoom = usize::min(self.zoom, contig_length / self.area.width as usize);
+
+            // 2. Right: cannot be larger than contig_length
+            let right = self.region().end();
+            if right > contig_length {
+                self.focus.position = self.position.saturating_sub(right - contig_length);
+            }
+        }
+    }
+
+    /// Set the top track # of the viewing window.
+    /// 0-based.
+    pub fn set_y(&mut self, y: usize, depth: usize) {
+        self.y = usize::min(y, depth.saturating_sub(1))
+    }
+
+    /// Check if the viewing window overlaps with [left, right].
+    /// 1-based, inclusive.
+    pub fn overlaps_x_interval(&self, left: usize, right: usize, area: &Rect) -> bool {
+        left <= self.right(area) && right >= self.left()
+    }
+
+    /// Returns the onscreen x coordinate in the area. Example:
+    /// Bases displayed in the window: 1 2 | 3 4 5 6 7 8 | 9 10
+    /// Zoom = 2, window has 3 pixels
+    /// 1/2 -> Left(0)
+    /// 3/4 -> OnScreen(0)
+    /// 5/6 -> OnScreen(1)
+    /// 7/8 -> OnScreen(2)
+    /// 9/10 -> Right(1)
+    ///
+    /// x: 1-based
+    pub fn onscreen_x_coordinate(&self, x: usize, area: &Rect) -> OnScreenCoordinate {
+        let self_left = self.left();
+        let self_right = self.right(area);
+
+        if x < self_left {
+            OnScreenCoordinate::Left(usize::max((self_left - x) / self.zoom, 1))
+        } else if x > self_right {
+            OnScreenCoordinate::Right(usize::max((x - self_right) / self.zoom, 1))
+        } else {
+            OnScreenCoordinate::OnScreen((x - self_left) / self.zoom)
+        }
+    }
+
+    /// Given an onscreen x position, return the genome coordinate range (1-based, inclusive) at that x location.
+    pub fn coordinates_of_onscreen_x(&self, x: u16, area: &Rect) -> Option<(usize, usize)> {
+        if x < area.left() || x >= area.right() {
+            return None;
+        }
+
+        let left = self.left + (x - area.left()) as usize * self.zoom;
+
+        Some((left, left + self.zoom - 1))
+    }
+
+    /// Given an onscreen x position, return the genome coordinate range (1-based, inclusive) at that x location.
+    pub fn coordinate_of_onscreen_y(&self, y: u16, area: &Rect) -> Option<usize> {
+        if y < area.top() || y >= area.bottom() {
+            return None;
+        }
+
+        Some(self.top + (y - area.top()) as usize)
+    }
+}
+
+/// Vertical coordinates
+impl MainLayout {
+    /// Top track # of the viewing window.
+    /// 0-based, inclusive.
+    pub fn top(&self) -> usize {
+        self.y
+    }
+
+    /// Bottom track # of the viewing window.
+    /// 0-based, exclusive.
+    pub fn bottom(&self, area: &Rect) -> usize {
+        self.y + area.height as usize
+    }
+
+    /// Height of the viewing window.
+    // pub fn height(&self, area: &Rect) -> usize {
+    //     area.height as usize
+    // }
+
+    /// Check if the viewing window overlaps with [top, bottom).
+    /// y: 0-based.
+    pub fn overlaps_y(&self, y: usize, area: &Rect) -> bool {
+        (self.top..self.bottom(area)).contains(y)
+    }
+
+    /// Returns the onscreen y coordinate in the area. Example
+    /// y: 0-based.
+    pub fn onscreen_y_coordinate(&self, y: usize, area: &Rect) -> OnScreenCoordinate {
+        let self_top = self.top();
+        let self_bottom = self.bottom(area);
+
+        if y < self_top {
+            OnScreenCoordinate::Left(self_top - y)
+        } else if y >= self_bottom {
+            OnScreenCoordinate::Right(y - self_bottom) // Note that this is different from the x coordinate. TODO: think about this.
+        } else {
+            OnScreenCoordinate::OnScreen(y - self_top)
+        }
+    }
+
+    /// Horizontal zoom out by a factor of r (1-based).
+    pub fn zoom_out(&mut self, zoom: Zoom, contig_length: Option<usize>) -> Result<(), TGVError> {
+        self.zoom = match zoom {
+            Zoom::In(r) => {
+                if r == 0 {
+                    return Err(TGVError::ValueError("Zoom factor cannot be 0".to_string()));
+                };
+                usize::max(1, self.zoom / r)
+            }
+            Zoom::Out(r) => {
+                if r == 0 {
+                    return Err(TGVError::ValueError("Zoom factor cannot be 0".to_string()));
+                }
+
+                self.zoom * r // will be bounded and the middle will be corrected later
+            }
+        };
+
+        self.self_correct(contig_length)
+    }
+}
+
+pub fn linear_scale(
+    original_x: usize,
+    original_length: usize,
+    new_start: u16,
+    new_end: u16,
+) -> Result<u16, TGVError> {
+    if original_length == 0 {
+        return Err(TGVError::ValueError(
+            "Trying to linear scale with original_length = 0 when rendering cytoband".to_string(),
+        ));
+    }
+    Ok(new_start
+        + (original_x as f64 / (original_length) as f64 * (new_end - new_start) as f64) as u16)
 }
