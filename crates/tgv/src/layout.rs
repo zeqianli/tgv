@@ -577,6 +577,30 @@ impl MainLayout {
         }
     }
 
+    pub fn zoom(&mut self, zoom: Zoom, contig_length: Option<usize>) -> Result<(), TGVError> {
+        self.zoom = match zoom {
+            Zoom::In(r) => {
+                if r == 0 {
+                    return Err(TGVError::ValueError(
+                        "Zoom in factor cannot be 0".to_string(),
+                    ));
+                };
+                usize::max(1, self.zoom / r)
+            }
+            Zoom::Out(r) => {
+                if r == 0 {
+                    return Err(TGVError::ValueError(
+                        "Zoom out factor cannot be 0".to_string(),
+                    ));
+                }
+
+                self.zoom * r // will be bounded and self-corrected later
+            }
+        };
+
+        self.self_correct(contig_length)
+    }
+
     /// Set the top track # of the viewing window.
     /// 0-based.
     pub fn set_y(&mut self, y: usize, depth: usize) {
@@ -629,12 +653,9 @@ impl MainLayout {
             return None;
         }
 
-        Some(self.top + (y - area.top()) as usize)
+        Some(self.top() + (y - area.top()) as usize)
     }
-}
 
-/// Vertical coordinates
-impl MainLayout {
     /// Top track # of the viewing window.
     /// 0-based, inclusive.
     pub fn top(&self) -> usize {
@@ -671,27 +692,6 @@ impl MainLayout {
         } else {
             OnScreenCoordinate::OnScreen(y - self_top)
         }
-    }
-
-    /// Horizontal zoom out by a factor of r (1-based).
-    pub fn zoom_out(&mut self, zoom: Zoom, contig_length: Option<usize>) -> Result<(), TGVError> {
-        self.zoom = match zoom {
-            Zoom::In(r) => {
-                if r == 0 {
-                    return Err(TGVError::ValueError("Zoom factor cannot be 0".to_string()));
-                };
-                usize::max(1, self.zoom / r)
-            }
-            Zoom::Out(r) => {
-                if r == 0 {
-                    return Err(TGVError::ValueError("Zoom factor cannot be 0".to_string()));
-                }
-
-                self.zoom * r // will be bounded and the middle will be corrected later
-            }
-        };
-
-        self.self_correct(contig_length)
     }
 }
 

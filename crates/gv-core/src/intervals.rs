@@ -48,6 +48,18 @@ pub struct SortedIntervalCollection<T: GenomeInterval> {
     contig_lookup: HashMap<usize, Vec<usize>>,
 }
 
+impl<T> Default for SortedIntervalCollection<T>
+where
+    T: GenomeInterval,
+{
+    fn default() -> Self {
+        Self {
+            intervals: Vec::new(),
+            contig_lookup: HashMap::new(),
+        }
+    }
+}
+
 /// This is now O(N) for overlapping lookup. There are data structures for faster lookup, but TGV doesn't work with large interval collections.
 /// So O(N) might be ok or even faster.
 /// The interval tree data structure:

@@ -1,4 +1,4 @@
-use crate::error::TGVError;
+use gv_core::error::TGVError;
 
 use crate::variant::VariantRepository;
 use crate::{

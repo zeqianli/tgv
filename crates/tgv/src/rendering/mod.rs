@@ -8,7 +8,6 @@ mod coverage;
 mod cytoband;
 mod help;
 mod intervals;
-pub mod layout;
 mod sequence;
 mod status_bar;
 mod track;
@@ -22,7 +21,6 @@ pub use coordinate::render_coordinates;
 pub use coverage::render_coverage;
 pub use cytoband::render_cytobands;
 pub use help::render_help;
-pub use layout::MainLayout;
 pub use sequence::render_sequence;
 pub use status_bar::render_status_bar;
 pub use track::render_track;
@@ -123,7 +121,7 @@ impl Renderer {
                     }
                 }
                 AreaType::Bed => {
-                    if let Some(bed) = repository.bed_intervals.as_ref() {
+                    if let Some(bed) = repository.bed_repository.as_ref() {
                         render_bed(rect, buf, bed, state, pallete)?
                     }
                 }

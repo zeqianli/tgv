@@ -61,13 +61,16 @@ impl GenomeInterval for BEDInterval {
     }
 }
 #[derive(Debug, Clone)]
-pub struct BEDIntervals {
-    pub intervals: SortedIntervalCollection<BEDInterval>,
+pub struct BEDRepository {
+    pub bed_path: String,
 }
 
-impl BEDIntervals {
-    pub fn from_bed(bed_path: &str, contig_header: &ContigHeader) -> Result<Self, TGVError> {
-        let mut reader = bed::io::reader::Builder::<3>.build_from_path(bed_path)?;
+impl BEDRepository {
+    pub fn from_bed(
+        &self,
+        contig_header: &ContigHeader,
+    ) -> Result<SortedIntervalCollection<BEDInterval>, TGVError> {
+        let mut reader = bed::io::reader::Builder::<3>.build_from_path(self.bed_path.as_str())?;
         let mut record = bed::Record::default();
 
         let mut records = Vec::new();
@@ -79,12 +82,6 @@ impl BEDIntervals {
             index += 1;
         }
 
-        Ok(Self {
-            intervals: SortedIntervalCollection::new(records)?,
-        })
-    }
-
-    pub fn overlapping(&self, region: &Region) -> Result<Vec<&BEDInterval>, TGVError> {
-        self.intervals.overlapping(region)
+        SortedIntervalCollection::new(records)
     }
 }

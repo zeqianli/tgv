@@ -1,15 +1,11 @@
-use gv_core::{
-    bed::BEDIntervals,
-    error::TGVError,
-    rendering::{colors::Palette, intervals::render_simple_intervals},
-    state::State,
-};
+use crate::rendering::{colors::Palette, intervals::render_simple_intervals};
+use gv_core::{bed::BEDRepository, error::TGVError, state::State};
 use ratatui::{buffer::Buffer, layout::Rect};
 
 pub fn render_bed(
     area: &Rect,
     buf: &mut Buffer,
-    bed: &BEDIntervals,
+    bed: &BEDRepository,
     state: &State,
     pallete: &Palette,
 ) -> Result<(), TGVError> {

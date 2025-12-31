@@ -3,11 +3,12 @@ use crate::settings::Settings;
 use crate::tracks::{TrackService, TrackServiceEnum};
 use crate::{
     alignment::{Alignment, AlignmentRepositoryEnum},
+    bed::BEDInterval,
     contig_header::ContigHeader,
     cytoband::Cytoband,
     error::TGVError,
     feature::Gene,
-    intervals::{Focus, GenomeInterval, Region},
+    intervals::{Focus, GenomeInterval, Region, SortedIntervalCollection},
     message::{AlignmentDisplayOption, AlignmentFilter, Movement},
     reference::Reference,
     //register::Registers,
@@ -15,7 +16,9 @@ use crate::{
     repository::Repository,
     sequence::{Sequence, SequenceRepository},
     track::Track,
+    variant::Variant,
 };
+use bigtools::BedEntry;
 use itertools::Itertools;
 
 #[derive(Debug, Clone, Eq, PartialEq)]
@@ -34,6 +37,12 @@ pub struct State {
     pub alignment: Alignment,
     pub alignment_options: Vec<AlignmentDisplayOption>,
 
+    pub variants: SortedIntervalCollection<Variant>,
+    variant_loaded: bool, // Temporary hack before proper implemetation for the indexed VCF IO
+
+    pub bed_repository: SortedIntervalCollection<BEDInterval>,
+    bed_loaded: bool, // Temporary hack before proper implemetation for large bed file io
+
     pub track: Track<Gene>,
 
     pub sequence: Sequence,
@@ -51,6 +60,10 @@ impl State {
             alignment_options: Vec::new(),
             track: Track::<Gene>::default(),
             sequence: Sequence::default(),
+            variants: SortedIntervalCollection::<Variant>::default(),
+            variant_loaded: false,
+            bed_repository: SortedIntervalCollection::<BEDInterval>::default(),
+            bed_loaded: false,
             contig_header: contigs,
         })
     }

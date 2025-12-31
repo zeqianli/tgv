@@ -1,11 +1,13 @@
-use crate::intervals::GenomeInterval;
 use crate::{
+    layout::{MainLayout, OnScreenCoordinate},
+    rendering::colors::Palette,
+};
+use gv_core::intervals::GenomeInterval;
+use gv_core::{
     error::TGVError,
     feature::{Gene, SubGeneFeatureType},
-    rendering::colors::Palette,
-    states::State,
+    state::State,
     strand::Strand,
-    window::{OnScreenCoordinate, ViewingWindow},
 };
 use ratatui::{buffer::Buffer, layout::Rect, style::Style};
 

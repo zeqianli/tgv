@@ -1,10 +1,12 @@
+use crate::{
+    layout::{MainLayout, OnScreenCoordinate},
+    rendering::colors::Palette,
+};
 use gv_core::{
     alignment::{RenderingContext, RenderingContextKind, RenderingContextModifier},
     error::TGVError,
     message::AlignmentDisplayOption,
-    rendering::colors::Palette,
     state::State,
-    window::{OnScreenCoordinate, ViewingWindow},
 };
 use ratatui::{buffer::Buffer, layout::Rect, style::Style};
 

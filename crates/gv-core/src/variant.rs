@@ -85,13 +85,17 @@ impl GenomeInterval for Variant {
     }
 }
 pub struct VariantRepository {
-    pub variants: SortedIntervalCollection<Variant>,
+    pub vcf_path: String,
     // FIXME: save VCF header. This is needed for retrieving VCF FILTER, INFO, SAMPLE fields.
 }
 
 impl VariantRepository {
-    pub fn from_vcf(path: &str, contig_header: &ContigHeader) -> Result<Self, TGVError> {
-        let mut vcf = vcf::io::reader::Builder::default().build_from_path(path)?;
+    pub fn read_variants(
+        &self,
+        contig_header: &ContigHeader,
+    ) -> Result<SortedIntervalCollection<Variant>, TGVError> {
+        let mut vcf =
+            vcf::io::reader::Builder::default().build_from_path(self.vcf_path.as_str())?;
         vcf.read_header()?;
 
         let variants: Vec<Variant> = vcf
@@ -116,12 +120,6 @@ impl VariantRepository {
         //         .or_insert(BTreeMap::from([(variant.start(), vec![i])]));
         // }
 
-        Ok(VariantRepository {
-            variants: SortedIntervalCollection::new(variants)?,
-        })
-    }
-
-    pub fn overlapping(&self, region: &Region) -> Result<Vec<&Variant>, TGVError> {
-        self.variants.overlapping(region)
+        SortedIntervalCollection::new(variants)
     }
 }

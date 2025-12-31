@@ -1,6 +1,6 @@
 use crate::{
     alignment::AlignmentRepositoryEnum,
-    bed::BEDIntervals,
+    bed::BEDRepository,
     contig_header::{ContigHeader, ContigSource},
     error::TGVError,
     reference::Reference,
@@ -18,7 +18,7 @@ pub struct Repository {
 
     pub variant_repository: Option<VariantRepository>,
 
-    pub bed_intervals: Option<BEDIntervals>,
+    pub bed_repository: Option<BEDRepository>,
 
     pub track_service: Option<TrackServiceEnum>,
 
@@ -125,21 +125,20 @@ impl Repository {
             })
         }
 
-        let variant_repository = match &settings.vcf_path {
-            Some(vcf_path) => Some(VariantRepository::from_vcf(vcf_path, &contig_header)?),
-            None => None,
-        };
-
-        let bed_intervals = match &settings.bed_path {
-            Some(bed_path) => Some(BEDIntervals::from_bed(bed_path, &contig_header)?),
-            None => None,
-        };
+        let variant_repository = settings
+            .vcf_path
+            .as_ref()
+            .map(|vcf_path| VariantRepository {
+                vcf_path: vcf_path.clone(),
+            });
 
         Ok((
             Self {
                 alignment_repository,
                 variant_repository,
-                bed_intervals,
+                bed_repository: settings.bed_path.as_ref().map(|bed_path| BEDRepository {
+                    bed_path: bed_path.clone(),
+                }),
                 track_service,
                 sequence_service,
             },

@@ -186,13 +186,13 @@ impl MouseRegister {
                             if let Some((left_coordinate, right_coordinate)) =
                                 &state.window.coordinates_of_onscreen_x(event.column, area)
                             {
-                                if let Some(bed_intervals) = repository.bed_intervals.as_ref() {
+                                if let Some(bed_repository) = repository.bed_repository.as_ref() {
                                     let region = Region {
                                         contig_index: state.contig_index(),
                                         start: *left_coordinate,
                                         end: *right_coordinate,
                                     };
-                                    bed_intervals.overlapping(&region)?.into_iter().for_each(
+                                    bed_repository.overlapping(&region)?.into_iter().for_each(
                                         |bed_interval| {
                                             messages.push(Message::Message(bed_interval.describe()))
                                         },
