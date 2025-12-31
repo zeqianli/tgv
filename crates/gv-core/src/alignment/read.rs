@@ -21,14 +21,14 @@ pub enum RenderingContextModifier {
     Reverse,
 
     /// The previous cigar is an insertion. Annotate this at the beginning of this segment.
-    Insertion(usize),
+    Insertion(u64),
 
     /// Mismatch at location with base
-    Mismatch(usize, u8),
+    Mismatch(u64, u8),
 
     /// Pair overlaps and have differnet RenderingContextKind
     /// (except Softclip + Match: softclip is displayed in this case (same as IGV))
-    PairConflict(usize),
+    PairConflict(u64),
 }
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum RenderingContextKind {
@@ -48,10 +48,10 @@ pub enum RenderingContextKind {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct RenderingContext {
     /// Start coordinate of a displayed segment, 1-based
-    pub start: usize,
+    pub start: u64,
 
     /// End coordinates of a displayed segment, 1-based, inclusive
-    pub end: usize,
+    pub end: u64,
 
     /// The renderer will decide style based on the cigar segment kind.
     pub kind: RenderingContextKind,
@@ -65,7 +65,7 @@ impl RenderingContext {
         self.modifiers.push(modifier)
     }
 
-    fn len(&self) -> usize {
+    fn len(&self) -> u64 {
         self.end - self.start + 1
     }
 }
@@ -457,7 +457,7 @@ pub fn calculate_rendering_contexts(
                             continue;
                         }
 
-                        let base_coordinate: usize = reference_pivot - l + i_soft_clip_base;
+                        let base_coordinate = (reference_pivot - l + i_soft_clip_base) as u64;
 
                         let base = seq.get(i_soft_clip_base).unwrap();
                         new_contexts.push(RenderingContext {
@@ -470,7 +470,7 @@ pub fn calculate_rendering_contexts(
                 } else {
                     // right softclips. base rendered at the right of reference pivot.
                     for i_soft_clip_base in 0..l {
-                        let base_coordinate: usize = reference_pivot + i_soft_clip_base;
+                        let base_coordinate = (reference_pivot + i_soft_clip_base) as u64;
                         let base = seq.get(query_pivot + i_soft_clip_base - 1).unwrap();
                         new_contexts.push(RenderingContext {
                             start: base_coordinate,
@@ -493,8 +493,8 @@ pub fn calculate_rendering_contexts(
                 // ---------------- ref
                 // ===----===       read (lines with no bckground colors)
                 new_contexts.push(RenderingContext {
-                    start: reference_pivot,
-                    end: next_reference_pivot - 1,
+                    start: reference_pivot as u64,
+                    end: next_reference_pivot as u64 - 1,
                     kind: RenderingContextKind::Deletion,
                     modifiers: Vec::new(),
                 });
@@ -503,15 +503,15 @@ pub fn calculate_rendering_contexts(
             Kind::SequenceMismatch => {
                 // X
                 new_contexts.push(RenderingContext {
-                    start: reference_pivot,
-                    end: next_reference_pivot - 1,
+                    start: reference_pivot as u64,
+                    end: next_reference_pivot as u64 - 1,
                     kind: RenderingContextKind::Match,
                     modifiers: (query_pivot..next_query_pivot)
                         .map(|coordinate| {
                             let reference_coordinate = coordinate - query_pivot + reference_pivot;
 
                             RenderingContextModifier::Mismatch(
-                                reference_coordinate,
+                                reference_coordinate as u64,
                                 seq.get(coordinate - 1).unwrap(),
                             )
                         })
@@ -521,8 +521,8 @@ pub fn calculate_rendering_contexts(
 
             Kind::SequenceMatch => new_contexts.push(RenderingContext {
                 // =
-                start: reference_pivot,
-                end: next_reference_pivot - 1,
+                start: reference_pivot as u64,
+                end: next_reference_pivot as u64 - 1,
                 kind: RenderingContextKind::Match,
                 modifiers: Vec::new(),
             }),
@@ -544,7 +544,7 @@ pub fn calculate_rendering_contexts(
                             let query_base = seq.get(query_pivot + i - 1).unwrap();
                             if !matches_base(query_base, reference_base) {
                                 Some(RenderingContextModifier::Mismatch(
-                                    query_position,
+                                    query_position as u64,
                                     query_base,
                                 ))
                             } else {
@@ -556,8 +556,8 @@ pub fn calculate_rendering_contexts(
                     })
                     .collect_vec();
                 new_contexts.push(RenderingContext {
-                    start: reference_pivot,
-                    end: next_reference_pivot - 1,
+                    start: reference_pivot as u64,
+                    end: next_reference_pivot as u64 - 1,
                     kind: RenderingContextKind::Match,
                     modifiers,
                 });
@@ -579,7 +579,7 @@ pub fn calculate_rendering_contexts(
             // Insertion (detected in the previous loop) notated at the beginning of the first segment.
             if let Some(context) = new_contexts.first_mut() {
                 context.add_modifier(RenderingContextModifier::Insertion(
-                    annotate_insertion_in_next_cigar.unwrap(),
+                    annotate_insertion_in_next_cigar.unwrap() as u64,
                 ))
             }
         };
@@ -817,8 +817,8 @@ pub fn calculate_paired_context(
 }
 
 pub fn get_overlapped_pair_rendering_text(
-    start: usize,
-    end: usize,
+    start: u64,
+    end: u64,
     kind_1: &RenderingContextKind,
     kind_2: &RenderingContextKind,
     modifiers_1: &Vec<RenderingContextModifier>,
@@ -835,7 +835,7 @@ pub fn get_overlapped_pair_rendering_text(
         };
     }
 
-    let mut base_modifier_lookup = HashMap::<usize, RenderingContextModifier>::new();
+    let mut base_modifier_lookup = HashMap::<u64, RenderingContextModifier>::new();
     let mut modifiers = vec![];
 
     modifiers_1.iter().for_each(|modifier| match modifier {

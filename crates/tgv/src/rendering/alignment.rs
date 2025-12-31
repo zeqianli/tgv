@@ -1,5 +1,5 @@
 use crate::{
-    layout::{MainLayout, OnScreenCoordinate},
+    layout::{AlignmentView, MainLayout, OnScreenCoordinate},
     rendering::colors::Palette,
 };
 use gv_core::{
@@ -15,6 +15,7 @@ pub fn render_alignment(
     area: &Rect,
     buf: &mut Buffer,
     state: &State,
+    alignment_view: &AlignmentView,
     pallete: &Palette,
 ) -> Result<(), TGVError> {
     if area.height < 1 {
@@ -107,17 +108,17 @@ struct OnScreenRenderingContext {
 fn get_read_rendering_info(
     context: &RenderingContext,
     y: usize,
-    viewing_window: &ViewingWindow,
+    alignment_view: &AlignmentView,
     area: &Rect,
     pallete: &Palette,
 ) -> Result<Option<Vec<OnScreenRenderingContext>>, TGVError> {
-    let onscreen_y = match viewing_window.onscreen_y_coordinate(y, area) {
+    let onscreen_y = match alignment_view.onscreen_y_coordinate(y, area) {
         OnScreenCoordinate::OnScreen(y_start) => y_start as u16,
         _ => return Ok(None),
     };
 
-    let start_onscreen_coordinate = viewing_window.onscreen_x_coordinate(context.start, area);
-    let end_onscreen_coordinate = viewing_window.onscreen_x_coordinate(context.end, area);
+    let start_onscreen_coordinate = alignment_view.onscreen_x_coordinate(context.start, area);
+    let end_onscreen_coordinate = alignment_view.onscreen_x_coordinate(context.end, area);
 
     let (onscreen_x, length) = match OnScreenCoordinate::onscreen_start_and_length(
         &start_onscreen_coordinate,
@@ -213,7 +214,7 @@ fn get_read_rendering_info(
 
             RenderingContextModifier::Mismatch(coordinate, base) => {
                 if let OnScreenCoordinate::OnScreen(modifier_onscreen_x) =
-                    viewing_window.onscreen_x_coordinate(*coordinate, area)
+                    alignment_view.onscreen_x_coordinate(*coordinate, area)
                 {
                     output.push(OnScreenRenderingContext {
                         x: modifier_onscreen_x as u16,
@@ -230,7 +231,7 @@ fn get_read_rendering_info(
 
             RenderingContextModifier::PairConflict(coordinate) => {
                 if let OnScreenCoordinate::OnScreen(modifier_onscreen_x) =
-                    viewing_window.onscreen_x_coordinate(*coordinate, area)
+                    alignment_view.onscreen_x_coordinate(*coordinate, area)
                 {
                     output.push(OnScreenRenderingContext {
                         x: modifier_onscreen_x as u16,

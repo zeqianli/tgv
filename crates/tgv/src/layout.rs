@@ -2,7 +2,7 @@ use crate::settings::Settings;
 use gv_core::{
     alignment::Alignment,
     error::TGVError,
-    intervals::{Focus, Region},
+    intervals::{Focus, GenomeInterval, Region},
     message::{Scroll, Zoom},
 };
 use ratatui::layout::{Constraint, Direction, Layout, Rect};
@@ -97,7 +97,7 @@ impl LayoutNode {
 
     fn get_areas(&self, area: Rect) -> Vec<(AreaType, Rect)> {
         let mut areas: Vec<(AreaType, Rect)> = Vec::new();
-        self.root.get_areas(self.main_area, &mut areas);
+        self.get_areas_in_place(area, &mut areas);
         areas
     }
 
@@ -128,34 +128,34 @@ impl LayoutNode {
 
     pub fn root(settings: &Settings) -> Self {
         let mut children = vec![];
-        if settings.reference.needs_track() {
+        if settings.core.reference.needs_track() {
             children.extend(vec![LayoutNode::Area {
                 constraint: Constraint::Length(2),
                 area_type: AreaType::Cytoband,
             }]);
         }
 
-        if settings.reference.needs_sequence() || settings.reference.needs_track() {
+        if settings.core.reference.needs_sequence() || settings.core.reference.needs_track() {
             children.extend(vec![LayoutNode::Area {
                 constraint: Constraint::Length(2),
                 area_type: AreaType::Coordinate,
             }]);
         }
 
-        if settings.bam_path.is_some() {
+        if settings.core.bam_path.is_some() {
             children.push(LayoutNode::Area {
                 constraint: Constraint::Length(6),
                 area_type: AreaType::Coverage,
             });
         }
-        if settings.vcf_path.is_some() {
+        if settings.core.vcf_path.is_some() {
             children.push(LayoutNode::Area {
                 constraint: Constraint::Length(1),
                 area_type: AreaType::Variant,
             });
         }
 
-        if settings.bed_path.is_some() {
+        if settings.core.bed_path.is_some() {
             children.push(LayoutNode::Area {
                 constraint: Constraint::Length(1),
                 area_type: AreaType::Bed,
@@ -167,13 +167,13 @@ impl LayoutNode {
             area_type: AreaType::Alignment,
         }]);
 
-        if settings.reference.needs_sequence() {
+        if settings.core.reference.needs_sequence() {
             children.extend(vec![LayoutNode::Area {
                 constraint: Constraint::Length(1),
                 area_type: AreaType::Sequence,
             }]);
         }
-        if settings.reference.needs_track() {
+        if settings.core.reference.needs_track() {
             children.extend(vec![LayoutNode::Area {
                 constraint: Constraint::Length(2),
                 area_type: AreaType::GeneTrack,
@@ -207,13 +207,189 @@ enum MousePosition {
     Center,
 }
 
-/// Main page layout
-pub struct MainLayout {
+pub struct AlignmentView {
     pub focus: Focus,
     pub zoom: u64,
-    pub root: LayoutNode,
-
     pub y: usize,
+}
+
+/// States for the alignment view
+impl AlignmentView {
+    fn new(focus: Focus) -> Self {
+        AlignmentView {
+            focus,
+            zoom: 1,
+            y: 0,
+        }
+    }
+
+    pub fn scroll(&mut self, scroll: Scroll, alignment: &Alignment) {
+        match scroll {
+            Scroll::Up(n) => self.y = self.y.saturating_sub(n),
+            Scroll::Down(n) => self.y = usize::min(self.y.saturating_add(n), alignment.depth()),
+        }
+    }
+
+    pub fn region(&self, area: &Rect) -> Region {
+        Region {
+            focus: self.focus.clone(),
+            half_width: (area.width as u64 * self.zoom) / 2,
+        }
+    }
+
+    /// FIXME: cost of this is pretty high. Lots of useless calculation here.
+    pub fn left(&self, area: &Rect) -> u64 {
+        self.region(area).start()
+    }
+
+    /// FIXME: cost of this is pretty high. Lots of useless calculation here.
+    pub fn right(&self, area: &Rect) -> u64 {
+        self.region(area).end()
+    }
+
+    pub fn zoom(
+        &mut self,
+        zoom: Zoom,
+        area: &Rect,
+        contig_length: Option<u64>,
+    ) -> Result<(), TGVError> {
+        self.zoom = match zoom {
+            Zoom::In(r) => {
+                if r == 0 {
+                    return Err(TGVError::ValueError(
+                        "Zoom in factor cannot be 0".to_string(),
+                    ));
+                };
+                u64::max(1, self.zoom / r)
+            }
+            Zoom::Out(r) => {
+                if r == 0 {
+                    return Err(TGVError::ValueError(
+                        "Zoom out factor cannot be 0".to_string(),
+                    ));
+                }
+
+                self.zoom * r // will be bounded and self-corrected later
+            }
+        };
+
+        self.self_correct(area, contig_length);
+        Ok(())
+    }
+
+    /// Set the top track # of the viewing window.
+    /// 0-based.
+    pub fn set_y(&mut self, y: usize, depth: usize) {
+        self.y = usize::min(y, depth.saturating_sub(1))
+    }
+
+    /// Check if the viewing window overlaps with [left, right].
+    /// 1-based, inclusive.
+    pub fn overlaps_x_interval(&self, left: u64, right: u64, area: &Rect) -> bool {
+        // FIXME: can reduce some useless calculation here.
+        left <= self.right(area) && right >= self.left(area)
+    }
+
+    /// Top track # of the viewing window.
+    /// 0-based, inclusive.
+    pub fn top(&self) -> usize {
+        self.y
+    }
+
+    /// Bottom track # of the viewing window.
+    /// 0-based, exclusive.
+    pub fn bottom(&self, area: &Rect) -> usize {
+        self.y + area.height as usize
+    }
+
+    /// Move the viewing window be within the contig range.
+    pub fn self_correct(&mut self, area: &Rect, contig_length: Option<u64>) {
+        if let Some(contig_length) = contig_length {
+            // 1. Zoom: cannot be large than contig_length / area.width
+            self.zoom = u64::min(self.zoom, contig_length / area.width as u64);
+
+            // 2. Right: cannot be larger than contig_length
+            let right = self.region(area).end();
+            if right > contig_length {
+                self.focus.position = self.focus.position.saturating_sub(right - contig_length);
+            }
+        }
+    }
+
+    /// Height of the viewing window.
+    // pub fn height(&self, area: &Rect) -> usize {
+    //     area.height as usize
+    // }
+
+    /// Check if the viewing window overlaps with [top, bottom).
+    /// y: 0-based.
+    pub fn overlaps_y(&self, y: usize, area: &Rect) -> bool {
+        (self.top()..self.bottom(area)).contains(&y)
+    }
+
+    /// Returns the onscreen x coordinate in the area. Example:
+    /// Bases displayed in the window: 1 2 | 3 4 5 6 7 8 | 9 10
+    /// Zoom = 2, window has 3 pixels
+    /// 1/2 -> Left(0)
+    /// 3/4 -> OnScreen(0)
+    /// 5/6 -> OnScreen(1)
+    /// 7/8 -> OnScreen(2)
+    /// 9/10 -> Right(1)
+    ///
+    /// x: 1-based
+    pub fn onscreen_x_coordinate(&self, x: u64, area: &Rect) -> OnScreenCoordinate {
+        // TODO: for now, we assume that left and right area equals to the alignment area. Fix this in the future if we need x axis layouts.
+        let self_left = self.left(area);
+        let self_right = self.right(area);
+
+        if x < self_left {
+            OnScreenCoordinate::Left(usize::max(((self_left - x) / self.zoom) as usize, 1))
+        } else if x > self_right {
+            OnScreenCoordinate::Right(usize::max(((x - self_right) / self.zoom) as usize, 1))
+        } else {
+            OnScreenCoordinate::OnScreen(((x - self_left) / self.zoom) as usize)
+        }
+    }
+
+    /// Given an onscreen x position, return the genome coordinate range (1-based, inclusive) at that x location.
+    pub fn coordinates_of_onscreen_x(&self, x: u16, area: &Rect) -> Option<(u64, u64)> {
+        if x < area.left() || x >= area.right() {
+            return None;
+        }
+
+        let left = self.left(area) + (x - area.left()) as u64 * self.zoom;
+
+        Some((left, left + self.zoom - 1))
+    }
+
+    /// Given an onscreen x position, return the genome coordinate range (1-based, inclusive) at that x location.
+    pub fn coordinate_of_onscreen_y(&self, y: u16, area: &Rect) -> Option<usize> {
+        if y < area.top() || y >= area.bottom() {
+            return None;
+        }
+
+        Some(self.top() + (y - area.top()) as usize)
+    }
+
+    /// Returns the onscreen y coordinate in the area. Example
+    /// y: 0-based.
+    pub fn onscreen_y_coordinate(&self, y: usize, area: &Rect) -> OnScreenCoordinate {
+        let self_top = self.top();
+        let self_bottom = self.bottom(area);
+
+        if y < self_top {
+            OnScreenCoordinate::Left(self_top - y)
+        } else if y >= self_bottom {
+            OnScreenCoordinate::Right(y - self_bottom) // Note that this is different from the x coordinate. TODO: think about this.
+        } else {
+            OnScreenCoordinate::OnScreen(y - self_top)
+        }
+    }
+}
+
+/// Main page layout
+pub struct MainLayout {
+    pub root: LayoutNode,
 
     pub main_area: Rect,
 
@@ -225,9 +401,6 @@ impl MainLayout {
         let root = LayoutNode::root(&settings);
         let areas = root.get_areas(area);
         MainLayout {
-            focus,
-            zoom: 1,
-            y: 0,
             root: LayoutNode::root(settings),
             main_area: area,
             areas: areas,
@@ -246,32 +419,6 @@ impl MainLayout {
         self.areas.iter().find(|(area_type, area)| {
             x >= area.x && x < area.right() && y >= area.y && y < area.bottom()
         })
-    }
-
-    pub fn zoom(&mut self, zoom: Zoom, contig_length: Option<u64>) {
-        match zoom {
-            Zoom::In(r) => self.zoom = u64::max(self.zoom / r, 1),
-            Zoom::out(r) => u64::min(
-                self.zoom * r,
-                contig_length
-                    .map(|len| len / self.main_area.width() as u64)
-                    .unwrap_or(u64::MAX),
-            ),
-        }
-    }
-
-    pub fn scroll(&mut self, scroll: Scroll, alignment: &Alignment) {
-        match scroll {
-            Scroll::Up(n) => self.y = self.y.saturating_sub(n),
-            Scroll::Down(n) => self.y = u64::min(self.y.saturating_add(n), alignment.depth()),
-        }
-    }
-
-    pub fn region(&self) -> Region {
-        Region {
-            focus: self.focus.clone(),
-            half_width: (self.main_area.width() as u64 * self.zoom) / 2,
-        }
     }
 }
 
@@ -557,140 +704,6 @@ impl OnScreenCoordinate {
             (OnScreenCoordinate::Right(_a), OnScreenCoordinate::OnScreen(_b)) => None,
 
             (OnScreenCoordinate::Right(_a), OnScreenCoordinate::Right(_b)) => None,
-        }
-    }
-}
-
-/// Horizontal coordinates
-impl MainLayout {
-    /// Move the viewing window be within the contig range.
-    pub fn self_correct(&mut self, contig_length: Option<usize>) {
-        if let Some(contig_length) = contig_length {
-            // 1. Zoom: cannot be large than contig_length / area.width
-            self.zoom = usize::min(self.zoom, contig_length / self.area.width as usize);
-
-            // 2. Right: cannot be larger than contig_length
-            let right = self.region().end();
-            if right > contig_length {
-                self.focus.position = self.position.saturating_sub(right - contig_length);
-            }
-        }
-    }
-
-    pub fn zoom(&mut self, zoom: Zoom, contig_length: Option<usize>) -> Result<(), TGVError> {
-        self.zoom = match zoom {
-            Zoom::In(r) => {
-                if r == 0 {
-                    return Err(TGVError::ValueError(
-                        "Zoom in factor cannot be 0".to_string(),
-                    ));
-                };
-                usize::max(1, self.zoom / r)
-            }
-            Zoom::Out(r) => {
-                if r == 0 {
-                    return Err(TGVError::ValueError(
-                        "Zoom out factor cannot be 0".to_string(),
-                    ));
-                }
-
-                self.zoom * r // will be bounded and self-corrected later
-            }
-        };
-
-        self.self_correct(contig_length)
-    }
-
-    /// Set the top track # of the viewing window.
-    /// 0-based.
-    pub fn set_y(&mut self, y: usize, depth: usize) {
-        self.y = usize::min(y, depth.saturating_sub(1))
-    }
-
-    /// Check if the viewing window overlaps with [left, right].
-    /// 1-based, inclusive.
-    pub fn overlaps_x_interval(&self, left: usize, right: usize, area: &Rect) -> bool {
-        left <= self.right(area) && right >= self.left()
-    }
-
-    /// Returns the onscreen x coordinate in the area. Example:
-    /// Bases displayed in the window: 1 2 | 3 4 5 6 7 8 | 9 10
-    /// Zoom = 2, window has 3 pixels
-    /// 1/2 -> Left(0)
-    /// 3/4 -> OnScreen(0)
-    /// 5/6 -> OnScreen(1)
-    /// 7/8 -> OnScreen(2)
-    /// 9/10 -> Right(1)
-    ///
-    /// x: 1-based
-    pub fn onscreen_x_coordinate(&self, x: usize, area: &Rect) -> OnScreenCoordinate {
-        let self_left = self.left();
-        let self_right = self.right(area);
-
-        if x < self_left {
-            OnScreenCoordinate::Left(usize::max((self_left - x) / self.zoom, 1))
-        } else if x > self_right {
-            OnScreenCoordinate::Right(usize::max((x - self_right) / self.zoom, 1))
-        } else {
-            OnScreenCoordinate::OnScreen((x - self_left) / self.zoom)
-        }
-    }
-
-    /// Given an onscreen x position, return the genome coordinate range (1-based, inclusive) at that x location.
-    pub fn coordinates_of_onscreen_x(&self, x: u16, area: &Rect) -> Option<(usize, usize)> {
-        if x < area.left() || x >= area.right() {
-            return None;
-        }
-
-        let left = self.left + (x - area.left()) as usize * self.zoom;
-
-        Some((left, left + self.zoom - 1))
-    }
-
-    /// Given an onscreen x position, return the genome coordinate range (1-based, inclusive) at that x location.
-    pub fn coordinate_of_onscreen_y(&self, y: u16, area: &Rect) -> Option<usize> {
-        if y < area.top() || y >= area.bottom() {
-            return None;
-        }
-
-        Some(self.top() + (y - area.top()) as usize)
-    }
-
-    /// Top track # of the viewing window.
-    /// 0-based, inclusive.
-    pub fn top(&self) -> usize {
-        self.y
-    }
-
-    /// Bottom track # of the viewing window.
-    /// 0-based, exclusive.
-    pub fn bottom(&self, area: &Rect) -> usize {
-        self.y + area.height as usize
-    }
-
-    /// Height of the viewing window.
-    // pub fn height(&self, area: &Rect) -> usize {
-    //     area.height as usize
-    // }
-
-    /// Check if the viewing window overlaps with [top, bottom).
-    /// y: 0-based.
-    pub fn overlaps_y(&self, y: usize, area: &Rect) -> bool {
-        (self.top..self.bottom(area)).contains(y)
-    }
-
-    /// Returns the onscreen y coordinate in the area. Example
-    /// y: 0-based.
-    pub fn onscreen_y_coordinate(&self, y: usize, area: &Rect) -> OnScreenCoordinate {
-        let self_top = self.top();
-        let self_bottom = self.bottom(area);
-
-        if y < self_top {
-            OnScreenCoordinate::Left(self_top - y)
-        } else if y >= self_bottom {
-            OnScreenCoordinate::Right(y - self_bottom) // Note that this is different from the x coordinate. TODO: think about this.
-        } else {
-            OnScreenCoordinate::OnScreen(y - self_top)
         }
     }
 }

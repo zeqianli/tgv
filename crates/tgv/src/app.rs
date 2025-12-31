@@ -42,17 +42,17 @@ impl App {
         terminal: &mut Terminal<B>,
     ) -> Result<Self, TGVError> {
         // Gather resources before initializing the state.
-        let (mut repository, contig_header) = Repository::new(&settings).await?;
+        let (mut repository, contig_header) = Repository::new(&settings.core).await?;
 
-        let state = State::new(settings.reference.clone(), contig_header)?;
-        let focus = state.default_focus(repository).await?;
+        let state = State::new(settings.core.reference.clone(), contig_header)?;
+        let focus = state.default_focus(&mut repository).await?;
 
         // TODO: go to foucs?
         // TODO: handle initial message with stricter error handling
 
         Ok(Self {
             exit: false,
-            layout: MainLayout::new(&settings.core, terminal.area(), focus),
+            layout: MainLayout::new(&settings, terminal.area(), focus),
             state,
             settings: settings.clone(),
             repository,
@@ -65,7 +65,7 @@ impl App {
 impl App {
     /// Main loop
     pub async fn run<B: Backend>(mut self, terminal: &mut Terminal<B>) -> Result<Self, TGVError> {
-        while !self.state.exit {
+        while !self.exit {
             // Prepare rendering
             //self.registers.update(&self.state)?;
             self.renderer.update(&self.state)?;
@@ -79,7 +79,7 @@ impl App {
             terminal
                 .draw(|frame| {
                     let buffer = frame.buffer_mut();
-                    self.state.set_area(buffer.area).unwrap();
+                    self.layout.set_area(buffer.area);
                     self.renderer
                         .render(
                             buffer,

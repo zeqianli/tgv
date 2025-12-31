@@ -197,7 +197,7 @@ impl Registers {
         }
     }
 
-    fn handle_key_event(
+    pub fn handle_key_event(
         &mut self,
         key_event: KeyEvent,
         state: &State,
