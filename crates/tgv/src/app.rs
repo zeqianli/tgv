@@ -4,7 +4,7 @@ use crossterm::event::{self, Event, KeyEventKind};
 use ratatui::{Terminal, prelude::Backend};
 
 use crate::{
-    layout::MainLayout,
+    layout::{AlignmentView, MainLayout},
     message::Message,
     mouse::MouseRegister,
     register::{KeyRegisterType, Registers},
@@ -34,6 +34,8 @@ pub struct App {
     pub repository: Repository,
     pub registers: Registers,
     pub renderer: Renderer,
+
+    pub alignment_view: AlignmentView,
 }
 
 impl App {
@@ -52,7 +54,8 @@ impl App {
 
         Ok(Self {
             exit: false,
-            layout: MainLayout::new(&settings, terminal.area(), focus),
+            layout: MainLayout::new(&settings, terminal.area()),
+            alignment_view: AlignmentView::new(focus),
             state,
             settings: settings.clone(),
             repository,

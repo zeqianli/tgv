@@ -122,7 +122,7 @@ impl Palette {
                 let end_g = 46.0;
                 let end_b = 22.0;
 
-                let t = *p as f32 / 100.0;
+                let t = p as f32 / 100.0;
 
                 let r = (start_r * (1.0 - t) + end_r * t).round() as u8;
                 let g = (start_g * (1.0 - t) + end_g * t).round() as u8;

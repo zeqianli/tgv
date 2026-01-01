@@ -15,19 +15,18 @@ pub fn render_console(area: &Rect, buf: &mut Buffer, buffer: &Registers) -> Resu
     }
 
     let cursor_char = buffer
-        .input
+        .command
         .chars()
         .nth(buffer.command_cursor)
         .unwrap_or(' ');
-    let cursor_char_position = area.x + 1 + buffer.cursor_position as u16;
+    let cursor_char_position = area.x + 1 + buffer.command_cursor as u16;
     let cursor_char_style = Style::default().bg(Color::Red);
 
-    buf.set_stringn(area.x, area.y, ":", area.width as usize, Style::default());
     buf.set_stringn(
-        area.x + 1,
+        area.x,
         area.y,
-        &buffer.input,
-        area.width as usize - 1,
+        &format!(":{}", buffer.command),
+        area.width as usize,
         Style::default(),
     );
     buf.set_stringn(

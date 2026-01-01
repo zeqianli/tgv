@@ -44,7 +44,7 @@ pub fn render_alignment(
                 if *show_pair {
                     let y = state.alignment.ys[read_pair.read_1_index];
                     read_pair.rendering_contexts.iter().try_for_each(|context| {
-                        render_contexts(context, y, buf, state, area, pallete)
+                        render_contexts(context, y, buf, alignment_view, area, pallete)
                     })
                 } else {
                     Ok(())
@@ -62,7 +62,7 @@ pub fn render_alignment(
                         .rendering_contexts
                         .iter()
                         .try_for_each(|context| {
-                            render_contexts(context, y, buf, state, area, pallete)
+                            render_contexts(context, y, buf, alignment_view, area, pallete)
                         })
                 })
             })?
@@ -74,12 +74,12 @@ fn render_contexts(
     context: &RenderingContext,
     y: usize,
     buf: &mut Buffer,
-    state: &State,
+    alignment_view: &AlignmentView,
     area: &Rect,
     pallete: &Palette,
 ) -> Result<(), TGVError> {
     if let Some(onscreen_contexts) =
-        get_read_rendering_info(context, y, &state.window, area, pallete)?
+        get_read_rendering_info(context, y, alignment_view, area, pallete)?
     {
         for onscreen_context in onscreen_contexts {
             buf.set_string(

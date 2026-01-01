@@ -215,7 +215,7 @@ pub struct AlignmentView {
 
 /// States for the alignment view
 impl AlignmentView {
-    fn new(focus: Focus) -> Self {
+    pub fn new(focus: Focus) -> Self {
         AlignmentView {
             focus,
             zoom: 1,
@@ -397,7 +397,7 @@ pub struct MainLayout {
 }
 
 impl MainLayout {
-    pub fn new(settings: &Settings, area: Rect, focus: Focus) -> Self {
+    pub fn new(settings: &Settings, area: Rect) -> Self {
         let root = LayoutNode::root(&settings);
         let areas = root.get_areas(area);
         MainLayout {
