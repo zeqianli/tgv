@@ -27,12 +27,11 @@ pub use track::render_track;
 pub use variants::render_variants;
 
 use crate::{
-    error::TGVError,
+    layout::AreaType,
     register::{KeyRegisterType, Registers},
-    rendering::layout::AreaType,
-    repository::Repository,
-    states::State,
 };
+
+use gv_core::{error::TGVError, repository::Repository, state::State};
 use ratatui::{buffer::Buffer, layout::Rect};
 
 #[derive(Debug, Default)]
