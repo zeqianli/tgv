@@ -25,14 +25,14 @@ pub struct Registers {
 
 impl Default for Registers {
     fn default() -> Self {
-        Ok(Self {
+        Self {
             current: KeyRegisterType::Normal,
             normal: "".to_string(),
             command: "".to_string(),
             command_cursor: 0,
 
             contig_list_cursor: 0,
-        })
+        }
     }
 }
 

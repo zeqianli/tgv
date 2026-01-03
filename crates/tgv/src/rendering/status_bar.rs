@@ -1,9 +1,16 @@
-use gv_core::{error::TGVError, state::State};
+use gv_core::{error::TGVError, intervals::GenomeInterval, state::State};
 
 use itertools::Itertools;
 use ratatui::{buffer::Buffer, layout::Rect, style::Style};
 
-pub fn render_status_bar(area: &Rect, buf: &mut Buffer, state: &State) -> Result<(), TGVError> {
+use crate::layout::AlignmentView;
+
+pub fn render_status_bar(
+    area: &Rect,
+    buf: &mut Buffer,
+    state: &State,
+    alignment_view: &AlignmentView,
+) -> Result<(), TGVError> {
     if area.width < 1 || area.height < 2 {
         return Ok(());
     }
@@ -23,11 +30,15 @@ pub fn render_status_bar(area: &Rect, buf: &mut Buffer, state: &State) -> Result
 
     // X and y coordinates
 
-    let x_coordinate_string = format!("{}: {}", state.contig_name()?, state.window.middle(area));
+    let x_coordinate_string = format!(
+        "{}: {}",
+        state.contig_name(&alignment_view.focus)?,
+        alignment_view.focus.position
+    );
     let mut y_coordinate_string = if state.alignment.depth() == 0 {
         "".to_string()
     } else {
-        let y = state.window.top() + 1; // Change to 1-base
+        let y = alignment_view.top() + 1; // Change to 1-base
         let depth = state.alignment.depth();
         let percent = y * 100 / depth;
         format!("{}% ({} / {})", percent, y, depth)

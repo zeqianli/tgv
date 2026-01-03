@@ -1,4 +1,4 @@
-use crate::rendering::colors::Palette;
+use crate::{layout::AlignmentView, rendering::colors::Palette};
 use gv_core::{error::TGVError, intervals::Region, sequence::Sequence, state::State};
 use ratatui::{buffer::Buffer, layout::Rect, style::Style};
 
@@ -9,13 +9,14 @@ pub fn render_sequence(
     area: &Rect,
     buf: &mut Buffer,
     state: &State,
+    alignment_view: &AlignmentView,
     pallete: &Palette,
 ) -> Result<(), TGVError> {
-    let region = &state.viewing_region();
+    let region = alignment_view.region(area);
 
-    match state.window.zoom {
-        1 => render_sequence_at_1x(area, buf, region, &state.sequence, pallete),
-        2 => render_sequence_at_2x(area, buf, region, &state.sequence, pallete),
+    match alignment_view.zoom {
+        1 => render_sequence_at_1x(area, buf, &region, &state.sequence, pallete),
+        2 => render_sequence_at_2x(area, buf, &region, &state.sequence, pallete),
         _ => Ok(()),
     }
 }

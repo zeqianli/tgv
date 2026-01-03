@@ -1,5 +1,5 @@
 use crate::{
-    layout::{MainLayout, OnScreenCoordinate},
+    layout::{AlignmentView, MainLayout, OnScreenCoordinate},
     rendering::colors::Palette,
 };
 use gv_core::intervals::GenomeInterval;
@@ -29,6 +29,7 @@ pub fn render_track(
     area: &Rect,
     buf: &mut Buffer,
     state: &State,
+    alignment_view: &AlignmentView,
     pallete: &Palette,
 ) -> Result<(), TGVError> {
     if area.width < MIN_AREA_WIDTH || area.height < MIN_AREA_HEIGHT {
@@ -37,7 +38,7 @@ pub fn render_track(
 
     let mut right_most_label_onscreen_x = 0;
     for feature in state.track.genes().iter() {
-        for context in get_rendering_info(&state.window, area, feature, pallete) {
+        for context in get_rendering_info(&alignment_view, area, feature, pallete) {
             buf.set_string(
                 context.x + area.x,
                 area.y,
@@ -66,15 +67,15 @@ pub fn render_track(
 const MIN_GENE_ON_SCREEN_LENGTH_TO_SHOW_EXONS: usize = 10;
 
 fn get_rendering_info(
-    window: &ViewingWindow,
+    alignment_view: &AlignmentView,
     area: &Rect,
     gene: &Gene,
     pallete: &Palette,
 ) -> Vec<TrackRenderContext> {
     // First, check if the gene should be rendered as a single segment or multiple segments.
 
-    let gene_start_x = window.onscreen_x_coordinate(gene.start(), area);
-    let gene_end_x = window.onscreen_x_coordinate(gene.end(), area);
+    let gene_start_x = alignment_view.onscreen_x_coordinate(gene.start(), area);
+    let gene_end_x = alignment_view.onscreen_x_coordinate(gene.end(), area);
 
     let render_whole_gene = (OnScreenCoordinate::width(&gene_start_x, &gene_end_x, area)
         <= MIN_GENE_ON_SCREEN_LENGTH_TO_SHOW_EXONS)
@@ -107,8 +108,8 @@ fn get_rendering_info(
         let mut introns_info: Vec<TrackRenderContext> = Vec::new();
         let mut right_most_label_onscreen_x = 0;
         for (feature_start, feature_end, feature_type, feature_index) in gene.features() {
-            let feature_start_x = window.onscreen_x_coordinate(feature_start, area);
-            let feature_end_x = window.onscreen_x_coordinate(feature_end, area);
+            let feature_start_x = alignment_view.onscreen_x_coordinate(feature_start, area);
+            let feature_end_x = alignment_view.onscreen_x_coordinate(feature_end, area);
 
             if let Some((x, length)) = OnScreenCoordinate::onscreen_start_and_length(
                 &feature_start_x,

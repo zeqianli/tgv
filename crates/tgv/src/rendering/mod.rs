@@ -59,10 +59,10 @@ pub fn render_main(
                 render_alignment(rect, buf, state, alignment_view, pallete)?;
             }
             AreaType::Sequence => {
-                render_sequence(rect, buf, state, pallete)?;
+                render_sequence(rect, buf, state, alignment_view, pallete)?;
             }
             AreaType::GeneTrack => {
-                render_track(rect, buf, state, pallete)?;
+                render_track(rect, buf, state, alignment_view, pallete)?;
             }
             AreaType::Console => {
                 if registers.current == KeyRegisterType::Command {
@@ -70,10 +70,10 @@ pub fn render_main(
                 }
             }
             AreaType::Error => {
-                render_status_bar(rect, buf, state)?;
+                render_status_bar(rect, buf, state, alignment_view)?;
             }
-            AreaType::Variant => render_variants(rect, buf, variants, state, pallete)?,
-            AreaType::Bed => render_bed(rect, buf, bed, state, pallete)?,
+            AreaType::Variant => render_variants(rect, buf, state, alignment_view, pallete)?,
+            AreaType::Bed => render_bed(rect, buf, state, alignment_view, pallete)?,
         };
     }
     Ok(())
