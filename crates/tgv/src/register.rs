@@ -2,6 +2,7 @@ use crate::{app::Scene, message::Message};
 use crossterm::event::{KeyCode, KeyEvent};
 use gv_core::normal::update_by_char;
 use gv_core::{error::TGVError, state::State};
+use itertools::Itertools;
 
 #[derive(Debug, Clone, Eq, PartialEq)]
 pub enum KeyRegisterType {
@@ -37,13 +38,6 @@ impl Default for Registers {
 }
 
 impl Registers {
-    pub fn update(&mut self, state: &State) -> Result<(), TGVError> {
-        if self.current != KeyRegisterType::ContigList {
-            self.contig_list.cursor_position = state.contig_index();
-        }
-        Ok(())
-    }
-
     pub fn clear(&mut self) {
         self.normal.clear();
         self.command.clear();
@@ -76,7 +70,9 @@ impl Registers {
             KeyCode::Enter => Ok(vec![
                 Message::SwitchKeyRegister(KeyRegisterType::Normal),
                 Message::SwitchScene(Scene::Main),
-                Message::GotoContigIndex(self.cursor_position),
+                Message::Core(gv_core::message::Message::Move(
+                    gv_core::message::Movement::ContigIndex(self.contig_list_cursor),
+                )),
             ]),
 
             KeyCode::Esc => Ok(vec![
@@ -124,7 +120,7 @@ impl Registers {
                 Message::SwitchKeyRegister(KeyRegisterType::Normal),
             ]),
 
-            KeyCode::Enter => match self.buffer.input.as_ref() {
+            KeyCode::Enter => match self.command.as_ref() {
                 "h" => Ok(vec![
                     Message::ClearAllKeyRegisters,
                     Message::SwitchScene(Scene::Help),
@@ -135,9 +131,14 @@ impl Registers {
                     Message::SwitchScene(Scene::ContigList),
                     Message::SwitchKeyRegister(KeyRegisterType::ContigList),
                 ]),
-                _ => Ok(self
-                    .parse()
-                    .unwrap_or_else(|e| vec![Message::Message(format!("{}", e))])
+                _ => Ok(gv_core::command::parse(self.command.as_str())
+                    .map(|m| m.into_iter().map(|mm| Message::Core(mm)).collect_vec())
+                    .unwrap_or_else(|e| {
+                        vec![Message::Core(gv_core::message::Message::Message(format!(
+                            "{}",
+                            e
+                        )))]
+                    })
                     .into_iter()
                     .chain(vec![
                         Message::ClearAllKeyRegisters,
@@ -146,26 +147,26 @@ impl Registers {
                     .collect_vec()),
             },
             KeyCode::Char(c) => {
-                self.input.insert(self.cursor_position, c);
-                self.cursor_position += 1;
+                self.command.insert(self.command_cursor, c);
+                self.command_cursor += 1;
                 Ok(vec![])
             }
             KeyCode::Backspace => {
-                if self.cursor_position > 0 {
-                    self.input.remove(self.cursor_position - 1);
-                    self.cursor_position -= 1;
+                if self.command_cursor > 0 {
+                    self.command.remove(self.command_cursor - 1);
+                    self.command_cursor -= 1;
                 }
                 Ok(vec![])
             }
             KeyCode::Left => {
-                self.cursor_position = self.cursor_position.saturating_sub(1);
+                self.command_cursor = self.command_cursor.saturating_sub(1);
                 Ok(vec![])
             }
             KeyCode::Right => {
-                self.cursor_position = self
-                    .cursor_position
+                self.command_cursor = self
+                    .command_cursor
                     .saturating_add(1)
-                    .clamp(0, self.input.len());
+                    .clamp(0, self.command.len());
                 Ok(vec![])
             }
             _ => Err(TGVError::RegisterError(format!(
@@ -175,17 +176,32 @@ impl Registers {
         }
     }
 
-    fn handle_normal_key_event(&mut self, key_event: KeyEvent) -> Result<Vec<Message>, TGVError> {
+    fn handle_normal(&mut self, key_event: KeyEvent) -> Result<Vec<Message>, TGVError> {
         match key_event.code {
             KeyCode::Char(':') => Ok(vec![
                 Message::ClearAllKeyRegisters,
                 Message::SwitchKeyRegister(KeyRegisterType::Command),
             ]),
-            KeyCode::Char(char) => update_by_char(self.normal, char),
-            KeyCode::Left => update_by_char(self.normal, 'h'),
-            KeyCode::Up => update_by_char(self.normal, 'k'),
-            KeyCode::Down => update_by_char(self.normal, 'j'),
-            KeyCode::Right => update_by_char(self.normal, 'l'),
+            KeyCode::Char(char) => Ok(update_by_char(&mut self.normal, char)?
+                .into_iter()
+                .map(|m| Message::Core(m))
+                .collect_vec()),
+            KeyCode::Left => Ok(update_by_char(&mut self.normal, 'h')?
+                .into_iter()
+                .map(|m| Message::Core(m))
+                .collect_vec()),
+            KeyCode::Up => Ok(update_by_char(&mut self.normal, 'k')?
+                .into_iter()
+                .map(|m| Message::Core(m))
+                .collect_vec()),
+            KeyCode::Down => Ok(update_by_char(&mut self.normal, 'j')?
+                .into_iter()
+                .map(|m| Message::Core(m))
+                .collect_vec()),
+            KeyCode::Right => Ok(update_by_char(&mut self.normal, 'l')?
+                .into_iter()
+                .map(|m| Message::Core(m))
+                .collect_vec()),
 
             _ => {
                 self.clear();
@@ -214,7 +230,7 @@ impl Registers {
         .unwrap_or_else(|e| {
             vec![
                 Message::ClearAllKeyRegisters,
-                Message::Message(format!("{}", e)),
+                Message::Core(gv_core::message::Message::Message(format!("{}", e))),
             ]
         }))
     }

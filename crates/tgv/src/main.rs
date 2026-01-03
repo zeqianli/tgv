@@ -46,7 +46,7 @@ async fn main() -> Result<(), TGVError> {
         None => {}
     }
 
-    let settings: Settings = Settings::new(cli)?;
+    let settings: Settings = cli.try_into()?;
 
     let mut terminal = ratatui::init();
 
@@ -168,7 +168,7 @@ mod tests {
         };
 
         let cli = Cli::parse_from(shlex::split(&args_string).unwrap());
-        let mut settings = Settings::new(cli).unwrap();
+        let mut settings: Settings = cli.try_into().unwrap();
         settings.test_mode = true;
 
         let mut terminal = Terminal::new(TestBackend::new(50, 20)).unwrap();

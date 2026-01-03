@@ -1,4 +1,7 @@
-use crate::{message::Message, rendering::Palette};
+use crate::{
+    message::Message,
+    rendering::{DARK_THEME, Palette},
+};
 use clap::{Parser, Subcommand, ValueEnum};
 use gv_core::error::TGVError;
 use gv_core::message::Movement;
@@ -113,9 +116,13 @@ pub struct Cli {
 
 impl Cli {
     pub fn initial_movement(&self) -> Result<Vec<Message>, TGVError> {
-        let region_string = match self.region_string {
+        let region_string = match &self.region {
             Some(region_string) => region_string,
-            None => return Ok(vec![Message::GoToDefault]), // Interpretation 1: go to default
+            None => {
+                return Ok(vec![Message::Core(gv_core::message::Message::Move(
+                    gv_core::message::Movement::Default,
+                ))]);
+            } // Interpretation 1: go to default
         };
 
         // Check format
@@ -123,22 +130,21 @@ impl Cli {
 
         match split.len() {
             //  gene name
-            1 => Ok(vec![Message::GoToGene(region_string.to_string())]),
+            1 => Ok(vec![Message::Core(gv_core::message::Message::Move(
+                gv_core::message::Movement::Gene(region_string.to_string()),
+            ))]),
             2 =>
             // genome:position
             {
                 split[1]
-                    .parse::<usize>()
+                    .parse::<u64>()
                     .map(|n| {
                         vec![Message::Core(gv_core::message::Message::Move(
-                            Movement::ContigNameCoordinate(split[0].to_string(), n),
+                            Movement::ContigNamePosition(split[0].to_string(), n),
                         ))]
                     })
                     .map_err(|_| {
-                        Err(TGVError::CliError(format!(
-                            "Invalid genome region: {}",
-                            region_string
-                        )))
+                        TGVError::CliError(format!("Invalid genome region: {}", region_string))
                     })
             }
             _ => Err(TGVError::CliError(format!(
@@ -178,7 +184,7 @@ impl TryFrom<Cli> for Settings {
         };
 
         // Initial messages
-        let initial_state_messages = cli.initial_messages(cli.region)?;
+        let initial_state_messages = cli.initial_movement()?;
 
         // Backend
         let backend = match (cli.offline, cli.online) {
@@ -196,7 +202,10 @@ impl TryFrom<Cli> for Settings {
         // 1. If no reference is provided, the initial state messages cannot contain GoToGene
         if !reference.needs_track() {
             for m in initial_state_messages.iter() {
-                if let Message::GoToGene(gene_name) = m {
+                if let Message::Core(gv_core::message::Message::Move(
+                    gv_core::message::Movement::Gene(gene_name),
+                )) = m
+                {
                     return Err(TGVError::CliError(format!(
                         "The initial region cannot not be a gene name {} when no reference is provided. ",
                         gene_name
@@ -234,15 +243,8 @@ impl TryFrom<Cli> for Settings {
 
             test_mode: false,
             debug: cli.debug,
-            //palette: DARK_THEME,
+            palette: DARK_THEME,
         })
-    }
-}
-
-impl Settings {
-    fn translate_initial_state_messages(
-        region_string: Option<String>,
-    ) -> Result<Vec<Message>, TGVError> {
     }
 }
 

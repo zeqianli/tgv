@@ -69,7 +69,7 @@ impl App {
 
 impl App {
     /// Main loop
-    pub async fn run<B: Backend>(mut self, terminal: &mut Terminal<B>) -> Result<Self, TGVError> {
+    pub async fn run<B: Backend>(&mut self, terminal: &mut Terminal<B>) -> Result<(), TGVError> {
         while !self.exit {
             // Render
             // FIXME: improve rendering performance. Not all sections need to be re-rendered at every loop.
@@ -99,6 +99,7 @@ impl App {
                     let state_messages = self.mouse_register.handle_mouse_event(
                         &self.state,
                         &self.layout,
+                        &self.alignment_view,
                         mouse_event,
                     )?;
 
@@ -117,10 +118,10 @@ impl App {
 
             // Clear terminal for the next loop if needed
             if refresh_terminal {
-                terminal.clear();
+                terminal.clear()?;
             }
         }
-        Ok(self)
+        Ok(())
     }
 
     /// close connections
