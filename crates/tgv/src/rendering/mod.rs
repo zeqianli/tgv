@@ -27,7 +27,7 @@ pub use track::render_track;
 pub use variants::render_variants;
 
 use crate::{
-    layout::{AlignmentView, AreaType},
+    layout::{AlignmentView, AreaType, MainLayout},
     register::{KeyRegisterType, Registers},
 };
 
@@ -39,56 +39,41 @@ pub fn render_main(
     buf: &mut Buffer,
     state: &State,
     registers: &Registers,
-    repository: &Repository,
+    layout: &MainLayout,
+    alignment_view: &AlignmentView,
     pallete: &Palette,
 ) -> Result<(), TGVError> {
     // Render each area based on its type
-    for (i, (area_type, rect)) in state.layout.areas.iter().enumerate() {
+    for (i, (area_type, rect)) in layout.areas.iter().enumerate() {
         if rect.y >= buf.area.height || rect.x >= buf.area.width {
             continue;
         }
 
         match area_type {
-            AreaType::Cytoband => render_cytobands(rect, buf, state, pallete)?,
-            AreaType::Coordinate => render_coordinates(rect, buf, state)?,
+            AreaType::Cytoband => render_cytobands(rect, buf, state, alignment_view, pallete)?,
+            AreaType::Coordinate => render_coordinates(rect, buf, alignment_view, state)?,
             AreaType::Coverage => {
-                if repository.alignment_repository.is_some() {
-                    render_coverage(rect, buf, state, pallete)?;
-                }
+                render_coverage(rect, buf, state, alignment_view, pallete)?;
             }
             AreaType::Alignment => {
-                if repository.alignment_repository.is_some() {
-                    render_alignment(rect, buf, state, pallete)?;
-                }
+                render_alignment(rect, buf, state, alignment_view, pallete)?;
             }
             AreaType::Sequence => {
-                if repository.sequence_service.is_some() {
-                    render_sequence(rect, buf, state, pallete)?;
-                }
+                render_sequence(rect, buf, state, pallete)?;
             }
             AreaType::GeneTrack => {
-                if repository.track_service.is_some() {
-                    render_track(rect, buf, state, pallete)?;
-                }
+                render_track(rect, buf, state, pallete)?;
             }
             AreaType::Console => {
                 if registers.current == KeyRegisterType::Command {
-                    render_console(rect, buf, &registers.command.buffer)?;
+                    render_console(rect, buf, &registers)?;
                 }
             }
             AreaType::Error => {
                 render_status_bar(rect, buf, state)?;
             }
-            AreaType::Variant => {
-                if let Some(variants) = repository.variant_repository.as_ref() {
-                    render_variants(rect, buf, variants, state, pallete)?
-                }
-            }
-            AreaType::Bed => {
-                if let Some(bed) = repository.bed_repository.as_ref() {
-                    render_bed(rect, buf, bed, state, pallete)?
-                }
-            }
+            AreaType::Variant => render_variants(rect, buf, variants, state, pallete)?,
+            AreaType::Bed => render_bed(rect, buf, bed, state, pallete)?,
         };
     }
     Ok(())

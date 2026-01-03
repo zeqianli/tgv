@@ -1,4 +1,4 @@
-use crate::message::Message;
+use crate::{message::Message, rendering::Palette};
 use clap::{Parser, Subcommand, ValueEnum};
 use gv_core::error::TGVError;
 use gv_core::message::Movement;
@@ -156,7 +156,7 @@ pub struct Settings {
     pub test_mode: bool,
 
     pub debug: bool,
-    //pub palette: Palette,
+    pub palette: Palette,
 }
 
 /// Settings to browse alignments

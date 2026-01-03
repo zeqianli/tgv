@@ -1,14 +1,13 @@
 /// The main app object
 ///
 use crossterm::event::{self, Event, KeyEventKind};
-use ratatui::{Terminal, layout::Rect, prelude::Backend};
+use ratatui::{Terminal, buffer::Buffer, layout::Rect, prelude::Backend};
 
 use crate::{
     layout::{AlignmentView, MainLayout},
     message::Message,
     mouse::MouseRegister,
     register::{KeyRegisterType, Registers},
-    rendering::Renderer,
     settings::Settings,
 };
 use gv_core::{
@@ -33,12 +32,10 @@ pub struct App {
     pub settings: Settings,
     pub repository: Repository,
     pub registers: Registers,
-    pub renderer: Renderer,
 
     pub alignment_view: AlignmentView,
 
-    // Rendering states
-    pub last_frame_area: Rect,
+    pub scene: Scene,
 }
 
 impl App {
@@ -63,8 +60,7 @@ impl App {
             settings: settings.clone(),
             repository,
             registers: Registers::default(),
-            renderer: Renderer::default(),
-            last_frame_area: Rect::default(),
+            scene: Scene::Main,
         })
     }
 }
@@ -82,15 +78,7 @@ impl App {
                 .draw(|frame| {
                     let buffer = frame.buffer_mut();
                     refresh_terminal = self.layout.set_area(buffer.area);
-                    self.renderer
-                        .render(
-                            buffer,
-                            &self.state,
-                            &self.registers,
-                            &self.repository,
-                            &self.settings.palette,
-                        )
-                        .unwrap()
+                    self.render(buffer).unwrap()
                 })
                 .unwrap();
 
@@ -106,7 +94,7 @@ impl App {
                 }
 
                 Ok(Event::Mouse(mouse_event)) => {
-                    let state_messages = self.registers.mouse_register.handle_mouse_event(
+                    let state_messages = self.mouse_register.handle_mouse_event(
                         &self.state,
                         &self.repository,
                         mouse_event,
@@ -116,7 +104,10 @@ impl App {
                 }
 
                 Ok(Event::Resize(_width, _height)) => {
-                    self.state.self_correct_viewing_window();
+                    self.alignment_view.self_correct(
+                        &self.layout.main_area,
+                        self.state.contig_length(&self.alignment_view.focus)?,
+                    );
                 }
 
                 _ => {}
@@ -144,26 +135,31 @@ impl App {
                 Message::Core(gv_core::message::Message::Move(movement)) => {
                     let focus = self
                         .state
-                        .movement(self.layout.focus.clone(), &mut self.repository, movement)
+                        .movement(
+                            self.alignment_view.focus.clone(),
+                            &mut self.repository,
+                            movement,
+                        )
                         .await?;
 
-                    self.layout.focus = focus;
+                    self.alignment_view.focus = focus;
                 }
 
                 Message::Core(gv_core::message::Message::Quit) => self.exit = true,
 
                 Message::Core(gv_core::message::Message::Scroll(scroll)) => {
-                    self.layout.scroll(scroll, &self.state.alignment);
+                    self.alignment_view.scroll(scroll, &self.state.alignment);
                 }
 
                 Message::Core(gv_core::message::Message::Zoom(zoom)) => {
-                    let contig_length = self.state.contig_length(&self.layout.focus)?;
-                    self.layout.zoom(zoom, contig_length); // TODO
+                    let contig_length = self.state.contig_length(&self.alignment_view.focus)?;
+                    self.alignment_view
+                        .zoom(zoom, &self.layout.main_area, contig_length); // TODO
                 }
 
                 Message::Core(gv_core::message::Message::SetAlignmentOption(options)) => {
                     self.state
-                        .set_alignment_change(self.layout.focus, options)?;
+                        .set_alignment_change(&self.alignment_view.focus, options)?;
                 }
 
                 Message::Core(gv_core::message::Message::Message(message)) => {
@@ -175,7 +171,7 @@ impl App {
                 }
                 Message::SwitchKeyRegister(register) => {
                     if register == KeyRegisterType::ContigList {
-                        self.registers.contig_list_cursor = self.layout.focus.contig_index
+                        self.registers.contig_list_cursor = self.alignment_view.focus.contig_index
                     }
                     self.registers.current = register
                 }
@@ -183,54 +179,65 @@ impl App {
             }
         }
 
-        self.load_data()
+        self.load_data().await
     }
 
-    fn load_data(&mut self) -> Result<(), TGVError> {
+    async fn load_data(&mut self) -> Result<(), TGVError> {
         // TODO: return whether data were loaded?
         // It's important to load sequence first!
         // Alignment IO requires calculating mismatches with the reference sequence.
         //
-        let region = self.layout.region();
+        let region = self.alignment_view.region(&self.layout.main_area);
 
         if let Some(sequence_service) = self.repository.sequence_service.as_mut()
-            && self.layout.zoom <= Self::MAX_ZOOM_TO_DISPLAY_SEQUENCES
+            && self.alignment_view.zoom <= Self::MAX_ZOOM_TO_DISPLAY_SEQUENCES
             && !self.state.sequence.has_complete_data(&region)
         {
-            let sequence_cache_region = Self::sequence_cache_region(self.state, &region)?;
             self.state
-                .load_sequence_data(sequence_cache_region, sequence_service)
+                .load_sequence_data(
+                    &self.state.sequence_cache_region(region.clone()),
+                    sequence_service,
+                )
+                .await?;
         }
 
         if let Some(alignment_repository) = self.repository.alignment_repository.as_mut()
-            && self.layout.zoom <= Self::MAX_ZOOM_TO_DISPLAY_ALIGNMENTS
+            && self.alignment_view.zoom <= Self::MAX_ZOOM_TO_DISPLAY_ALIGNMENTS
             && !self.state.alignment.has_complete_data(&region)
         {
-            self.state.load_alignment_data(
-                self.state.alignment_cache_region(&region)?,
-                alignment_repository,
-            );
+            self.state
+                .load_alignment_data(
+                    &self.state.alignment_cache_region(region.clone()),
+                    alignment_repository,
+                )
+                .await?;
         }
 
-        if let Some(track_service) = self.repository.track_service
+        if let Some(track_service) = self.repository.track_service.as_mut()
             && !self.state.track.has_complete_data(&region)
         {
             // viewing_window.zoom <= Self::MAX_ZOOM_TO_DISPLAY_FEATURES is always true
 
             self.state
-                .load_track_data(self.state.track_cache_region(&region)?, track_service);
+                .load_track_data(
+                    &self.state.track_cache_region(region.clone()),
+                    track_service,
+                )
+                .await?;
         }
 
-        if let Some(variant_repository) = self.repository.variant_repository.as_ref()
+        if let Some(variant_repository) = self.repository.variant_repository.as_mut()
             && !self.state.variant_loaded
         {
-            self.state.load_variant_data(region, variant_repository);
+            self.state
+                .load_variant_data(&region, variant_repository)
+                .await?;
         }
 
-        if let Some(bed_repository) = self.repository.bed_repository.as_ref()
+        if let Some(bed_repository) = self.repository.bed_repository.as_mut()
             && !self.state.bed_loaded
         {
-            self.state.load_bed_data(region, bed_repository);
+            self.state.load_bed_data(&region, bed_repository).await?;
         }
 
         // Cytobands
@@ -239,14 +246,21 @@ impl App {
         Ok(())
     }
 
-    pub const MAX_ZOOM_TO_DISPLAY_ALIGNMENTS: usize = 32;
-    pub const MAX_ZOOM_TO_DISPLAY_SEQUENCES: usize = 2;
+    pub const MAX_ZOOM_TO_DISPLAY_ALIGNMENTS: u64 = 32;
+    pub const MAX_ZOOM_TO_DISPLAY_SEQUENCES: u64 = 2;
 
-    pub fn render(&self, buf: &mut Buffer, pallete: &Palette) -> Result<(), TGVError> {
-        match &state.scene {
-            Scene::Main => Self::render_main(buf, state, registers, repository, pallete),
-            Scene::Help => render_help(state.area(), buf),
-            Scene::ContigList => render_contig_list(state.area(), buf, state, registers, pallete),
+    pub fn render(&self, buf: &mut Buffer) -> Result<(), TGVError> {
+        use crate::rendering::{render_contig_list, render_help, render_main};
+        match &self.scene {
+            Scene::Main => render_main(buf, &self.state, &self.registers, &self.settings.palette),
+            Scene::Help => render_help(&self.layout.main_area, buf),
+            Scene::ContigList => render_contig_list(
+                &self.layout.main_area,
+                buf,
+                &self.state,
+                &self.registers,
+                &self.settings.palette,
+            ),
         }
     }
 }

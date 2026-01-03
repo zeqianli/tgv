@@ -173,7 +173,9 @@ impl State {
         // } else {
         self.alignment = alignment_repository
             .read_alignment(&region, &self.sequence, &self.contig_header)
-            .await?
+            .await?;
+
+        self.alignment
             .apply_options(&self.alignment_options, &self.sequence)?;
 
         Ok(self)
@@ -249,10 +251,10 @@ impl State {
 impl State {
     /// Main function to route state message handling.
     pub fn set_alignment_change(
-        mut self,
+        &mut self,
         focus: &Focus,
         options: Vec<AlignmentDisplayOption>,
-    ) -> Result<Self, TGVError> {
+    ) -> Result<(), TGVError> {
         self.alignment.reset(&self.sequence)?;
 
         let options = options
@@ -270,10 +272,10 @@ impl State {
             })
             .collect_vec();
         self.alignment_options = options;
-        self.alignment = self
-            .alignment
+        self.alignment
             .apply_options(&self.alignment_options, &self.sequence)?;
-        Ok(self)
+
+        Ok(())
     }
 
     //Self::get_data_requirements(state, repository)

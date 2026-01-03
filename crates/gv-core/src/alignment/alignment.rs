@@ -85,7 +85,7 @@ impl Alignment {
             .map(|index| &self.reads[*index])
     }
 
-    fn view_as_pairs(mut self) -> Result<Self, TGVError> {
+    fn view_as_pairs(&mut self) -> Result<&mut Self, TGVError> {
         if self.mate_map.is_none() {
             self.build_mate_index()?;
         }
@@ -232,10 +232,10 @@ impl Alignment {
     }
 
     pub fn apply_options(
-        self,
+        &mut self,
         options: &Vec<AlignmentDisplayOption>,
         reference_sequence: &Sequence,
-    ) -> Result<Self, TGVError> {
+    ) -> Result<&mut Self, TGVError> {
         options
             .iter()
             .try_fold(self, |alignment, option| match option {
@@ -334,10 +334,10 @@ impl Alignment {
     }
 
     pub fn filter(
-        mut self,
+        &mut self,
         filter: &AlignmentFilter,
         reference_sequence: &Sequence,
-    ) -> Result<Self, TGVError> {
+    ) -> Result<&mut Self, TGVError> {
         for (i, read) in self.reads.iter().enumerate() {
             self.show_read[i] = read.passes_filter(filter)
         }
@@ -348,7 +348,7 @@ impl Alignment {
         Ok(self)
     }
 
-    pub fn sort(mut self, option: &AlignmentSort) -> Result<Self, TGVError> {
+    pub fn sort(&mut self, option: &AlignmentSort) -> Result<&mut Self, TGVError> {
         // FIXME
         todo!();
         Ok(self)
