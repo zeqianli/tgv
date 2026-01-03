@@ -40,10 +40,7 @@ pub struct App {
 }
 
 impl App {
-    pub async fn new<B: Backend>(
-        settings: Settings,
-        terminal: &mut Terminal<B>,
-    ) -> Result<Self, TGVError> {
+    pub async fn new(settings: Settings) -> Result<Self, TGVError> {
         // Gather resources before initializing the state.
         let (mut repository, contig_header) = Repository::new(&settings.core).await?;
 
@@ -157,7 +154,7 @@ impl App {
                 Message::Core(gv_core::message::Message::Zoom(zoom)) => {
                     let contig_length = self.state.contig_length(&self.alignment_view.focus)?;
                     self.alignment_view
-                        .zoom(zoom, &self.layout.main_area, contig_length); // TODO
+                        .zoom(zoom, &self.layout.main_area, contig_length)?; // TODO
                 }
 
                 Message::Core(gv_core::message::Message::SetAlignmentOption(options)) => {

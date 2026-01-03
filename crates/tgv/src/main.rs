@@ -55,7 +55,7 @@ async fn main() -> Result<(), TGVError> {
     execute!(stdout(), EnableMouseCapture)?;
 
     // Gather resources before starting the app.
-    let mut app = match App::new(settings, &mut terminal).await {
+    let mut app = match App::new(settings).await {
         Ok(app) => app,
         Err(e) => {
             ratatui::restore();
@@ -173,7 +173,7 @@ mod tests {
 
         let mut terminal = Terminal::new(TestBackend::new(50, 20)).unwrap();
 
-        let mut app = App::new(settings, &mut terminal).await.unwrap();
+        let mut app = App::new(settings).await.unwrap();
         app.run(&mut terminal).await.unwrap();
         app.close().await.unwrap();
 
