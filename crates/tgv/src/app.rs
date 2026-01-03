@@ -67,6 +67,15 @@ impl App {
 impl App {
     /// Main loop
     pub async fn run<B: Backend>(&mut self, terminal: &mut Terminal<B>) -> Result<(), TGVError> {
+        terminal
+            .draw(|frame| {
+                let _ = self.layout.set_area(frame.area());
+            })
+            .unwrap();
+
+        self.handle(self.settings.initial_state_messages.clone())
+            .await?;
+
         while !self.exit {
             // Render
             // FIXME: improve rendering performance. Not all sections need to be re-rendered at every loop.
@@ -89,7 +98,7 @@ impl App {
             match event::read() {
                 Ok(Event::Key(key_event)) if key_event.kind == KeyEventKind::Press => {
                     let state_messages = self.registers.handle_key_event(key_event, &self.state)?;
-                    self.handle(state_messages).await?; // TODO: distinguish th
+                    self.handle(state_messages).await?; // TODO: this should not error out?
                 }
 
                 Ok(Event::Mouse(mouse_event)) => {
@@ -100,7 +109,7 @@ impl App {
                         mouse_event,
                     )?;
 
-                    self.handle(state_messages).await?;
+                    self.handle(state_messages).await?; // TODO: this should not error out?
                 }
 
                 Ok(Event::Resize(_width, _height)) => {
@@ -167,7 +176,7 @@ impl App {
                 }
 
                 Message::SwitchScene(scene) => {
-                    // TODO
+                    self.scene = scene;
                 }
                 Message::SwitchKeyRegister(register) => {
                     if register == KeyRegisterType::ContigList {

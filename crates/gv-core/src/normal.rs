@@ -87,7 +87,7 @@ fn parse_input(input: String) -> Result<Vec<Message>, TGVError> {
         "gE" => Ok(vec![Message::Move(Movement::PreviousGenesEnd(n_movements))]),
         //"gg" => Ok(vec![Message::Move(Movement::Y(0))]),
         //"G" => Ok(vec![Message::Move(Movement::YBottom]),
-        "w)" => Ok(vec![Message::Move(Movement::NextExonsStart(n_movements))]),
+        "w" => Ok(vec![Message::Move(Movement::NextExonsStart(n_movements))]),
         "b" => Ok(vec![Message::Move(Movement::PreviousExonsStart(
             n_movements,
         ))]),
