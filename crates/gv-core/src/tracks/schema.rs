@@ -159,8 +159,8 @@ impl CytobandSegmentRow {
     pub fn to_cytoband_segment(self, contig_index: usize) -> Result<CytobandSegment, TGVError> {
         Ok(CytobandSegment {
             contig_index,
-            start: self.chromStart as usize + 1,
-            end: self.chromEnd as usize,
+            start: self.chromStart + 1,
+            end: self.chromEnd,
             name: self.name,
             stain: Stain::try_from(self.gieStain.as_str())?,
         })

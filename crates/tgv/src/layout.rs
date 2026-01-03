@@ -397,22 +397,23 @@ pub struct MainLayout {
 }
 
 impl MainLayout {
-    pub fn new(settings: &Settings, area: Rect) -> Self {
-        let root = LayoutNode::root(&settings);
-        let areas = root.get_areas(area);
+    pub fn new(settings: &Settings) -> Self {
         MainLayout {
             root: LayoutNode::root(settings),
-            main_area: area,
-            areas: areas,
+            main_area: Rect::default(),
+            areas: Vec::new(),
         }
     }
+    /// Update the area. If the area size changed, terminal refresh is needed.
+    pub fn set_area(mut self, area: Rect) -> bool {
+        if area.width != self.main_area.width || area.height != self.main_area.height {
+            self.main_area = area;
 
-    pub fn set_area(mut self, area: Rect) -> Self {
-        self.main_area = area;
-        let mut areas: Vec<(AreaType, Rect)> = Vec::new();
-        self.root.get_areas_in_place(self.main_area, &mut areas);
-        self.areas = areas;
-        self
+            self.areas = self.root.get_areas(area);
+            true
+        } else {
+            false
+        }
     }
 
     pub fn get_area_type_at_position(&self, x: u16, y: u16) -> Option<&(AreaType, Rect)> {
@@ -709,8 +710,8 @@ impl OnScreenCoordinate {
 }
 
 pub fn linear_scale(
-    original_x: usize,
-    original_length: usize,
+    original_x: u64,
+    original_length: u64,
     new_start: u16,
     new_end: u16,
 ) -> Result<u16, TGVError> {

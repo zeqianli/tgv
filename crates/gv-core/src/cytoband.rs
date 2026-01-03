@@ -39,8 +39,8 @@ impl TryFrom<&str> for Stain {
 #[derive(Debug, Clone)]
 pub struct CytobandSegment {
     pub contig_index: usize,
-    pub start: usize,
-    pub end: usize,
+    pub start: u64,
+    pub end: u64,
     pub name: String,
     pub stain: Stain,
 }
@@ -56,7 +56,7 @@ impl Cytoband {
     pub fn default(
         reference: &Reference,
         contig_index: usize,
-        contig_length: usize,
+        contig_length: u64,
         contig_name: &str,
     ) -> Self {
         Self {
@@ -72,15 +72,15 @@ impl Cytoband {
         }
     }
 
-    pub fn start(&self) -> usize {
+    pub fn start(&self) -> u64 {
         1
     }
 
-    pub fn end(&self) -> usize {
+    pub fn end(&self) -> u64 {
         self.segments.last().unwrap().end
     }
 
-    pub fn length(&self) -> usize {
+    pub fn length(&self) -> u64 {
         self.end()
     }
 }

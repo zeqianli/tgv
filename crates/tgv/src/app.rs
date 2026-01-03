@@ -1,7 +1,7 @@
 /// The main app object
 ///
 use crossterm::event::{self, Event, KeyEventKind};
-use ratatui::{Terminal, prelude::Backend};
+use ratatui::{Terminal, layout::Rect, prelude::Backend};
 
 use crate::{
     layout::{AlignmentView, MainLayout},
@@ -36,6 +36,9 @@ pub struct App {
     pub renderer: Renderer,
 
     pub alignment_view: AlignmentView,
+
+    // Rendering states
+    pub last_frame_area: Rect,
 }
 
 impl App {
@@ -54,13 +57,14 @@ impl App {
 
         Ok(Self {
             exit: false,
-            layout: MainLayout::new(&settings, terminal.area()),
+            layout: MainLayout::new(&settings),
             alignment_view: AlignmentView::new(focus),
             state,
             settings: settings.clone(),
             repository,
             registers: Registers::default(),
             renderer: Renderer::default(),
+            last_frame_area: Rect::default(),
         })
     }
 }
@@ -69,20 +73,15 @@ impl App {
     /// Main loop
     pub async fn run<B: Backend>(mut self, terminal: &mut Terminal<B>) -> Result<Self, TGVError> {
         while !self.exit {
-            // Prepare rendering
-            //self.registers.update(&self.state)?;
-            self.renderer.update(&self.state)?;
-            if self.renderer.needs_refresh {
-                let _ = terminal.clear();
-            }
-
             // Render
             // FIXME: improve rendering performance. Not all sections need to be re-rendered at every loop.
+            //
+            let mut refresh_terminal = false;
 
             terminal
                 .draw(|frame| {
                     let buffer = frame.buffer_mut();
-                    self.layout.set_area(buffer.area);
+                    refresh_terminal = self.layout.set_area(buffer.area);
                     self.renderer
                         .render(
                             buffer,
@@ -121,6 +120,11 @@ impl App {
                 }
 
                 _ => {}
+            }
+
+            // Clear terminal for the next loop if needed
+            if refresh_terminal {
+                terminal.clear();
             }
         }
         Ok(self)
@@ -237,4 +241,19 @@ impl App {
 
     pub const MAX_ZOOM_TO_DISPLAY_ALIGNMENTS: usize = 32;
     pub const MAX_ZOOM_TO_DISPLAY_SEQUENCES: usize = 2;
+
+    pub fn render(
+        &self,
+        buf: &mut Buffer,
+        state: &State,
+        registers: &Registers,
+        repository: &Repository,
+        pallete: &Palette,
+    ) -> Result<(), TGVError> {
+        match &state.scene {
+            Scene::Main => Self::render_main(buf, state, registers, repository, pallete),
+            Scene::Help => render_help(state.area(), buf),
+            Scene::ContigList => render_contig_list(state.area(), buf, state, registers, pallete),
+        }
+    }
 }

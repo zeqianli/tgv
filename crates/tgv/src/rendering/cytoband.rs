@@ -5,7 +5,8 @@ use gv_core::{
 };
 
 use crate::{
-    layout::linear_scale, rendering::colors::Palette, rendering::get_abbreviated_length_string,
+    layout::{AlignmentView, linear_scale},
+    rendering::{colors::Palette, get_abbreviated_length_string},
 };
 
 use ratatui::{
@@ -22,6 +23,7 @@ pub fn render_cytobands(
     area: &Rect,
     buf: &mut Buffer,
     state: &State,
+    alignment_view: &AlignmentView,
     pallete: &Palette,
 ) -> Result<(), TGVError> {
     if area.width <= MIN_AREA_WIDTH {
@@ -34,7 +36,7 @@ pub fn render_cytobands(
 
     // Left label: chromosome name
     let reference_description = state.reference.to_string();
-    let contig_description = state.contig_name()?;
+    let contig_description = state.contig_name(&alignment_view.focus)?;
 
     let cytoband_left_spacing = u16::max(
         CYTOBAND_TEXT_MIN_LEFT_SPACING,
@@ -47,7 +49,7 @@ pub fn render_cytobands(
 
     // Right labels
 
-    if let Some(contig_length) = state.contig_length()? {
+    if let Some(contig_length) = state.contig_length(&alignment_view.focus)? {
         buf.set_string(
             area.width - CYTOBAND_TEXT_RIGHT_SPACING + 1,
             area.y,
@@ -57,7 +59,7 @@ pub fn render_cytobands(
     }
 
     // Cytoband
-    if let Some(cytoband) = state.current_cytoband() {
+    if let Some(cytoband) = state.current_cytoband(&alignment_view.focus) {
         for (x, string, style) in get_cytoband_xs_strings_and_styles(
             cytoband,
             cytoband_left_spacing,
@@ -75,15 +77,15 @@ pub fn render_cytobands(
     }
 
     // Highlight the current viewing window
-    if let Some(contig_length) = state.contig_length()? {
+    if let Some(contig_length) = state.contig_length(&alignment_view.focus)? {
         let viewing_window_start = linear_scale(
-            state.window.left(),
+            alignment_view.left(area),
             contig_length,
             cytoband_left_spacing,
             area.width - CYTOBAND_TEXT_RIGHT_SPACING,
         )?;
         let viewing_window_end = linear_scale(
-            state.window.right(area),
+            alignment_view.right(area),
             contig_length,
             cytoband_left_spacing,
             area.width - CYTOBAND_TEXT_RIGHT_SPACING,

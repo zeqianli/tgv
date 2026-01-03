@@ -1,4 +1,9 @@
-use crate::layout::{MainLayout, OnScreenCoordinate};
+use std::fmt::Alignment;
+
+use crate::{
+    layout::{AlignmentView, MainLayout, OnScreenCoordinate},
+    rendering::alignment,
+};
 use gv_core::{error::TGVError, state::State};
 
 use itertools::izip;
@@ -7,13 +12,20 @@ use ratatui::{buffer::Buffer, layout::Rect, style::Style};
 const MIN_AREA_WIDTH: u16 = 2;
 const MIN_AREA_HEIGHT: u16 = 1;
 
-pub fn render_coordinates(area: &Rect, buf: &mut Buffer, state: &State) -> Result<(), TGVError> {
+pub fn render_coordinates(
+    area: &Rect,
+    buf: &mut Buffer,
+    alignment_view: &AlignmentView,
+    state: &State,
+) -> Result<(), TGVError> {
     if area.width < MIN_AREA_WIDTH || area.height < MIN_AREA_HEIGHT {
         return Ok(());
     }
 
+    let contig_length = state.contig_length(&alignment_view.focus)?;
+
     let (coordinate_texts, coordinate_texts_xs, markers_onscreen_x) =
-        calculate_coordinates(&state.window, area, state.contig_length()?);
+        calculate_coordinates(alignment_view, area, contig_length);
 
     for (text, text_x, marker_x) in izip!(
         coordinate_texts.iter(),
@@ -46,26 +58,26 @@ const MIN_SPACING_BETWEEN_MARKERS: u16 = 15;
 /// Calculate coordinate markers.
 /// left and right are 1-based, inclusive.
 fn calculate_coordinates(
-    viewing_window: &ViewingWindow,
+    alignment_view: &AlignmentView,
     area: &Rect,
-    contig_length: Option<usize>,
+    contig_length: Option<u64>,
 ) -> (Vec<String>, Vec<u16>, Vec<u16>) {
-    let (intermarker_distance, power) = calculate_intermarker_distance(viewing_window.zoom);
+    let (intermarker_distance, power) = calculate_intermarker_distance(alignment_view.zoom);
 
-    let mut pivot = (viewing_window.left() / intermarker_distance + 1) * intermarker_distance; // First marker
+    let mut pivot = (alignment_view.left(area) / intermarker_distance + 1) * intermarker_distance; // First marker
     let mut markers_onscreen_x: Vec<u16> = Vec::new();
     let mut coordinate_texts: Vec<String> = Vec::new();
     let mut coordinate_texts_xs: Vec<u16> = Vec::new();
 
     let render_bound = match contig_length {
-        Some(length) => usize::min(viewing_window.right(area), length),
-        None => viewing_window.right(area),
+        Some(length) => u64::min(alignment_view.right(area), length),
+        None => alignment_view.right(area),
     };
 
     while pivot < render_bound {
         let marker_text = get_abbreviated_coordinate_text(pivot, power);
 
-        let onscreen_marker_coordinate = viewing_window.onscreen_x_coordinate(pivot, area);
+        let onscreen_marker_coordinate = alignment_view.onscreen_x_coordinate(pivot, area);
 
         match onscreen_marker_coordinate {
             OnScreenCoordinate::OnScreen(x) => {
@@ -90,8 +102,8 @@ fn calculate_coordinates(
     (coordinate_texts, coordinate_texts_xs, markers_onscreen_x)
 }
 
-fn calculate_intermarker_distance(zoom: usize) -> (usize, usize) {
-    let mut distance = zoom * MIN_SPACING_BETWEEN_MARKERS as usize;
+fn calculate_intermarker_distance(zoom: u64) -> (u64, u64) {
+    let mut distance = zoom * MIN_SPACING_BETWEEN_MARKERS as u64;
 
     // Find the smallest number among [1,2,10,20,50,100, ....] that is greater than or equal to min_distance
     let mut power: usize = 1;
@@ -101,13 +113,13 @@ fn calculate_intermarker_distance(zoom: usize) -> (usize, usize) {
     }
 
     if distance < 2 {
-        (2 * 10usize.pow(power as u32 - 1), power - 1)
+        (2 * 10u64.pow(power as u32 - 1), power as u64 - 1)
     } else {
-        (10usize.pow(power as u32), power)
+        (10u64.pow(power as u32), power as u64)
     }
 }
 
-fn get_abbreviated_coordinate_text(coordinate: usize, power: usize) -> String {
+fn get_abbreviated_coordinate_text(coordinate: u64, power: u64) -> String {
     if power < 3 {
         format!("{}bp", to_thousand_separated(coordinate))
     } else if power < 6 {
@@ -124,7 +136,7 @@ fn get_abbreviated_coordinate_text(coordinate: usize, power: usize) -> String {
     }
 }
 
-fn to_thousand_separated(number: usize) -> String {
+fn to_thousand_separated(number: u64) -> String {
     if number < 1000 {
         return format!("{}", number);
     }

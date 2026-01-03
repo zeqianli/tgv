@@ -11,8 +11,8 @@ pub fn calculate_basewise_coverage(
     cigars: &Vec<Op>,
     sequence: &record::Sequence,
     reference_sequence: &Sequence,
-) -> Result<HashMap<usize, BaseCoverage>, TGVError> {
-    let mut output: HashMap<usize, BaseCoverage> = HashMap::new();
+) -> Result<HashMap<u64, BaseCoverage>, TGVError> {
+    let mut output: HashMap<u64, BaseCoverage> = HashMap::new();
     if cigars.is_empty() {
         return Ok(output);
     }
@@ -57,7 +57,7 @@ pub fn calculate_basewise_coverage(
                         let base = sequence.get(i_soft_clip_base).unwrap();
 
                         output
-                            .entry(base_coordinate)
+                            .entry(base_coordinate as u64)
                             .or_insert(BaseCoverage::new(
                                 // FIXME: This can cause problems when sequence cache didn't catch up with alignment.
                                 reference_sequence
@@ -72,7 +72,7 @@ pub fn calculate_basewise_coverage(
                         let base_coordinate: usize = reference_pivot + i_soft_clip_base;
                         let base = sequence.get(query_pivot + i_soft_clip_base - 1).unwrap();
                         output
-                            .entry(base_coordinate)
+                            .entry(base_coordinate as u64)
                             .or_insert(BaseCoverage::new(
                                 // FIXME: This can cause problems when sequence cache didn't catch up with alignment.
                                 reference_sequence
@@ -92,7 +92,7 @@ pub fn calculate_basewise_coverage(
                 for i in 0..len {
                     let base_coordinate = reference_pivot + i;
                     output
-                        .entry(base_coordinate)
+                        .entry(base_coordinate as u64)
                         .or_insert(BaseCoverage::new(
                             // FIXME: This can cause problems when sequence cache didn't catch up with alignment.
                             reference_sequence

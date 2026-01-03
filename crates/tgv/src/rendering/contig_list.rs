@@ -58,7 +58,7 @@ pub fn render_contig_list(
     }
 
     // Right label: contig length
-    let mut max_contig_length: Option<usize> = None;
+    let mut max_contig_length: Option<u64> = None;
     for contig in state.contig_header.contigs.iter() {
         if let Some(length) = contig.length {
             if let Some(max_length) = max_contig_length {
@@ -74,7 +74,7 @@ pub fn render_contig_list(
     }
 
     // Middle: contig bars
-    let selected_index = registers.contig_list.cursor_position;
+    let selected_index = registers.contig_list_cursor;
 
     for (y, contig_index) in get_indexes(
         area.height,
@@ -121,7 +121,7 @@ fn render_contig_at_y(
     buf: &mut Buffer,
     contig: &Contig,
     left_spacing: u16,
-    max_contig_length: Option<usize>,
+    max_contig_length: Option<u64>,
     y: u16,
     pallete: &Palette,
 ) -> Result<(), TGVError> {

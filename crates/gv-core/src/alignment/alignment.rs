@@ -19,7 +19,7 @@ pub struct Alignment {
     pub contig_index: usize,
 
     /// Coverage at each position. Keys are 1-based, inclusive.
-    coverage: BTreeMap<usize, BaseCoverage>,
+    coverage: BTreeMap<u64, BaseCoverage>,
 
     /// The left bound of region with complete data.
     /// 1-based, inclusive.
@@ -66,7 +66,7 @@ impl Alignment {
 
     /// Basewise coverage at position.
     /// 1-based, inclusive.
-    pub fn coverage_at(&self, pos: usize) -> &BaseCoverage {
+    pub fn coverage_at(&self, pos: u64) -> &BaseCoverage {
         match self.coverage.get(&pos) {
             Some(coverage) => coverage,
             None => &DEFAULT_COVERAGE,
@@ -302,7 +302,7 @@ impl Alignment {
     pub fn build_coverage(&mut self, reference_sequence: &Sequence) -> Result<&mut Self, TGVError> {
         // coverage
 
-        let mut coverage_hashmap: HashMap<usize, BaseCoverage> = HashMap::new();
+        let mut coverage_hashmap: HashMap<u64, BaseCoverage> = HashMap::new();
         for (read, show_read) in self.reads.iter().zip(self.show_read.iter()) {
             if !*show_read {
                 continue;
@@ -323,7 +323,7 @@ impl Alignment {
             }
         }
 
-        let mut coverage: BTreeMap<usize, BaseCoverage> = BTreeMap::new();
+        let mut coverage: BTreeMap<u64, BaseCoverage> = BTreeMap::new();
         for (k, v) in coverage_hashmap.into_iter() {
             coverage.insert(k, v);
         }

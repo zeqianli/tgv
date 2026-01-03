@@ -15,7 +15,7 @@ use gv_core::{
     state::State,
 };
 
-use crate::rendering::Palette;
+use crate::{layout::AlignmentView, rendering::Palette};
 const MIN_AREA_WIDTH: u16 = 2;
 const MIN_AREA_HEIGHT: u16 = 1;
 
@@ -24,6 +24,7 @@ pub fn render_coverage(
     area: &Rect,
     buf: &mut Buffer,
     state: &State,
+    alignment_view: &AlignmentView,
     palette: &Palette,
 ) -> Result<(), TGVError> {
     if area.width < MIN_AREA_WIDTH || area.height < MIN_AREA_HEIGHT {
@@ -32,8 +33,8 @@ pub fn render_coverage(
 
     let mut binned_coverage = calculate_binned_coverage(
         &state.alignment,
-        state.window.left(),
-        state.window.right(area),
+        alignment_view.left(area),
+        alignment_view.right(area),
         area.width as usize,
     )?;
 
@@ -81,11 +82,7 @@ fn round_up_max_coverage(x: usize) -> usize {
 /// Get a linear space of n_bins between left and right.
 /// 1-based, inclusive.
 /// Returns a vector of n_bins + 1 elements.
-fn get_linear_space(
-    left: usize,
-    right: usize,
-    n_bins: usize,
-) -> Result<Vec<(usize, usize)>, TGVError> {
+fn get_linear_space(left: u64, right: u64, n_bins: usize) -> Result<Vec<(u64, u64)>, TGVError> {
     if n_bins == 0 {
         return Err(TGVError::ValueError("n_bins is 0".to_string()));
     }
@@ -94,27 +91,23 @@ fn get_linear_space(
         return Err(TGVError::ValueError("Right is less than left".to_string()));
     }
 
-    if n_bins > right - left {
+    if n_bins as u64 > right - left {
         return Err(TGVError::ValueError(
             "n_bins is greater than the number of bases in the region".to_string(),
         ));
     }
 
-    let mut bins: Vec<(usize, usize)> = Vec::new();
+    let mut bins: Vec<(u64, u64)> = Vec::new();
     let mut pivot = left as f64; // f32 here actually causes problem for genome coordinates
 
     let bin_width: f64 = (right - left) as f64 / n_bins as f64;
 
     for i in 0..n_bins {
-        let bin_left = if i == 0 { left } else { pivot as usize + 1 };
+        let bin_left = if i == 0 { left } else { pivot as u64 + 1 };
 
         pivot += bin_width;
 
-        let bin_right = if i == n_bins - 1 {
-            right
-        } else {
-            pivot as usize
-        };
+        let bin_right = if i == n_bins - 1 { right } else { pivot as u64 };
 
         bins.push((bin_left, bin_right));
     }
@@ -126,8 +119,8 @@ fn get_linear_space(
 /// 1-based, inclusive.
 fn calculate_binned_coverage(
     alignment: &Alignment,
-    left: usize,
-    right: usize,
+    left: u64,
+    right: u64,
     n_bins: usize,
 ) -> Result<Vec<Vec<usize>>, TGVError> {
     if right < left {
@@ -138,7 +131,7 @@ fn calculate_binned_coverage(
         return Err(TGVError::ValueError("n_bins is 0".to_string()));
     }
 
-    if right - left + 1 == n_bins {
+    if right - left + 1 == n_bins as u64 {
         // 1x zoom. Not need to calulate binned coverage.
 
         // Stack 0: alt allele if above a threshold
@@ -161,7 +154,7 @@ fn calculate_binned_coverage(
         return Ok(output);
     }
 
-    let linear_space: Vec<(usize, usize)> = get_linear_space(left, right, n_bins)?;
+    let linear_space = get_linear_space(left, right, n_bins)?;
 
     let mut output = vec![vec![0; linear_space.len()]; 2];
     linear_space
@@ -378,10 +371,10 @@ mod tests {
     #[case(5,10, 1, Ok(vec![(5,10)]))]
     #[case(5, 10, 2, Ok(vec![(5,7), (8,10)]))]
     fn test_get_linear_space_specific_cases(
-        #[case] left: usize,
-        #[case] right: usize,
+        #[case] left: u64,
+        #[case] right: u64,
         #[case] n_bins: usize,
-        #[case] expected: Result<Vec<(usize, usize)>, TGVError>,
+        #[case] expected: Result<Vec<(u64, u64)>, TGVError>,
     ) {
         let result = get_linear_space(left, right, n_bins);
         match (result, expected) {

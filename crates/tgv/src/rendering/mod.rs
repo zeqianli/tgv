@@ -27,110 +27,74 @@ pub use track::render_track;
 pub use variants::render_variants;
 
 use crate::{
-    layout::AreaType,
+    layout::{AlignmentView, AreaType},
     register::{KeyRegisterType, Registers},
 };
 
 use gv_core::{error::TGVError, repository::Repository, state::State};
 use ratatui::{buffer::Buffer, layout::Rect};
 
-#[derive(Debug, Default)]
-pub struct Renderer {
-    pub last_frame_area: Rect,
-    pub needs_refresh: bool,
-}
-
-impl Renderer {
-    pub fn update(&mut self, state: &State) -> Result<&mut Self, TGVError> {
-        if self.last_frame_area.width != state.area().width
-            || self.last_frame_area.height != state.area().height
-        {
-            self.needs_refresh = true;
-            self.last_frame_area = *state.area();
-        } else {
-            self.needs_refresh = false;
+/// Render all areas in the layout
+pub fn render_main(
+    buf: &mut Buffer,
+    state: &State,
+    registers: &Registers,
+    repository: &Repository,
+    pallete: &Palette,
+) -> Result<(), TGVError> {
+    // Render each area based on its type
+    for (i, (area_type, rect)) in state.layout.areas.iter().enumerate() {
+        if rect.y >= buf.area.height || rect.x >= buf.area.width {
+            continue;
         }
 
-        Ok(self)
-    }
-
-    pub fn render(
-        &self,
-        buf: &mut Buffer,
-        state: &State,
-        registers: &Registers,
-        repository: &Repository,
-        pallete: &Palette,
-    ) -> Result<(), TGVError> {
-        match &state.scene {
-            Scene::Main => Self::render_main(buf, state, registers, repository, pallete),
-            Scene::Help => render_help(state.area(), buf),
-            Scene::ContigList => render_contig_list(state.area(), buf, state, registers, pallete),
-        }
-    }
-
-    /// Render all areas in the layout
-    pub fn render_main(
-        buf: &mut Buffer,
-        state: &State,
-        registers: &Registers,
-        repository: &Repository,
-        pallete: &Palette,
-    ) -> Result<(), TGVError> {
-        // Render each area based on its type
-        for (i, (area_type, rect)) in state.layout.areas.iter().enumerate() {
-            if rect.y >= buf.area.height || rect.x >= buf.area.width {
-                continue;
+        match area_type {
+            AreaType::Cytoband => render_cytobands(rect, buf, state, pallete)?,
+            AreaType::Coordinate => render_coordinates(rect, buf, state)?,
+            AreaType::Coverage => {
+                if repository.alignment_repository.is_some() {
+                    render_coverage(rect, buf, state, pallete)?;
+                }
             }
-
-            match area_type {
-                AreaType::Cytoband => render_cytobands(rect, buf, state, pallete)?,
-                AreaType::Coordinate => render_coordinates(rect, buf, state)?,
-                AreaType::Coverage => {
-                    if repository.alignment_repository.is_some() {
-                        render_coverage(rect, buf, state, pallete)?;
-                    }
+            AreaType::Alignment => {
+                if repository.alignment_repository.is_some() {
+                    render_alignment(rect, buf, state, pallete)?;
                 }
-                AreaType::Alignment => {
-                    if repository.alignment_repository.is_some() {
-                        render_alignment(rect, buf, state, pallete)?;
-                    }
+            }
+            AreaType::Sequence => {
+                if repository.sequence_service.is_some() {
+                    render_sequence(rect, buf, state, pallete)?;
                 }
-                AreaType::Sequence => {
-                    if repository.sequence_service.is_some() {
-                        render_sequence(rect, buf, state, pallete)?;
-                    }
+            }
+            AreaType::GeneTrack => {
+                if repository.track_service.is_some() {
+                    render_track(rect, buf, state, pallete)?;
                 }
-                AreaType::GeneTrack => {
-                    if repository.track_service.is_some() {
-                        render_track(rect, buf, state, pallete)?;
-                    }
+            }
+            AreaType::Console => {
+                if registers.current == KeyRegisterType::Command {
+                    render_console(rect, buf, &registers.command.buffer)?;
                 }
-                AreaType::Console => {
-                    if registers.current == KeyRegisterType::Command {
-                        render_console(rect, buf, &registers.command.buffer)?;
-                    }
+            }
+            AreaType::Error => {
+                render_status_bar(rect, buf, state)?;
+            }
+            AreaType::Variant => {
+                if let Some(variants) = repository.variant_repository.as_ref() {
+                    render_variants(rect, buf, variants, state, pallete)?
                 }
-                AreaType::Error => {
-                    render_status_bar(rect, buf, state)?;
+            }
+            AreaType::Bed => {
+                if let Some(bed) = repository.bed_repository.as_ref() {
+                    render_bed(rect, buf, bed, state, pallete)?
                 }
-                AreaType::Variant => {
-                    if let Some(variants) = repository.variant_repository.as_ref() {
-                        render_variants(rect, buf, variants, state, pallete)?
-                    }
-                }
-                AreaType::Bed => {
-                    if let Some(bed) = repository.bed_repository.as_ref() {
-                        render_bed(rect, buf, bed, state, pallete)?
-                    }
-                }
-            };
-        }
-        Ok(())
+            }
+        };
     }
+    Ok(())
 }
 
-pub fn get_abbreviated_length_string(length: usize) -> String {
+pub fn get_abbreviated_length_string(length: u64) -> String {
     let mut length = length;
     let mut power = 0;
 
