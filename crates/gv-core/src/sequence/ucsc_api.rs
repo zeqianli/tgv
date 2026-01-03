@@ -2,7 +2,7 @@ use crate::contig_header::{Contig, ContigHeader};
 use crate::error::TGVError;
 use crate::intervals::{GenomeInterval, Region};
 use crate::reference::Reference;
-use crate::sequence::{Sequence, SequenceRepository};
+use crate::sequence::Sequence;
 use crate::tracks::{UcscHost, schema::*};
 use reqwest::Client;
 use serde::Deserialize;
@@ -26,11 +26,6 @@ impl UCSCApiSequenceRepository {
             reference: reference.clone(),
             hub_url: None,
         })
-    }
-
-    pub async fn close(&mut self) -> Result<(), TGVError> {
-        // Reqwest client does not need to be closed.
-        Ok(())
     }
 
     /// start / end: 1-based, inclusive.
@@ -93,8 +88,8 @@ struct UcscResponse {
     dna: String,
 }
 
-impl SequenceRepository for UCSCApiSequenceRepository {
-    async fn query_sequence(
+impl UCSCApiSequenceRepository {
+    pub async fn query_sequence(
         &mut self,
         region: &Region,
         contig_header: &ContigHeader,
@@ -125,11 +120,11 @@ impl SequenceRepository for UCSCApiSequenceRepository {
         })
     }
 
-    async fn close(&mut self) -> Result<(), TGVError> {
+    pub async fn close(&mut self) -> Result<(), TGVError> {
         Ok(())
     }
 
-    async fn get_all_contigs(&mut self) -> Result<Vec<Contig>, TGVError> {
+    pub async fn get_all_contigs(&mut self) -> Result<Vec<Contig>, TGVError> {
         let query_url = match &self.reference {
             Reference::Hg19 | Reference::Hg38 | Reference::UcscGenome(_) => {
                 format!(

@@ -2,7 +2,7 @@ use crate::{
     contig_header::{Contig, ContigHeader},
     error::TGVError,
     intervals::{GenomeInterval, Region},
-    sequence::{Sequence, SequenceRepository},
+    sequence::Sequence,
 };
 use noodles::fasta::{
     fai::Index,
@@ -28,8 +28,8 @@ impl IndexedFastaSequenceRepository {
     }
 }
 
-impl SequenceRepository for IndexedFastaSequenceRepository {
-    async fn query_sequence(
+impl IndexedFastaSequenceRepository {
+    pub async fn query_sequence(
         &mut self,
         region: &Region,
         contig_header: &ContigHeader,
@@ -49,11 +49,11 @@ impl SequenceRepository for IndexedFastaSequenceRepository {
         })
     }
 
-    async fn close(&mut self) -> Result<(), TGVError> {
+    pub async fn close(&mut self) -> Result<(), TGVError> {
         Ok(())
     }
 
-    async fn get_all_contigs(&mut self) -> Result<Vec<Contig>, TGVError> {
+    pub async fn get_all_contigs(&mut self) -> Result<Vec<Contig>, TGVError> {
         Ok(self
             .index
             .as_ref()

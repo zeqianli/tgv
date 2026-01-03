@@ -76,19 +76,6 @@ impl Sequence {
     }
 }
 
-pub trait SequenceRepository {
-    async fn query_sequence(
-        &mut self,
-        region: &Region,
-        // cache: &mut SequenceCache,
-        contig_header: &ContigHeader,
-    ) -> Result<Sequence, TGVError>;
-
-    async fn close(&mut self) -> Result<(), TGVError>;
-
-    async fn get_all_contigs(&mut self) -> Result<Vec<Contig>, TGVError>;
-}
-
 pub enum SequenceRepositoryEnum {
     UCSCApi(UCSCApiSequenceRepository),
     TwoBit(TwoBitSequenceRepository),
@@ -131,8 +118,8 @@ impl SequenceRepositoryEnum {
     }
 }
 
-impl SequenceRepository for SequenceRepositoryEnum {
-    async fn query_sequence(
+impl SequenceRepositoryEnum {
+    pub async fn query_sequence(
         &mut self,
         region: &Region,
         contig_header: &ContigHeader,
@@ -144,7 +131,7 @@ impl SequenceRepository for SequenceRepositoryEnum {
         }
     }
 
-    async fn close(&mut self) -> Result<(), TGVError> {
+    pub async fn close(&mut self) -> Result<(), TGVError> {
         match self {
             Self::UCSCApi(repo) => repo.close().await,
             Self::TwoBit(repo) => repo.close().await,
@@ -152,7 +139,7 @@ impl SequenceRepository for SequenceRepositoryEnum {
         }
     }
 
-    async fn get_all_contigs(&mut self) -> Result<Vec<Contig>, TGVError> {
+    pub async fn get_all_contigs(&mut self) -> Result<Vec<Contig>, TGVError> {
         match self {
             Self::UCSCApi(repo) => repo.get_all_contigs().await,
             Self::TwoBit(repo) => repo.get_all_contigs().await,

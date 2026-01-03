@@ -4,7 +4,7 @@ use crate::{
     contig_header::{ContigHeader, ContigSource},
     error::TGVError,
     reference::Reference,
-    sequence::{SequenceRepository, SequenceRepositoryEnum},
+    sequence::SequenceRepositoryEnum,
     settings::Settings,
     tracks::{TrackService, TrackServiceEnum},
     variant::VariantRepository,

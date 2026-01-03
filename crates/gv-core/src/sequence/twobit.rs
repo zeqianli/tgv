@@ -2,7 +2,7 @@ use crate::contig_header::{Contig, ContigHeader, ContigSource};
 use crate::error::TGVError;
 use crate::intervals::{GenomeInterval, Region};
 use crate::reference::Reference;
-use crate::sequence::{Sequence, SequenceRepository};
+use crate::sequence::Sequence;
 use std::collections::HashMap;
 use twobit::TwoBitFile;
 
@@ -57,8 +57,8 @@ impl TwoBitSequenceRepository {
     }
 }
 
-impl SequenceRepository for TwoBitSequenceRepository {
-    async fn query_sequence(
+impl TwoBitSequenceRepository {
+    pub async fn query_sequence(
         &mut self,
         region: &Region,
 
@@ -96,11 +96,11 @@ impl SequenceRepository for TwoBitSequenceRepository {
         }
     }
 
-    async fn close(&mut self) -> Result<(), TGVError> {
+    pub async fn close(&mut self) -> Result<(), TGVError> {
         Ok(())
     }
 
-    async fn get_all_contigs(&mut self) -> Result<Vec<Contig>, TGVError> {
+    pub async fn get_all_contigs(&mut self) -> Result<Vec<Contig>, TGVError> {
         todo!()
     }
 }

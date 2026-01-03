@@ -15,7 +15,7 @@ use crate::{
     //register::Registers,
     //rendering::{MainLayout, layout::resize_node},
     repository::Repository,
-    sequence::{Sequence, SequenceRepository},
+    sequence::Sequence,
     track::Track,
     variant::Variant,
 };
