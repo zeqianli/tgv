@@ -1,10 +1,10 @@
-use crate::tracks::{TrackService, UcscApiTrackService, UcscDbTrackService, TRACK_PREFERENCES};
+use crate::tracks::{TRACK_PREFERENCES, TrackService, UcscApiTrackService, UcscDbTrackService};
 use crate::{error::TGVError, intervals::GenomeInterval, reference::Reference, tracks::UcscHost};
 use bigtools::BigBedRead;
 use sqlx::{
+    Column, MySqlPool, Pool, Row,
     mysql::MySqlPoolOptions,
     sqlite::{Sqlite, SqliteConnectOptions, SqlitePool, SqlitePoolOptions},
-    Column, MySqlPool, Pool, Row,
 };
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
@@ -486,8 +486,8 @@ impl BigBedConverter {
     fn get_schema(
         bigbed_reader: &mut BigBedRead<bigtools::utils::reopen::ReopenableFile>,
     ) -> Result<(Vec<String>, Vec<UCSCColumnType>), TGVError> {
-        use bigtools::bed::autosql::parse::parse_autosql;
         use bigtools::bed::autosql::parse::FieldType;
+        use bigtools::bed::autosql::parse::parse_autosql;
         let autosql_string = bigbed_reader
             .autosql()?
             .ok_or(TGVError::IOError("Failed to parse autosql".to_string()))?;
