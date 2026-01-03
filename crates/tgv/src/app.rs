@@ -242,14 +242,7 @@ impl App {
     pub const MAX_ZOOM_TO_DISPLAY_ALIGNMENTS: usize = 32;
     pub const MAX_ZOOM_TO_DISPLAY_SEQUENCES: usize = 2;
 
-    pub fn render(
-        &self,
-        buf: &mut Buffer,
-        state: &State,
-        registers: &Registers,
-        repository: &Repository,
-        pallete: &Palette,
-    ) -> Result<(), TGVError> {
+    pub fn render(&self, buf: &mut Buffer, pallete: &Palette) -> Result<(), TGVError> {
         match &state.scene {
             Scene::Main => Self::render_main(buf, state, registers, repository, pallete),
             Scene::Help => render_help(state.area(), buf),
