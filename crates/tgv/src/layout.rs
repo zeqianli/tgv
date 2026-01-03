@@ -405,7 +405,7 @@ impl MainLayout {
         }
     }
     /// Update the area. If the area size changed, terminal refresh is needed.
-    pub fn set_area(mut self, area: Rect) -> bool {
+    pub fn set_area(&mut self, area: Rect) -> bool {
         if area.width != self.main_area.width || area.height != self.main_area.height {
             self.main_area = area;
 

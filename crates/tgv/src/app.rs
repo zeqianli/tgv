@@ -32,6 +32,7 @@ pub struct App {
     pub settings: Settings,
     pub repository: Repository,
     pub registers: Registers,
+    pub mouse_register: MouseRegister,
 
     pub alignment_view: AlignmentView,
 
@@ -60,6 +61,7 @@ impl App {
             settings: settings.clone(),
             repository,
             registers: Registers::default(),
+            mouse_register: MouseRegister::default(),
             scene: Scene::Main,
         })
     }
@@ -96,7 +98,7 @@ impl App {
                 Ok(Event::Mouse(mouse_event)) => {
                     let state_messages = self.mouse_register.handle_mouse_event(
                         &self.state,
-                        &self.repository,
+                        &self.layout,
                         mouse_event,
                     )?;
 
@@ -252,7 +254,14 @@ impl App {
     pub fn render(&self, buf: &mut Buffer) -> Result<(), TGVError> {
         use crate::rendering::{render_contig_list, render_help, render_main};
         match &self.scene {
-            Scene::Main => render_main(buf, &self.state, &self.registers, &self.settings.palette),
+            Scene::Main => render_main(
+                buf,
+                &self.state,
+                &self.registers,
+                &self.layout,
+                &self.alignment_view,
+                &self.settings.palette,
+            ),
             Scene::Help => render_help(&self.layout.main_area, buf),
             Scene::ContigList => render_contig_list(
                 &self.layout.main_area,

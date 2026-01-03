@@ -1,5 +1,5 @@
 use crate::{contig_header::ContigHeader, error::TGVError};
-use noodles;
+use noodles::{self, vcf::header::record::value::map::contig};
 use std::collections::HashMap;
 
 pub trait GenomeInterval {
@@ -18,10 +18,8 @@ pub trait GenomeInterval {
         (self.start() + self.end()) / 2
     }
 
-    fn overlaps(&self, other: &impl GenomeInterval) -> bool {
-        self.contig_index() == other.contig_index()
-            && self.start() <= other.end()
-            && self.end() >= other.start()
+    fn overlaps(&self, contig_index: usize, start: u64, end: u64) -> bool {
+        self.contig_index() == contig_index && self.start() <= end && self.end() >= start
     }
 
     fn contains(&self, other: &impl GenomeInterval) -> bool {
@@ -88,8 +86,13 @@ where
     }
 
     /// Get intervals overlapping a region.
-    pub fn overlapping(&self, region: &Region) -> Result<Vec<&T>, TGVError> {
-        let indexes = match self.contig_lookup.get(&region.contig_index()) {
+    pub fn overlapping(
+        &self,
+        contig_index: usize,
+        start: u64,
+        end: u64,
+    ) -> Result<Vec<&T>, TGVError> {
+        let indexes = match self.contig_lookup.get(&contig_index) {
             Some(indexes) => indexes,
             None => return Ok(Vec::new()),
         };
@@ -97,7 +100,7 @@ where
         Ok(indexes
             .iter()
             .filter_map(|i| {
-                if self.intervals[*i].overlaps(region) {
+                if self.intervals[*i].overlaps(contig_index, start, end) {
                     Some(&self.intervals[*i])
                 } else {
                     None

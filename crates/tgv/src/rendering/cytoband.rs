@@ -59,11 +59,12 @@ pub fn render_cytobands(
     }
 
     // Cytoband
-    if let Some(cytoband) = state.current_cytoband(&alignment_view.focus) {
+    if let Some(cytoband) = state.current_cytoband(&alignment_view.focus)? {
         for (x, string, style) in get_cytoband_xs_strings_and_styles(
             cytoband,
             cytoband_left_spacing,
             area.width - CYTOBAND_TEXT_RIGHT_SPACING,
+            pallete,
         )? {
             buf.set_string(area.x + x, area.y, string, style);
         }
@@ -107,6 +108,7 @@ fn get_cytoband_xs_strings_and_styles(
     cytoband: &Cytoband,
     area_start: u16,
     area_end: u16,
+    palette: &Palette,
 ) -> Result<Vec<(u16, String, Style)>, TGVError> {
     let mut second_centromere = false;
     let mut output = Vec::new();
@@ -117,6 +119,7 @@ fn get_cytoband_xs_strings_and_styles(
             area_start,
             area_end,
             second_centromere,
+            palette,
         )? {
             output.push((x, string, style));
         }
@@ -130,10 +133,11 @@ fn get_cytoband_xs_strings_and_styles(
 
 fn get_cytoband_segment_x_string_and_style(
     segment: &CytobandSegment,
-    total_length: usize,
+    total_length: u64,
     area_start: u16,
     area_end: u16,
     second_centromere: bool,
+    palette: &Palette,
 ) -> Result<Option<(u16, String, Style)>, TGVError> {
     let onscreen_x_start = linear_scale(segment.start - 1, total_length, area_start, area_end)?; // 0-based, inclusive
     let onscreen_x_end = linear_scale(segment.end, total_length, area_start, area_end)?; // 0-based, exclusive
@@ -142,7 +146,7 @@ fn get_cytoband_segment_x_string_and_style(
         return Ok(None);
     }
 
-    let style = get_cytoband_segment_style(segment);
+    let style = Style::default().fg(palette.cytoband_color(segment.stain.clone()));
 
     match segment.stain {
         Stain::Acen => {
@@ -159,12 +163,5 @@ fn get_cytoband_segment_x_string_and_style(
             let string = "▅".repeat((onscreen_x_end - onscreen_x_start) as usize);
             Ok(Some((onscreen_x_start, string, style)))
         }
-    }
-}
-
-fn get_cytoband_segment_style(cytoband_segment: &CytobandSegment) -> Style {
-    match &cytoband_segment.stain {
-        Stain::Gneg => Style::default(),
-        _ => Style::default().fg(cytoband_segment.stain.get_color()),
     }
 }

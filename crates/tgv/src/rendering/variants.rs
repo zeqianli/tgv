@@ -1,4 +1,4 @@
-use gv_core::{error::TGVError, state::State};
+use gv_core::{error::TGVError, intervals::GenomeInterval, state::State};
 
 use crate::{
     layout::AlignmentView,
@@ -13,7 +13,11 @@ pub fn render_variants(
     alignment_view: &AlignmentView,
     pallete: &Palette,
 ) -> Result<(), TGVError> {
-    let variants = state.variants.overlapping(&alignment_view.region(area))?;
+    let region = alignment_view.region(area);
+    let variants =
+        state
+            .variants
+            .overlapping(region.contig_index(), region.start(), region.end())?;
     if !variants.is_empty() {
         let first_color_index = variants[0].index % 2;
         render_simple_intervals(
