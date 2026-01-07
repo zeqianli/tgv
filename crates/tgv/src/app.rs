@@ -122,6 +122,11 @@ impl App {
                 _ => {}
             }
 
+            self.alignment_view.self_correct(
+                &self.layout.main_area,
+                self.state.contig_length(&self.alignment_view.focus)?,
+            );
+
             // Clear terminal for the next loop if needed
             if refresh_terminal {
                 terminal.clear()?;

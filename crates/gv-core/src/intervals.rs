@@ -123,7 +123,7 @@ pub struct Region {
 
 impl GenomeInterval for Region {
     fn start(&self) -> u64 {
-        self.focus.position.saturating_sub(self.half_width)
+        u64::max(1, self.focus.position.saturating_sub(self.half_width))
     }
 
     fn end(&self) -> u64 {
@@ -142,7 +142,7 @@ impl GenomeInterval for Region {
     /// Width of a genome region.
     // override
     fn length(&self) -> u64 {
-        self.half_width + 2 + 1
+        self.half_width * 2 + 1
     }
 }
 
@@ -211,7 +211,7 @@ impl Focus {
     pub fn move_left(self, n: u64) -> Self {
         Self {
             contig_index: self.contig_index,
-            position: self.position.saturating_sub(n),
+            position: u64::max(1, self.position.saturating_sub(n)),
         }
     }
 

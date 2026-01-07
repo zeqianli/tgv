@@ -314,6 +314,12 @@ impl AlignmentView {
                 self.focus.position = self.focus.position.saturating_sub(right - contig_length);
             }
         }
+
+        // left end must be >=1. TODO: consider loosen this?
+        self.focus.position = self
+            .focus
+            .position
+            .max(1 + (area.width as u64 * self.zoom) / 2);
     }
 
     /// Height of the viewing window.

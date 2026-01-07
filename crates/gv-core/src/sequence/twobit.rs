@@ -76,7 +76,7 @@ impl TwoBitSequenceRepository {
                 let buffer = &mut self.buffers[*buffer_index];
                 let sequence_string = buffer.read_sequence(
                     contig_name,
-                    (region.start() as usize - 1)..region.end() as usize, // Convert to 0-based range
+                    ((region.start() as usize).saturating_sub(1))..region.end() as usize, // Convert to 0-based range
                 )?;
                 Ok(Sequence {
                     start: region.start(),
