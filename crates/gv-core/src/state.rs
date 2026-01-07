@@ -87,33 +87,6 @@ impl State {
             .try_get(focus.contig_index)
             .map(|contig| contig.length)
     }
-
-    const ALIGNMENT_CACHE_RATIO: u64 = 3;
-
-    pub fn alignment_cache_region(&self, region: Region) -> Region {
-        Region {
-            focus: region.focus,
-            half_width: region.half_width * Self::ALIGNMENT_CACHE_RATIO,
-        }
-    }
-
-    const SEQUENCE_CACHE_RATIO: u64 = 6;
-
-    pub fn sequence_cache_region(&self, region: Region) -> Region {
-        Region {
-            focus: region.focus,
-            half_width: region.half_width * Self::SEQUENCE_CACHE_RATIO,
-        }
-    }
-
-    const TRACK_CACHE_RATIO: u64 = 10;
-
-    pub fn track_cache_region(&self, region: Region) -> Region {
-        Region {
-            focus: region.focus,
-            half_width: region.half_width * Self::TRACK_CACHE_RATIO,
-        }
-    }
 }
 
 impl State {

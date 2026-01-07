@@ -209,7 +209,7 @@ impl App {
         {
             self.state
                 .load_sequence_data(
-                    &self.state.sequence_cache_region(region.clone()),
+                    &self.alignment_view.sequence_cache_region(region.clone()),
                     sequence_service,
                 )
                 .await?;
@@ -221,7 +221,7 @@ impl App {
         {
             self.state
                 .load_alignment_data(
-                    &self.state.alignment_cache_region(region.clone()),
+                    &self.alignment_view.alignment_cache_region(region.clone()),
                     alignment_repository,
                 )
                 .await?;
@@ -234,7 +234,7 @@ impl App {
 
             self.state
                 .load_track_data(
-                    &self.state.track_cache_region(region.clone()),
+                    &self.alignment_view.track_cache_region(region.clone()),
                     track_service,
                 )
                 .await?;
