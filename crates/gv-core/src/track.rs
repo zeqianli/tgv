@@ -196,7 +196,7 @@ impl<T: GenomeInterval> Track<T> {
             return None;
         }
 
-        let range = self.features_by_start.range(position..).nth(k - 1);
+        let range = self.features_by_start.range(position + 1..).nth(k - 1);
 
         match range {
             Some((_, index)) => Some(&self.features[*index]),
@@ -388,7 +388,7 @@ impl Track<Gene> {
             return None;
         }
 
-        let range = self.exons_by_start.range(position..).nth(k - 1);
+        let range = self.exons_by_start.range(position + 1..).nth(k - 1);
 
         match range {
             Some((_, (gene_idx, exon_idx))) => {
@@ -543,11 +543,13 @@ mod tests {
     ) {
         let track = get_test_track();
         match expected {
-            Some(gene_name) => assert_eq!(
-                track.get_k_features_after(position, k).unwrap().name,
-                gene_name
-            ),
-            None => assert!(track.get_k_features_after(position, k).is_none()),
+            Some(gene_name) => {
+                assert_eq!(
+                    track.get_k_genes_after(position, k).unwrap().name,
+                    gene_name
+                )
+            }
+            None => assert!(track.get_k_genes_after(position, k).is_none()),
         }
     }
 

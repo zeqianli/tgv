@@ -1,5 +1,5 @@
 use crate::{contig_header::ContigHeader, error::TGVError};
-use noodles::{self, vcf::header::record::value::map::contig};
+use noodles;
 use std::collections::HashMap;
 
 pub trait GenomeInterval {

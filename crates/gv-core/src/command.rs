@@ -315,7 +315,7 @@ mod tests {
     #[case("BASE() DEC")]
     fn test_parse_alignment_sort_errors(#[case] input: &str) {
         match parse_sort_expression(input) {
-            Ok((input, sort)) => {
+            Ok((input, _sort)) => {
                 assert!(!input.is_empty())
             }
             Err(_) => {
@@ -341,7 +341,7 @@ mod tests {
     #[case("  BASE=DD  ")]
     fn test_parse_alignment_filter_error(#[case] input: &str) {
         match parse_sort_expression(input) {
-            Ok((input, sort)) => {
+            Ok((input, async_compatsort)) => {
                 assert!(!input.is_empty())
             }
             Err(_) => {
@@ -367,7 +367,7 @@ mod tests {
     fn test_command_parse(#[case] input: &str, #[case] expected: Result<Vec<Message>, TGVError>) {
         match (parse(input), expected) {
             (Ok(result), Ok(expected)) => assert_eq!(result, expected),
-            (Err(e), Err(expected)) => {} // OK
+            (Err(_), Err(_)) => {} // OK
             _ => panic!(
                 "Test failed.  result: {:?}, expected: TODO",
                 parse(input),

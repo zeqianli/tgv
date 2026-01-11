@@ -1,5 +1,5 @@
 use crate::tracks::{TRACK_PREFERENCES, TrackService, UcscApiTrackService, UcscDbTrackService};
-use crate::{error::TGVError, intervals::GenomeInterval, reference::Reference, tracks::UcscHost};
+use crate::{error::TGVError, reference::Reference, tracks::UcscHost};
 use bigtools::BigBedRead;
 use sqlx::{
     Column, MySqlPool, Pool, Row,

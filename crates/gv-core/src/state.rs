@@ -20,13 +20,6 @@ use crate::{
 };
 use itertools::Itertools;
 
-#[derive(Debug, Clone, Eq, PartialEq)]
-pub enum Scene {
-    Main,
-    Help,
-    ContigList,
-}
-
 /// Holds states of the application.
 pub struct State {
     pub messages: Vec<String>,

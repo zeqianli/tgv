@@ -1,7 +1,7 @@
 use crate::{
     contig_header::ContigHeader,
     error::TGVError,
-    intervals::{GenomeInterval, Region, SortedIntervalCollection},
+    intervals::{GenomeInterval, SortedIntervalCollection},
 };
 use noodles::bed::{self};
 
