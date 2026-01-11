@@ -53,13 +53,19 @@ pub fn render_main(
             AreaType::Cytoband => render_cytobands(rect, buf, state, alignment_view, pallete)?,
             AreaType::Coordinate => render_coordinates(rect, buf, alignment_view, state)?,
             AreaType::Coverage => {
-                render_coverage(rect, buf, state, alignment_view, pallete)?;
+                if alignment_view.zoom <= AlignmentView::MAX_ZOOM_TO_DISPLAY_ALIGNMENTS {
+                    render_coverage(rect, buf, state, alignment_view, pallete)?;
+                }
             }
             AreaType::Alignment => {
-                render_alignment(rect, buf, state, alignment_view, pallete)?;
+                if alignment_view.zoom <= AlignmentView::MAX_ZOOM_TO_DISPLAY_ALIGNMENTS {
+                    render_alignment(rect, buf, state, alignment_view, pallete)?;
+                }
             }
             AreaType::Sequence => {
-                render_sequence(rect, buf, state, alignment_view, pallete)?;
+                if alignment_view.zoom <= AlignmentView::MAX_ZOOM_TO_DISPLAY_SEQUENCES {
+                    render_sequence(rect, buf, state, alignment_view, pallete)?;
+                }
             }
             AreaType::GeneTrack => {
                 render_track(rect, buf, state, alignment_view, pallete)?;

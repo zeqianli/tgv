@@ -38,6 +38,8 @@ pub fn render_coverage(
         area.width as usize,
     )?;
 
+    println!("{}", binned_coverage[0].len());
+
     let y_max: usize = round_up_max_coverage(
         (0..binned_coverage[0].len())
             .map(|i| binned_coverage[0][i] + binned_coverage[1][i])

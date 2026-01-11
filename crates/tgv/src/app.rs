@@ -157,6 +157,7 @@ impl App {
                         .await?;
 
                     self.alignment_view.focus = focus;
+                    self.load_data().await?
                 }
 
                 Message::Core(gv_core::message::Message::Quit) => self.exit = true,
@@ -169,6 +170,7 @@ impl App {
                     let contig_length = self.state.contig_length(&self.alignment_view.focus)?;
                     self.alignment_view
                         .zoom(zoom, &self.layout.main_area, contig_length)?; // TODO
+                    self.load_data().await?
                 }
 
                 Message::Core(gv_core::message::Message::SetAlignmentOption(options)) => {
@@ -193,7 +195,7 @@ impl App {
             }
         }
 
-        self.load_data().await
+        Ok(())
     }
 
     async fn load_data(&mut self) -> Result<(), TGVError> {
@@ -204,7 +206,7 @@ impl App {
         let region = self.alignment_view.region(&self.layout.main_area);
 
         if let Some(sequence_service) = self.repository.sequence_service.as_mut()
-            && self.alignment_view.zoom <= Self::MAX_ZOOM_TO_DISPLAY_SEQUENCES
+            && self.alignment_view.zoom <= AlignmentView::MAX_ZOOM_TO_DISPLAY_SEQUENCES
             && !self.state.sequence.has_complete_data(&region)
         {
             self.state
@@ -216,7 +218,7 @@ impl App {
         }
 
         if let Some(alignment_repository) = self.repository.alignment_repository.as_mut()
-            && self.alignment_view.zoom <= Self::MAX_ZOOM_TO_DISPLAY_ALIGNMENTS
+            && self.alignment_view.zoom <= AlignmentView::MAX_ZOOM_TO_DISPLAY_ALIGNMENTS
             && !self.state.alignment.has_complete_data(&region)
         {
             self.state
@@ -259,9 +261,6 @@ impl App {
         //
         Ok(())
     }
-
-    pub const MAX_ZOOM_TO_DISPLAY_ALIGNMENTS: u64 = 32;
-    pub const MAX_ZOOM_TO_DISPLAY_SEQUENCES: u64 = 2;
 
     pub fn render(&self, buf: &mut Buffer) -> Result<(), TGVError> {
         use crate::rendering::{render_contig_list, render_help, render_main};

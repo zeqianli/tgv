@@ -215,6 +215,9 @@ pub struct AlignmentView {
 
 /// States for the alignment view
 impl AlignmentView {
+    pub const MAX_ZOOM_TO_DISPLAY_ALIGNMENTS: u64 = 32;
+    pub const MAX_ZOOM_TO_DISPLAY_SEQUENCES: u64 = 2;
+
     pub fn new(focus: Focus) -> Self {
         AlignmentView {
             focus,
