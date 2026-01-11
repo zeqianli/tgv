@@ -1,0 +1,34 @@
+[package]
+name = "tgv"
+version = "0.1.0"
+edition = "2024"
+description = "Explore genomes in the terminal. Light, blazing fast 🚀, vim-motion."
+license = "MIT"
+rust-version = "1.88"
+include = ["src/*", "!src/snapshots", "Cargo.toml", "./README.md"]
+
+[dependencies]
+clap.workspace = true
+crossterm.workspace = true
+futures.workspace = true
+gv-core.workspace = true
+itertools.workspace = true
+nom.workspace = true
+ratatui.workspace = true
+shellexpand.workspace = true
+strum.workspace = true
+thiserror.workspace = true
+tokio.workspace = true
+
+[dev-dependencies]
+cargo-insta = "1.42"
+insta = "1.42"
+rstest = "0.25.0"
+shlex = "1.3.0"
+tempfile = "3"
+
+[profile.release] # as recommended in https://github.com/ratatui/ratatui-website/pull/931/files
+codegen-units = 1 # Allows compiler to perform better optimization.
+lto = true # Enables Link-time Optimization.
+opt-level = 3 # Prioritizes small binary size. Use `3` if you prefer speed.
+strip = true # Ensures debug symbols are removed.

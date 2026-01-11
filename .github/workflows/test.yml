@@ -2,7 +2,7 @@ name: test
 
 on:
   push:
-    branches: [ "main" ]
+    branches: ["main"]
   pull_request:
 
 env:
@@ -12,20 +12,20 @@ jobs:
   test:
     runs-on: ubuntu-latest
     steps:
-    - uses: actions/checkout@v4
-    - name: Run tests
-      run: |
-        cargo test 
-      env:
-        CI: 0 
-        # Disable CI mode to have insta save snapshots to files. 
-        # See https://github.com/mitsuhiko/insta/issues/344
-    - name: Show snapshots
-      run: | 
-        for file in src/snapshots/*; do
-          echo $file
-          cat $file
-        done
+      - uses: actions/checkout@v4
+      - name: Run tests
+        run: |
+          cargo test
+        env:
+          CI: 0
+          # Disable CI mode to have insta save snapshots to files.
+          # See https://github.com/mitsuhiko/insta/issues/344
+      - name: Show snapshots
+        run: |
+          for file in crates/tgv/src/snapshots/*; do
+            echo $file
+            cat $file
+          done
   # lint:
   #   runs-on: ubuntu-latest
   #   steps:
