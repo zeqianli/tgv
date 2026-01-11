@@ -165,6 +165,22 @@ pub struct Settings {
     pub palette: Palette,
 }
 
+impl Default for Settings {
+    fn default() -> Self {
+        Settings {
+            core: gv_core::settings::Settings::default(),
+
+            initial_state_messages: vec![Movement::Default.into()],
+
+            test_mode: false,
+
+            debug: false,
+
+            palette: DARK_THEME,
+        }
+    }
+}
+
 /// Settings to browse alignments
 impl TryFrom<Cli> for Settings {
     type Error = TGVError;
@@ -250,121 +266,122 @@ impl TryFrom<Cli> for Settings {
 
 #[cfg(test)]
 mod tests {
-    // use super::*;
+    use super::*;
 
-    // use crate::message::Message;
-    // use gv_core::reference::Reference;
-    // use rstest::rstest;
+    use crate::message::Message;
+    use gv_core::reference::Reference;
+    use rstest::rstest;
 
-    // // Helper function to create default settings for comparison
-    // fn default_settings() -> Settings {
-    //     Settings {
-    //         bam_path: None,
-    //         bai_path: None,
-    //         vcf_path: None,
-    //         bed_path: None,
-    //         reference: Reference::Hg38,
-    //         backend: BackendType::Default, // Default backend
-    //         initial_state_messages: vec![Message::GoToDefault],
-    //         test_mode: false,
-    //         debug: false,
-    //         ucsc_host: UcscHost::Us,
-    //         cache_dir: shellexpand::tilde("~/.tgv").to_string(),
-    //         palette: DARK_THEME,
-    //     }
-    // }
+    #[rstest]
+    #[case("tgv", Ok(Settings{
+        ..Settings::default()}
+    ))]
+    #[case("tgv input.bam", Ok(Settings {
+        core: gv_core::settings::Settings {
 
-    // #[rstest]
-    // #[case("tgv", Ok(default_settings()))]
-    // #[case("tgv input.bam", Ok(Settings {
-    //     bam_path: Some("input.bam".to_string()),
-    //     bai_path: Some("input.bam.bai".to_string()),
-    //     ..default_settings()
-    // }))]
-    // #[case("tgv input.bam -b some.bed", Ok(Settings {
-    //     bam_path: Some("input.bam".to_string()),
-    //     bai_path: Some("input.bam.bai".to_string()),
-    //     bed_path: Some("some.bed".to_string()),
-    //     ..default_settings()
-    // }))]
-    // #[case("tgv input.bam -v some.vcf", Ok(Settings {
-    //     bam_path: Some("input.bam".to_string()),
-    //     bai_path: Some("input.bam.bai".to_string()),
-    //     vcf_path: Some("some.vcf".to_string()),
-    //     ..default_settings()
-    // }))]
-    // #[case("tgv input.bam --offline", Ok(Settings {
-    //     bam_path: Some("input.bam".to_string()),
-    //     bai_path: Some("input.bam.bai".to_string()),
-    //     backend: BackendType::Local,
-    //     ..default_settings()
-    // }))]
-    // #[case("tgv input.bam --online", Ok(Settings {
-    //     bam_path: Some("input.bam".to_string()),
-    //     bai_path: Some("input.bam.bai".to_string()),
-    //     backend: BackendType::Ucsc,
-    //     ..default_settings()
-    // }))]
-    // #[case("tgv input.bam -r chr1:12345", Ok(Settings {
-    //     bam_path: Some("input.bam".to_string()),
-    //     bai_path: Some("input.bam.bai".to_string()),
-    //     initial_state_messages: vec![Message::GotoContigNameCoordinate(
-    //         "chr1".to_string(),
-    //         12345,
-    //     )],
-    //     ..default_settings()
-    // }))]
-    // #[case("tgv input.bam -r chr1:invalid", Err(TGVError::CliError("".to_string())))]
-    // #[case("tgv input.bam -r chr1:12:12345", Err(TGVError::CliError("".to_string())))]
-    // #[case("tgv input.bam -r TP53", Ok(Settings {
-    //     bam_path: Some("input.bam".to_string()),
-    //     bai_path: Some("input.bam.bai".to_string()),
-    //     initial_state_messages: vec![Message::GoToGene("TP53".to_string())],
-    //     ..default_settings()
-    // }))]
-    // #[case("tgv input.bam -r TP53 -g hg19", Ok(Settings {
-    //     bam_path: Some("input.bam".to_string()),
-    //     bai_path: Some("input.bam.bai".to_string()),
-    //     reference: Reference::Hg19,
-    //     initial_state_messages: vec![Message::GoToGene("TP53".to_string())],
-    //     ..default_settings()
-    // }))]
-    // #[case("tgv input.bam -r TP53 -g mm39", Ok(Settings {
-    //     bam_path: Some("input.bam".to_string()),
-    //     bai_path: Some("input.bam.bai".to_string()),
-    //     reference: Reference::UcscGenome("mm39".to_string()),
-    //     initial_state_messages: vec![Message::GoToGene("TP53".to_string())],
-    //     ..default_settings()
-    // }))]
-    // #[case("tgv input.bam -r 1:12345 --no-reference", Ok(Settings {
-    //     bam_path: Some("input.bam".to_string()),
-    //     bai_path: Some("input.bam.bai".to_string()),
-    //     reference: Reference::NoReference,
-    //     initial_state_messages: vec![Message::GotoContigNameCoordinate(
-    //         "1".to_string(),
-    //         12345,
-    //     )],
-    //     ..default_settings()
-    // }))]
-    // #[case("tgv input.bam -r TP53 -g hg19 --no-reference", Err(TGVError::CliError("".to_string())))]
-    // #[case("tgv --no-reference", Err(TGVError::CliError("".to_string())))]
-    // //#[case("tgv download test-name", Err(TGVError::CliError("".to_string())))]
-    // // #[case("tgv download test-name --cache-dir /custom/dir", Err(TGVError::CliError("".to_string())))]
-    // fn test_cli_parsing(
-    //     #[case] command_line: &str,
-    //     #[case] expected_settings: Result<Settings, TGVError>,
-    // ) {
-    //     let cli = Cli::parse_from(shlex::split(command_line).unwrap());
 
-    //     let settings = Settings::new(cli.clone());
+        bam_path: Some(("input.bam".to_string(),"input.bam.bai".to_string())),
+        ..gv_core::settings::Settings::default()
+        },
+        ..Settings::default()
+    }))]
+    #[case("tgv input.bam -b some.bed", Ok(Settings {
+        core: gv_core::settings::Settings {
 
-    //     match (&settings, &expected_settings) {
-    //         (Ok(settings), Ok(expected)) => assert_eq!(*settings, *expected),
-    //         (Err(e), Err(expected)) => {} // OK
-    //         _ => panic!(
-    //             "Unexpected CLI parsing result. Expected: {:?}, Got: {:?}",
-    //             expected_settings, settings
-    //         ),
-    //     }
-    // }
+
+        bam_path: Some(("input.bam".to_string(),"input.bam.bai".to_string())),
+        bed_path: Some("some.bed".to_string()),
+        ..gv_core::settings::Settings::default()
+        },
+        ..Settings::default()
+    }))]
+    #[case("tgv input.bam -v some.vcf", Ok(Settings {
+        core: gv_core::settings::Settings {
+
+
+        bam_path: Some(("input.bam".to_string(),"input.bam.bai".to_string())),
+        vcf_path: Some("some.vcf".to_string()),
+        ..gv_core::settings::Settings::default()
+        },
+        ..Settings::default()
+    }))]
+    #[case("tgv input.bam --offline", Ok(Settings {
+        core: gv_core::settings::Settings {
+
+
+        bam_path: Some(("input.bam".to_string(), "input.bam.bai".to_string())),
+        backend: BackendType::Local,
+        ..gv_core::settings::Settings::default()
+        },
+        ..Settings::default()
+    }))]
+    #[case("tgv input.bam --online", Ok(Settings {
+        core: gv_core::settings::Settings {
+        bam_path: Some(("input.bam".to_string(), "input.bam.bai".to_string())),
+        backend: BackendType::Ucsc,
+        ..gv_core::settings::Settings::default()},
+        ..Settings::default()
+    }))]
+    #[case("tgv input.bam -r chr1:12345", Ok(Settings {
+        core: gv_core::settings::Settings {
+        bam_path: Some(("input.bam".to_string(), "input.bam.bai".to_string())), ..gv_core::settings::Settings::default()},
+        initial_state_messages: vec![Movement::ContigNamePosition(
+            "chr1".to_string(),
+            12345,
+        ).into()],
+        ..Settings::default()
+    }))]
+    #[case("tgv input.bam -r chr1:invalid", Err(TGVError::CliError("".to_string())))]
+    #[case("tgv input.bam -r chr1:12:12345", Err(TGVError::CliError("".to_string())))]
+    #[case("tgv input.bam -r TP53", Ok(Settings {
+        core: gv_core::settings::Settings {
+        bam_path: Some(("input.bam".to_string(), "input.bam.bai".to_string())),..gv_core::settings::Settings::default()},
+        initial_state_messages: vec![Movement::Gene("TP53".to_string()).into()],
+        ..Settings::default()
+    }))]
+    #[case("tgv input.bam -r TP53 -g hg19", Ok(Settings {
+        core: gv_core::settings::Settings {
+        bam_path: Some(("input.bam".to_string(), "input.bam.bai".to_string())),
+        reference: Reference::Hg19,..gv_core::settings::Settings::default()},
+        initial_state_messages: vec![Movement::Gene("TP53".to_string()).into()],
+        ..Settings::default()
+    }))]
+    #[case("tgv input.bam -r TP53 -g mm39", Ok(Settings {
+        core: gv_core::settings::Settings {
+        bam_path: Some(("input.bam".to_string(), "input.bam.bai".to_string())),
+        reference: Reference::UcscGenome("mm39".to_string()),..gv_core::settings::Settings::default()},
+        initial_state_messages: vec![Movement::Gene("TP53".to_string()).into()],
+        ..Settings::default()
+    }))]
+    #[case("tgv input.bam -r 1:12345 --no-reference", Ok(Settings {
+        core: gv_core::settings::Settings {
+        bam_path: Some(("input.bam".to_string(), "input.bam.bai".to_string())),
+        reference: Reference::NoReference,..gv_core::settings::Settings::default()},
+        initial_state_messages: vec![Movement::ContigNamePosition(
+            "1".to_string(),
+            12345,
+        ).into()],
+        ..Settings::default()
+    }))]
+    #[case("tgv input.bam -r TP53 -g hg19 --no-reference", Err(TGVError::CliError("".to_string())))]
+    #[case("tgv --no-reference", Err(TGVError::CliError("".to_string())))]
+    //#[case("tgv download test-name", Err(TGVError::CliError("".to_string())))]
+    // #[case("tgv download test-name --cache-dir /custom/dir", Err(TGVError::CliError("".to_string())))]
+    fn test_cli_parsing(
+        #[case] command_line: &str,
+        #[case] expected_settings: Result<Settings, TGVError>,
+    ) {
+        let cli = Cli::parse_from(shlex::split(command_line).unwrap());
+
+        let settings = Settings::try_from(cli);
+
+        match (&settings, &expected_settings) {
+            (Ok(settings), Ok(expected)) => assert_eq!(*settings, *expected),
+            (Err(e), Err(expected)) => {} // OK
+            _ => panic!(
+                "Unexpected CLI parsing result. Expected: {:?}, Got: {:?}",
+                expected_settings, settings
+            ),
+        }
+    }
 }

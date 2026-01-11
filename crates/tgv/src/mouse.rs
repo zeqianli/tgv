@@ -1,6 +1,6 @@
 use crate::{
     layout::{AlignmentView, AreaType, LayoutNode, MainLayout},
-    message::Message,
+    message::{Message, Movement, Scroll},
 };
 use crossterm::event;
 use gv_core::{alignment::BaseCoverage, error::TGVError, intervals::Region, state::State};
@@ -79,23 +79,15 @@ impl MouseRegister {
                     match self.mouse_down_area_type {
                         AreaType::Alignment | AreaType::Coverage => {
                             if event.column < self.mouse_drag_x {
-                                messages.push(Message::Core(gv_core::message::Message::Move(
-                                    gv_core::message::Movement::Right(1),
-                                )))
+                                messages.push(Movement::Right(1).into())
                             } else if event.column > self.mouse_drag_x {
-                                messages.push(Message::Core(gv_core::message::Message::Move(
-                                    gv_core::message::Movement::Left(1),
-                                )))
+                                messages.push(Movement::Left(1).into())
                             }
 
                             if event.row > self.mouse_down_y {
-                                messages.push(Message::Core(gv_core::message::Message::Scroll(
-                                    gv_core::message::Scroll::Up(1),
-                                )))
+                                messages.push(Scroll::Up(1).into())
                             } else if event.row < self.mouse_down_y {
-                                messages.push(Message::Core(gv_core::message::Message::Scroll(
-                                    gv_core::message::Scroll::Down(1),
-                                )))
+                                messages.push(Scroll::Down(1).into())
                             }
                         }
                         _ => {}
@@ -145,9 +137,7 @@ impl MouseRegister {
                                     })
                                     .join(", ");
 
-                                messages.push(Message::Core(gv_core::message::Message::Message(
-                                    (description),
-                                )));
+                                messages.push(Message::message(description));
                             }
                         }
 
@@ -171,9 +161,7 @@ impl MouseRegister {
                                     )
                                 };
 
-                                messages.push(Message::Core(gv_core::message::Message::Message(
-                                    (message),
-                                )));
+                                messages.push(Message::message(message));
                             }
                         }
                         AreaType::Variant => {
@@ -189,11 +177,7 @@ impl MouseRegister {
                                     )?
                                     .into_iter()
                                     .for_each(|variant| {
-                                        messages.push(Message::Core(
-                                            gv_core::message::Message::Message(
-                                                (variant.describe()),
-                                            ),
-                                        ));
+                                        messages.push(Message::message(variant.describe()));
                                     });
                             }
                         }
@@ -211,11 +195,7 @@ impl MouseRegister {
                                     )?
                                     .into_iter()
                                     .for_each(|bed_interval| {
-                                        messages.push(Message::Core(
-                                            gv_core::message::Message::Message(
-                                                (bed_interval.describe()),
-                                            ),
-                                        ));
+                                        messages.push(Message::message(bed_interval.describe()));
                                     });
                             }
                         }
@@ -224,21 +204,13 @@ impl MouseRegister {
                 }
             }
 
-            event::MouseEventKind::ScrollDown => messages.push(Message::Core(
-                gv_core::message::Message::Scroll(gv_core::message::Scroll::Down(1)),
-            )),
+            event::MouseEventKind::ScrollDown => messages.push(Scroll::Down(1).into()),
 
-            event::MouseEventKind::ScrollUp => messages.push(Message::Core(
-                gv_core::message::Message::Scroll(gv_core::message::Scroll::Up(1)),
-            )),
+            event::MouseEventKind::ScrollUp => messages.push(Scroll::Up(1).into()),
 
-            event::MouseEventKind::ScrollLeft => messages.push(Message::Core(
-                gv_core::message::Message::Move(gv_core::message::Movement::Left(1)),
-            )),
+            event::MouseEventKind::ScrollLeft => messages.push(Movement::Left(1).into()),
 
-            event::MouseEventKind::ScrollRight => messages.push(Message::Core(
-                gv_core::message::Message::Move(gv_core::message::Movement::Right(1)),
-            )),
+            event::MouseEventKind::ScrollRight => messages.push(Movement::Right(1).into()),
 
             _ => {}
         }

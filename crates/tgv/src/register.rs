@@ -1,4 +1,7 @@
-use crate::{app::Scene, message::Message};
+use crate::{
+    app::Scene,
+    message::{Message, Movement, Scroll},
+};
 use crossterm::event::{KeyCode, KeyEvent};
 use gv_core::normal::update_by_char;
 use gv_core::{error::TGVError, state::State};
@@ -44,7 +47,6 @@ impl Registers {
 
         self.command_cursor = 0;
         self.contig_list_cursor = 0;
-        //self.contig_list_command.buffer.clear();
     }
 }
 
@@ -70,9 +72,7 @@ impl Registers {
             KeyCode::Enter => Ok(vec![
                 Message::SwitchKeyRegister(KeyRegisterType::Normal),
                 Message::SwitchScene(Scene::Main),
-                Message::Core(gv_core::message::Message::Move(
-                    gv_core::message::Movement::ContigIndex(self.contig_list_cursor),
-                )),
+                Movement::ContigIndex(self.contig_list_cursor).into(),
             ]),
 
             KeyCode::Esc => Ok(vec![
@@ -184,23 +184,23 @@ impl Registers {
             ]),
             KeyCode::Char(char) => Ok(update_by_char(&mut self.normal, char)?
                 .into_iter()
-                .map(|m| Message::Core(m))
+                .map(|m| m.into())
                 .collect_vec()),
             KeyCode::Left => Ok(update_by_char(&mut self.normal, 'h')?
                 .into_iter()
-                .map(|m| Message::Core(m))
+                .map(|m| m.into())
                 .collect_vec()),
             KeyCode::Up => Ok(update_by_char(&mut self.normal, 'k')?
                 .into_iter()
-                .map(|m| Message::Core(m))
+                .map(|m| m.into())
                 .collect_vec()),
             KeyCode::Down => Ok(update_by_char(&mut self.normal, 'j')?
                 .into_iter()
-                .map(|m| Message::Core(m))
+                .map(|m| m.into())
                 .collect_vec()),
             KeyCode::Right => Ok(update_by_char(&mut self.normal, 'l')?
                 .into_iter()
-                .map(|m| Message::Core(m))
+                .map(|m| m.into())
                 .collect_vec()),
 
             _ => {
@@ -230,7 +230,7 @@ impl Registers {
         .unwrap_or_else(|e| {
             vec![
                 Message::ClearAllKeyRegisters,
-                Message::Core(gv_core::message::Message::Message(format!("{}", e))),
+                Message::message(format!("{}", e)),
             ]
         }))
     }
