@@ -76,6 +76,11 @@ impl App {
         self.handle(self.settings.initial_state_messages.clone())
             .await?;
 
+        self.alignment_view.self_correct(
+            &self.layout.main_area,
+            self.state.contig_length(&self.alignment_view.focus)?,
+        );
+
         while !self.exit {
             // Render
             // FIXME: improve rendering performance. Not all sections need to be re-rendered at every loop.

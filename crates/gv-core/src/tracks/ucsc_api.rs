@@ -96,17 +96,18 @@ impl UcscApiTrackService {
             }
         };
 
+        dbg!(query_url.clone(), preferred_track.clone());
+
         let mut response: serde_json::Value =
             self.client.get(query_url).send().await?.json().await?;
 
-        let response: UcscApiListGeneResponse =
+        let response: Vec<UcscGeneResponse> =
             serde_json::from_value(response[preferred_track].take())?;
 
         self.cache.add_track(
             contig_index,
             Track::from_genes(
                 response
-                    .genes
                     .into_iter()
                     .map(|response| response.to_gene(contig_index))
                     .collect::<Result<Vec<Gene>, TGVError>>()?,

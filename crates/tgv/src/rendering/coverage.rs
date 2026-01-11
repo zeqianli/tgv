@@ -94,9 +94,12 @@ fn get_linear_space(left: u64, right: u64, n_bins: usize) -> Result<Vec<(u64, u6
     }
 
     if n_bins as u64 > right - left {
-        return Err(TGVError::ValueError(
-            "n_bins is greater than the number of bases in the region".to_string(),
-        ));
+        // FIXME: make this permissive? Don't wanna crash the app because of a rendering problem.
+        // Could happen if the region is weird.
+        return Err(TGVError::ValueError(format!(
+            "n_bins = {} is greater than the number of bases in the region [{}, {}]",
+            n_bins, left, right
+        )));
     }
 
     let mut bins: Vec<(u64, u64)> = Vec::new();

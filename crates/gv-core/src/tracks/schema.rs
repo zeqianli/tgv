@@ -208,6 +208,7 @@ impl ContigRow {
 
 #[derive(Debug, Clone, Deserialize)]
 #[allow(non_snake_case)]
+#[serde(untagged)]
 pub enum UcscGeneResponse {
     GeneResponse1 {
         name: String,
@@ -326,40 +327,6 @@ impl UcscGeneResponse {
             })
             .collect()
     }
-}
-
-// {
-//   "downloadTime": "2025:08:12T17:08:55Z",
-//   "downloadTimeStamp": 1755018535,
-//   "genome": "hg38",
-//   "dataTime": "2022-10-18T23:39:31",
-//   "dataTimeStamp": 1666161571,
-//   "trackType": "bed 3 +",
-//   "track": "gold",
-//   "chrom": "chrM",
-//   "start": 0,
-//   "end": 16569,
-//   "gold": [
-//     {
-//       "bin": 585,
-//       "chrom": "chrM",
-//       "chromStart": 0,
-//       "chromEnd": 16569,
-//       "ix": 1,
-//       "type": "O",
-//       "frag": "J01415.2",
-//       "fragStart": 0,
-//       "fragEnd": 16569,
-//       "strand": "+"
-//     }
-//   ],
-//   "itemsReturned": 1
-// }
-#[allow(non_snake_case)]
-#[derive(Debug, Clone, Deserialize)]
-pub struct UcscApiListGeneResponse {
-    #[serde(flatten)]
-    pub genes: Vec<UcscGeneResponse>,
 }
 
 ///
