@@ -48,9 +48,7 @@ impl Sequence {
 
         Some(
             self.sequence
-                .get(
-                    ((region.start() - self.start) as usize..=(region.end() - self.start) as usize),
-                )
+                .get((region.start() - self.start) as usize..=(region.end() - self.start) as usize)
                 .unwrap()
                 .to_vec(),
         )
