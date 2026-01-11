@@ -256,6 +256,8 @@ impl AlignmentView {
         match scroll {
             Scroll::Up(n) => self.y = self.y.saturating_sub(n),
             Scroll::Down(n) => self.y = usize::min(self.y.saturating_add(n), alignment.depth()),
+            Scroll::Position(y) => self.y = y,
+            Scroll::Bottom => self.y = alignment.depth().saturating_sub(1),
         }
     }
 

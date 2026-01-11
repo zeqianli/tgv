@@ -352,16 +352,16 @@ mod tests {
 
     #[rstest]
     #[case("q", Ok(vec![Message::Quit]))]
-    #[case("1234", Ok(vec![Message::Move(Movement::Position(1234))]))]
-    #[case("chr1:1000", Ok(vec![Message::Move(Movement::ContigNamePosition(
+    #[case("1234", Ok(vec![Movement::Position(1234).into()]))]
+    #[case("chr1:1000", Ok(vec![Movement::ContigNamePosition(
         "chr1".to_string(),
         1000,
-    ))]))]
-    #[case("17:7572659", Ok(vec![Message::Move(Movement::ContigNamePosition(
+    ).into()]))]
+    #[case("17:7572659", Ok(vec![Movement::ContigNamePosition(
         "17".to_string(),
         7572659,
-    ))]))]
-    #[case("TP53", Ok(vec![Message::Move(Movement::Gene("TP53".to_string()))]))]
+    ).into()]))]
+    #[case("TP53", Ok(vec![Movement::Gene("TP53".to_string()).into()]))]
     #[case("invalid:command:format", Err(TGVError::RegisterError("Invalid command mode input: invalid:command:format".to_string())))]
     #[case("chr1:invalid", Err(TGVError::RegisterError("Invalid command mode input: chr1:invalid".to_string())))]
     fn test_command_parse(#[case] input: &str, #[case] expected: Result<Vec<Message>, TGVError>) {

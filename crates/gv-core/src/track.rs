@@ -26,8 +26,8 @@ pub struct Track<T: GenomeInterval> {
 
     /// Only for Track<Gene>
     /// (i, j) -> exon [self.genes[i].exon_starts[j], self.genes[i].exon_ends[j]]
-    exons_by_start: Option<BTreeMap<u64, (usize, usize)>>,
-    exons_by_end: Option<BTreeMap<u64, (usize, usize)>>,
+    exons_by_start: BTreeMap<u64, (usize, usize)>,
+    exons_by_end: BTreeMap<u64, (usize, usize)>,
 
     /// feature name -> index in features
     feature_lookup: HashMap<String, usize>,
@@ -44,8 +44,8 @@ impl<T: GenomeInterval> Default for Track<T> {
             most_left_bound: u64::MAX,
             most_right_bound: u64::MIN,
 
-            exons_by_start: None,
-            exons_by_end: None,
+            exons_by_start: BTreeMap::new(),
+            exons_by_end: BTreeMap::new(),
             feature_lookup: HashMap::new(),
         }
     }
@@ -85,8 +85,8 @@ impl<T: GenomeInterval> Track<T> {
             // data_complete_right_bound: data_complete_right_bound,
             most_left_bound,
             most_right_bound,
-            exons_by_start: None,
-            exons_by_end: None,
+            exons_by_start: BTreeMap::new(),
+            exons_by_end: BTreeMap::new(),
             feature_lookup: HashMap::new(),
         })
     }
@@ -292,8 +292,8 @@ impl Track<Gene> {
             features_by_end,
             most_left_bound,
             most_right_bound,
-            exons_by_start: Some(exons_by_start),
-            exons_by_end: Some(exons_by_end),
+            exons_by_start: exons_by_start,
+            exons_by_end: exons_by_end,
             feature_lookup: HashMap::new(),
         })
     }
@@ -330,11 +330,8 @@ impl Track<Gene> {
 
     /// position: 1-based.
     pub fn get_exon_at(&self, position: u64) -> Option<SubGeneFeature> {
-        let exons_by_start = self.exons_by_start.as_ref().unwrap();
-        let exons_by_end = self.exons_by_end.as_ref().unwrap();
-
-        let range_end = exons_by_end.range(position..).next();
-        let range_start = exons_by_start.range(0..=position).next_back();
+        let range_end = self.exons_by_end.range(position..).next();
+        let range_start = self.exons_by_start.range(0..=position).next_back();
 
         match (range_start, range_end) {
             (
@@ -368,9 +365,7 @@ impl Track<Gene> {
             return None;
         }
 
-        let exons_by_end = self.exons_by_end.as_ref().unwrap();
-
-        let range = exons_by_end.range(0..=position).nth_back(k - 1);
+        let range = self.exons_by_end.range(0..=position).nth_back(k - 1);
 
         match range {
             Some((_, (gene_idx, exon_idx))) => {
@@ -393,9 +388,7 @@ impl Track<Gene> {
             return None;
         }
 
-        let exons_by_start = self.exons_by_start.as_ref().unwrap();
-
-        let range = exons_by_start.range(position..).nth(k - 1);
+        let range = self.exons_by_start.range(position..).nth(k - 1);
 
         match range {
             Some((_, (gene_idx, exon_idx))) => {
@@ -406,39 +399,36 @@ impl Track<Gene> {
     }
 
     pub fn get_saturating_k_exons_after(&self, position: u64, k: usize) -> Option<SubGeneFeature> {
-        let exons_by_start = self.exons_by_start.as_ref().unwrap();
-
         if k == 0 {
             return None;
         }
 
-        if exons_by_start.is_empty() {
+        if self.exons_by_start.is_empty() {
             return None;
         }
 
         match self.get_k_exons_after(position, k) {
             Some(exon) => Some(exon),
             _ => {
-                let (_, (gene_idx, exon_idx)) = exons_by_start.iter().last().unwrap();
+                let (_, (gene_idx, exon_idx)) = self.exons_by_start.iter().last().unwrap();
                 Some(self.features[*gene_idx].get_exon(*exon_idx).unwrap())
             }
         }
     }
 
     pub fn get_saturating_k_exons_before(&self, position: u64, k: usize) -> Option<SubGeneFeature> {
-        let exons_by_start = self.exons_by_start.as_ref().unwrap();
         if k == 0 {
             return None;
         }
 
-        if exons_by_start.is_empty() {
+        if self.exons_by_start.is_empty() {
             return None;
         }
 
         match self.get_k_exons_before(position, k) {
             Some(exon) => Some(exon),
             _ => {
-                let (_, (gene_idx, exon_idx)) = exons_by_start.iter().next().unwrap();
+                let (_, (gene_idx, exon_idx)) = self.exons_by_start.iter().next().unwrap();
                 Some(self.features[*gene_idx].get_exon(*exon_idx).unwrap())
             }
         }

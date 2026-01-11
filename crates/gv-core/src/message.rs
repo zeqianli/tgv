@@ -16,16 +16,35 @@ pub enum Message {
     Message(String),
 }
 
+impl From<Movement> for Message {
+    fn from(value: Movement) -> Self {
+        Self::Move(value)
+    }
+}
+impl From<Scroll> for Message {
+    fn from(value: Scroll) -> Self {
+        Self::Scroll(value)
+    }
+}
+impl From<Zoom> for Message {
+    fn from(value: Zoom) -> Self {
+        Self::Zoom(value)
+    }
+}
+
 #[derive(Debug, Clone, Eq, PartialEq, Display)]
 pub enum Zoom {
     Out(u64),
     In(u64),
 }
+
 #[derive(Debug, Clone, Eq, PartialEq, Display)]
 pub enum Scroll {
-    // TODO: go to y coordinate?
     Up(usize),
     Down(usize),
+
+    Position(usize),
+    Bottom,
 }
 
 // TODO: indicate which movement requires resetting y to 0

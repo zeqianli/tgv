@@ -1,5 +1,4 @@
 use crate::sequence::SequenceRepositoryEnum;
-use crate::settings::Settings;
 use crate::tracks::{TrackService, TrackServiceEnum};
 use crate::variant::VariantRepository;
 use crate::{
@@ -19,7 +18,6 @@ use crate::{
     track::Track,
     variant::Variant,
 };
-use bigtools::BedEntry;
 use itertools::Itertools;
 
 #[derive(Debug, Clone, Eq, PartialEq)]
