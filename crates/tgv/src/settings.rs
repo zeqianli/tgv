@@ -80,7 +80,7 @@ pub struct Cli {
     region: Option<String>,
 
     /// Reference genome.
-    /// TGV supports all UCSC assemblies and accessions. See `tgv --list` or `tgv --list-more`.
+    /// TGV supports all UCSC assemblies and accessions. See `tgv list` or `tgv list --more`.
     #[arg(short = 'g', long = "reference", default_value = Reference::HG38)]
     reference: String,
 
