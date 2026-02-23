@@ -1,6 +1,7 @@
 use crate::error::TGVError;
 use crate::intervals::{GenomeInterval, Region};
 use crate::message::AlignmentFilter;
+use crate::modification::{BaseModification, parse_modification_data};
 use crate::sequence::Sequence;
 // use rust_htslib::bam::{record::Seq, Read, Record};
 //
@@ -105,6 +106,11 @@ pub struct AlignedRead {
 
     /// Base mismatches with the reference
     pub rendering_contexts: Vec<RenderingContext>,
+
+    /// Per-position base modification data parsed from MM/ML auxiliary tags.
+    /// Key: 1-based reference position. Value: list of modifications at that position.
+    /// Empty when the BAM record has no MM/ML tags.
+    pub base_modifications: HashMap<u64, Vec<BaseModification>>,
 }
 
 #[derive(Clone, Debug)]
@@ -414,6 +420,8 @@ impl AlignedRead {
             reference_sequence,
         )?;
 
+        let base_modifications = extract_base_modifications(&read, &cigars, start);
+
         Ok(Self {
             read: read,
 
@@ -426,8 +434,40 @@ impl AlignedRead {
             index: read_index,
 
             rendering_contexts,
+            base_modifications,
         })
     }
+}
+
+/// Parse base modification data from the MM and ML auxiliary tags of a SAM record.
+/// Returns an empty map if the record has no MM/ML tags or if parsing fails.
+fn extract_base_modifications(
+    record: &RecordBuf,
+    cigars: &[Op],
+    alignment_start: u64,
+) -> HashMap<u64, Vec<BaseModification>> {
+    use noodles::sam::alignment::record_buf::data::field::Value;
+    use noodles::sam::alignment::record_buf::data::field::value::Array;
+
+    let data = record.data();
+
+    // Fetch MM tag (string, type Z).
+    let mm_str: String = match data.get(b"MM") {
+        Some(Value::String(s)) => String::from_utf8_lossy(s.as_ref()).into_owned(),
+        _ => return HashMap::new(),
+    };
+
+    // Fetch ML tag (uint8 array, type B:C).
+    let ml_bytes: Vec<u8> = match data.get(b"ML") {
+        Some(Value::Array(Array::UInt8(values))) => values.clone(),
+        _ => Vec::new(),
+    };
+
+    // Collect read sequence as uppercase bytes.
+    let seq_bytes: Vec<u8> = record.sequence().as_ref().to_vec();
+
+    parse_modification_data(&mm_str, &ml_bytes, &seq_bytes, cigars, alignment_start)
+        .unwrap_or_default()
 }
 
 /// See: https://samtools.github.io/hts-specs/SAMv1.pdf

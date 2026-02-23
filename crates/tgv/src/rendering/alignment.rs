@@ -3,12 +3,16 @@ use crate::{
     rendering::colors::Palette,
 };
 use gv_core::{
-    alignment::{RenderingContext, RenderingContextKind, RenderingContextModifier},
+    alignment::{
+        BaseModification, ModificationType, RenderingContext, RenderingContextKind,
+        RenderingContextModifier,
+    },
     error::TGVError,
     message::AlignmentDisplayOption,
     state::State,
 };
-use ratatui::{buffer::Buffer, layout::Rect, style::Style};
+use ratatui::{buffer::Buffer, layout::Rect, style::{Color, Style}};
+use std::collections::HashMap;
 
 /// Render an alignment on the alignment area.
 pub fn render_alignment(
@@ -32,6 +36,11 @@ pub fn render_alignment(
         ));
     }
 
+    let show_modifications = state
+        .alignment_options
+        .iter()
+        .any(|option| *option == AlignmentDisplayOption::ShowBaseModifications);
+
     if display_as_pairs {
         state
             .alignment
@@ -44,7 +53,8 @@ pub fn render_alignment(
                 if *show_pair {
                     let y = state.alignment.ys[read_pair.read_1_index];
                     read_pair.rendering_contexts.iter().try_for_each(|context| {
-                        render_contexts(context, y, buf, alignment_view, area, pallete)
+                        // Paired mode: modifications not supported yet; pass None.
+                        render_contexts(context, y, buf, alignment_view, area, pallete, None)
                     })
                 } else {
                     Ok(())
@@ -58,12 +68,16 @@ pub fn render_alignment(
             .enumerate()
             .try_for_each(|(y, read_indexes)| {
                 read_indexes.iter().try_for_each(|read_index| {
-                    state.alignment.reads[*read_index]
-                        .rendering_contexts
-                        .iter()
-                        .try_for_each(|context| {
-                            render_contexts(context, y, buf, alignment_view, area, pallete)
-                        })
+                    let read = &state.alignment.reads[*read_index];
+                    let mods: Option<&HashMap<u64, Vec<BaseModification>>> =
+                        if show_modifications && !read.base_modifications.is_empty() {
+                            Some(&read.base_modifications)
+                        } else {
+                            None
+                        };
+                    read.rendering_contexts.iter().try_for_each(|context| {
+                        render_contexts(context, y, buf, alignment_view, area, pallete, mods)
+                    })
                 })
             })?
     };
@@ -77,9 +91,10 @@ fn render_contexts(
     alignment_view: &AlignmentView,
     area: &Rect,
     pallete: &Palette,
+    base_modifications: Option<&HashMap<u64, Vec<BaseModification>>>,
 ) -> Result<(), TGVError> {
     if let Some(onscreen_contexts) =
-        get_read_rendering_info(context, y, alignment_view, area, pallete)?
+        get_read_rendering_info(context, y, alignment_view, area, pallete, base_modifications)?
     {
         for onscreen_context in onscreen_contexts {
             buf.set_string(
@@ -103,14 +118,36 @@ struct OnScreenRenderingContext {
     style: Style,
 }
 
-/// Get rendering needs for an aligned read.
-/// Returns: x, y,
+/// Return the background color for a reference position from the modification map.
+/// Returns `None` when the position has no modification data.
+fn mod_bg_at(
+    pos: u64,
+    mods: &HashMap<u64, Vec<BaseModification>>,
+    pallete: &Palette,
+) -> Option<Color> {
+    mods.get(&pos).and_then(|mod_list| {
+        // Prefer 5mC, then 5hmC, then 6mA.
+        mod_list
+            .iter()
+            .find(|m| matches!(m.modification_type, ModificationType::FiveMC))
+            .or_else(|| {
+                mod_list
+                    .iter()
+                    .find(|m| matches!(m.modification_type, ModificationType::FiveHMC))
+            })
+            .or_else(|| mod_list.first())
+            .map(|m| pallete.modification_color(&m.modification_type, m.probability))
+    })
+}
+
+/// Get rendering info for an aligned read context.
 fn get_read_rendering_info(
     context: &RenderingContext,
     y: usize,
     alignment_view: &AlignmentView,
     area: &Rect,
     pallete: &Palette,
+    base_modifications: Option<&HashMap<u64, Vec<BaseModification>>>,
 ) -> Result<Option<Vec<OnScreenRenderingContext>>, TGVError> {
     let onscreen_y = match alignment_view.onscreen_y_coordinate(y, area) {
         OnScreenCoordinate::OnScreen(y_start) => y_start as u16,
@@ -131,15 +168,36 @@ fn get_read_rendering_info(
 
     let mut output = Vec::new();
 
+    // ── Base context rendering ─────────────────────────────────────────────
     match context.kind {
-        RenderingContextKind::Match => output.push(OnScreenRenderingContext {
-            x: onscreen_x,
-            y: onscreen_y,
-            string: "-".repeat(length as usize),
-            style: Style::default()
-                .bg(pallete.MATCH_COLOR)
-                .fg(pallete.MATCH_FG_COLOR),
-        }),
+        RenderingContextKind::Match => {
+            if let Some(mods) = base_modifications {
+                // Per-position rendering so each cell can have its own
+                // modification background colour.
+                for pos in context.start..=context.end {
+                    let bg = mod_bg_at(pos, mods, pallete).unwrap_or(pallete.MATCH_COLOR);
+                    if let OnScreenCoordinate::OnScreen(cell_x) =
+                        alignment_view.onscreen_x_coordinate(pos, area)
+                    {
+                        output.push(OnScreenRenderingContext {
+                            x: cell_x as u16,
+                            y: onscreen_y,
+                            string: "-".to_string(),
+                            style: Style::default().bg(bg).fg(pallete.MATCH_FG_COLOR),
+                        });
+                    }
+                }
+            } else {
+                output.push(OnScreenRenderingContext {
+                    x: onscreen_x,
+                    y: onscreen_y,
+                    string: "-".repeat(length as usize),
+                    style: Style::default()
+                        .bg(pallete.MATCH_COLOR)
+                        .fg(pallete.MATCH_FG_COLOR),
+                });
+            }
+        }
 
         RenderingContextKind::Deletion => output.push(OnScreenRenderingContext {
             x: onscreen_x,
@@ -176,7 +234,7 @@ fn get_read_rendering_info(
         }),
     }
 
-    // Modifers
+    // ── Modifiers ─────────────────────────────────────────────────────────
     for modifier in context.modifiers.iter() {
         match modifier {
             RenderingContextModifier::Forward => {
@@ -201,7 +259,7 @@ fn get_read_rendering_info(
                 }
             }
 
-            RenderingContextModifier::Insertion(l) => {
+            RenderingContextModifier::Insertion(_l) => {
                 if let OnScreenCoordinate::OnScreen(x) = start_onscreen_coordinate {
                     output.push(OnScreenRenderingContext {
                         x: x as u16,
@@ -216,15 +274,26 @@ fn get_read_rendering_info(
                 if let OnScreenCoordinate::OnScreen(modifier_onscreen_x) =
                     alignment_view.onscreen_x_coordinate(*coordinate, area)
                 {
+                    // When showing modifications, preserve the modification
+                    // background at this position while changing only the fg.
+                    let base_style = if let Some(mods) = base_modifications {
+                        let bg =
+                            mod_bg_at(*coordinate, mods, pallete).unwrap_or(pallete.MATCH_COLOR);
+                        Style::default()
+                            .bg(bg)
+                            .fg(pallete.mismatch_color(*base))
+                    } else {
+                        output
+                            .first()
+                            .unwrap()
+                            .style
+                            .fg(pallete.mismatch_color(*base))
+                    };
                     output.push(OnScreenRenderingContext {
                         x: modifier_onscreen_x as u16,
                         y: onscreen_y,
                         string: String::from_utf8(vec![*base])?,
-                        style: output
-                            .first()
-                            .unwrap()
-                            .style
-                            .fg(pallete.mismatch_color(*base)),
+                        style: base_style,
                     })
                 }
             }

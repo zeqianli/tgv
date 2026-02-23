@@ -247,6 +247,8 @@ impl Alignment {
                     alignment.sort(sort)
                 }
                 AlignmentDisplayOption::ViewAsPairs => alignment.view_as_pairs(),
+                // ShowBaseModifications only affects rendering; no alignment state change needed.
+                AlignmentDisplayOption::ShowBaseModifications => Ok(alignment),
             })
     }
 

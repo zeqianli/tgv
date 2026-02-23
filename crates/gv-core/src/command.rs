@@ -39,6 +39,12 @@ pub fn parse(input: &str) -> Result<Vec<Message>, TGVError> {
         ])]);
     }
 
+    if let Ok((_, true)) = show_base_modifications(input) {
+        return Ok(vec![Message::SetAlignmentOption(vec![
+            AlignmentDisplayOption::ShowBaseModifications,
+        ])]);
+    }
+
     if let Ok((remaining, options)) = parse_display_options(input) {
         if remaining.is_empty() {
             return Ok(vec![Message::SetAlignmentOption(options)]);
@@ -88,6 +94,17 @@ fn restore_default_options(input: &str) -> IResult<&str, bool> {
 fn view_as_pair(input: &str) -> IResult<&str, bool> {
     let (input, parsed) =
         delimited(multispace0, tag_no_case("paired"), multispace0).parse(input)?;
+
+    Ok((input, (input.is_empty() && !parsed.is_empty())))
+}
+
+fn show_base_modifications(input: &str) -> IResult<&str, bool> {
+    let (input, parsed) = delimited(
+        multispace0,
+        alt((tag_no_case("mod"), tag_no_case("modifications"))),
+        multispace0,
+    )
+    .parse(input)?;
 
     Ok((input, (input.is_empty() && !parsed.is_empty())))
 }

@@ -100,6 +100,10 @@ pub enum AlignmentDisplayOption {
     Sort(AlignmentSort),
 
     ViewAsPairs,
+
+    /// Color aligned bases by base-modification probability (MM/ML tags).
+    /// Supports 5mC, 5hmC, and 6mA.
+    ShowBaseModifications,
 }
 
 #[derive(Debug, Clone, Eq, PartialEq, Display)]
