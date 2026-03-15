@@ -1,1 +1,1 @@
-@AGENTS.mjyISF3I7iyNNwzJoTYxLRg2c6dt4xSYoi5egdvHR8svHHQyu#otFschWwyU_ifMF80YoxZ6MdT9hPYJLHPPhixvTVj3kd
+@AGENTS.md
