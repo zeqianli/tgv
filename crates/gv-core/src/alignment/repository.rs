@@ -13,7 +13,6 @@ use noodles::bam::{self, bai};
 use noodles::cram::{self as cram, crai};
 use noodles::fasta::{self as fasta, repository::adapters::IndexedReader as FastaIndexedReader};
 use noodles::sam::Header;
-use noodles::sam::alignment::RecordBuf;
 use opendal::{FuturesAsyncReader, Operator, services};
 use std::path::Path;
 use tokio::fs::File;
@@ -267,10 +266,10 @@ impl AlignmentRepositoryEnum {
                         let mut query = inner.reader.query(&inner.header, &inner.index, &region)?;
 
                         while let Some(record_buf) = query.try_next().await? {
-                            let bam_record = cram_record_to_bam_record(&inner.header, &record_buf)?;
-                            records.push(AlignedRead::from_bam_record(
+                            records.push(AlignedRead::from_cram_record(
                                 index,
-                                bam_record,
+                                &inner.header,
+                                &record_buf,
                                 reference_sequence,
                             )?);
                             index += 1;
@@ -303,26 +302,6 @@ impl AlignmentRepositoryEnum {
     }
 }
 
-/// Convert a SAM `RecordBuf` (as returned by CRAM queries) to a `bam::Record`.
-///
-/// CRAM queries yield `RecordBuf` records, but `AlignedRead` is built around `bam::Record`.
-/// This function bridges the two by round-tripping through an in-memory BAM encoding.
-fn cram_record_to_bam_record(
-    header: &Header,
-    record_buf: &RecordBuf,
-) -> Result<bam::Record, TGVError> {
-    use noodles::sam::alignment::io::Write as AlignmentWrite;
-
-    let mut buf = Vec::new();
-    let mut writer = bam::io::Writer::from(&mut buf);
-    writer.write_alignment_record(header, record_buf)?;
-    drop(writer);
-
-    let mut reader = bam::io::Reader::from(&buf[..]);
-    let mut record = bam::Record::default();
-    reader.read_record(&mut record)?;
-    Ok(record)
-}
 
 pub fn is_url(path: &str) -> bool {
     path.starts_with("s3://")

@@ -30,7 +30,17 @@ impl Repository {
         let mut track_service = TrackServiceEnum::new(settings).await?;
         let mut sequence_service = SequenceRepositoryEnum::new(settings)?;
         let alignment_repository = if let Some((bam_path, bai_path)) = settings.bam_path.as_ref() {
-            Some(AlignmentRepositoryEnum::new(bam_path, bai_path, None).await?)
+            Some(
+                AlignmentRepositoryEnum::new(
+                    bam_path,
+                    bai_path,
+                    match &settings.reference {
+                        Reference::BYOIndexedFasta(fasta_path) => Some(fasta_path.as_str()),
+                        _ => None,
+                    },
+                )
+                .await?,
+            )
         } else {
             None
         };

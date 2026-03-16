@@ -6,9 +6,15 @@ use crate::sequence::Sequence;
 //
 use itertools::Itertools;
 use noodles::bam::record::{self, Cigar, Record};
-use noodles::sam::alignment::record::{
-    Cigar as CigarTrait, Flags,
-    cigar::{Op, op::Kind},
+use noodles::sam::{
+    self, Header,
+    alignment::{
+        RecordBuf,
+        record::{
+            Cigar as CigarTrait, Flags,
+            cigar::{Op, op::Kind},
+        },
+    },
 };
 use std::collections::HashMap;
 
@@ -74,7 +80,7 @@ impl RenderingContext {
 /// An aligned read with viewing coordinates.
 pub struct AlignedRead {
     /// Alignment record data
-    pub read: Record,
+    pub read: RecordBuf,
 
     /// Non-clipped start genome coordinate on the alignment view
     /// 1-based, inclusive
@@ -345,14 +351,38 @@ impl AlignedRead {
         }
     }
 
-    pub fn from_bam_record(
+    // /// Construct an `AlignedRead` from a CRAM `RecordBuf` by round-tripping through an in-memory
+    // /// BAM encoding. CRAM queries yield `RecordBuf` records, which need to be bridged to the
+    // /// `bam::Record`-based representation used internally.
+    // pub fn from_cram_record(
+    //     read_index: usize,
+    //     header: &Header,
+    //     record_buf: &RecordBuf,
+    //     reference_sequence: &Sequence,
+    // ) -> Result<Self, TGVError> {
+    //     use noodles::sam::alignment::io::Write as AlignmentWrite;
+
+    //     let mut buf = Vec::new();
+    //     let mut writer = noodles::bam::io::Writer::from(&mut buf);
+    //     writer.write_alignment_record(header, record_buf)?;
+    //     drop(writer);
+
+    //     let mut reader = noodles::bam::io::Reader::from(&buf[..]);
+    //     let mut record = Record::default();
+    //     reader.read_record(&mut record)?;
+
+    //     Self::from_bam_record(read_index, record, reference_sequence)
+    // }
+
+    pub fn from_record(
         read_index: usize,
-        read: Record,
+        read: RecordBuf,
         reference_sequence: &Sequence,
+        header: &Header,
     ) -> Result<Self, TGVError> {
-        let start = read.alignment_start().unwrap().unwrap().get() as u64;
-        let cigars: Cigar = read.cigar();
-        let end = start + cigars.alignment_span().unwrap() as u64 - 1;
+        let start = read.alignment_start().unwrap().get() as u64;
+        let cigars = read.cigar();
+        let end = start + cigars.alignment_span() as u64 - 1;
 
         let cigars = cigars.iter().collect::<Result<Vec<Op>, _>>().unwrap();
         let leading_softclips = cigars
@@ -380,13 +410,14 @@ impl AlignedRead {
         let rendering_contexts = calculate_rendering_contexts(
             start,
             &cigars,
-            &read.sequence(),
+            read.sequence(),
             flags.is_reverse_complemented(),
             reference_sequence,
         )?;
 
         Ok(Self {
-            read,
+            read: read,
+
             start,
             end,
             cigar: cigars,
@@ -404,7 +435,7 @@ impl AlignedRead {
 pub fn calculate_rendering_contexts(
     reference_start: u64, // 1-based. Alignment start, not softclip start
     cigars: &Vec<Op>,
-    seq: &record::Sequence,
+    seq: &sam::alignment::record_buf::Sequence,
     is_reverse: bool,
     reference_sequence: &Sequence,
 ) -> Result<Vec<RenderingContext>, TGVError> {
