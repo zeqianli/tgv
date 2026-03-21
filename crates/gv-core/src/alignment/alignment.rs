@@ -10,7 +10,7 @@ use crate::{
     message::AlignmentDisplayOption,
 };
 use std::collections::{BTreeMap, HashMap, hash_map::Entry};
-
+use std::time::SystemTime;
 /// A alignment region on a contig.
 #[derive(Debug, Default)]
 pub struct Alignment {
@@ -155,6 +155,15 @@ impl Alignment {
         alignment
             .build_y_index()?
             .build_coverage(reference_sequence)?;
+        println!(
+            "{}check0",
+            SystemTime::now()
+                .duration_since(SystemTime::UNIX_EPOCH)
+                .unwrap()
+                .as_micros()
+        );
+        println!("check1");
+        println!("check2");
         Ok(alignment)
     }
 
@@ -343,7 +352,7 @@ impl Alignment {
         }
 
         self.ys = stack_tracks_for_reads(&self.reads, &self.show_read);
-        self.build_y_index()?.build_coverage(reference_sequence);
+        self.build_y_index()?.build_coverage(reference_sequence)?;
 
         Ok(self)
     }

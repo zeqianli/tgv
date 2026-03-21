@@ -6,6 +6,7 @@ use crate::{
     sequence::Sequence,
     settings::Settings,
 };
+use std::time::SystemTime;
 
 use async_compat::{Compat, CompatExt};
 use itertools::Itertools;
@@ -275,7 +276,24 @@ impl AlignmentRepositoryEnum {
                                 reference_sequence,
                             )?);
                             index += 1;
+                            println!(
+                                "{}running",
+                                SystemTime::now()
+                                    .duration_since(SystemTime::UNIX_EPOCH)
+                                    .unwrap()
+                                    .as_micros()
+                            );
+                            dbg!(index);
                         }
+
+                        println!(
+                            "{}done",
+                            SystemTime::now()
+                                .duration_since(SystemTime::UNIX_EPOCH)
+                                .unwrap()
+                                .as_micros()
+                        );
+                        dbg!(index);
                     }
                 };
 
