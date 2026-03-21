@@ -22,8 +22,8 @@ impl Default for BackendType {
 
 #[derive(Debug, Clone, Eq, PartialEq)]
 pub struct Settings {
-    /// bam path, bai path
-    pub bam_path: Option<(String, String)>,
+    /// Alignment file path (BAM or CRAM) and its index path (.bam.bai or .cram.crai).
+    pub alignment_path: Option<(String, String)>,
     pub vcf_path: Option<String>,
     pub bed_path: Option<String>,
     pub reference: Reference,
@@ -38,7 +38,7 @@ pub struct Settings {
 impl Default for Settings {
     fn default() -> Settings {
         Settings {
-            bam_path: None,
+            alignment_path: None,
             vcf_path: None,
             bed_path: None,
             reference: Reference::default(),

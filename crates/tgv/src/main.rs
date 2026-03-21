@@ -129,7 +129,7 @@ mod tests {
     #[case(
         Some("ncbi.sorted.bam"),
         Some(
-            "-r chr22:33121120 -v tests/data/simple.vcf -b tests/data/simple.bed --no-reference --offline"
+            "-r chr22:33121120 tests/data/simple.vcf tests/data/simple.bed --no-reference --offline"
         )
     )]
     #[case(
