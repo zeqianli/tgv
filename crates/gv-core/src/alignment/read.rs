@@ -378,7 +378,6 @@ impl AlignedRead {
         read_index: usize,
         read: RecordBuf,
         reference_sequence: &Sequence,
-        header: &Header,
     ) -> Result<Self, TGVError> {
         let start = read.alignment_start().unwrap().get() as u64;
         let cigars = read.cigar();
@@ -1137,12 +1136,11 @@ mod tests {
         let record_buf = sam::alignment::RecordBuf::builder()
             .set_sequence(sam::alignment::record_buf::Sequence::from(seq))
             .build();
-        let record = serialize_as_bam_record(&header, &record_buf).unwrap();
 
         let contexts = calculate_rendering_contexts(
             reference_start,
             &cigars,
-            &record.sequence(),
+            &record_buf.sequence(),
             is_reverse,
             &reference_sequence,
         )

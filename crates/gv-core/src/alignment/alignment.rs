@@ -310,7 +310,7 @@ impl Alignment {
             let read_coverage = calculate_basewise_coverage(
                 read.start,
                 &read.cigar,
-                &read.read.sequence(),
+                read.read.sequence(),
                 reference_sequence,
             )?; // TODO: seq() is called twice. Optimize this in the future.
             for (i, coverage) in read_coverage.into_iter() {

@@ -9,10 +9,13 @@ use crate::{
 
 use async_compat::{Compat, CompatExt};
 use itertools::Itertools;
-use noodles::bam::{self, bai};
 use noodles::cram::{self as cram, crai};
 use noodles::fasta::{self as fasta, repository::adapters::IndexedReader as FastaIndexedReader};
 use noodles::sam::Header;
+use noodles::{
+    bam::{self, bai},
+    sam::alignment::RecordBuf,
+};
 use opendal::{FuturesAsyncReader, Operator, services};
 use std::path::Path;
 use tokio::fs::File;
@@ -242,9 +245,9 @@ impl AlignmentRepositoryEnum {
                         let mut query = inner.reader.query(&inner.header, &inner.index, &region)?;
 
                         while let Some(record) = query.try_next().await? {
-                            records.push(AlignedRead::from_bam_record(
+                            records.push(AlignedRead::from_record(
                                 index,
-                                record,
+                                RecordBuf::try_from_alignment_record(&inner.header, &record)?,
                                 reference_sequence,
                             )?);
                             index += 1;
@@ -254,9 +257,9 @@ impl AlignmentRepositoryEnum {
                         let mut query = inner.reader.query(&inner.header, &inner.index, &region)?;
 
                         while let Some(record) = query.try_next().await? {
-                            records.push(AlignedRead::from_bam_record(
+                            records.push(AlignedRead::from_record(
                                 index,
-                                record,
+                                RecordBuf::try_from_alignment_record(&inner.header, &record)?,
                                 reference_sequence,
                             )?);
                             index += 1;
@@ -266,10 +269,9 @@ impl AlignmentRepositoryEnum {
                         let mut query = inner.reader.query(&inner.header, &inner.index, &region)?;
 
                         while let Some(record_buf) = query.try_next().await? {
-                            records.push(AlignedRead::from_cram_record(
+                            records.push(AlignedRead::from_record(
                                 index,
-                                &inner.header,
-                                &record_buf,
+                                record_buf,
                                 reference_sequence,
                             )?);
                             index += 1;
@@ -301,7 +303,6 @@ impl AlignmentRepositoryEnum {
         get_contig_names_and_lengths_from_header(header)
     }
 }
-
 
 pub fn is_url(path: &str) -> bool {
     path.starts_with("s3://")

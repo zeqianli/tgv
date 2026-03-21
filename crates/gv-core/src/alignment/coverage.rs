@@ -1,7 +1,10 @@
 use crate::error::TGVError;
 use crate::sequence::Sequence;
 use noodles::bam::record::{self};
-use noodles::sam::alignment::record::cigar::{Op, op::Kind};
+use noodles::sam::{
+    self,
+    alignment::record::cigar::{Op, op::Kind},
+};
 use std::collections::HashMap;
 use std::default::Default;
 
@@ -9,7 +12,7 @@ use std::default::Default;
 pub fn calculate_basewise_coverage(
     reference_start: u64, // 1-based. Alignment start, not softclip start
     cigars: &Vec<Op>,
-    sequence: &record::Sequence,
+    sequence: &sam::alignment::record_buf::Sequence,
     reference_sequence: &Sequence,
 ) -> Result<HashMap<u64, BaseCoverage>, TGVError> {
     let mut output: HashMap<u64, BaseCoverage> = HashMap::new();
