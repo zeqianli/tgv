@@ -42,6 +42,7 @@ pub struct App {
 impl App {
     pub async fn new(settings: Settings) -> Result<Self, TGVError> {
         // Gather resources before initializing the state.
+
         let (mut repository, contig_header) = Repository::new(&settings.core).await?;
 
         let state = State::new(settings.core.reference.clone(), contig_header)?;

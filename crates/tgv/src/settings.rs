@@ -3,11 +3,13 @@ use crate::{
     rendering::{DARK_THEME, Palette},
 };
 use clap::{Parser, Subcommand, ValueEnum};
+use gv_core::alignment::is_url;
 use gv_core::error::TGVError;
 use gv_core::message::Movement;
 use gv_core::reference::Reference;
-use gv_core::settings::BackendType;
+use gv_core::settings::{AlignmentPath, BackendType, BamSource};
 use gv_core::tracks::UcscHost;
+use strum::Display;
 
 #[derive(Debug, Clone, Eq, PartialEq, ValueEnum)]
 pub enum UcscHostCli {
@@ -58,8 +60,9 @@ pub enum Commands {
 pub struct Cli {
     /// Input files. Supported formats: .bam, .cram, .vcf, .vcf.gz, .bed, .bed.gz, .fa, .fasta.
     /// Exactly one alignment file (.bam or .cram) may be provided. CRAM files require a FASTA
-    /// reference file (.fa or .fasta) to also be provided. Index files are inferred automatically
-    /// (.bam.bai, .cram.crai, .fa.fai).
+    /// reference file (.fa or .fasta) to also be provided here; its .fai index is inferred
+    /// automatically. BAM/CRAM index files are inferred automatically (.bam.bai, .cram.crai).
+    /// To set the viewer reference (separate from the CRAM decoding reference), use -g.
     #[arg(value_name = "files")]
     files: Vec<String>,
 
@@ -240,16 +243,10 @@ impl TryFrom<Cli> for Settings {
             }
         }
 
-        // Reference: a positional FASTA file takes precedence over -g.
+        // Reference: the -g flag sets the viewer reference. A positional FASTA is only for CRAM
+        // decoding and is independent of the viewer reference.
         let reference = if cli.no_reference {
-            if fasta_path.is_some() {
-                return Err(TGVError::CliError(
-                    "--no-reference cannot be used with a FASTA input file.".to_string(),
-                ));
-            }
             Reference::NoReference
-        } else if let Some(ref fasta) = fasta_path {
-            Reference::from_str(fasta)?
         } else {
             Reference::from_str(&cli.reference)?
         };
@@ -292,16 +289,39 @@ impl TryFrom<Cli> for Settings {
             ));
         }
 
-        // Build the alignment path tuple: (alignment_path, index_path).
-        // Index files are always inferred from the alignment path.
-        let alignment_path = alignment_file.map(|ap| {
-            let index = if ap.to_lowercase().ends_with(".cram") {
-                format!("{}.crai", ap)
-            } else {
-                format!("{}.bai", ap)
-            };
-            (ap, index)
-        });
+        // Build the AlignmentPath. Index files are always inferred from the alignment path.
+        let alignment_path = match alignment_file {
+            None => None,
+            Some(ap) if ap.to_lowercase().ends_with(".bam") => {
+                let index = format!("{}.bai", ap);
+                Some(AlignmentPath::Bam {
+                    path: ap.clone(),
+                    index,
+                    source: if is_url(ap.as_str()) {
+                        BamSource::S3
+                    } else {
+                        BamSource::Local
+                    },
+                })
+            }
+            Some(ap) if ap.to_lowercase().ends_with(".cram") => {
+                // fasta_path is guaranteed to be Some here by the earlier CRAM validation.
+                let fasta = fasta_path.unwrap();
+                let crai = format!("{}.crai", ap);
+                let fai = format!("{}.fai", fasta);
+                Some(AlignmentPath::Cram {
+                    path: ap,
+                    crai,
+                    fasta,
+                    fai,
+                })
+            }
+            Some(ap) => {
+                return Err(TGVError::CliError(format!(
+                    "{ap} is not a valid alignment file path"
+                )));
+            }
+        };
 
         // cache_dir: expand ~
         let cache_dir = shellexpand::tilde(&cli.cache_dir).to_string();
@@ -331,7 +351,16 @@ mod tests {
 
     use crate::message::Message;
     use gv_core::reference::Reference;
+    use gv_core::settings::{AlignmentPath, BamSource};
     use rstest::rstest;
+
+    fn bam(path: &str) -> Option<AlignmentPath> {
+        Some(AlignmentPath::Bam {
+            path: path.to_string(),
+            index: format!("{}.bai", path),
+            source: BamSource::Local,
+        })
+    }
 
     #[rstest]
     #[case("tgv", Ok(Settings{
@@ -339,14 +368,14 @@ mod tests {
     ))]
     #[case("tgv input.bam", Ok(Settings {
         core: gv_core::settings::Settings {
-        alignment_path: Some(("input.bam".to_string(),"input.bam.bai".to_string())),
+        alignment_path: bam("input.bam"),
         ..gv_core::settings::Settings::default()
         },
         ..Settings::default()
     }))]
     #[case("tgv input.bam some.bed", Ok(Settings {
         core: gv_core::settings::Settings {
-        alignment_path: Some(("input.bam".to_string(),"input.bam.bai".to_string())),
+        alignment_path: bam("input.bam"),
         bed_path: Some("some.bed".to_string()),
         ..gv_core::settings::Settings::default()
         },
@@ -354,7 +383,7 @@ mod tests {
     }))]
     #[case("tgv input.bam some.vcf", Ok(Settings {
         core: gv_core::settings::Settings {
-        alignment_path: Some(("input.bam".to_string(),"input.bam.bai".to_string())),
+        alignment_path: bam("input.bam"),
         vcf_path: Some("some.vcf".to_string()),
         ..gv_core::settings::Settings::default()
         },
@@ -362,7 +391,7 @@ mod tests {
     }))]
     #[case("tgv input.bam --offline", Ok(Settings {
         core: gv_core::settings::Settings {
-        alignment_path: Some(("input.bam".to_string(), "input.bam.bai".to_string())),
+        alignment_path: bam("input.bam"),
         backend: BackendType::Local,
         ..gv_core::settings::Settings::default()
         },
@@ -370,14 +399,15 @@ mod tests {
     }))]
     #[case("tgv input.bam --online", Ok(Settings {
         core: gv_core::settings::Settings {
-        alignment_path: Some(("input.bam".to_string(), "input.bam.bai".to_string())),
+        alignment_path: bam("input.bam"),
         backend: BackendType::Ucsc,
         ..gv_core::settings::Settings::default()},
         ..Settings::default()
     }))]
     #[case("tgv input.bam -r chr1:12345", Ok(Settings {
         core: gv_core::settings::Settings {
-        alignment_path: Some(("input.bam".to_string(), "input.bam.bai".to_string())), ..gv_core::settings::Settings::default()},
+        alignment_path: bam("input.bam"),
+        ..gv_core::settings::Settings::default()},
         initial_state_messages: vec![Movement::ContigNamePosition(
             "chr1".to_string(),
             12345,
@@ -388,34 +418,62 @@ mod tests {
     #[case("tgv input.bam -r chr1:12:12345", Err(TGVError::CliError("".to_string())))]
     #[case("tgv input.bam -r TP53", Ok(Settings {
         core: gv_core::settings::Settings {
-        alignment_path: Some(("input.bam".to_string(), "input.bam.bai".to_string())),..gv_core::settings::Settings::default()},
+        alignment_path: bam("input.bam"),
+        ..gv_core::settings::Settings::default()},
         initial_state_messages: vec![Movement::Gene("TP53".to_string()).into()],
         ..Settings::default()
     }))]
     #[case("tgv input.bam -r TP53 -g hg19", Ok(Settings {
         core: gv_core::settings::Settings {
-        alignment_path: Some(("input.bam".to_string(), "input.bam.bai".to_string())),
-        reference: Reference::Hg19,..gv_core::settings::Settings::default()},
+        alignment_path: bam("input.bam"),
+        reference: Reference::Hg19,
+        ..gv_core::settings::Settings::default()},
         initial_state_messages: vec![Movement::Gene("TP53".to_string()).into()],
         ..Settings::default()
     }))]
     #[case("tgv input.bam -r TP53 -g mm39", Ok(Settings {
         core: gv_core::settings::Settings {
-        alignment_path: Some(("input.bam".to_string(), "input.bam.bai".to_string())),
-        reference: Reference::UcscGenome("mm39".to_string()),..gv_core::settings::Settings::default()},
+        alignment_path: bam("input.bam"),
+        reference: Reference::UcscGenome("mm39".to_string()),
+        ..gv_core::settings::Settings::default()},
         initial_state_messages: vec![Movement::Gene("TP53".to_string()).into()],
         ..Settings::default()
     }))]
     #[case("tgv input.bam -r 1:12345 --no-reference", Ok(Settings {
         core: gv_core::settings::Settings {
-        alignment_path: Some(("input.bam".to_string(), "input.bam.bai".to_string())),
-        reference: Reference::NoReference,..gv_core::settings::Settings::default()},
+        alignment_path: bam("input.bam"),
+        reference: Reference::NoReference,
+        ..gv_core::settings::Settings::default()},
         initial_state_messages: vec![Movement::ContigNamePosition(
             "1".to_string(),
             12345,
         ).into()],
         ..Settings::default()
     }))]
+    #[case("tgv input.cram ref.fa", Ok(Settings {
+        core: gv_core::settings::Settings {
+        alignment_path: Some(AlignmentPath::Cram {
+            path: "input.cram".to_string(),
+            crai: "input.cram.crai".to_string(),
+            fasta: "ref.fa".to_string(),
+            fai: "ref.fa.fai".to_string(),
+        }),
+        ..gv_core::settings::Settings::default()},
+        ..Settings::default()
+    }))]
+    #[case("tgv input.cram ref.fa -g hg19", Ok(Settings {
+        core: gv_core::settings::Settings {
+        alignment_path: Some(AlignmentPath::Cram {
+            path: "input.cram".to_string(),
+            crai: "input.cram.crai".to_string(),
+            fasta: "ref.fa".to_string(),
+            fai: "ref.fa.fai".to_string(),
+        }),
+        reference: Reference::Hg19,
+        ..gv_core::settings::Settings::default()},
+        ..Settings::default()
+    }))]
+    #[case("tgv input.cram", Err(TGVError::CliError("".to_string())))]
     #[case("tgv input.bam -r TP53 -g hg19 --no-reference", Err(TGVError::CliError("".to_string())))]
     #[case("tgv --no-reference", Err(TGVError::CliError("".to_string())))]
     #[case("tgv input.bam input2.bam", Err(TGVError::CliError("".to_string())))]

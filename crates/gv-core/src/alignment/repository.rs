@@ -4,11 +4,13 @@ use crate::{
     error::TGVError,
     intervals::{GenomeInterval, Region},
     sequence::Sequence,
-    settings::Settings,
+    settings::{AlignmentPath, BamSource, Settings},
 };
 use std::time::SystemTime;
 
 use async_compat::{Compat, CompatExt};
+use futures::{Stream, StreamExt, stream};
+use futures::{TryFuture, TryFutureExt, TryStream, TryStreamExt};
 use itertools::Itertools;
 use noodles::cram::{self as cram, crai};
 use noodles::fasta::{self as fasta, repository::adapters::IndexedReader as FastaIndexedReader};
@@ -18,6 +20,7 @@ use noodles::{
     sam::alignment::RecordBuf,
 };
 use opendal::{FuturesAsyncReader, Operator, services};
+use std::fs;
 use std::path::Path;
 use tokio::fs::File;
 
@@ -67,11 +70,10 @@ pub struct CramRepository {
     fasta_path: String,
     fai_path: String,
 
-    index: crai::Index,
-
+    //index: crai::Index,
     header: Header,
 
-    reader: cram::r#async::io::Reader<File>,
+    reader: cram::io::indexed_reader::IndexedReader<fs::File>,
 }
 
 impl CramRepository {
@@ -93,21 +95,22 @@ impl CramRepository {
             .map(FastaIndexedReader::new)
             .map(fasta::Repository::new)?;
 
-        let mut reader = cram::r#async::io::reader::Builder::default()
+        let mut reader = cram::io::indexed_reader::Builder::default()
             .set_reference_sequence_repository(repository)
-            .build_from_path(cram_path)
-            .await?;
+            .build_from_path(cram_path)?;
 
-        let header = reader.read_header().await?;
+        let header = reader.read_header()?;
 
-        let index = crai::r#async::read(crai_path).await?;
+        // let index = fs::File::open(fai_path)
+        //     .map(crai::io::Reader::new)?
+        //     .read_index()?;
 
         Ok(Self {
             cram_path: cram_path.to_string(),
             crai_path: crai_path.to_string(),
             fasta_path: fasta_path.to_string(),
             fai_path: fai_path.to_string(),
-            index,
+            //index,
             header,
             reader,
         })
@@ -203,27 +206,30 @@ pub enum AlignmentRepositoryEnum {
 }
 
 impl AlignmentRepositoryEnum {
-    pub async fn new(
-        alignment_path: &str,
-        index_path: &str,
-        fasta_path: Option<&str>,
-    ) -> Result<Self, TGVError> {
-        if is_url(alignment_path) {
-            Ok(AlignmentRepositoryEnum::RemoteBam(
-                RemoteBamRepository::new(alignment_path, index_path).await?,
-            ))
-        } else if alignment_path.ends_with(".cram") {
-            let fasta = fasta_path.ok_or_else(|| {
-                TGVError::IOError("a reference FASTA path is required for CRAM files".to_string())
-            })?;
-            let fai = format!("{}.fai", fasta.to_string());
-            Ok(AlignmentRepositoryEnum::Cram(
-                CramRepository::new(alignment_path, index_path, fasta, fai.as_ref()).await?,
-            ))
-        } else {
-            Ok(AlignmentRepositoryEnum::Bam(
-                BamRepository::new(alignment_path, index_path).await?,
-            ))
+    pub async fn new(alignment_path: &AlignmentPath) -> Result<Self, TGVError> {
+        match alignment_path {
+            AlignmentPath::Bam {
+                path,
+                index,
+                source: BamSource::S3,
+            } => Ok(AlignmentRepositoryEnum::RemoteBam(
+                RemoteBamRepository::new(path, index).await?,
+            )),
+            AlignmentPath::Bam {
+                path,
+                index,
+                source: BamSource::Local,
+            } => Ok(AlignmentRepositoryEnum::Bam(
+                BamRepository::new(path, index).await?,
+            )),
+            AlignmentPath::Cram {
+                path,
+                crai,
+                fasta,
+                fai,
+            } => Ok(AlignmentRepositoryEnum::Cram(
+                CramRepository::new(path, crai, fasta, fai).await?,
+            )),
         }
     }
 }
@@ -235,7 +241,7 @@ impl AlignmentRepositoryEnum {
         reference_sequence: &Sequence,
         contig_header: &ContigHeader,
     ) -> Result<Alignment, TGVError> {
-        use futures::TryStreamExt;
+        use futures::StreamExt;
 
         let records = match region.alignment(contig_header)? {
             Some(region) => {
@@ -243,7 +249,10 @@ impl AlignmentRepositoryEnum {
                 let mut index = 0;
                 match self {
                     AlignmentRepositoryEnum::Bam(inner) => {
-                        let mut query = inner.reader.query(&inner.header, &inner.index, &region)?;
+                        let mut query = inner
+                            .reader
+                            .query(&inner.header, &inner.index, &region)?
+                            .records();
 
                         while let Some(record) = query.try_next().await? {
                             records.push(AlignedRead::from_record(
@@ -255,7 +264,10 @@ impl AlignmentRepositoryEnum {
                         }
                     }
                     AlignmentRepositoryEnum::RemoteBam(inner) => {
-                        let mut query = inner.reader.query(&inner.header, &inner.index, &region)?;
+                        let mut query = inner
+                            .reader
+                            .query(&inner.header, &inner.index, &region)?
+                            .records();
 
                         while let Some(record) = query.try_next().await? {
                             records.push(AlignedRead::from_record(
@@ -267,33 +279,17 @@ impl AlignmentRepositoryEnum {
                         }
                     }
                     AlignmentRepositoryEnum::Cram(inner) => {
-                        let mut query = inner.reader.query(&inner.header, &inner.index, &region)?;
+                        let mut query = inner.reader.query(&inner.header, &region)?; //&inner.index,
 
-                        while let Some(record_buf) = query.try_next().await? {
+                        //while let Some(record_buf) = query.try_next().await? {
+                        for record in query {
                             records.push(AlignedRead::from_record(
                                 index,
-                                record_buf,
+                                record?,
                                 reference_sequence,
                             )?);
                             index += 1;
-                            println!(
-                                "{}running",
-                                SystemTime::now()
-                                    .duration_since(SystemTime::UNIX_EPOCH)
-                                    .unwrap()
-                                    .as_micros()
-                            );
-                            dbg!(index);
                         }
-
-                        println!(
-                            "{}done",
-                            SystemTime::now()
-                                .duration_since(SystemTime::UNIX_EPOCH)
-                                .unwrap()
-                                .as_micros()
-                        );
-                        dbg!(index);
                     }
                 };
 

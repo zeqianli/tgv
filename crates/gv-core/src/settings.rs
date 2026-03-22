@@ -20,10 +20,38 @@ impl Default for BackendType {
     }
 }
 
+/// Where the BAM file is stored.
+#[derive(Debug, Clone, Eq, PartialEq)]
+pub enum BamSource {
+    /// File on the local filesystem.
+    Local,
+
+    /// File on AWS S3 (or any S3-compatible / HTTP remote accessed via opendal).
+    S3,
+}
+
+/// Alignment input file with the auxiliary files required to read it.
+#[derive(Debug, Clone, Eq, PartialEq)]
+pub enum AlignmentPath {
+    /// BAM file with its .bai index and the source indicating where it lives.
+    Bam {
+        path: String,
+        index: String,
+        source: BamSource,
+    },
+
+    /// CRAM file with its .crai index and the FASTA reference (plus .fai) needed for decoding.
+    Cram {
+        path: String,
+        crai: String,
+        fasta: String,
+        fai: String,
+    },
+}
+
 #[derive(Debug, Clone, Eq, PartialEq)]
 pub struct Settings {
-    /// Alignment file path (BAM or CRAM) and its index path (.bam.bai or .cram.crai).
-    pub alignment_path: Option<(String, String)>,
+    pub alignment_path: Option<AlignmentPath>,
     pub vcf_path: Option<String>,
     pub bed_path: Option<String>,
     pub reference: Reference,

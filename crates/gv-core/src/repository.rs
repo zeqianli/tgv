@@ -29,18 +29,8 @@ impl Repository {
     pub async fn new(settings: &Settings) -> Result<(Self, ContigHeader), TGVError> {
         let mut track_service = TrackServiceEnum::new(settings).await?;
         let mut sequence_service = SequenceRepositoryEnum::new(settings)?;
-        let alignment_repository = if let Some((bam_path, bai_path)) = settings.alignment_path.as_ref() {
-            Some(
-                AlignmentRepositoryEnum::new(
-                    bam_path,
-                    bai_path,
-                    match &settings.reference {
-                        Reference::BYOIndexedFasta(fasta_path) => Some(fasta_path.as_str()),
-                        _ => None,
-                    },
-                )
-                .await?,
-            )
+        let alignment_repository = if let Some(alignment_path) = settings.alignment_path.as_ref() {
+            Some(AlignmentRepositoryEnum::new(alignment_path).await?)
         } else {
             None
         };
