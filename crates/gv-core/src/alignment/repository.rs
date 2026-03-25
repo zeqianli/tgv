@@ -4,14 +4,23 @@ use crate::{
     error::TGVError,
     intervals::{GenomeInterval, Region},
     sequence::Sequence,
-    settings::Settings,
+    settings::{AlignmentPath, BamSource, Settings},
 };
+use std::time::SystemTime;
 
 use async_compat::{Compat, CompatExt};
+use futures::{Stream, StreamExt, stream};
+use futures::{TryFuture, TryFutureExt, TryStream, TryStreamExt};
 use itertools::Itertools;
-use noodles::bam::{self, bai};
+use noodles::cram::{self as cram, crai};
+use noodles::fasta::{self as fasta, repository::adapters::IndexedReader as FastaIndexedReader};
 use noodles::sam::Header;
+use noodles::{
+    bam::{self, bai},
+    sam::alignment::RecordBuf,
+};
 use opendal::{FuturesAsyncReader, Operator, services};
+use std::fs;
 use std::path::Path;
 use tokio::fs::File;
 
@@ -49,6 +58,59 @@ impl BamRepository {
             bai_path: bai_path.to_string(),
 
             index,
+            header,
+            reader,
+        })
+    }
+}
+
+pub struct CramRepository {
+    cram_path: String,
+    crai_path: String,
+    fasta_path: String,
+    fai_path: String,
+
+    //index: crai::Index,
+    header: Header,
+
+    reader: cram::io::indexed_reader::IndexedReader<fs::File>,
+}
+
+impl CramRepository {
+    async fn new(
+        cram_path: &str,
+        crai_path: &str,
+        fasta_path: &str,
+        fai_path: &str,
+    ) -> Result<Self, TGVError> {
+        if !Path::new(cram_path).exists() {
+            return Err(TGVError::IOError(format!(
+                "CRAM file {} not found",
+                cram_path
+            )));
+        }
+
+        let repository = fasta::io::indexed_reader::Builder::default()
+            .build_from_path(fasta_path)
+            .map(FastaIndexedReader::new)
+            .map(fasta::Repository::new)?;
+
+        let mut reader = cram::io::indexed_reader::Builder::default()
+            .set_reference_sequence_repository(repository)
+            .build_from_path(cram_path)?;
+
+        let header = reader.read_header()?;
+
+        // let index = fs::File::open(fai_path)
+        //     .map(crai::io::Reader::new)?
+        //     .read_index()?;
+
+        Ok(Self {
+            cram_path: cram_path.to_string(),
+            crai_path: crai_path.to_string(),
+            fasta_path: fasta_path.to_string(),
+            fai_path: fai_path.to_string(),
+            //index,
             header,
             reader,
         })
@@ -140,18 +202,34 @@ fn get_contig_names_and_lengths_from_header(
 pub enum AlignmentRepositoryEnum {
     Bam(BamRepository),
     RemoteBam(RemoteBamRepository),
+    Cram(CramRepository),
 }
 
 impl AlignmentRepositoryEnum {
-    pub async fn new(bam_path: &str, bai_path: &str) -> Result<Self, TGVError> {
-        if is_url(bam_path) {
-            Ok(AlignmentRepositoryEnum::RemoteBam(
-                RemoteBamRepository::new(bam_path, bai_path).await?,
-            ))
-        } else {
-            Ok(AlignmentRepositoryEnum::Bam(
-                BamRepository::new(bam_path, bai_path).await?,
-            ))
+    pub async fn new(alignment_path: &AlignmentPath) -> Result<Self, TGVError> {
+        match alignment_path {
+            AlignmentPath::Bam {
+                path,
+                index,
+                source: BamSource::S3,
+            } => Ok(AlignmentRepositoryEnum::RemoteBam(
+                RemoteBamRepository::new(path, index).await?,
+            )),
+            AlignmentPath::Bam {
+                path,
+                index,
+                source: BamSource::Local,
+            } => Ok(AlignmentRepositoryEnum::Bam(
+                BamRepository::new(path, index).await?,
+            )),
+            AlignmentPath::Cram {
+                path,
+                crai,
+                fasta,
+                fai,
+            } => Ok(AlignmentRepositoryEnum::Cram(
+                CramRepository::new(path, crai, fasta, fai).await?,
+            )),
         }
     }
 }
@@ -163,7 +241,7 @@ impl AlignmentRepositoryEnum {
         reference_sequence: &Sequence,
         contig_header: &ContigHeader,
     ) -> Result<Alignment, TGVError> {
-        use futures::TryStreamExt;
+        use futures::StreamExt;
 
         let records = match region.alignment(contig_header)? {
             Some(region) => {
@@ -171,24 +249,43 @@ impl AlignmentRepositoryEnum {
                 let mut index = 0;
                 match self {
                     AlignmentRepositoryEnum::Bam(inner) => {
-                        let mut query = inner.reader.query(&inner.header, &inner.index, &region)?;
+                        let mut query = inner
+                            .reader
+                            .query(&inner.header, &inner.index, &region)?
+                            .records();
 
                         while let Some(record) = query.try_next().await? {
-                            records.push(AlignedRead::from_bam_record(
+                            records.push(AlignedRead::from_record(
                                 index,
-                                record,
+                                RecordBuf::try_from_alignment_record(&inner.header, &record)?,
                                 reference_sequence,
                             )?);
                             index += 1;
                         }
                     }
                     AlignmentRepositoryEnum::RemoteBam(inner) => {
-                        let mut query = inner.reader.query(&inner.header, &inner.index, &region)?;
+                        let mut query = inner
+                            .reader
+                            .query(&inner.header, &inner.index, &region)?
+                            .records();
 
                         while let Some(record) = query.try_next().await? {
-                            records.push(AlignedRead::from_bam_record(
+                            records.push(AlignedRead::from_record(
                                 index,
-                                record,
+                                RecordBuf::try_from_alignment_record(&inner.header, &record)?,
+                                reference_sequence,
+                            )?);
+                            index += 1;
+                        }
+                    }
+                    AlignmentRepositoryEnum::Cram(inner) => {
+                        let mut query = inner.reader.query(&inner.header, &region)?; //&inner.index,
+
+                        //while let Some(record_buf) = query.try_next().await? {
+                        for record in query {
+                            records.push(AlignedRead::from_record(
+                                index,
+                                record?,
                                 reference_sequence,
                             )?);
                             index += 1;
@@ -215,6 +312,7 @@ impl AlignmentRepositoryEnum {
         let header = match self {
             AlignmentRepositoryEnum::Bam(inner) => &inner.header,
             AlignmentRepositoryEnum::RemoteBam(inner) => &inner.header,
+            AlignmentRepositoryEnum::Cram(inner) => &inner.header,
         };
         get_contig_names_and_lengths_from_header(header)
     }

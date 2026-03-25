@@ -142,7 +142,7 @@ impl LayoutNode {
             }]);
         }
 
-        if settings.core.bam_path.is_some() {
+        if settings.core.alignment_path.is_some() {
             children.push(LayoutNode::Area {
                 constraint: Constraint::Length(6),
                 area_type: AreaType::Coverage,

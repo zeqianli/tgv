@@ -96,8 +96,6 @@ impl UcscApiTrackService {
             }
         };
 
-        dbg!(query_url.clone(), preferred_track.clone());
-
         let mut response: serde_json::Value =
             self.client.get(query_url).send().await?.json().await?;
 
