@@ -305,6 +305,9 @@ impl TryFrom<Cli> for Settings {
                 })
             }
             Some(ap) if ap.to_lowercase().ends_with(".cram") => {
+                return Err(TGVError::CliError(format!(
+                    "CRAM format is not yet supported."
+                ))); // TODO: debug this.
                 // fasta_path is guaranteed to be Some here by the earlier CRAM validation.
                 let fasta = fasta_path.unwrap();
                 let crai = format!("{}.crai", ap);
