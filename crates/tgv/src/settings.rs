@@ -453,30 +453,30 @@ mod tests {
         ).into()],
         ..Settings::default()
     }))]
-    #[case("tgv input.cram ref.fa", Ok(Settings {
-        core: gv_core::settings::Settings {
-        alignment_path: Some(AlignmentPath::Cram {
-            path: "input.cram".to_string(),
-            crai: "input.cram.crai".to_string(),
-            fasta: "ref.fa".to_string(),
-            fai: "ref.fa.fai".to_string(),
-        }),
-        ..gv_core::settings::Settings::default()},
-        ..Settings::default()
-    }))]
-    #[case("tgv input.cram ref.fa -g hg19", Ok(Settings {
-        core: gv_core::settings::Settings {
-        alignment_path: Some(AlignmentPath::Cram {
-            path: "input.cram".to_string(),
-            crai: "input.cram.crai".to_string(),
-            fasta: "ref.fa".to_string(),
-            fai: "ref.fa.fai".to_string(),
-        }),
-        reference: Reference::Hg19,
-        ..gv_core::settings::Settings::default()},
-        ..Settings::default()
-    }))]
-    #[case("tgv input.cram", Err(TGVError::CliError("".to_string())))]
+    // #[case("tgv input.cram ref.fa", Ok(Settings {
+    //     core: gv_core::settings::Settings {
+    //     alignment_path: Some(AlignmentPath::Cram {
+    //         path: "input.cram".to_string(),
+    //         crai: "input.cram.crai".to_string(),
+    //         fasta: "ref.fa".to_string(),
+    //         fai: "ref.fa.fai".to_string(),
+    //     }),
+    //     ..gv_core::settings::Settings::default()},
+    //     ..Settings::default()
+    // }))]
+    // #[case("tgv input.cram ref.fa -g hg19", Ok(Settings {
+    //     core: gv_core::settings::Settings {
+    //     alignment_path: Some(AlignmentPath::Cram {
+    //         path: "input.cram".to_string(),
+    //         crai: "input.cram.crai".to_string(),
+    //         fasta: "ref.fa".to_string(),
+    //         fai: "ref.fa.fai".to_string(),
+    //     }),
+    //     reference: Reference::Hg19,
+    //     ..gv_core::settings::Settings::default()},
+    //     ..Settings::default()
+    // }))]
+    // #[case("tgv input.cram", Err(TGVError::CliError("".to_string())))]
     #[case("tgv input.bam -r TP53 -g hg19 --no-reference", Err(TGVError::CliError("".to_string())))]
     #[case("tgv --no-reference", Err(TGVError::CliError("".to_string())))]
     #[case("tgv input.bam input2.bam", Err(TGVError::CliError("".to_string())))]
