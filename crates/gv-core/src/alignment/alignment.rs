@@ -155,15 +155,6 @@ impl Alignment {
         alignment
             .build_y_index()?
             .build_coverage(reference_sequence)?;
-        println!(
-            "{}check0",
-            SystemTime::now()
-                .duration_since(SystemTime::UNIX_EPOCH)
-                .unwrap()
-                .as_micros()
-        );
-        println!("check1");
-        println!("check2");
         Ok(alignment)
     }
 
