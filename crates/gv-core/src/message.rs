@@ -73,6 +73,10 @@ pub enum Movement {
 
     Gene(String),
 
+    /// Navigate to the start position of an HGVS variant. Only genomic (g.) notation is
+    /// supported. Only available for HG38 and HG19 reference genomes.
+    GoToHGVS(String),
+
     Default, // Calculate a default location based on the genome context
 
              // ResizeTrack {

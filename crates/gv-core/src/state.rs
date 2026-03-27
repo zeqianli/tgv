@@ -119,6 +119,8 @@ impl State {
 
             Movement::Gene(name) => self.gene(repository, name.as_ref()).await,
 
+            Movement::GoToHGVS(hgvs_str) => self.hgvs_to_focus(&hgvs_str, repository).await,
+
             Movement::Default => self.default_focus(repository).await,
         }
     }
@@ -542,6 +544,166 @@ impl State {
                 contig_index: gene.contig_index(),
                 position: gene.start() + 1,
             })
+    }
+
+    async fn hgvs_to_focus(
+        &self,
+        hgvs_str: &str,
+        repository: &Repository,
+    ) -> Result<Focus, TGVError> {
+        match &self.reference {
+            Reference::Hg38 | Reference::Hg19 => {}
+            _ => {
+                return Err(TGVError::StateError(
+                    "HGVS navigation is only supported for HG38 and HG19 reference genomes."
+                        .to_string(),
+                ));
+            }
+        };
+
+        let variant = ferro_hgvs::parse_hgvs(hgvs_str).map_err(|e| {
+            TGVError::StateError(format!("Failed to parse HGVS variant '{}': {}", hgvs_str, e))
+        })?;
+
+        match variant {
+            ferro_hgvs::HgvsVariant::Genome(genome_var) => {
+                self.hgvs_genome_to_focus(&genome_var)
+            }
+            ferro_hgvs::HgvsVariant::Cds(cds_var) => {
+                self.hgvs_cds_to_focus(&cds_var, repository)
+            }
+            ferro_hgvs::HgvsVariant::Protein(_) => Err(TGVError::StateError(
+                "p. HGVS notation is not yet supported for navigation.".to_string(),
+            )),
+            _ => Err(TGVError::StateError(format!(
+                "Unsupported HGVS notation type '{}'. Only g. and c. notation are supported.",
+                variant.variant_type()
+            ))),
+        }
+    }
+
+    fn hgvs_genome_to_focus(
+        &self,
+        genome_var: &ferro_hgvs::hgvs::variant::GenomeVariant,
+    ) -> Result<Focus, TGVError> {
+        let accession = &genome_var.accession;
+        let aliases = ferro_hgvs::liftover::aliases::ContigAliases::default_human();
+
+        // Translate RefSeq accession (e.g., "NC_000017.11") to UCSC name (e.g., "chr17").
+        // If the accession already carries a chromosome field (assembly-style notation),
+        // use that directly. As a last resort, try the full accession string unchanged
+        // in case the ContigHeader was populated with RefSeq aliases via UCSC chromAlias.
+        let chr_name: String = accession
+            .chromosome
+            .as_deref()
+            .map(|s| s.to_string())
+            .or_else(|| {
+                aliases
+                    .refseq_to_ucsc(&accession.full())
+                    .map(|s| s.to_string())
+            })
+            .unwrap_or_else(|| accession.full());
+
+        let contig_index =
+            self.contig_header
+                .try_get_index_by_str(&chr_name)
+                .map_err(|_| {
+                    TGVError::StateError(format!(
+                        "Chromosome '{}' not found in the loaded reference contigs.",
+                        chr_name
+                    ))
+                })?;
+
+        let position = genome_var
+            .loc_edit
+            .location
+            .start
+            .inner()
+            .ok_or_else(|| {
+                TGVError::StateError(
+                    "HGVS variant has an uncertain or unknown start position.".to_string(),
+                )
+            })?
+            .base;
+
+        Ok(Focus {
+            contig_index,
+            position,
+        })
+    }
+
+    fn hgvs_cds_to_focus(
+        &self,
+        cds_var: &ferro_hgvs::hgvs::variant::CdsVariant,
+        repository: &Repository,
+    ) -> Result<Focus, TGVError> {
+        let coord_mapper =
+            repository
+                .cdot_mapper
+                .as_ref()
+                .ok_or_else(|| TGVError::StateError(
+                    "Navigating to a c. HGVS variant requires a cdot transcript database. \
+                     Provide one with --cdot-path <file.json.gz>."
+                        .to_string(),
+                ))?;
+
+        let tx_id = cds_var.accession.full();
+        let cds_pos = cds_var
+            .loc_edit
+            .location
+            .start
+            .inner()
+            .ok_or_else(|| {
+                TGVError::StateError(
+                    "HGVS variant has an uncertain or unknown start position.".to_string(),
+                )
+            })?;
+
+        let mapping = coord_mapper
+            .cds_to_genome(&tx_id, cds_pos)
+            .map_err(|e| {
+                TGVError::StateError(format!(
+                    "Failed to map c. position to genome for transcript '{}': {}",
+                    tx_id, e
+                ))
+            })?;
+
+        let position = mapping.variant.base;
+
+        // Get the chromosome name from the transcript record and translate to UCSC format.
+        let contig_refseq = coord_mapper
+            .cdot()
+            .get_transcript(&tx_id)
+            .ok_or_else(|| {
+                TGVError::StateError(format!(
+                    "Transcript '{}' not found in the cdot database.",
+                    tx_id
+                ))
+            })?
+            .contig
+            .clone();
+
+        let aliases = ferro_hgvs::liftover::aliases::ContigAliases::default_human();
+        let chr_name: String = aliases
+            .refseq_to_ucsc(&contig_refseq)
+            .map(|s| s.to_string())
+            .unwrap_or(contig_refseq);
+
+        let contig_index =
+            self.contig_header
+                .try_get_index_by_str(&chr_name)
+                .map_err(|_| {
+                    TGVError::StateError(format!(
+                        "Chromosome '{}' from transcript '{}' not found in the loaded \
+                         reference contigs.",
+                        chr_name, tx_id
+                    ))
+                })?;
+
+        Ok(Focus {
+            contig_index,
+            position,
+        })
     }
 
     fn next_contig(&self, focus: Focus, n: usize) -> Focus {

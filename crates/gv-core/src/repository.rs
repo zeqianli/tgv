@@ -23,6 +23,10 @@ pub struct Repository {
     pub track_service: Option<TrackServiceEnum>,
 
     pub sequence_service: Option<SequenceRepositoryEnum>,
+
+    /// Transcript coordinate mapper loaded from a cdot JSON/JSON.gz file (see
+    /// `Settings::cdot_path`). Required for navigating to c. HGVS variants.
+    pub cdot_mapper: Option<ferro_hgvs::data::mapping::CoordinateMapper>,
 }
 
 impl Repository {
@@ -132,6 +136,25 @@ impl Repository {
                 vcf_path: vcf_path.clone(),
             });
 
+        let cdot_mapper = settings
+            .cdot_path
+            .as_ref()
+            .map(|path| {
+                let cdot = if path.ends_with(".gz") {
+                    ferro_hgvs::data::CdotMapper::from_json_gz(path)
+                } else {
+                    ferro_hgvs::data::CdotMapper::from_json_file(path)
+                }
+                .map_err(|e| {
+                    TGVError::StateError(format!(
+                        "Failed to load cdot transcript database from '{}': {}",
+                        path, e
+                    ))
+                })?;
+                Ok::<_, TGVError>(ferro_hgvs::data::mapping::CoordinateMapper::new(cdot))
+            })
+            .transpose()?;
+
         Ok((
             Self {
                 alignment_repository,
@@ -141,6 +164,7 @@ impl Repository {
                 }),
                 track_service,
                 sequence_service,
+                cdot_mapper,
             },
             contig_header,
         ))

@@ -45,6 +45,10 @@ pub fn parse(input: &str) -> Result<Vec<Message>, TGVError> {
         }
     }
 
+    if ferro_hgvs::parse_hgvs(input).is_ok() {
+        return Ok(vec![Message::Move(Movement::GoToHGVS(input.to_string()))]);
+    }
+
     let split = input.split(":").collect::<Vec<&str>>();
 
     match split.len() {
@@ -364,6 +368,11 @@ mod tests {
     #[case("TP53", Ok(vec![Movement::Gene("TP53".to_string()).into()]))]
     #[case("invalid:command:format", Err(TGVError::RegisterError("Invalid command mode input: invalid:command:format".to_string())))]
     #[case("chr1:invalid", Err(TGVError::RegisterError("Invalid command mode input: chr1:invalid".to_string())))]
+    // HGVS genomic variant: recognized and routed to GoToHGVS.
+    #[case(
+        "NC_000017.11:g.7674220C>T",
+        Ok(vec![Movement::GoToHGVS("NC_000017.11:g.7674220C>T".to_string()).into()])
+    )]
     fn test_command_parse(#[case] input: &str, #[case] expected: Result<Vec<Message>, TGVError>) {
         match (parse(input), expected) {
             (Ok(result), Ok(expected)) => assert_eq!(result, expected),

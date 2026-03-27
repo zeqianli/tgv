@@ -60,6 +60,10 @@ pub struct Settings {
     pub ucsc_host: UcscHost,
 
     pub cache_dir: String,
+
+    /// Path to a cdot-format JSON or JSON.gz transcript database used for
+    /// converting c. HGVS notation to genomic coordinates.
+    pub cdot_path: Option<String>,
     //pub palette: Palette,
 }
 
@@ -73,6 +77,7 @@ impl Default for Settings {
             backend: BackendType::default(), // Default backend
             ucsc_host: UcscHost::default(),
             cache_dir: shellexpand::tilde("~/.tgv").to_string(),
+            cdot_path: None,
         }
     }
 }
