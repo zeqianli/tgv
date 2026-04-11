@@ -4,6 +4,7 @@ mod message;
 mod mouse;
 mod register;
 mod rendering;
+mod session;
 mod settings;
 
 use app::App;
