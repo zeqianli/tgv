@@ -82,17 +82,8 @@ impl SessionFile {
     /// Unrecognized fields are silently ignored with a warning printed to stderr,
     /// following the same convention as other tgv configuration files.
     pub fn parse(content: &str) -> Result<Self, TGVError> {
-        let mut ignored = Vec::new();
-        let session: Self = serde_ignored::deserialize(toml::Deserializer::new(content), |path| {
-            ignored.push(path.to_string());
-        })
-        .map_err(|e| TGVError::ParsingError(format!("Failed to parse session file: {e}")))?;
-
-        for field in ignored {
-            eprintln!("warning: unknown field in session file ignored: {field}");
-        }
-
-        Ok(session)
+        toml::from_str(content)
+            .map_err(|e| TGVError::ParsingError(format!("Failed to parse session file: {e}")))
     }
 
     /// Serialize `self` to TOML and write it to `path`, creating parent directories as needed.
