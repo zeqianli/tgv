@@ -253,7 +253,7 @@ impl TryFrom<Cli> for Settings {
         let reference = if cli.no_reference {
             Reference::NoReference
         } else {
-            Reference::from_str(&cli.reference)?
+            cli.reference.parse::<Reference>()?
         };
 
         // Initial messages

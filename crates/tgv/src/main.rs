@@ -18,6 +18,7 @@ use gv_core::reference::Reference;
 use gv_core::tracks::{UCSCDownloader, UcscDbTrackService};
 use settings::{Cli, Commands, Settings};
 use std::io::stdout;
+use std::str::FromStr;
 #[tokio::main]
 async fn main() -> Result<(), TGVError> {
     let cli = Cli::parse();

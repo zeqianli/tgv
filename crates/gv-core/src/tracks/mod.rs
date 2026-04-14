@@ -16,6 +16,7 @@ use crate::{
 };
 use async_trait::async_trait;
 use chrono::Local;
+use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
 
 pub use downloader::UCSCDownloader;
@@ -535,10 +536,24 @@ impl TrackService for TrackServiceEnum {
     }
 }
 
-#[derive(Debug, Clone, Eq, PartialEq)]
+#[derive(Debug, Clone, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(into = "String", try_from = "String")]
 pub enum UcscHost {
     Us,
     Eu,
+}
+
+impl From<UcscHost> for String {
+    fn from(h: UcscHost) -> Self {
+        h.to_string()
+    }
+}
+
+impl TryFrom<String> for UcscHost {
+    type Error = TGVError;
+    fn try_from(s: String) -> Result<Self, TGVError> {
+        s.parse()
+    }
 }
 
 impl Default for UcscHost {
@@ -559,6 +574,15 @@ impl std::str::FromStr for UcscHost {
             _ => Err(TGVError::ParsingError(format!(
                 "Invalid ucsc_host `{s}`. Expected \"us\", \"eu\", or \"auto\"."
             ))),
+        }
+    }
+}
+
+impl std::string::ToString for UcscHost {
+    fn to_string(&self) -> String {
+        match self {
+            UcscHost::Us => "us".to_string(),
+            UcscHost::Eu => "eu".to_string(),
         }
     }
 }
