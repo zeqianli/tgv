@@ -8,6 +8,7 @@ use crate::{
     message::Message,
     mouse::MouseRegister,
     register::{KeyRegisterType, Registers},
+    session::SessionFile,
     settings::Settings,
 };
 use gv_core::{
@@ -203,6 +204,24 @@ impl App {
                     self.registers.current = register
                 }
                 Message::ClearAllKeyRegisters => self.registers.clear(),
+
+                Message::SaveSession(path) => {
+                    match SessionFile::try_from(&*self).and_then(|s| s.write_to_path(&path)) {
+                        Ok(()) => self.state.add_message(format!(
+                            "Session saved to {}",
+                            path.display()
+                        )),
+                        Err(e) => self.state.add_message(format!("Failed to save session: {e}")),
+                    }
+                }
+
+                Message::SaveAndQuit(path) => {
+                    match SessionFile::try_from(&*self).and_then(|s| s.write_to_path(&path)) {
+                        Ok(()) => {}
+                        Err(e) => self.state.add_message(format!("Failed to save session: {e}")),
+                    }
+                    self.exit = true;
+                }
             }
         }
 

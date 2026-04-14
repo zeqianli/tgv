@@ -4,8 +4,15 @@
 //! restored on the next launch. The file format is documented in the tgv
 //! book under "Session files".
 
-use crate::app::App;
-use gv_core::{error::TGVError, reference::Reference, settings::AlignmentPath, tracks::UcscHost};
+use crate::{app::App, message::Message, settings::Settings};
+use gv_core::{
+    alignment::is_url,
+    error::TGVError,
+    message::Movement,
+    reference::Reference,
+    settings::{AlignmentPath, BackendType, BamSource},
+    tracks::UcscHost,
+};
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
 
@@ -19,9 +26,25 @@ pub struct SessionFile {
     pub version: u32,
     pub locus: String,
     pub genome: Reference,
+    /// `"us"`, `"eu"`, or `"auto"`. Resolved to a concrete host on load.
     pub ucsc_host: UcscHost,
+    /// Bases per character.
     pub zoom: u64,
+    #[serde(default)]
     pub tracks: Vec<TrackEntry>,
+}
+
+impl Default for SessionFile {
+    fn default() -> Self {
+        SessionFile {
+            version: CURRENT_VERSION,
+            locus: "chr1:1".to_string(),
+            genome: Reference::default(),
+            ucsc_host: UcscHost::auto(),
+            zoom: 1,
+            tracks: Vec::new(),
+        }
+    }
 }
 
 /// One entry in the `[[tracks]]` array.
@@ -95,6 +118,103 @@ impl SessionFile {
             .map_err(|e| TGVError::ParsingError(format!("Failed to serialize session: {e}")))?;
         std::fs::write(path, content)?;
         Ok(())
+    }
+}
+
+// ─── Locus string parsing ────────────────────────────────────────────────────
+
+/// Parse a locus string (`"chr1:100"` or a gene name) into initial movement messages.
+pub fn parse_locus(locus: &str) -> Result<Vec<Message>, TGVError> {
+    let parts: Vec<&str> = locus.split(':').collect();
+    match parts.len() {
+        1 => Ok(vec![Message::Core(gv_core::message::Message::Move(
+            Movement::Gene(locus.to_string()),
+        ))]),
+        2 => parts[1]
+            .parse::<u64>()
+            .map(|n| {
+                vec![Message::Core(gv_core::message::Message::Move(
+                    Movement::ContigNamePosition(parts[0].to_string(), n),
+                ))]
+            })
+            .map_err(|_| {
+                TGVError::ParsingError(format!("Invalid position in locus \"{locus}\""))
+            }),
+        _ => Err(TGVError::ParsingError(format!(
+            "Invalid locus format \"{locus}\": expected \"contig:position\" or a gene name"
+        ))),
+    }
+}
+
+// ─── SessionFile → Settings ──────────────────────────────────────────────────
+
+impl TryFrom<SessionFile> for Settings {
+    type Error = TGVError;
+
+    fn try_from(session: SessionFile) -> Result<Self, TGVError> {
+        let initial_state_messages = parse_locus(&session.locus)?;
+
+        let mut alignment_path: Option<AlignmentPath> = None;
+        let mut vcf_path: Option<String> = None;
+        let mut bed_path: Option<String> = None;
+
+        for track in session.tracks {
+            let lower = track.path.to_lowercase();
+            if lower.ends_with(".bam") {
+                let index = track
+                    .index
+                    .unwrap_or_else(|| format!("{}.bai", track.path));
+                alignment_path = Some(AlignmentPath::Bam {
+                    source: if is_url(&track.path) {
+                        BamSource::S3
+                    } else {
+                        BamSource::Local
+                    },
+                    path: track.path,
+                    index,
+                });
+            } else if lower.ends_with(".cram") {
+                let crai = track
+                    .index
+                    .unwrap_or_else(|| format!("{}.crai", track.path));
+                let fasta = track.reference.ok_or_else(|| {
+                    TGVError::ParsingError(format!(
+                        "CRAM track \"{}\" requires a `reference` field in the session file",
+                        track.path
+                    ))
+                })?;
+                let fai = track
+                    .reference_index
+                    .unwrap_or_else(|| format!("{fasta}.fai"));
+                alignment_path = Some(AlignmentPath::Cram {
+                    path: track.path,
+                    crai,
+                    fasta,
+                    fai,
+                });
+            } else if lower.ends_with(".vcf") || lower.ends_with(".vcf.gz") {
+                vcf_path = Some(track.path);
+            } else if lower.ends_with(".bed") || lower.ends_with(".bed.gz") {
+                bed_path = Some(track.path);
+            }
+        }
+
+        Ok(Settings {
+            core: gv_core::settings::Settings {
+                alignment_path,
+                vcf_path,
+                bed_path,
+                reference: session.genome,
+                backend: BackendType::Default,
+                ucsc_host: session.ucsc_host,
+                cache_dir: gv_core::settings::Settings::default().cache_dir,
+            },
+            initial_state_messages,
+            zoom: Some(session.zoom),
+            test_mode: false,
+            debug: false,
+            palette: crate::rendering::DARK_THEME,
+        })
     }
 }
 

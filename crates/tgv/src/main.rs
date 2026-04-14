@@ -16,9 +16,9 @@ use crossterm::{
 use gv_core::error::TGVError;
 use gv_core::reference::Reference;
 use gv_core::tracks::{UCSCDownloader, UcscDbTrackService};
+use session::SessionFile;
 use settings::{Cli, Commands, Settings};
 use std::io::stdout;
-use std::str::FromStr;
 #[tokio::main]
 async fn main() -> Result<(), TGVError> {
     let cli = Cli::parse();
@@ -29,7 +29,7 @@ async fn main() -> Result<(), TGVError> {
             cache_dir,
         }) => {
             let cache_dir = shellexpand::tilde(&cache_dir).to_string();
-            let downloader = UCSCDownloader::new(Reference::from_str(&reference)?, &cache_dir)?;
+            let downloader = UCSCDownloader::new(reference.parse::<Reference>()?, &cache_dir)?;
             downloader.download().await?;
             return Ok(());
         }
@@ -48,7 +48,24 @@ async fn main() -> Result<(), TGVError> {
         None => {}
     }
 
-    let settings: Settings = cli.try_into()?;
+    // Load or create the default session, then apply CLI overrides on top.
+    let session_path = SessionFile::default_path();
+    let mut settings = if session_path.exists() {
+        match SessionFile::from_path(&session_path).and_then(Settings::try_from) {
+            Ok(s) => s,
+            Err(e) => {
+                eprintln!("Warning: failed to load session file: {e}. Using defaults.");
+                Settings::default()
+            }
+        }
+    } else {
+        // First run: write a default session so future launches restore state.
+        if let Err(e) = SessionFile::default().write_to_path(&session_path) {
+            eprintln!("Warning: failed to write default session: {e}.");
+        }
+        Settings::default()
+    };
+    cli.apply_overrides(&mut settings)?;
 
     let mut terminal = ratatui::init();
 
@@ -73,6 +90,16 @@ async fn main() -> Result<(), TGVError> {
     if let Err(err) = execute!(stdout(), DisableMouseCapture) {
         eprintln!("Error disabling mouse capture: {err}");
     }
+
+    // Auto-save the default session on clean exit (skip in test mode).
+    if !app.settings.test_mode && app_result.is_ok() {
+        if let Err(e) = SessionFile::try_from(&app)
+            .and_then(|s| s.write_to_path(&SessionFile::default_path()))
+        {
+            eprintln!("Warning: failed to save session: {e}.");
+        }
+    }
+
     app.close().await?;
     app_result
 }
@@ -188,11 +215,11 @@ mod tests {
     #[case("ecoli")]
     #[tokio::test]
     async fn download_integration_test(#[case] reference_str: &str) {
-        let reference = Reference::from_str(reference_str).unwrap();
+        let reference = reference_str.parse::<Reference>().unwrap();
         let temp_dir = tempfile::TempDir::new().unwrap();
         let temp_dir = temp_dir.path().to_str().unwrap();
         let downloader =
-            UCSCDownloader::new(Reference::from_str(reference_str).unwrap(), temp_dir).unwrap();
+            UCSCDownloader::new(reference_str.parse::<Reference>().unwrap(), temp_dir).unwrap();
 
         downloader.download().await.unwrap();
 

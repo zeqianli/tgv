@@ -1,5 +1,6 @@
 use crate::{app::Scene, register::KeyRegisterType};
 pub use gv_core::message::{Movement, Scroll};
+use std::path::PathBuf;
 use strum::Display;
 
 /// TGV messages
@@ -12,6 +13,12 @@ pub enum Message {
     SwitchKeyRegister(KeyRegisterType),
 
     ClearAllKeyRegisters,
+
+    /// Save the current session to `path`.
+    SaveSession(PathBuf),
+
+    /// Save the current session to `path` and then quit.
+    SaveAndQuit(PathBuf),
 }
 
 impl Message {

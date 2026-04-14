@@ -1,11 +1,13 @@
 use crate::{
     app::Scene,
     message::{Message, Movement, Scroll},
+    session::SessionFile,
 };
 use crossterm::event::{KeyCode, KeyEvent};
 use gv_core::normal::update_by_char;
 use gv_core::{error::TGVError, state::State};
 use itertools::Itertools;
+use std::path::PathBuf;
 
 #[derive(Debug, Clone, Eq, PartialEq)]
 pub enum KeyRegisterType {
@@ -131,6 +133,21 @@ impl Registers {
                     Message::SwitchScene(Scene::ContigList),
                     Message::SwitchKeyRegister(KeyRegisterType::ContigList),
                 ]),
+                cmd if cmd == "w" || cmd.starts_with("w ") => {
+                    let path = resolve_session_path(cmd.strip_prefix("w").unwrap().trim());
+                    Ok(vec![
+                        Message::ClearAllKeyRegisters,
+                        Message::SwitchKeyRegister(KeyRegisterType::Normal),
+                        Message::SaveSession(path),
+                    ])
+                }
+                cmd if cmd == "wq" || cmd.starts_with("wq ") => {
+                    let path = resolve_session_path(cmd.strip_prefix("wq").unwrap().trim());
+                    Ok(vec![
+                        Message::ClearAllKeyRegisters,
+                        Message::SaveAndQuit(path),
+                    ])
+                }
                 _ => Ok(gv_core::command::parse(self.command.as_str())
                     .map(|m| m.into_iter().map(|mm| Message::Core(mm)).collect_vec())
                     .unwrap_or_else(|e| {
@@ -234,4 +251,21 @@ impl Registers {
             ]
         }))
     }
+}
+
+/// Resolve a session name or path from a `:w` / `:wq` command argument.
+///
+/// - Empty string → default session path.
+/// - Starts with `~` or `/` → treated as a full path (tilde is expanded).
+/// - Otherwise → `~/.tgv/sessions/<name>.toml`.
+fn resolve_session_path(name: &str) -> PathBuf {
+    if name.is_empty() {
+        return SessionFile::default_path();
+    }
+    let raw = if name.starts_with('~') || name.starts_with('/') {
+        name.to_string()
+    } else {
+        format!("~/.tgv/sessions/{name}.toml")
+    };
+    PathBuf::from(shellexpand::tilde(&raw).as_ref())
 }
