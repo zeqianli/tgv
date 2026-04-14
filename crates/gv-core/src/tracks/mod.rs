@@ -547,12 +547,19 @@ impl Default for UcscHost {
     }
 }
 
-impl std::fmt::Display for UcscHost {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_str(match self {
-            Self::Us => "us",
-            Self::Eu => "eu",
-        })
+impl std::str::FromStr for UcscHost {
+    type Err = TGVError;
+
+    /// Parse `"us"`, `"eu"`, or `"auto"` (resolved via timezone detection).
+    fn from_str(s: &str) -> Result<Self, TGVError> {
+        match s {
+            "us" => Ok(Self::Us),
+            "eu" => Ok(Self::Eu),
+            "auto" => Ok(Self::auto()),
+            _ => Err(TGVError::ParsingError(format!(
+                "Invalid ucsc_host `{s}`. Expected \"us\", \"eu\", or \"auto\"."
+            ))),
+        }
     }
 }
 
@@ -571,18 +578,6 @@ impl UcscHost {
             UcscHost::Us
         } else {
             UcscHost::Eu
-        }
-    }
-
-    /// Parse a host string, resolving `"auto"` via timezone detection.
-    pub fn from_str(s: &str) -> Result<Self, TGVError> {
-        match s {
-            "us" => Ok(Self::Us),
-            "eu" => Ok(Self::Eu),
-            "auto" => Ok(Self::auto()),
-            _ => Err(TGVError::ParsingError(format!(
-                "Invalid ucsc_host `{s}`. Expected \"us\", \"eu\", or \"auto\"."
-            ))),
         }
     }
 }

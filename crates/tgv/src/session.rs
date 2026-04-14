@@ -142,7 +142,11 @@ impl TryFrom<&App> for SessionFile {
             .to_locus_str(&app.state.contig_header)?;
 
         let genome = app.settings.core.reference.to_string();
-        let ucsc_host = app.settings.core.ucsc_host.to_string();
+        let ucsc_host = match app.settings.core.ucsc_host {
+            UcscHost::Us => "us",
+            UcscHost::Eu => "eu",
+        }
+        .to_string();
         let cache_dir = app.settings.core.cache_dir.clone();
         let zoom = Some(app.alignment_view.zoom);
 
@@ -201,7 +205,7 @@ impl TryFrom<SessionFile> for Settings {
 
         let initial_state_messages = parse_locus(&session.locus)?;
         let reference = Reference::from_str(&session.genome)?;
-        let ucsc_host = UcscHost::from_str(&session.ucsc_host)?;
+        let ucsc_host = session.ucsc_host.parse::<UcscHost>()?;
         let cache_dir = shellexpand::tilde(&session.cache_dir).to_string();
 
         let mut alignment_path: Option<AlignmentPath> = None;
@@ -350,28 +354,21 @@ mod tests {
     #[rstest]
     #[case("us", UcscHost::Us)]
     #[case("eu", UcscHost::Eu)]
-    fn test_ucsc_host_from_str(#[case] input: &str, #[case] expected: UcscHost) {
-        assert_eq!(UcscHost::from_str(input).unwrap(), expected);
-    }
-
-    #[rstest]
-    #[case(UcscHost::Us, "us")]
-    #[case(UcscHost::Eu, "eu")]
-    fn test_ucsc_host_display(#[case] host: UcscHost, #[case] expected: &str) {
-        assert_eq!(host.to_string(), expected);
+    fn test_ucsc_host_parse(#[case] input: &str, #[case] expected: UcscHost) {
+        assert_eq!(input.parse::<UcscHost>().unwrap(), expected);
     }
 
     #[test]
-    fn test_ucsc_host_from_str_auto_resolves() {
+    fn test_ucsc_host_parse_auto_resolves() {
         // "auto" must resolve to one of the concrete variants without error.
-        let host = UcscHost::from_str("auto").unwrap();
+        let host = "auto".parse::<UcscHost>().unwrap();
         assert!(matches!(host, UcscHost::Us | UcscHost::Eu));
     }
 
     #[test]
-    fn test_ucsc_host_from_str_invalid() {
+    fn test_ucsc_host_parse_invalid() {
         assert!(matches!(
-            UcscHost::from_str("invalid"),
+            "invalid".parse::<UcscHost>(),
             Err(TGVError::ParsingError(_))
         ));
     }
