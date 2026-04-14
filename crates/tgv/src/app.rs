@@ -51,10 +51,15 @@ impl App {
         // TODO: go to foucs?
         // TODO: handle initial message with stricter error handling
 
+        let mut alignment_view = AlignmentView::new(focus);
+        if let Some(zoom) = settings.zoom {
+            alignment_view.zoom = zoom;
+        }
+
         Ok(Self {
             exit: false,
             layout: MainLayout::new(&settings),
-            alignment_view: AlignmentView::new(focus),
+            alignment_view,
             state,
             settings: settings.clone(),
             repository,

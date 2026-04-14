@@ -156,6 +156,9 @@ pub struct Settings {
 
     pub debug: bool,
     pub palette: Palette,
+
+    /// Initial zoom level to restore from a session file. `None` uses the default zoom.
+    pub zoom: Option<u64>,
 }
 
 impl Default for Settings {
@@ -170,6 +173,8 @@ impl Default for Settings {
             debug: false,
 
             palette: DARK_THEME,
+
+            zoom: None,
         }
     }
 }
@@ -344,6 +349,7 @@ impl TryFrom<Cli> for Settings {
             test_mode: false,
             debug: cli.debug,
             palette: DARK_THEME,
+            zoom: None,
         })
     }
 }

@@ -1,10 +1,10 @@
 //! Session file support: read and write `~/.tgv/sessions/*.toml`.
 //!
-//! A session file is a snapshot of the current [`Settings`] that can be
+//! A session file is a snapshot of the current [`App`] state that can be
 //! restored on the next launch. The file format is documented in the tgv
 //! book under "Session files".
 
-use crate::{message::Message, rendering::DARK_THEME, settings::Settings};
+use crate::{app::App, message::Message, rendering::DARK_THEME, settings::Settings};
 use gv_core::{
     alignment::is_url,
     error::TGVError,
@@ -32,6 +32,9 @@ pub struct SessionFile {
     pub ucsc_host: String,
     #[serde(default = "default_cache_dir")]
     pub cache_dir: String,
+    /// Bases per character. Omitted when absent (uses the viewer default of 1).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub zoom: Option<u64>,
     #[serde(default)]
     pub tracks: Vec<TrackEntry>,
 }
@@ -63,6 +66,34 @@ fn default_cache_dir() -> String {
     shellexpand::tilde("~/.tgv").to_string()
 }
 
+// ─── AlignmentPath → TrackEntry ─────────────────────────────────────────────
+
+impl TryFrom<&AlignmentPath> for TrackEntry {
+    type Error = TGVError;
+
+    fn try_from(ap: &AlignmentPath) -> Result<Self, TGVError> {
+        match ap {
+            AlignmentPath::Bam { path, index, .. } => Ok(TrackEntry {
+                path: path.clone(),
+                index: Some(index.clone()),
+                reference: None,
+                reference_index: None,
+            }),
+            AlignmentPath::Cram {
+                path,
+                crai,
+                fasta,
+                fai,
+            } => Ok(TrackEntry {
+                path: path.clone(),
+                index: Some(crai.clone()),
+                reference: Some(fasta.clone()),
+                reference_index: Some(fai.clone()),
+            }),
+        }
+    }
+}
+
 // ─── I/O ────────────────────────────────────────────────────────────────────
 
 impl SessionFile {
@@ -78,9 +109,6 @@ impl SessionFile {
     }
 
     /// Parse a session file from a TOML string.
-    ///
-    /// Unrecognized fields are silently ignored with a warning printed to stderr,
-    /// following the same convention as other tgv configuration files.
     pub fn parse(content: &str) -> Result<Self, TGVError> {
         toml::from_str(content)
             .map_err(|e| TGVError::ParsingError(format!("Failed to parse session file: {e}")))
@@ -98,7 +126,63 @@ impl SessionFile {
     }
 }
 
-// ─── Conversions ────────────────────────────────────────────────────────────
+// ─── App → SessionFile ───────────────────────────────────────────────────────
+
+/// Snapshot the current [`App`] state into a [`SessionFile`].
+///
+/// The locus is taken from `app.alignment_view.focus` (the live viewport position),
+/// not from `app.settings.initial_state_messages`.
+impl TryFrom<&App> for SessionFile {
+    type Error = TGVError;
+
+    fn try_from(app: &App) -> Result<Self, TGVError> {
+        let locus = app
+            .alignment_view
+            .focus
+            .to_locus_str(&app.state.contig_header)?;
+
+        let genome = app.settings.core.reference.to_string();
+        let ucsc_host = app.settings.core.ucsc_host.to_string();
+        let cache_dir = app.settings.core.cache_dir.clone();
+        let zoom = Some(app.alignment_view.zoom);
+
+        let mut tracks = Vec::new();
+
+        if let Some(ap) = &app.settings.core.alignment_path {
+            tracks.push(TrackEntry::try_from(ap)?);
+        }
+
+        if let Some(vcf) = &app.settings.core.vcf_path {
+            tracks.push(TrackEntry {
+                path: vcf.clone(),
+                index: None,
+                reference: None,
+                reference_index: None,
+            });
+        }
+
+        if let Some(bed) = &app.settings.core.bed_path {
+            tracks.push(TrackEntry {
+                path: bed.clone(),
+                index: None,
+                reference: None,
+                reference_index: None,
+            });
+        }
+
+        Ok(SessionFile {
+            version: CURRENT_VERSION,
+            locus,
+            genome,
+            ucsc_host,
+            cache_dir,
+            zoom,
+            tracks,
+        })
+    }
+}
+
+// ─── SessionFile → Settings ─────────────────────────────────────────────────
 
 /// Build a [`Settings`] from a parsed session file.
 ///
@@ -117,7 +201,7 @@ impl TryFrom<SessionFile> for Settings {
 
         let initial_state_messages = parse_locus(&session.locus)?;
         let reference = Reference::from_str(&session.genome)?;
-        let ucsc_host = parse_ucsc_host(&session.ucsc_host)?;
+        let ucsc_host = UcscHost::from_str(&session.ucsc_host)?;
         let cache_dir = shellexpand::tilde(&session.cache_dir).to_string();
 
         let mut alignment_path: Option<AlignmentPath> = None;
@@ -219,83 +303,7 @@ impl TryFrom<SessionFile> for Settings {
             test_mode: false,
             debug: false,
             palette: DARK_THEME,
-        })
-    }
-}
-
-/// Snapshot a [`Settings`] into a [`SessionFile`].
-///
-/// Fails if `initial_state_messages` does not contain a serializable locus
-/// (i.e., a `contig:position` or gene name).
-impl TryFrom<&Settings> for SessionFile {
-    type Error = TGVError;
-
-    fn try_from(settings: &Settings) -> Result<Self, TGVError> {
-        let locus = serialize_locus(&settings.initial_state_messages)?;
-
-        let genome = settings.core.reference.to_string();
-
-        let ucsc_host = match settings.core.ucsc_host {
-            UcscHost::Us => "us",
-            UcscHost::Eu => "eu",
-        }
-        .to_string();
-
-        let cache_dir = settings.core.cache_dir.clone();
-
-        let mut tracks = Vec::new();
-
-        if let Some(ap) = &settings.core.alignment_path {
-            match ap {
-                AlignmentPath::Bam { path, index, .. } => {
-                    tracks.push(TrackEntry {
-                        path: path.clone(),
-                        index: Some(index.clone()),
-                        reference: None,
-                        reference_index: None,
-                    });
-                }
-                AlignmentPath::Cram {
-                    path,
-                    crai,
-                    fasta,
-                    fai,
-                } => {
-                    tracks.push(TrackEntry {
-                        path: path.clone(),
-                        index: Some(crai.clone()),
-                        reference: Some(fasta.clone()),
-                        reference_index: Some(fai.clone()),
-                    });
-                }
-            }
-        }
-
-        if let Some(vcf) = &settings.core.vcf_path {
-            tracks.push(TrackEntry {
-                path: vcf.clone(),
-                index: None,
-                reference: None,
-                reference_index: None,
-            });
-        }
-
-        if let Some(bed) = &settings.core.bed_path {
-            tracks.push(TrackEntry {
-                path: bed.clone(),
-                index: None,
-                reference: None,
-                reference_index: None,
-            });
-        }
-
-        Ok(SessionFile {
-            version: CURRENT_VERSION,
-            locus,
-            genome,
-            ucsc_host,
-            cache_dir,
-            tracks,
+            zoom: session.zoom,
         })
     }
 }
@@ -325,40 +333,6 @@ fn parse_locus(locus: &str) -> Result<Vec<Message>, TGVError> {
     }
 }
 
-/// Serialize initial movement messages to a locus string.
-///
-/// Only [`Movement::ContigNamePosition`] and [`Movement::Gene`] are serializable;
-/// other variants (e.g., [`Movement::Default`]) return an error.
-fn serialize_locus(messages: &[Message]) -> Result<String, TGVError> {
-    for m in messages {
-        match m {
-            Message::Core(gv_core::message::Message::Move(
-                Movement::ContigNamePosition(contig, pos),
-            )) => return Ok(format!("{contig}:{pos}")),
-            Message::Core(gv_core::message::Message::Move(Movement::Gene(gene))) => {
-                return Ok(gene.clone())
-            }
-            _ => {}
-        }
-    }
-    Err(TGVError::ParsingError(
-        "Cannot serialize locus: no contig:position or gene name found in initial messages."
-            .to_string(),
-    ))
-}
-
-/// Parse a `ucsc_host` string, resolving `"auto"` via timezone detection.
-fn parse_ucsc_host(s: &str) -> Result<UcscHost, TGVError> {
-    match s {
-        "us" => Ok(UcscHost::Us),
-        "eu" => Ok(UcscHost::Eu),
-        "auto" => Ok(UcscHost::auto()),
-        _ => Err(TGVError::ParsingError(format!(
-            "Invalid ucsc_host value `{s}`. Expected \"us\", \"eu\", or \"auto\"."
-        ))),
-    }
-}
-
 // ─── Tests ───────────────────────────────────────────────────────────────────
 
 #[cfg(test)]
@@ -371,23 +345,65 @@ mod tests {
     };
     use rstest::rstest;
 
-    /// Build a minimal [`Settings`] for testing.
-    fn make_settings(locus: &str, genome: &str) -> Settings {
-        Settings {
-            core: gv_core::settings::Settings {
-                alignment_path: None,
-                vcf_path: None,
-                bed_path: None,
-                reference: Reference::from_str(genome).unwrap(),
-                backend: BackendType::Default,
-                ucsc_host: UcscHost::Us,
-                cache_dir: shellexpand::tilde("~/.tgv").to_string(),
-            },
-            initial_state_messages: parse_locus(locus).unwrap(),
-            test_mode: false,
-            debug: false,
-            palette: crate::rendering::DARK_THEME,
-        }
+    // ── UcscHost ─────────────────────────────────────────────────────────────
+
+    #[rstest]
+    #[case("us", UcscHost::Us)]
+    #[case("eu", UcscHost::Eu)]
+    fn test_ucsc_host_from_str(#[case] input: &str, #[case] expected: UcscHost) {
+        assert_eq!(UcscHost::from_str(input).unwrap(), expected);
+    }
+
+    #[rstest]
+    #[case(UcscHost::Us, "us")]
+    #[case(UcscHost::Eu, "eu")]
+    fn test_ucsc_host_display(#[case] host: UcscHost, #[case] expected: &str) {
+        assert_eq!(host.to_string(), expected);
+    }
+
+    #[test]
+    fn test_ucsc_host_from_str_auto_resolves() {
+        // "auto" must resolve to one of the concrete variants without error.
+        let host = UcscHost::from_str("auto").unwrap();
+        assert!(matches!(host, UcscHost::Us | UcscHost::Eu));
+    }
+
+    #[test]
+    fn test_ucsc_host_from_str_invalid() {
+        assert!(matches!(
+            UcscHost::from_str("invalid"),
+            Err(TGVError::ParsingError(_))
+        ));
+    }
+
+    // ── AlignmentPath → TrackEntry ───────────────────────────────────────────
+
+    #[test]
+    fn test_track_entry_from_bam() {
+        let ap = AlignmentPath::Bam {
+            path: "/data/sample.bam".to_string(),
+            index: "/data/sample.bam.bai".to_string(),
+            source: BamSource::Local,
+        };
+        let entry = TrackEntry::try_from(&ap).unwrap();
+        assert_eq!(entry.path, "/data/sample.bam");
+        assert_eq!(entry.index.as_deref(), Some("/data/sample.bam.bai"));
+        assert!(entry.reference.is_none());
+    }
+
+    #[test]
+    fn test_track_entry_from_cram() {
+        let ap = AlignmentPath::Cram {
+            path: "/data/sample.cram".to_string(),
+            crai: "/data/sample.cram.crai".to_string(),
+            fasta: "/data/ref.fa".to_string(),
+            fai: "/data/ref.fa.fai".to_string(),
+        };
+        let entry = TrackEntry::try_from(&ap).unwrap();
+        assert_eq!(entry.path, "/data/sample.cram");
+        assert_eq!(entry.index.as_deref(), Some("/data/sample.cram.crai"));
+        assert_eq!(entry.reference.as_deref(), Some("/data/ref.fa"));
+        assert_eq!(entry.reference_index.as_deref(), Some("/data/ref.fa.fai"));
     }
 
     // ── parse_locus ──────────────────────────────────────────────────────────
@@ -430,33 +446,6 @@ mod tests {
         ));
     }
 
-    // ── serialize_locus ──────────────────────────────────────────────────────
-
-    #[test]
-    fn test_serialize_locus_contig_position() {
-        let msgs = vec![Message::Core(gv_core::message::Message::Move(
-            Movement::ContigNamePosition("chr17".to_string(), 7572659),
-        ))];
-        assert_eq!(serialize_locus(&msgs).unwrap(), "chr17:7572659");
-    }
-
-    #[test]
-    fn test_serialize_locus_gene() {
-        let msgs = vec![Message::Core(gv_core::message::Message::Move(
-            Movement::Gene("KRAS".to_string()),
-        ))];
-        assert_eq!(serialize_locus(&msgs).unwrap(), "KRAS");
-    }
-
-    #[test]
-    fn test_serialize_locus_default_fails() {
-        let msgs = vec![Movement::Default.into()];
-        assert!(matches!(
-            serialize_locus(&msgs),
-            Err(TGVError::ParsingError(_))
-        ));
-    }
-
     // ── SessionFile::parse ───────────────────────────────────────────────────
 
     #[test]
@@ -489,19 +478,7 @@ path = "/data/sample.bam"
         assert_eq!(session.tracks[0].index, None);
     }
 
-    #[test]
-    fn test_parse_unknown_field_is_ignored() {
-        let toml = r#"
-version = 1
-locus = "chr1:1000"
-unknown_field = "should be silently ignored"
-"#;
-        // Must not error; unknown fields are warned about but not fatal.
-        let session = SessionFile::parse(toml).unwrap();
-        assert_eq!(session.locus, "chr1:1000");
-    }
-
-    // ── TryFrom<SessionFile> for Settings ────────────────────────────────────
+    // ── SessionFile → Settings ───────────────────────────────────────────────
 
     #[test]
     fn test_settings_from_session_minimal() {
@@ -530,6 +507,7 @@ locus = "chr1:1000"
             genome: "hg38".to_string(),
             ucsc_host: "us".to_string(),
             cache_dir: "~/.tgv".to_string(),
+            zoom: None,
             tracks: vec![],
         };
         assert!(matches!(
@@ -596,81 +574,64 @@ path = "/data/b.bam"
         ));
     }
 
-    // ── TryFrom<&Settings> for SessionFile ───────────────────────────────────
-
-    #[test]
-    fn test_session_from_settings_minimal() {
-        let settings = make_settings("chr17:7572659", "hg38");
-        let session = SessionFile::try_from(&settings).unwrap();
-        assert_eq!(session.version, CURRENT_VERSION);
-        assert_eq!(session.locus, "chr17:7572659");
-        assert_eq!(session.genome, "hg38");
-        assert!(session.tracks.is_empty());
-    }
-
-    #[test]
-    fn test_session_from_settings_default_locus_fails() {
-        let mut settings = make_settings("chr1:1", "hg38");
-        settings.initial_state_messages = vec![Movement::Default.into()];
-        assert!(matches!(
-            SessionFile::try_from(&settings),
-            Err(TGVError::ParsingError(_))
-        ));
-    }
-
-    // ── Round-trip ───────────────────────────────────────────────────────────
-
-    #[rstest]
-    #[case("chr17:7572659", "hg38", None, None, None)]
-    #[case("KRAS", "hg38", None, None, None)]
-    #[case("chr22:33121120", "hg19",
-        Some(("/data/sample.bam", "/data/sample.bam.bai", BamSource::Local)),
-        None,
-        None
-    )]
-    #[case("chr22:33121120", "hg19",
-        Some(("/data/sample.bam", "/data/sample.bam.bai", BamSource::Local)),
-        Some("/data/variants.vcf.gz"),
-        Some("/data/annotations.bed")
-    )]
-    fn test_roundtrip(
-        #[case] locus: &str,
-        #[case] genome: &str,
-        #[case] bam: Option<(&str, &str, BamSource)>,
-        #[case] vcf: Option<&str>,
-        #[case] bed: Option<&str>,
-    ) {
-        let mut settings = make_settings(locus, genome);
-        settings.core.alignment_path = bam.map(|(path, index, source)| AlignmentPath::Bam {
-            path: path.to_string(),
-            index: index.to_string(),
-            source,
-        });
-        settings.core.vcf_path = vcf.map(|s| s.to_string());
-        settings.core.bed_path = bed.map(|s| s.to_string());
-
-        let session = SessionFile::try_from(&settings).unwrap();
-        let settings2 = Settings::try_from(session).unwrap();
-
-        assert_eq!(settings.core, settings2.core);
-        assert_eq!(settings.initial_state_messages, settings2.initial_state_messages);
-    }
-
     // ── File I/O ─────────────────────────────────────────────────────────────
 
     #[test]
     fn test_write_and_read() {
-        let settings = make_settings("chr17:7572659", "hg38");
-        let session = SessionFile::try_from(&settings).unwrap();
+        let session = SessionFile {
+            version: CURRENT_VERSION,
+            locus: "chr17:7572659".to_string(),
+            genome: "hg38".to_string(),
+            ucsc_host: "us".to_string(),
+            cache_dir: shellexpand::tilde("~/.tgv").to_string(),
+            zoom: Some(4),
+            tracks: vec![TrackEntry {
+                path: "/data/sample.bam".to_string(),
+                index: Some("/data/sample.bam.bai".to_string()),
+                reference: None,
+                reference_index: None,
+            }],
+        };
 
         let dir = tempfile::TempDir::new().unwrap();
         let path = dir.path().join("sessions").join("test.toml");
         session.write_to_path(&path).unwrap();
 
-        let session2 = SessionFile::from_path(&path).unwrap();
-        let settings2 = Settings::try_from(session2).unwrap();
+        let loaded = SessionFile::from_path(&path).unwrap();
+        assert_eq!(loaded.locus, session.locus);
+        assert_eq!(loaded.genome, session.genome);
+        assert_eq!(loaded.zoom, Some(4));
+        assert_eq!(loaded.tracks.len(), 1);
+        assert_eq!(loaded.tracks[0].path, session.tracks[0].path);
+    }
 
-        assert_eq!(settings.core, settings2.core);
-        assert_eq!(settings.initial_state_messages, settings2.initial_state_messages);
+    #[test]
+    fn test_zoom_omitted_when_none() {
+        let session = SessionFile {
+            version: CURRENT_VERSION,
+            locus: "chr1:1000".to_string(),
+            genome: "hg38".to_string(),
+            ucsc_host: "us".to_string(),
+            cache_dir: "~/.tgv".to_string(),
+            zoom: None,
+            tracks: vec![],
+        };
+        let toml = toml::to_string_pretty(&session).unwrap();
+        assert!(!toml.contains("zoom"));
+    }
+
+    #[test]
+    fn test_zoom_loaded_into_settings() {
+        let session = SessionFile::parse(
+            r#"
+version = 1
+locus = "chr1:1000"
+zoom = 8
+"#,
+        )
+        .unwrap();
+        assert_eq!(session.zoom, Some(8));
+        let settings = Settings::try_from(session).unwrap();
+        assert_eq!(settings.zoom, Some(8));
     }
 }
