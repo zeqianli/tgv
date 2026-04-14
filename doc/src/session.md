@@ -13,6 +13,22 @@ Sessions are plain TOML files and can be edited by hand.
 | Default session (auto-saved/loaded) | `~/.tgv/sessions/default.toml` |
 | Named session | `~/.tgv/sessions/<name>.toml` |
 
+## Example
+
+```toml
+version = 0
+locus = "chr0:925952"
+genome = "hg18"
+
+[[tracks]]
+path = "/data/sample.bam"
+
+[[tracks]]
+path = "/data/variants.vcf.gz"
+
+[[tracks]]
+path = "/data/annotations.bed"
+```
 ## Schema
 
 ### Top-level fields
@@ -65,52 +81,7 @@ The `locus` field accepts the same formats as the `-r` / `--region` flag:
 
 ## Example sessions
 
-### Minimal session
 
-```toml
-version = 1
-locus = "chr1:1"
-genome = "hg38"
-```
-
-### BAM file with a named locus
-
-```toml
-version = 1
-locus = "chr17:7572659"
-genome = "hg38"
-
-[[tracks]]
-path = "/data/sample.bam"
-```
-
-### Remote BAM on S3
-
-```toml
-version = 1
-locus = "KRAS"
-genome = "hg38"
-
-[[tracks]]
-path = "s3://my-bucket/sample.bam"
-```
-
-### BAM + VCF + BED
-
-```toml
-version = 1
-locus = "chr1:925952"
-genome = "hg19"
-
-[[tracks]]
-path = "/data/sample.bam"
-
-[[tracks]]
-path = "/data/variants.vcf.gz"
-
-[[tracks]]
-path = "/data/annotations.bed"
-```
 
 ### CRAM with a local FASTA decoding reference
 

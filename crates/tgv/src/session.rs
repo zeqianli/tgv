@@ -5,12 +5,7 @@
 //! book under "Session files".
 
 use crate::app::App;
-use gv_core::{
-    error::TGVError,
-    reference::Reference,
-    settings::AlignmentPath,
-    tracks::UcscHost,
-};
+use gv_core::{error::TGVError, reference::Reference, settings::AlignmentPath, tracks::UcscHost};
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
 
@@ -24,13 +19,8 @@ pub struct SessionFile {
     pub version: u32,
     pub locus: String,
     pub genome: Reference,
-    /// `"us"`, `"eu"`, or `"auto"`. Resolved to a concrete host on load.
     pub ucsc_host: UcscHost,
-    pub cache_dir: String,
-    /// Bases per character. Omitted when absent (uses the viewer default of 1).
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub zoom: Option<u64>,
-    #[serde(default)]
+    pub zoom: u64,
     pub tracks: Vec<TrackEntry>,
 }
 
@@ -123,11 +113,6 @@ impl TryFrom<&App> for SessionFile {
             .focus
             .to_locus_str(&app.state.contig_header)?;
 
-        let genome = app.settings.core.reference.clone();
-        let ucsc_host = app.settings.core.ucsc_host.clone();
-        let cache_dir = app.settings.core.cache_dir.clone();
-        let zoom = Some(app.alignment_view.zoom);
-
         let mut tracks = Vec::new();
 
         if let Some(ap) = &app.settings.core.alignment_path {
@@ -155,10 +140,9 @@ impl TryFrom<&App> for SessionFile {
         Ok(SessionFile {
             version: CURRENT_VERSION,
             locus,
-            genome,
-            ucsc_host,
-            cache_dir,
-            zoom,
+            genome: app.settings.core.reference.clone(),
+            ucsc_host: app.settings.core.ucsc_host.clone(),
+            zoom: app.alignment_view.zoom,
             tracks,
         })
     }
