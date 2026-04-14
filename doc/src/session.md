@@ -66,6 +66,15 @@ No additional fields beyond the common ones.
 | `reference` | string | yes | Path to the FASTA file used to decode the CRAM. Separate from the viewer reference set by `genome`. |
 | `reference_index` | string | no | Path to the `.fai` index. Inferred as `reference + ".fai"` when absent. |
 
+```toml
+version = 1
+locus = "chr1:925952"
+genome = "hg38"
+
+[[tracks]]
+path = "/data/sample.cram"
+reference = "/data/GRCh38.fa"
+```
 #### VCF and BED tracks
 
 No additional fields beyond the common ones.
@@ -79,33 +88,16 @@ The `locus` field accepts the same formats as the `-r` / `--region` flag:
 | `contig:position` | `chr17:7572659` | 1-based position on a contig. |
 | `gene` | `TP53` | Jump to the gene's start. Requires a reference genome. |
 
-## Example sessions
 
+## Relationship to the TGV session
 
+When tgv starts, the app session is build by the following priority:
 
-### CRAM with a local FASTA decoding reference
-
-```toml
-version = 1
-locus = "chr1:925952"
-genome = "hg38"
-
-[[tracks]]
-path = "/data/sample.cram"
-reference = "/data/GRCh38.fa"
-```
-
-## Relationship to CLI flags
-
-Every session field has a direct CLI equivalent. A session file is a
-persistent snapshot of what you would otherwise type on the command line.
-
-| Session field | CLI flag | Notes |
-|---|---|---|
-| `locus` | `-r` / `--region` | Same format. |
-| `genome` | `-g` / `--reference` | Same values. |
-| `ucsc_host` | `--host` | |
-| `cache_dir` | `--cache-dir` | |
-| `tracks[].path` | positional `files` argument | |
-
-When both a session file and CLI flags are provided, CLI flags take precedence.
+1. If default session `~/.tgv/session/default.toml` is not found, create a default session file.
+2. Load the default session.
+3. Cli argument modifies the default session. 
+4. Session can be save in the app:
+  - `:w`: save to the default session
+  - `:w [session_name]` saves to `.tgv/session/[session_name].toml` file
+  - or, `:w [full_session_path.toml]` saves to the full session path.
+  `:wq [...]` behaves similarly and quits the app.
