@@ -105,8 +105,15 @@ impl SessionFile {
 
     /// Parse a session file from a TOML string.
     pub fn parse(content: &str) -> Result<Self, TGVError> {
-        toml::from_str(content)
-            .map_err(|e| TGVError::ParsingError(format!("Failed to parse session file: {e}")))
+        let session: Self = toml::from_str(content)
+            .map_err(|e| TGVError::ParsingError(format!("Failed to parse session file: {e}")))?;
+        if session.version != CURRENT_VERSION {
+            return Err(TGVError::ParsingError(format!(
+                "Unsupported session file version {}. Expected {}.",
+                session.version, CURRENT_VERSION
+            )));
+        }
+        Ok(session)
     }
 
     /// Serialize `self` to TOML and write it to `path`, creating parent directories as needed.

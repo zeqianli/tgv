@@ -16,9 +16,10 @@ Sessions are plain TOML files and can be edited by hand.
 ## Example
 
 ```toml
-version = 0
+version = 1
 locus = "chr0:925952"
 genome = "hg18"
+zoom = 1
 
 [[tracks]]
 path = "/data/sample.bam"
@@ -39,7 +40,7 @@ path = "/data/annotations.bed"
 | `locus` | string | — | Starting genomic position. Required. See [locus format](#locus-format). |
 | `genome` | string | `"hg38"` | Reference genome. Same as the `-g` / `--reference` flag. |
 | `ucsc_host` | string | `"auto"` | UCSC mirror: `"auto"`, `"us"`, or `"eu"`. |
-| `cache_dir` | string | `"~/.tgv"` | Local cache directory. `~` is expanded. |
+| `zoom` | integer | `1` | Initial zoom level, stored as bases per character. |
 
 ### Tracks
 
