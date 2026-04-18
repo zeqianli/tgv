@@ -22,6 +22,14 @@ pub fn parse(input: &str) -> Result<Vec<Message>, TGVError> {
         return Ok(vec![Message::Quit]);
     }
 
+    if let Some(message) = parse_session_command(input, "w", Message::SaveSession) {
+        return Ok(vec![message]);
+    }
+
+    if let Some(message) = parse_session_command(input, "wq", Message::SaveAndQuit) {
+        return Ok(vec![message]);
+    }
+
     if input == "h" {
         return Err(TGVError::RegisterError(
             "TODO: help screen is not implemented".to_string(),
@@ -67,6 +75,23 @@ pub fn parse(input: &str) -> Result<Vec<Message>, TGVError> {
             input
         ))),
     }
+}
+
+fn parse_session_command(
+    input: &str,
+    command: &str,
+    make_message: impl FnOnce(Option<String>) -> Message,
+) -> Option<Message> {
+    if input == command {
+        return Some(make_message(None));
+    }
+
+    input.strip_prefix(command).and_then(|remaining| {
+        let session_name = remaining.strip_prefix(' ')?.trim();
+        Some(make_message(
+            (!session_name.is_empty()).then(|| session_name.to_string()),
+        ))
+    })
 }
 
 /// Highest level parser
@@ -352,6 +377,11 @@ mod tests {
 
     #[rstest]
     #[case("q", Ok(vec![Message::Quit]))]
+    #[case("w", Ok(vec![Message::SaveSession(None)]))]
+    #[case("w session-name", Ok(vec![Message::SaveSession(Some("session-name".to_string()))]))]
+    #[case("w /tmp/test.toml", Ok(vec![Message::SaveSession(Some("/tmp/test.toml".to_string()))]))]
+    #[case("wq", Ok(vec![Message::SaveAndQuit(None)]))]
+    #[case("wq session-name", Ok(vec![Message::SaveAndQuit(Some("session-name".to_string()))]))]
     #[case("1234", Ok(vec![Movement::Position(1234).into()]))]
     #[case("chr1:1000", Ok(vec![Movement::ContigNamePosition(
         "chr1".to_string(),

@@ -1,7 +1,6 @@
 use crate::{
     app::Scene,
     message::{Message, Movement, Scroll},
-    session::SessionFile,
 };
 use crossterm::event::{KeyCode, KeyEvent};
 use gv_core::normal::update_by_char;
@@ -131,21 +130,6 @@ impl Registers {
                     Message::SwitchScene(Scene::ContigList),
                     Message::SwitchKeyRegister(KeyRegisterType::ContigList),
                 ]),
-                cmd if cmd == "w" || cmd.starts_with("w ") => {
-                    let path = resolve_session_path(cmd.strip_prefix("w").unwrap().trim());
-                    Ok(vec![
-                        Message::ClearAllKeyRegisters,
-                        Message::SwitchKeyRegister(KeyRegisterType::Normal),
-                        Message::SaveSession(path),
-                    ])
-                }
-                cmd if cmd == "wq" || cmd.starts_with("wq ") => {
-                    let path = resolve_session_path(cmd.strip_prefix("wq").unwrap().trim());
-                    Ok(vec![
-                        Message::ClearAllKeyRegisters,
-                        Message::SaveAndQuit(path),
-                    ])
-                }
                 _ => Ok(gv_core::command::parse(self.command.as_str())
                     .map(|m| m.into_iter().map(|mm| Message::Core(mm)).collect_vec())
                     .unwrap_or_else(|e| {
@@ -249,16 +233,4 @@ impl Registers {
             ]
         }))
     }
-}
-
-/// Resolve a session name or path from a `:w` / `:wq` command argument.
-///
-/// - Empty string → active session path.
-/// - Starts with `~` or `/` → treated as a full path (tilde is expanded).
-/// - Otherwise → `~/.tgv/sessions/<name>.toml`.
-fn resolve_session_path(name: &str) -> Option<std::path::PathBuf> {
-    if name.is_empty() {
-        return None;
-    }
-    Some(SessionFile::resolve_path(name))
 }

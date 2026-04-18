@@ -183,6 +183,34 @@ impl App {
 
                 Message::Core(gv_core::message::Message::Quit) => self.exit = true,
 
+                Message::Core(gv_core::message::Message::SaveSession(path)) => {
+                    let path = path
+                        .as_deref()
+                        .map(SessionFile::resolve_path)
+                        .unwrap_or_else(|| self.session_path.clone());
+                    match self.save_session_to_path(path.clone()) {
+                        Ok(()) => self
+                            .state
+                            .add_message(format!("Session saved to {}", path.display())),
+                        Err(e) => self
+                            .state
+                            .add_message(format!("Failed to save session: {e}")),
+                    }
+                }
+
+                Message::Core(gv_core::message::Message::SaveAndQuit(path)) => {
+                    let path = path
+                        .as_deref()
+                        .map(SessionFile::resolve_path)
+                        .unwrap_or_else(|| self.session_path.clone());
+                    match self.save_session_to_path(path) {
+                        Ok(()) => self.exit = true,
+                        Err(e) => self
+                            .state
+                            .add_message(format!("Failed to save session: {e}")),
+                    }
+                }
+
                 Message::Core(gv_core::message::Message::Scroll(scroll)) => {
                     self.alignment_view.scroll(scroll, &self.state.alignment);
                 }
@@ -213,28 +241,6 @@ impl App {
                     self.registers.current = register
                 }
                 Message::ClearAllKeyRegisters => self.registers.clear(),
-
-                Message::SaveSession(path) => {
-                    let path = path.unwrap_or_else(|| self.session_path.clone());
-                    match self.save_session_to_path(path.clone()) {
-                        Ok(()) => self
-                            .state
-                            .add_message(format!("Session saved to {}", path.display())),
-                        Err(e) => self
-                            .state
-                            .add_message(format!("Failed to save session: {e}")),
-                    }
-                }
-
-                Message::SaveAndQuit(path) => {
-                    let path = path.unwrap_or_else(|| self.session_path.clone());
-                    match self.save_session_to_path(path) {
-                        Ok(()) => self.exit = true,
-                        Err(e) => self
-                            .state
-                            .add_message(format!("Failed to save session: {e}")),
-                    }
-                }
             }
         }
 
