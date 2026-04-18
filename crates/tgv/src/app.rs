@@ -110,31 +110,38 @@ impl App {
             }
 
             // handle events
-            match event::read() {
-                Ok(Event::Key(key_event)) if key_event.kind == KeyEventKind::Press => {
-                    let state_messages = self.registers.handle_key_event(key_event, &self.state)?;
-                    self.handle(state_messages).await?; // TODO: this should not error out?
+            match {
+                match event::read() {
+                    Ok(Event::Key(key_event)) if key_event.kind == KeyEventKind::Press => {
+                        let state_messages =
+                            self.registers.handle_key_event(key_event, &self.state)?;
+                        self.handle(state_messages).await // TODO: this should not error out?
+                    }
+
+                    Ok(Event::Mouse(mouse_event)) => {
+                        let state_messages = self.mouse_register.handle_mouse_event(
+                            &self.state,
+                            &self.layout,
+                            &self.alignment_view,
+                            mouse_event,
+                        )?;
+
+                        self.handle(state_messages).await // TODO: this should not error out?
+                    }
+
+                    Ok(Event::Resize(_width, _height)) => {
+                        self.alignment_view.self_correct(
+                            &self.layout.main_area,
+                            self.state.contig_length(&self.alignment_view.focus)?,
+                        );
+                        Ok(())
+                    }
+
+                    _ => Ok(()),
                 }
-
-                Ok(Event::Mouse(mouse_event)) => {
-                    let state_messages = self.mouse_register.handle_mouse_event(
-                        &self.state,
-                        &self.layout,
-                        &self.alignment_view,
-                        mouse_event,
-                    )?;
-
-                    self.handle(state_messages).await?; // TODO: this should not error out?
-                }
-
-                Ok(Event::Resize(_width, _height)) => {
-                    self.alignment_view.self_correct(
-                        &self.layout.main_area,
-                        self.state.contig_length(&self.alignment_view.focus)?,
-                    );
-                }
-
-                _ => {}
+            } {
+                Ok(_) => {}
+                Err(e) => self.state.add_message(format!("{e}")),
             }
 
             self.alignment_view.self_correct(
