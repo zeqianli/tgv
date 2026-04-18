@@ -67,14 +67,6 @@ tgv --version
 
 Similarly, MacOS would raise a warning here. See the solution above.
 
-### conda
-
-TODO
-
-### Nix
-
-TODO
-
 
 ## Latest development branch
 
@@ -82,32 +74,5 @@ TODO
 git clone https://github.com/zeqianli/tgv.git
 cd tgv
 
-# Rust is required
 cargo install --path .
 ```
-
-
-## Build troubleshoot
-
-When building from source / installing through `cargo install`, a C compiler error is common:
-
-```bash
-error: linking with `cc` failed: exit status: 1
-
-# or
-Unable to find libclang: "the `libclang` shared library at ... could not be opened
-```
-
-Try installing the developer toolkits before building.
-- [Linux](https://stackoverflow.com/questions/52445961/how-do-i-fix-the-rust-error-linker-cc-not-found-for-debian-on-windows-10)
-  ```bash
-  sudo apt install build-essential libclang-dev
-  ```
-
-- [MacOS](https://stackoverflow.com/questions/22733943/where-is-libclang-so)
-  1. Upgrade the operating system. Some people have internet connection issues (with `reqwest`) with older systems.
-  2. Install Xcode command line tools:
-    ```bash
-    xcode-select --install
-    # Proceed in the pop-up window
-    ```
