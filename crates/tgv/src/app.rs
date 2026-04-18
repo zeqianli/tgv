@@ -81,7 +81,7 @@ impl App {
             .draw(|frame| {
                 let _ = self.layout.set_area(frame.area());
             })
-            .unwrap();
+            .map_err(|e| TGVError::IOError(format!("Failed to draw the terminal: {e}")))?;
 
         self.handle(self.settings.initial_state_messages.clone())
             .await?;
@@ -96,14 +96,16 @@ impl App {
             // FIXME: improve rendering performance. Not all sections need to be re-rendered at every loop.
             //
             let mut refresh_terminal = false;
+            let mut render_result = Ok(());
 
             terminal
                 .draw(|frame| {
                     let buffer = frame.buffer_mut();
                     refresh_terminal = self.layout.set_area(buffer.area);
-                    self.render(buffer).unwrap()
+                    render_result = self.render(buffer);
                 })
-                .unwrap();
+                .map_err(|e| TGVError::IOError(format!("Failed to draw the terminal: {e}")))?;
+            render_result?;
 
             if self.settings.test_mode {
                 break;

@@ -11,10 +11,10 @@ fn absolutize_fixture_args(args: &str) -> String {
         "tests/data/cache/wuhCor1/wuhCor1.2bit",
         &test_data_path("cache/wuhCor1/wuhCor1.2bit"),
     )
-        .replace("tests/data/covid.fa", &test_data_path("covid.fa"))
-        .replace("tests/data/cache", &test_data_path("cache"))
-        .replace("tests/data/simple.vcf", &test_data_path("simple.vcf"))
-        .replace("tests/data/simple.bed", &test_data_path("simple.bed"))
+    .replace("tests/data/covid.fa", &test_data_path("covid.fa"))
+    .replace("tests/data/cache", &test_data_path("cache"))
+    .replace("tests/data/simple.vcf", &test_data_path("simple.vcf"))
+    .replace("tests/data/simple.bed", &test_data_path("simple.bed"))
 }
 
 fn offline_case_args(bam_path: Option<&str>, args: &str) -> String {
@@ -32,7 +32,10 @@ fn offline_case_args(bam_path: Option<&str>, args: &str) -> String {
 #[tokio::test]
 async fn offline_initialization_succeeds(#[case] args: &str) {
     let args = if args.contains(".bam") {
-        offline_case_args(None, &args.replace("covid.sorted.bam", &test_data_path("covid.sorted.bam")))
+        offline_case_args(
+            None,
+            &args.replace("covid.sorted.bam", &test_data_path("covid.sorted.bam")),
+        )
     } else {
         offline_case_args(None, args)
     };
@@ -100,7 +103,10 @@ async fn offline_sequence_updates_tracks_and_scenes() {
     assert!(harness.app.state.variant_loaded);
     assert!(harness.app.state.bed_loaded);
     assert_eq!(harness.app.alignment_view.focus.position, 33_121_130);
-    assert_eq!(harness.app.state.messages, vec!["scripted-note".to_string()]);
+    assert_eq!(
+        harness.app.state.messages,
+        vec!["scripted-note".to_string()]
+    );
 
     harness.close().await.unwrap();
 }

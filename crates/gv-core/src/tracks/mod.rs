@@ -239,11 +239,6 @@ impl TrackServiceEnum {
                     Err(e) => Err(e),
                 }
             }
-
-            _ => Err(TGVError::ValueError(format!(
-                "Failed to initialize TrackService for reference {}",
-                settings.reference.to_string()
-            ))),
         }
     }
     /// Return a map of: contig name -> 2bit file basename, if available.

@@ -349,9 +349,9 @@ impl Alignment {
     }
 
     pub fn sort(&mut self, option: &AlignmentSort) -> Result<&mut Self, TGVError> {
-        // FIXME
-        todo!();
-        Ok(self)
+        Err(TGVError::ValueError(format!(
+            "Alignment sorting is not implemented yet for option {option}"
+        )))
     }
 }
 

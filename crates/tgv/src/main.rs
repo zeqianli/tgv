@@ -26,7 +26,7 @@ async fn main() -> Result<(), TGVError> {
             downloader.download().await?;
             return Ok(());
         }
-        Some(Commands::List { more, all }) => {
+        Some(Commands::List { more, all: _ }) => {
             if *more {
                 let n = print_ucsc_assemblies().await?;
                 println!("{} UCSC assemblies", n);

@@ -1,6 +1,6 @@
 use crate::{
     app::Scene,
-    message::{Message, Movement, Scroll},
+    message::{Message, Movement},
 };
 use crossterm::event::{KeyCode, KeyEvent};
 use gv_core::normal::update_by_char;
