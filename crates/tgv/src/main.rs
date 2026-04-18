@@ -1,13 +1,3 @@
-mod app;
-mod layout;
-mod message;
-mod mouse;
-mod register;
-mod rendering;
-mod session;
-mod settings;
-
-use app::App;
 use clap::Parser;
 use crossterm::{
     event::{DisableMouseCapture, EnableMouseCapture},
@@ -16,9 +6,12 @@ use crossterm::{
 use gv_core::error::TGVError;
 use gv_core::reference::Reference;
 use gv_core::tracks::{UCSCDownloader, UcscDbTrackService};
-use session::SessionFile;
-use settings::{Cli, Commands, Settings};
 use std::io::stdout;
+use tgv::{
+    app::App,
+    session::SessionFile,
+    settings::{Cli, Commands, Settings},
+};
 #[tokio::main]
 async fn main() -> Result<(), TGVError> {
     let cli = Cli::parse();
@@ -134,105 +127,4 @@ fn set_panic_hook() {
             eprintln!("Error disabling mouse capture: {err}");
         }
     }));
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use insta::assert_snapshot;
-    use ratatui::{Terminal, backend::TestBackend};
-    use rstest::rstest;
-    use std::env;
-    use std::path::Path;
-
-    /// Test that the app runs without panicking.
-    /// Snapshots are saved in src/snapshots
-    #[rstest]
-    #[case(None, Some("--online"))]
-    #[case(Some("ncbi.sorted.bam"), Some("-r 22:33121120 -g hg19 --online"))]
-    #[case(None, Some("-g GCF_028858775.2 -r NC_072398.2:76951800 --online"))]
-    #[case(None, Some("-g wuhCor1 --offline --cache-dir tests/data/cache"))]
-    #[case(None, Some("-g ecoli --offline --cache-dir tests/data/cache"))]
-    #[case(
-        Some("ncbi.sorted.bam"),
-        Some("-r chr22:33121120 --no-reference --offline")
-    )]
-    #[case(
-        Some("ncbi.sorted.bam"),
-        Some(
-            "-r chr22:33121120 tests/data/simple.vcf tests/data/simple.bed --no-reference --offline"
-        )
-    )]
-    #[case(
-        Some("covid.sorted.bam"),
-        Some("-g covid --offline --cache-dir tests/data/cache")
-    )]
-    #[case(
-        Some("covid.sorted.bam"),
-        Some("--no-reference -r MN908947.3:100 --offline")
-    )]
-    #[case(Some("covid.sorted.bam"), Some("-g tests/data/covid.fa --offline"))]
-    #[case(
-        Some("covid.sorted.bam"),
-        Some("-g tests/data/cache/wuhCor1/wuhCor1.2bit --offline")
-    )]
-    #[tokio::test]
-    async fn integration_test(#[case] bam_path: Option<&str>, #[case] args: Option<&str>) {
-        let snapshot_name = match (bam_path, args) {
-            (Some(bam_path), Some(args)) => format!("{} {}", bam_path, args),
-            (Some(bam_path), None) => format!("{} None", bam_path),
-            (None, Some(args)) => format!("None {}", args),
-            (None, None) => "None".to_string(),
-        }
-        .replace(" ", "_")
-        .replace(":", "_")
-        .replace(".", "_");
-
-        let bam_path = bam_path
-            .map(|bam_path| env!("CARGO_MANIFEST_DIR").to_string() + "/tests/data/" + bam_path);
-
-        let args_string = match (bam_path, args) {
-            (Some(bam_path), Some(args)) => format!("tgv {} {}", bam_path, args),
-            (Some(bam_path), None) => format!("tgv {}", bam_path),
-            (None, Some(args)) => format!("tgv {}", args),
-            (None, None) => "tgv".to_string(),
-        };
-
-        let cli = Cli::parse_from(shlex::split(&args_string).unwrap());
-        let mut settings: Settings = cli.try_into().unwrap();
-        settings.test_mode = true;
-
-        let mut terminal = Terminal::new(TestBackend::new(50, 20)).unwrap();
-
-        let mut app = App::new(settings, SessionFile::default_path())
-            .await
-            .unwrap();
-        app.run(&mut terminal).await.unwrap();
-        app.close().await.unwrap();
-
-        assert_snapshot!(snapshot_name, terminal.backend());
-    }
-
-    /// Test that downloading works.
-    #[rstest]
-    #[case("wuhCor1")]
-    #[case("ecoli")]
-    #[tokio::test]
-    async fn download_integration_test(#[case] reference_str: &str) {
-        let reference = reference_str.parse::<Reference>().unwrap();
-        let temp_dir = tempfile::TempDir::new().unwrap();
-        let temp_dir = temp_dir.path().to_str().unwrap();
-        let downloader =
-            UCSCDownloader::new(reference_str.parse::<Reference>().unwrap(), temp_dir).unwrap();
-
-        downloader.download().await.unwrap();
-
-        assert!(Path::new(&temp_dir).join(reference.to_string()).exists());
-        assert!(
-            Path::new(&temp_dir)
-                .join(reference.to_string())
-                .join("tracks.sqlite")
-                .exists()
-        );
-    }
 }
