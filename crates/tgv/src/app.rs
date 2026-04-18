@@ -17,6 +17,7 @@ use gv_core::{
     repository::Repository,
     state::State,
 };
+use std::path::PathBuf;
 
 #[derive(Debug, Clone, Eq, PartialEq)]
 pub enum Scene {
@@ -27,6 +28,7 @@ pub enum Scene {
 
 pub struct App {
     pub exit: bool,
+    pub session_path: PathBuf,
 
     pub layout: MainLayout,
     pub state: State,
@@ -41,7 +43,7 @@ pub struct App {
 }
 
 impl App {
-    pub async fn new(settings: Settings) -> Result<Self, TGVError> {
+    pub async fn new(settings: Settings, session_path: PathBuf) -> Result<Self, TGVError> {
         // Gather resources before initializing the state.
 
         let (mut repository, contig_header) = Repository::new(&settings.core).await?;
@@ -59,6 +61,7 @@ impl App {
 
         Ok(Self {
             exit: false,
+            session_path,
             layout: MainLayout::new(&settings),
             alignment_view,
             state,
@@ -152,6 +155,12 @@ impl App {
         self.repository.close().await
     }
 
+    fn save_session_to_path(&mut self, path: PathBuf) -> Result<(), TGVError> {
+        SessionFile::try_from(&*self).and_then(|s| s.write_to_path(&path))?;
+        self.session_path = path;
+        Ok(())
+    }
+
     /// Handle messages after initialization. This blocks any error messages instead of propagating them.
     pub async fn handle(&mut self, messages: Vec<Message>) -> Result<(), TGVError> {
         self.state.messages.clear();
@@ -206,21 +215,25 @@ impl App {
                 Message::ClearAllKeyRegisters => self.registers.clear(),
 
                 Message::SaveSession(path) => {
-                    match SessionFile::try_from(&*self).and_then(|s| s.write_to_path(&path)) {
-                        Ok(()) => self.state.add_message(format!(
-                            "Session saved to {}",
-                            path.display()
-                        )),
-                        Err(e) => self.state.add_message(format!("Failed to save session: {e}")),
+                    let path = path.unwrap_or_else(|| self.session_path.clone());
+                    match self.save_session_to_path(path.clone()) {
+                        Ok(()) => self
+                            .state
+                            .add_message(format!("Session saved to {}", path.display())),
+                        Err(e) => self
+                            .state
+                            .add_message(format!("Failed to save session: {e}")),
                     }
                 }
 
                 Message::SaveAndQuit(path) => {
-                    match SessionFile::try_from(&*self).and_then(|s| s.write_to_path(&path)) {
-                        Ok(()) => {}
-                        Err(e) => self.state.add_message(format!("Failed to save session: {e}")),
+                    let path = path.unwrap_or_else(|| self.session_path.clone());
+                    match self.save_session_to_path(path) {
+                        Ok(()) => self.exit = true,
+                        Err(e) => self
+                            .state
+                            .add_message(format!("Failed to save session: {e}")),
                     }
-                    self.exit = true;
                 }
             }
         }

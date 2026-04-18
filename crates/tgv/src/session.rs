@@ -98,6 +98,24 @@ impl SessionFile {
         PathBuf::from(shellexpand::tilde("~/.tgv/sessions/default.toml").as_ref())
     }
 
+    /// Resolve a session name or path.
+    ///
+    /// - Empty string → default session path.
+    /// - Starts with `~` or `/` → treated as a full path, and `~` is expanded.
+    /// - Otherwise → `~/.tgv/sessions/<name>.toml`.
+    pub fn resolve_path(name: &str) -> PathBuf {
+        if name.is_empty() {
+            return Self::default_path();
+        }
+
+        let raw = if name.starts_with('~') || name.starts_with('/') {
+            name.to_string()
+        } else {
+            format!("~/.tgv/sessions/{name}.toml")
+        };
+        PathBuf::from(shellexpand::tilde(&raw).as_ref())
+    }
+
     /// Read and parse a session file from `path`.
     pub fn from_path(path: &Path) -> Result<Self, TGVError> {
         Self::parse(&std::fs::read_to_string(path)?)
@@ -144,9 +162,7 @@ pub fn parse_locus(locus: &str) -> Result<Vec<Message>, TGVError> {
                     Movement::ContigNamePosition(parts[0].to_string(), n),
                 ))]
             })
-            .map_err(|_| {
-                TGVError::ParsingError(format!("Invalid position in locus \"{locus}\""))
-            }),
+            .map_err(|_| TGVError::ParsingError(format!("Invalid position in locus \"{locus}\""))),
         _ => Err(TGVError::ParsingError(format!(
             "Invalid locus format \"{locus}\": expected \"contig:position\" or a gene name"
         ))),
@@ -168,9 +184,7 @@ impl TryFrom<SessionFile> for Settings {
         for track in session.tracks {
             let lower = track.path.to_lowercase();
             if lower.ends_with(".bam") {
-                let index = track
-                    .index
-                    .unwrap_or_else(|| format!("{}.bai", track.path));
+                let index = track.index.unwrap_or_else(|| format!("{}.bai", track.path));
                 alignment_path = Some(AlignmentPath::Bam {
                     source: if is_url(&track.path) {
                         BamSource::S3

@@ -23,7 +23,7 @@ use std::io::stdout;
 async fn main() -> Result<(), TGVError> {
     let cli = Cli::parse();
 
-    match cli.command {
+    match &cli.command {
         Some(Commands::Download {
             reference,
             cache_dir,
@@ -34,7 +34,7 @@ async fn main() -> Result<(), TGVError> {
             return Ok(());
         }
         Some(Commands::List { more, all }) => {
-            if more {
+            if *more {
                 let n = print_ucsc_assemblies().await?;
                 println!("{} UCSC assemblies", n);
                 println!("Browse a genome: tgv -g <genome> (e.g. tgv -g rn7)");
@@ -48,8 +48,9 @@ async fn main() -> Result<(), TGVError> {
         None => {}
     }
 
-    // Load or create the default session, then apply CLI overrides on top.
-    let session_path = SessionFile::default_path();
+    // Load the requested session when provided. Otherwise, load or create the default session,
+    // then apply CLI overrides on top.
+    let session_path = cli.session_path();
     let mut settings = if session_path.exists() {
         match SessionFile::from_path(&session_path).and_then(Settings::try_from) {
             Ok(s) => s,
@@ -58,11 +59,13 @@ async fn main() -> Result<(), TGVError> {
                 Settings::default()
             }
         }
-    } else {
+    } else if cli.session.is_none() {
         // First run: write a default session so future launches restore state.
         if let Err(e) = SessionFile::default().write_to_path(&session_path) {
             eprintln!("Warning: failed to write default session: {e}.");
         }
+        Settings::default()
+    } else {
         Settings::default()
     };
     cli.apply_overrides(&mut settings)?;
@@ -74,7 +77,7 @@ async fn main() -> Result<(), TGVError> {
     execute!(stdout(), EnableMouseCapture)?;
 
     // Gather resources before starting the app.
-    let mut app = match App::new(settings).await {
+    let mut app = match App::new(settings, session_path).await {
         Ok(app) => app,
         Err(e) => {
             ratatui::restore();
@@ -91,10 +94,9 @@ async fn main() -> Result<(), TGVError> {
         eprintln!("Error disabling mouse capture: {err}");
     }
 
-    // Auto-save the default session on clean exit (skip in test mode).
+    // Auto-save the active session on clean exit, and skip in test mode.
     if !app.settings.test_mode && app_result.is_ok() {
-        if let Err(e) = SessionFile::try_from(&app)
-            .and_then(|s| s.write_to_path(&SessionFile::default_path()))
+        if let Err(e) = SessionFile::try_from(&app).and_then(|s| s.write_to_path(&app.session_path))
         {
             eprintln!("Warning: failed to save session: {e}.");
         }
@@ -202,7 +204,9 @@ mod tests {
 
         let mut terminal = Terminal::new(TestBackend::new(50, 20)).unwrap();
 
-        let mut app = App::new(settings).await.unwrap();
+        let mut app = App::new(settings, SessionFile::default_path())
+            .await
+            .unwrap();
         app.run(&mut terminal).await.unwrap();
         app.close().await.unwrap();
 

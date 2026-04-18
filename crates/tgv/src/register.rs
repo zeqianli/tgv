@@ -7,8 +7,6 @@ use crossterm::event::{KeyCode, KeyEvent};
 use gv_core::normal::update_by_char;
 use gv_core::{error::TGVError, state::State};
 use itertools::Itertools;
-use std::path::PathBuf;
-
 #[derive(Debug, Clone, Eq, PartialEq)]
 pub enum KeyRegisterType {
     Normal,
@@ -255,17 +253,12 @@ impl Registers {
 
 /// Resolve a session name or path from a `:w` / `:wq` command argument.
 ///
-/// - Empty string → default session path.
+/// - Empty string → active session path.
 /// - Starts with `~` or `/` → treated as a full path (tilde is expanded).
 /// - Otherwise → `~/.tgv/sessions/<name>.toml`.
-fn resolve_session_path(name: &str) -> PathBuf {
+fn resolve_session_path(name: &str) -> Option<std::path::PathBuf> {
     if name.is_empty() {
-        return SessionFile::default_path();
+        return None;
     }
-    let raw = if name.starts_with('~') || name.starts_with('/') {
-        name.to_string()
-    } else {
-        format!("~/.tgv/sessions/{name}.toml")
-    };
-    PathBuf::from(shellexpand::tilde(&raw).as_ref())
+    Some(SessionFile::resolve_path(name))
 }

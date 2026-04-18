@@ -14,11 +14,11 @@ pub enum Message {
 
     ClearAllKeyRegisters,
 
-    /// Save the current session to `path`.
-    SaveSession(PathBuf),
+    /// Save the current session to `path`, or to the active session path when `None`.
+    SaveSession(Option<PathBuf>),
 
-    /// Save the current session to `path` and then quit.
-    SaveAndQuit(PathBuf),
+    /// Save the current session to `path`, or to the active session path when `None`, and then quit.
+    SaveAndQuit(Option<PathBuf>),
 }
 
 impl Message {

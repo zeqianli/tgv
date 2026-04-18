@@ -9,6 +9,7 @@ use gv_core::message::Movement;
 use gv_core::reference::Reference;
 use gv_core::settings::{AlignmentPath, BackendType, BamSource};
 use gv_core::tracks::UcscHost;
+use std::path::PathBuf;
 use strum::Display;
 
 #[derive(Debug, Clone, Eq, PartialEq, ValueEnum)]
@@ -102,6 +103,10 @@ pub struct Cli {
     #[arg(long)]
     cache_dir: Option<String>,
 
+    /// Session file to load. Accepts a full path, `~`, or a named session.
+    #[arg(long)]
+    pub session: Option<String>,
+
     /// Subcommand
     #[command(subcommand)]
     pub command: Option<Commands>,
@@ -139,6 +144,13 @@ impl Cli {
                 region_string
             ))),
         }
+    }
+
+    pub fn session_path(&self) -> PathBuf {
+        self.session
+            .as_deref()
+            .map(crate::session::SessionFile::resolve_path)
+            .unwrap_or_else(crate::session::SessionFile::default_path)
     }
 
     /// Apply CLI overrides on top of an existing [`Settings`] loaded from a session.
@@ -203,7 +215,9 @@ impl Cli {
         }
 
         // Validate: an alignment file and reference cannot both be absent.
-        if settings.core.alignment_path.is_none() && settings.core.reference == Reference::NoReference {
+        if settings.core.alignment_path.is_none()
+            && settings.core.reference == Reference::NoReference
+        {
             return Err(TGVError::CliError(
                 "Bam file and reference cannot both be none".to_string(),
             ));
@@ -406,10 +420,8 @@ impl TryFrom<Cli> for Settings {
 
         let (alignment_path, vcf_path, bed_path) = classify_and_build_tracks(&cli.files)?;
 
-        let cache_dir = shellexpand::tilde(
-            cli.cache_dir.as_deref().unwrap_or("~/.tgv"),
-        )
-        .to_string();
+        let cache_dir =
+            shellexpand::tilde(cli.cache_dir.as_deref().unwrap_or("~/.tgv")).to_string();
 
         Ok(Self {
             core: gv_core::settings::Settings {
