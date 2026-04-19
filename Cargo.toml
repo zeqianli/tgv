@@ -18,6 +18,7 @@ itertools = "0"
 nom = "8"
 noodles = { version = "0", features = ["async", "bam", "bed", "bgzf", "core", "cram", "fasta", "sam", "vcf"] }
 opendal = { version = "0.53.3", default-features = false, features = ["services-s3"] }
+openssl = { version = "0.10", features = ["vendored"] }
 ratatui = "0.29"
 reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
 serde = { version = "1.0", features = ["derive"] }
