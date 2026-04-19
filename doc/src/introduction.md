@@ -1,6 +1,6 @@
 # Introduction
 
-Welcome to the tgv wiki!
+Welcome to the tgv documentation.
 
 ## TGV's goal: Vim for omics
 

@@ -1,5 +1,6 @@
 [workspace]
 members = ["crates/gv-core", "crates/tgv"]
+resolver = "3"
 
 [workspace.dependencies]
 # Non-local crates
@@ -32,4 +33,10 @@ url = "2.5.4"
 
 # local crates
 
-gv-core = { path = 'crates/gv-core', version = "0" }
+gv-core = { path = "crates/gv-core", version = "=0.2.0" }
+
+[profile.release] # as recommended in https://github.com/ratatui/ratatui-website/pull/931/files
+codegen-units = 1 # Allows compiler to perform better optimization.
+lto = true # Enables link-time optimization.
+opt-level = 3 # Prioritizes small binary size. Use `3` if you prefer speed.
+strip = true # Ensures debug symbols are removed.
