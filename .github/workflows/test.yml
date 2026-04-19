@@ -37,11 +37,26 @@ jobs:
           # See https://github.com/mitsuhiko/insta/issues/344
       - name: Show snapshots
         run: |
-          shopt -s nullglob
-          for file in crates/tgv/src/snapshots/*; do
-            echo $file
-            cat $file
+          snapshot_dir="crates/tgv/src/snapshots"
+          if [ ! -d "$snapshot_dir" ]; then
+            echo "No snapshot directory found at $snapshot_dir."
+            exit 0
+          fi
+
+          found_snapshot=0
+          for file in "$snapshot_dir"/*; do
+            if [ ! -e "$file" ]; then
+              break
+            fi
+
+            found_snapshot=1
+            echo "$file"
+            cat "$file"
           done
+
+          if [ "$found_snapshot" -eq 0 ]; then
+            echo "No snapshots found in $snapshot_dir."
+          fi
 
   network-integration-tests:
     runs-on: ubuntu-latest
