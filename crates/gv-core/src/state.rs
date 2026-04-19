@@ -84,12 +84,13 @@ impl State {
     pub async fn movement(
         &self,
         focus: Focus,
+        zoom: u64,
         repository: &mut Repository,
         movement: Movement,
     ) -> Result<Focus, TGVError> {
         match movement {
-            Movement::Left(n) => Ok(focus.move_left(n)),
-            Movement::Right(n) => Ok(focus.move_right(n)),
+            Movement::Left(n) => Ok(focus.move_left(n * zoom)),
+            Movement::Right(n) => Ok(focus.move_right(n * zoom)),
             Movement::Position(position) => Ok(focus.move_to(position)),
             Movement::ContigNamePosition(contig_name, position) => Ok(Focus {
                 contig_index: self

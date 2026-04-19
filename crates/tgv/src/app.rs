@@ -181,6 +181,7 @@ impl App {
                         .state
                         .movement(
                             self.alignment_view.focus.clone(),
+                            self.alignment_view.zoom,
                             &mut self.repository,
                             movement,
                         )
