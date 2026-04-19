@@ -17,14 +17,14 @@ futures = "0"
 itertools = "0"
 nom = "8"
 noodles = { version = "0", features = ["async", "bam", "bed", "bgzf", "core", "cram", "fasta", "sam", "vcf"] }
-opendal = { version = "0.53.3", features = ["services-s3"] }
+opendal = { version = "0.53.3", default-features = false, features = ["services-s3"] }
 ratatui = "0.29"
-reqwest = { version = "0.12", features = ["json"] }
+reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1"
 toml = "0.8"
 shellexpand = "3.1"
-sqlx = { version = "0.7", features = ["mysql", "sqlite", "runtime-tokio-native-tls"] }
+sqlx = { version = "0.7", features = ["mysql", "sqlite", "runtime-tokio-rustls"] }
 strum = { version = "0.27", features = ["derive"] }
 thiserror = { version = "2" }
 tokio = { version = "1", features = ["full"] }
