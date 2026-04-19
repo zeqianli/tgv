@@ -9,23 +9,68 @@ env:
   CARGO_TERM_COLOR: always
 
 jobs:
-  test:
+  unit-tests:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Run tests
-        run: |
-          cargo test
+      - name: Install cargo-nextest
+        uses: taiki-e/install-action@nextest
+      - name: Run unit tests
+        run: cargo nextest run --workspace --lib
+        env:
+          CI: 0
+          # Disable CI mode to have insta save snapshots to files.
+          # See https://github.com/mitsuhiko/insta/issues/344
+
+  offline-integration-tests:
+    runs-on: ubuntu-latest
+    needs: unit-tests
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install cargo-nextest
+        uses: taiki-e/install-action@nextest
+      - name: Run localized integration tests
+        run: cargo nextest run -p tgv --test offline_app
         env:
           CI: 0
           # Disable CI mode to have insta save snapshots to files.
           # See https://github.com/mitsuhiko/insta/issues/344
       - name: Show snapshots
         run: |
-          for file in crates/tgv/src/snapshots/*; do
-            echo $file
-            cat $file
+          snapshot_dir="crates/tgv/src/snapshots"
+          if [ ! -d "$snapshot_dir" ]; then
+            echo "No snapshot directory found at $snapshot_dir."
+            exit 0
+          fi
+
+          found_snapshot=0
+          for file in "$snapshot_dir"/*; do
+            if [ ! -e "$file" ]; then
+              break
+            fi
+
+            found_snapshot=1
+            echo "$file"
+            cat "$file"
           done
+
+          if [ "$found_snapshot" -eq 0 ]; then
+            echo "No snapshots found in $snapshot_dir."
+          fi
+
+  network-integration-tests:
+    runs-on: ubuntu-latest
+    needs: offline-integration-tests
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install cargo-nextest
+        uses: taiki-e/install-action@nextest
+      - name: Run network integration tests
+        run: cargo nextest run -p tgv --test online_app --run-ignored ignored-only
+        env:
+          CI: 0
+          # Disable CI mode to have insta save snapshots to files.
+          # See https://github.com/mitsuhiko/insta/issues/344
   # lint:
   #   runs-on: ubuntu-latest
   #   steps:

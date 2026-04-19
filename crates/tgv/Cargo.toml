@@ -15,10 +15,12 @@ gv-core.workspace = true
 itertools.workspace = true
 nom.workspace = true
 ratatui.workspace = true
+serde.workspace = true
 shellexpand.workspace = true
 strum.workspace = true
 thiserror.workspace = true
 tokio.workspace = true
+toml.workspace = true
 
 [dev-dependencies]
 cargo-insta = "1.42"

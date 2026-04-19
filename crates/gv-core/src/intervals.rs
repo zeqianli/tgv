@@ -221,4 +221,10 @@ impl Focus {
             position: self.position.saturating_add(n),
         }
     }
+
+    /// Format the focus as `"contig_name:position"` using the provided contig header.
+    pub fn to_locus_str(&self, contig_header: &ContigHeader) -> Result<String, TGVError> {
+        let contig = contig_header.try_get(self.contig_index)?;
+        Ok(format!("{}:{}", contig.name, self.position))
+    }
 }

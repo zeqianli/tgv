@@ -9,6 +9,7 @@ use gv_core::message::Movement;
 use gv_core::reference::Reference;
 use gv_core::settings::{AlignmentPath, BackendType, BamSource};
 use gv_core::tracks::UcscHost;
+use std::path::PathBuf;
 use strum::Display;
 
 #[derive(Debug, Clone, Eq, PartialEq, ValueEnum)]
@@ -71,11 +72,11 @@ pub struct Cli {
     #[arg(short = 'r', long = "region")]
     region: Option<String>,
 
-    /// Reference genome.
+    /// Reference genome. Defaults to hg38 when not specified and no session is loaded.
     /// TGV supports all UCSC assemblies and accessions. See `tgv list` or `tgv list --more`.
     /// Ignored when a FASTA file is provided as an input file.
-    #[arg(short = 'g', long = "reference", default_value = Reference::HG38)]
-    reference: String,
+    #[arg(short = 'g', long = "reference")]
+    reference: Option<String>,
 
     /// Do not display the reference genome.
     /// This flag cannot be used when no alignment file is provided.
@@ -94,13 +95,17 @@ pub struct Cli {
     #[arg(long)]
     debug: bool,
 
-    /// Choose the UCSC host.
-    #[arg(long, value_enum, default_value_t = UcscHostCli::Auto)]
-    host: UcscHostCli,
+    /// Choose the UCSC host. Defaults to auto when not specified.
+    #[arg(long, value_enum)]
+    host: Option<UcscHostCli>,
 
-    /// Cache directory
-    #[arg(long, default_value = "~/.tgv")]
-    cache_dir: String,
+    /// Cache directory. Defaults to ~/.tgv when not specified.
+    #[arg(long)]
+    cache_dir: Option<String>,
+
+    /// Session file to load. Accepts a full path, `~`, or a named session.
+    #[arg(long)]
+    pub session: Option<String>,
 
     /// Subcommand
     #[command(subcommand)]
@@ -115,37 +120,215 @@ impl Cli {
                 return Ok(vec![Message::Core(gv_core::message::Message::Move(
                     gv_core::message::Movement::Default,
                 ))]);
-            } // Interpretation 1: go to default
+            }
         };
 
-        // Check format
         let split = region_string.split(":").collect::<Vec<&str>>();
 
         match split.len() {
-            //  gene name
             1 => Ok(vec![Message::Core(gv_core::message::Message::Move(
                 gv_core::message::Movement::Gene(region_string.to_string()),
             ))]),
-            2 =>
-            // genome:position
-            {
-                split[1]
-                    .parse::<u64>()
-                    .map(|n| {
-                        vec![Message::Core(gv_core::message::Message::Move(
-                            Movement::ContigNamePosition(split[0].to_string(), n),
-                        ))]
-                    })
-                    .map_err(|_| {
-                        TGVError::CliError(format!("Invalid genome region: {}", region_string))
-                    })
-            }
+            2 => split[1]
+                .parse::<u64>()
+                .map(|n| {
+                    vec![Message::Core(gv_core::message::Message::Move(
+                        Movement::ContigNamePosition(split[0].to_string(), n),
+                    ))]
+                })
+                .map_err(|_| {
+                    TGVError::CliError(format!("Invalid genome region: {}", region_string))
+                }),
             _ => Err(TGVError::CliError(format!(
                 "Cannot interpret the region: {}",
                 region_string
             ))),
         }
     }
+
+    pub fn session_path(&self) -> PathBuf {
+        self.session
+            .as_deref()
+            .map(crate::session::SessionFile::resolve_path)
+            .unwrap_or_else(crate::session::SessionFile::default_path)
+    }
+
+    /// Apply CLI overrides on top of an existing [`Settings`] loaded from a session.
+    ///
+    /// Only fields that were explicitly provided on the command line are overridden.
+    pub fn apply_overrides(&self, settings: &mut Settings) -> Result<(), TGVError> {
+        // Reference override.
+        if self.no_reference {
+            settings.core.reference = Reference::NoReference;
+        } else if let Some(ref r) = self.reference {
+            settings.core.reference = r.parse::<Reference>()?;
+        }
+
+        // Region / initial locus override.
+        if self.region.is_some() {
+            settings.initial_state_messages = self.initial_movement()?;
+        }
+
+        // Track override: if any files were provided, replace all session tracks.
+        if !self.files.is_empty() {
+            let (alignment_path, vcf_path, bed_path) = classify_and_build_tracks(&self.files)?;
+            settings.core.alignment_path = alignment_path;
+            settings.core.vcf_path = vcf_path;
+            settings.core.bed_path = bed_path;
+        }
+
+        // Backend override: only when explicitly requested.
+        match (self.offline, self.online) {
+            (true, true) => {
+                return Err(TGVError::CliError(
+                    "Both --offline and --online flags are used. Please use only one.".to_string(),
+                ));
+            }
+            (true, false) => settings.core.backend = BackendType::Local,
+            (false, true) => settings.core.backend = BackendType::Ucsc,
+            (false, false) => {}
+        }
+
+        if let Some(ref h) = self.host {
+            settings.core.ucsc_host = h.clone().into();
+        }
+
+        if let Some(ref d) = self.cache_dir {
+            settings.core.cache_dir = shellexpand::tilde(d).to_string();
+        }
+
+        settings.debug = self.debug;
+
+        // Validate: if no reference is provided, the initial messages cannot contain GoToGene.
+        if !settings.core.reference.needs_track() {
+            for m in settings.initial_state_messages.iter() {
+                if let Message::Core(gv_core::message::Message::Move(
+                    gv_core::message::Movement::Gene(gene_name),
+                )) = m
+                {
+                    return Err(TGVError::CliError(format!(
+                        "The initial region cannot be a gene name {} when no reference is provided.",
+                        gene_name
+                    )));
+                }
+            }
+        }
+
+        // Validate: an alignment file and reference cannot both be absent.
+        if settings.core.alignment_path.is_none()
+            && settings.core.reference == Reference::NoReference
+        {
+            return Err(TGVError::CliError(
+                "Bam file and reference cannot both be none".to_string(),
+            ));
+        }
+
+        Ok(())
+    }
+}
+
+/// Classify input files and build the track paths.
+///
+/// Returns `(alignment_path, vcf_path, bed_path)`.
+fn classify_and_build_tracks(
+    files: &[String],
+) -> Result<(Option<AlignmentPath>, Option<String>, Option<String>), TGVError> {
+    let mut alignment_file: Option<String> = None;
+    let mut vcf_path: Option<String> = None;
+    let mut bed_path: Option<String> = None;
+    let mut fasta_path: Option<String> = None;
+
+    for file in files {
+        let lower = file.to_lowercase();
+        if lower.ends_with(".bam") || lower.ends_with(".cram") {
+            if alignment_file.is_some() {
+                return Err(TGVError::CliError(
+                    "Only one BAM or CRAM alignment file may be provided.".to_string(),
+                ));
+            }
+            alignment_file = Some(file.clone());
+        } else if lower.ends_with(".vcf") || lower.ends_with(".vcf.gz") {
+            if vcf_path.is_some() {
+                return Err(TGVError::CliError(
+                    "Only one VCF file may be provided.".to_string(),
+                ));
+            }
+            vcf_path = Some(file.clone());
+        } else if lower.ends_with(".bed") || lower.ends_with(".bed.gz") {
+            if bed_path.is_some() {
+                return Err(TGVError::CliError(
+                    "Only one BED file may be provided.".to_string(),
+                ));
+            }
+            bed_path = Some(file.clone());
+        } else if lower.ends_with(".fa")
+            || lower.ends_with(".fasta")
+            || lower.ends_with(".fa.gz")
+            || lower.ends_with(".fasta.gz")
+        {
+            if fasta_path.is_some() {
+                return Err(TGVError::CliError(
+                    "Only one FASTA reference file may be provided.".to_string(),
+                ));
+            }
+            fasta_path = Some(file.clone());
+        } else {
+            return Err(TGVError::CliError(format!(
+                "Unrecognized file format: {}. Supported formats: .bam, .cram, .vcf, .vcf.gz, .bed, .bed.gz, .fa, .fasta",
+                file
+            )));
+        }
+    }
+
+    // CRAM requires a FASTA.
+    if let Some(ref ap) = alignment_file {
+        if ap.to_lowercase().ends_with(".cram") && fasta_path.is_none() {
+            return Err(TGVError::CliError(
+                "CRAM files require a reference FASTA file (.fa or .fasta) as input.".to_string(),
+            ));
+        }
+    }
+
+    let alignment_path = match alignment_file {
+        None => None,
+        Some(ap) if ap.to_lowercase().ends_with(".bam") => {
+            let index = format!("{}.bai", ap);
+            Some(AlignmentPath::Bam {
+                path: ap.clone(),
+                index,
+                source: if is_url(ap.as_str()) {
+                    BamSource::S3
+                } else {
+                    BamSource::Local
+                },
+            })
+        }
+        Some(ap) if ap.to_lowercase().ends_with(".cram") => {
+            return Err(TGVError::CliError(
+                "CRAM format is not yet supported.".to_string(),
+            ));
+            // fasta_path is guaranteed Some here.
+            #[allow(unreachable_code)]
+            {
+                let fasta = fasta_path.unwrap();
+                let crai = format!("{}.crai", ap);
+                let fai = format!("{}.fai", fasta);
+                Some(AlignmentPath::Cram {
+                    path: ap,
+                    crai,
+                    fasta,
+                    fai,
+                })
+            }
+        }
+        Some(ap) => {
+            return Err(TGVError::CliError(format!(
+                "{ap} is not a valid alignment file path"
+            )));
+        }
+    };
+
+    Ok((alignment_path, vcf_path, bed_path))
 }
 
 #[derive(Debug, Clone, Eq, PartialEq)]
@@ -156,6 +339,9 @@ pub struct Settings {
 
     pub debug: bool,
     pub palette: Palette,
+
+    /// Initial zoom level to restore from a session file. `None` uses the default zoom.
+    pub zoom: Option<u64>,
 }
 
 impl Default for Settings {
@@ -170,91 +356,35 @@ impl Default for Settings {
             debug: false,
 
             palette: DARK_THEME,
+
+            zoom: None,
         }
     }
 }
 
-/// Settings to browse alignments
+/// Build [`Settings`] directly from CLI args, without loading any session file.
+///
+/// Used for the no-session path and for tests.
 impl TryFrom<Cli> for Settings {
     type Error = TGVError;
     fn try_from(cli: Cli) -> Result<Self, TGVError> {
-        // If this is a download command, it should be handled separately
         if cli.command.is_some() {
             return Err(TGVError::CliError(
                 "Download command should be handled separately".to_string(),
             ));
         }
 
-        // Classify input files by extension.
-        let mut alignment_file: Option<String> = None;
-        let mut vcf_path: Option<String> = None;
-        let mut bed_path: Option<String> = None;
-        let mut fasta_path: Option<String> = None;
-
-        for file in &cli.files {
-            let lower = file.to_lowercase();
-            if lower.ends_with(".bam") || lower.ends_with(".cram") {
-                if alignment_file.is_some() {
-                    return Err(TGVError::CliError(
-                        "Only one BAM or CRAM alignment file may be provided.".to_string(),
-                    ));
-                }
-                alignment_file = Some(file.clone());
-            } else if lower.ends_with(".vcf") || lower.ends_with(".vcf.gz") {
-                if vcf_path.is_some() {
-                    return Err(TGVError::CliError(
-                        "Only one VCF file may be provided.".to_string(),
-                    ));
-                }
-                vcf_path = Some(file.clone());
-            } else if lower.ends_with(".bed") || lower.ends_with(".bed.gz") {
-                if bed_path.is_some() {
-                    return Err(TGVError::CliError(
-                        "Only one BED file may be provided.".to_string(),
-                    ));
-                }
-                bed_path = Some(file.clone());
-            } else if lower.ends_with(".fa")
-                || lower.ends_with(".fasta")
-                || lower.ends_with(".fa.gz")
-                || lower.ends_with(".fasta.gz")
-            {
-                if fasta_path.is_some() {
-                    return Err(TGVError::CliError(
-                        "Only one FASTA reference file may be provided.".to_string(),
-                    ));
-                }
-                fasta_path = Some(file.clone());
-            } else {
-                return Err(TGVError::CliError(format!(
-                    "Unrecognized file format: {}. Supported formats: .bam, .cram, .vcf, .vcf.gz, .bed, .bed.gz, .fa, .fasta",
-                    file
-                )));
-            }
-        }
-
-        // CRAM requires a FASTA reference file.
-        if let Some(ref ap) = alignment_file {
-            if ap.to_lowercase().ends_with(".cram") && fasta_path.is_none() {
-                return Err(TGVError::CliError(
-                    "CRAM files require a reference FASTA file (.fa or .fasta) as input."
-                        .to_string(),
-                ));
-            }
-        }
-
-        // Reference: the -g flag sets the viewer reference. A positional FASTA is only for CRAM
-        // decoding and is independent of the viewer reference.
         let reference = if cli.no_reference {
             Reference::NoReference
         } else {
-            Reference::from_str(&cli.reference)?
+            cli.reference
+                .as_deref()
+                .unwrap_or(Reference::HG38)
+                .parse::<Reference>()?
         };
 
-        // Initial messages
         let initial_state_messages = cli.initial_movement()?;
 
-        // Backend
         let backend = match (cli.offline, cli.online) {
             (true, true) => {
                 return Err(TGVError::CliError(
@@ -263,11 +393,10 @@ impl TryFrom<Cli> for Settings {
             }
             (true, false) => BackendType::Local,
             (false, true) => BackendType::Ucsc,
-            (false, false) => BackendType::Default, // If local cache is available, use it. Otherwise, use UCSC DB / API.
+            (false, false) => BackendType::Default,
         };
 
-        // Additional validations:
-        // 1. If no reference is provided, the initial state messages cannot contain GoToGene.
+        // Validate: no-reference + gene movement is invalid.
         if !reference.needs_track() {
             for m in initial_state_messages.iter() {
                 if let Message::Core(gv_core::message::Message::Move(
@@ -282,52 +411,17 @@ impl TryFrom<Cli> for Settings {
             }
         }
 
-        // 2. An alignment file and reference cannot both be absent.
-        if alignment_file.is_none() && cli.no_reference {
+        // An alignment file and reference cannot both be absent.
+        if cli.files.is_empty() && cli.no_reference {
             return Err(TGVError::CliError(
                 "Bam file and reference cannot both be none".to_string(),
             ));
         }
 
-        // Build the AlignmentPath. Index files are always inferred from the alignment path.
-        let alignment_path = match alignment_file {
-            None => None,
-            Some(ap) if ap.to_lowercase().ends_with(".bam") => {
-                let index = format!("{}.bai", ap);
-                Some(AlignmentPath::Bam {
-                    path: ap.clone(),
-                    index,
-                    source: if is_url(ap.as_str()) {
-                        BamSource::S3
-                    } else {
-                        BamSource::Local
-                    },
-                })
-            }
-            Some(ap) if ap.to_lowercase().ends_with(".cram") => {
-                return Err(TGVError::CliError(format!(
-                    "CRAM format is not yet supported."
-                ))); // TODO: debug this.
-                // fasta_path is guaranteed to be Some here by the earlier CRAM validation.
-                let fasta = fasta_path.unwrap();
-                let crai = format!("{}.crai", ap);
-                let fai = format!("{}.fai", fasta);
-                Some(AlignmentPath::Cram {
-                    path: ap,
-                    crai,
-                    fasta,
-                    fai,
-                })
-            }
-            Some(ap) => {
-                return Err(TGVError::CliError(format!(
-                    "{ap} is not a valid alignment file path"
-                )));
-            }
-        };
+        let (alignment_path, vcf_path, bed_path) = classify_and_build_tracks(&cli.files)?;
 
-        // cache_dir: expand ~
-        let cache_dir = shellexpand::tilde(&cli.cache_dir).to_string();
+        let cache_dir =
+            shellexpand::tilde(cli.cache_dir.as_deref().unwrap_or("~/.tgv")).to_string();
 
         Ok(Self {
             core: gv_core::settings::Settings {
@@ -336,7 +430,7 @@ impl TryFrom<Cli> for Settings {
                 bed_path,
                 reference,
                 backend,
-                ucsc_host: cli.host.into(),
+                ucsc_host: cli.host.unwrap_or(UcscHostCli::Auto).into(),
                 cache_dir,
             },
             initial_state_messages,
@@ -344,6 +438,7 @@ impl TryFrom<Cli> for Settings {
             test_mode: false,
             debug: cli.debug,
             palette: DARK_THEME,
+            zoom: None,
         })
     }
 }
@@ -453,30 +548,6 @@ mod tests {
         ).into()],
         ..Settings::default()
     }))]
-    // #[case("tgv input.cram ref.fa", Ok(Settings {
-    //     core: gv_core::settings::Settings {
-    //     alignment_path: Some(AlignmentPath::Cram {
-    //         path: "input.cram".to_string(),
-    //         crai: "input.cram.crai".to_string(),
-    //         fasta: "ref.fa".to_string(),
-    //         fai: "ref.fa.fai".to_string(),
-    //     }),
-    //     ..gv_core::settings::Settings::default()},
-    //     ..Settings::default()
-    // }))]
-    // #[case("tgv input.cram ref.fa -g hg19", Ok(Settings {
-    //     core: gv_core::settings::Settings {
-    //     alignment_path: Some(AlignmentPath::Cram {
-    //         path: "input.cram".to_string(),
-    //         crai: "input.cram.crai".to_string(),
-    //         fasta: "ref.fa".to_string(),
-    //         fai: "ref.fa.fai".to_string(),
-    //     }),
-    //     reference: Reference::Hg19,
-    //     ..gv_core::settings::Settings::default()},
-    //     ..Settings::default()
-    // }))]
-    // #[case("tgv input.cram", Err(TGVError::CliError("".to_string())))]
     #[case("tgv input.bam -r TP53 -g hg19 --no-reference", Err(TGVError::CliError("".to_string())))]
     #[case("tgv --no-reference", Err(TGVError::CliError("".to_string())))]
     #[case("tgv input.bam input2.bam", Err(TGVError::CliError("".to_string())))]
@@ -491,7 +562,7 @@ mod tests {
 
         match (&settings, &expected_settings) {
             (Ok(settings), Ok(expected)) => assert_eq!(*settings, *expected),
-            (Err(e), Err(expected)) => {} // OK
+            (Err(_e), Err(_expected)) => {}
             _ => panic!(
                 "Unexpected CLI parsing result. Expected: {:?}, Got: {:?}",
                 expected_settings, settings
