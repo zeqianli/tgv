@@ -23,6 +23,7 @@ tgv -g cat
 ```
 
 - `:q`: Quit
+- `:wq`: Save the current session and quit.
 - `h/j/k/l/y/p`: Left / down / up / right / faster left / faster right
 - `W/B/w/b`: Next gene / previous gene / next exon / previous exon
 - `z/o`: Zoom in / out
