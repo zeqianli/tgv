@@ -2,6 +2,10 @@
 name = "gv-core"
 version = "0.2.0"
 edition = "2024"
+description = "Core library for the terminal genome viewer."
+license = "MIT"
+repository = "https://github.com/zeqianli/tgv"
+homepage = "https://github.com/zeqianli/tgv"
 
 [dependencies]
 async-compat.workspace = true
