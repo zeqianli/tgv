@@ -16,27 +16,9 @@ on:
           - test
 
 jobs:
-  build-and-release:
-    name: Build and Release TGV
-    runs-on: ${{ matrix.os }}
-    strategy:
-      matrix:
-        include:
-          - os: ubuntu-latest
-            platform: linux-musl
-            target: x86_64-unknown-linux-musl
-            binary_name: tgv
-            archive_name: tgv-x86_64-linux-musl.tar.gz
-            archive_cmd: tar czvf dist/tgv-x86_64-linux-musl.tar.gz -C target/x86_64-unknown-linux-musl/release tgv
-          - os: macos-latest
-            platform: macos-arm
-            target: aarch64-apple-darwin
-            binary_name: tgv
-            archive_name: tgv-aarch64-apple-darwin.tar.gz
-            archive_cmd: tar czvf dist/tgv-aarch64-apple-darwin.tar.gz -C target/aarch64-apple-darwin/release tgv
-          # FIXME: x86 mac
-          # TODO: Max OS developer signature
-
+  build-linux-musl:
+    name: Build Linux release
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
         with:
@@ -45,39 +27,79 @@ jobs:
       - name: Setup Rust
         uses: dtolnay/rust-toolchain@stable
         with:
-          targets: ${{ matrix.target }}
+          targets: x86_64-unknown-linux-musl
 
       - name: Cache Rust dependencies
         uses: Swatinem/rust-cache@v2
         with:
-          key: ${{ matrix.target }}
-          shared-key: ${{ matrix.target }}
+          key: x86_64-unknown-linux-musl
+          shared-key: x86_64-unknown-linux-musl
 
       - name: Install Linux dependencies
-        if: matrix.platform == 'linux-musl'
         run: |
           sudo apt-get update
           sudo apt-get install -y musl-tools libssl-dev pkg-config libz-dev
 
       - name: Build
-        run: cargo build --release --target ${{ matrix.target }}
+        run: cargo build --release --target x86_64-unknown-linux-musl
 
       - name: Prepare binary
         run: |
           mkdir -p dist
-          ${{ matrix.archive_cmd }}
+          tar czvf dist/tgv-x86_64-linux-musl.tar.gz -C target/x86_64-unknown-linux-musl/release tgv
         shell: bash
 
       - name: Upload build artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: tgv-${{ matrix.platform }}
-          path: dist/*
+          name: tgv-linux-musl
+          path: dist/tgv-x86_64-linux-musl.tar.gz
+
+  build-macos-arm:
+    name: Build macOS release
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-apple-darwin
+
+      - name: Cache Rust dependencies
+        uses: Swatinem/rust-cache@v2
+        with:
+          key: aarch64-apple-darwin
+          shared-key: aarch64-apple-darwin
+
+      - name: Build
+        run: cargo build --release --target aarch64-apple-darwin
+
+      - name: Prepare binary
+        run: |
+          mkdir -p dist
+          tar czvf dist/tgv-aarch64-apple-darwin.tar.gz -C target/aarch64-apple-darwin/release tgv
+        shell: bash
+
+      - name: Upload build artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: tgv-macos-arm
+          path: dist/tgv-aarch64-apple-darwin.tar.gz
 
   create-release:
     name: Create GitHub Release
     runs-on: ubuntu-latest
-    needs: build-and-release
+    needs:
+      - build-linux-musl
+      - build-macos-arm
+    outputs:
+      version: ${{ steps.release_info.outputs.VERSION }}
+      tag_name: ${{ steps.release_info.outputs.TAG_NAME }}
+      release_name: ${{ steps.release_info.outputs.RELEASE_NAME }}
+      is_prerelease: ${{ steps.release_info.outputs.IS_PRERELEASE }}
     permissions:
       contents: write
 
@@ -121,7 +143,7 @@ jobs:
             echo "VERSION=${VERSION}" >> $GITHUB_OUTPUT
             echo "IS_PRERELEASE=${{ contains(github.ref, 'alpha') || contains(github.ref, 'beta') || contains(github.ref, 'rc') }}" >> $GITHUB_OUTPUT
             echo "RELEASE_NAME=v${VERSION}" >> $GITHUB_OUTPUT
-            echo "TAG_NAME=${GITHUB_REF}" >> $GITHUB_OUTPUT
+            echo "TAG_NAME=${GITHUB_REF_NAME}" >> $GITHUB_OUTPUT
           fi
 
       - name: Create tag for nightly/test build
@@ -143,11 +165,11 @@ jobs:
 
   update-homebrew-tap:
     name: Update Homebrew Tap
+    if: github.event_name == 'push' && needs.create-release.outputs.is_prerelease != 'true'
     runs-on: ubuntu-latest
     needs: create-release
     permissions:
-      contents: write
-      pull-requests: write
+      contents: read
     steps:
       - name: Download checksums artifact
         uses: actions/download-artifact@v4
@@ -158,9 +180,12 @@ jobs:
       - name: Extract checksums
         id: checksums
         run: |
+          set -euo pipefail
           echo "Parsing checksums from checksums.txt"
           DARWIN_SHA=$(grep 'aarch64-apple-darwin' checksums.txt | awk '{ print $1 }')
           LINUX_SHA=$(grep 'x86_64-linux-musl' checksums.txt | awk '{ print $1 }')
+          test -n "${DARWIN_SHA}"
+          test -n "${LINUX_SHA}"
           echo "DARWIN_SHA=${DARWIN_SHA}" >> $GITHUB_OUTPUT
           echo "LINUX_SHA=${LINUX_SHA}" >> $GITHUB_OUTPUT
           echo "Darwin SHA: $DARWIN_SHA"
@@ -172,15 +197,22 @@ jobs:
           repository: zeqianli/homebrew-tgv
           path: homebrew-repo
           token: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+          persist-credentials: false
 
       - name: Update Formula File
         working-directory: homebrew-repo
         run: |
+          set -euo pipefail
           VERSION="${{ needs.create-release.outputs.version }}"
           DARWIN_SHA="${{ steps.checksums.outputs.DARWIN_SHA }}"
           LINUX_SHA="${{ steps.checksums.outputs.LINUX_SHA }}"
           TEMPLATE_FILE="${{ github.workspace }}/.github/workflows/brew_template.tgv.rb"
           FORMULA_FILE="Formula/tgv.rb"
+
+          test -n "${VERSION}"
+          test -n "${DARWIN_SHA}"
+          test -n "${LINUX_SHA}"
+          test -f "${TEMPLATE_FILE}"
 
           echo "Updating $FORMULA_FILE using template $TEMPLATE_FILE"
 
@@ -192,6 +224,8 @@ jobs:
 
           rm -f "${FORMULA_FILE}.bak"
 
+          ! grep -q '__VERSION__\|__MACOS_SHA256__\|__LINUX_SHA256__' "$FORMULA_FILE"
+
           echo "Formula file updated from template:"
           cat "$FORMULA_FILE"
 
@@ -200,8 +234,11 @@ jobs:
         with:
           token: ${{ secrets.HOMEBREW_TAP_TOKEN }}
           path: homebrew-repo
+          add-paths: |
+            Formula/tgv.rb
           commit-message: "chore: Update tgv formula to v${{ needs.create-release.outputs.version }}"
           branch: "update-tgv-v${{ needs.create-release.outputs.version }}"
+          base: main
           delete-branch: true
           title: "Update tgv formula to v${{ needs.create-release.outputs.version }}"
           body: |

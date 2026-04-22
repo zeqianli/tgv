@@ -1,7 +1,11 @@
 [package]
 name = "gv-core"
-version = "0.1.0"
+version = "0.2.0"
 edition = "2024"
+description = "Core library for the terminal genome viewer."
+license = "MIT"
+repository = "https://github.com/zeqianli/tgv"
+homepage = "https://github.com/zeqianli/tgv"
 
 [dependencies]
 async-compat.workspace = true
@@ -14,6 +18,7 @@ csv.workspace = true
 ferro-hgvs = "0.2.0"
 futures.workspace = true
 itertools.workspace = true
+native-tls.workspace = true
 nom.workspace = true
 noodles.workspace = true
 opendal.workspace = true

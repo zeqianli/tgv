@@ -1,12 +1,11 @@
 use crate::{
     app::Scene,
-    message::{Message, Movement, Scroll},
+    message::{Message, Movement},
 };
 use crossterm::event::{KeyCode, KeyEvent};
 use gv_core::normal::update_by_char;
 use gv_core::{error::TGVError, state::State};
 use itertools::Itertools;
-
 #[derive(Debug, Clone, Eq, PartialEq)]
 pub enum KeyRegisterType {
     Normal,

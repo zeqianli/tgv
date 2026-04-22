@@ -132,6 +132,7 @@ impl Repository {
                 vcf_path: vcf_path.clone(),
             });
 
+        // PERF: async
         Ok((
             Self {
                 alignment_repository,

@@ -10,8 +10,8 @@ use crate::{
     message::AlignmentDisplayOption,
 };
 use std::collections::{BTreeMap, HashMap, hash_map::Entry};
-use std::time::SystemTime;
-/// A alignment region on a contig.
+
+/// An alignment stack
 #[derive(Debug, Default)]
 pub struct Alignment {
     pub reads: Vec<AlignedRead>,
@@ -42,8 +42,10 @@ pub struct Alignment {
     default_ys: Vec<usize>,
 
     /// read index -> mate read index (if present)
+    /// Used when viewing as pairs.
     pub mate_map: Option<Vec<usize>>,
 
+    /// Read pairs. Used when viewing as pairs.
     pub read_pairs: Option<Vec<ReadPair>>,
 
     /// Whether to show the pair
@@ -311,7 +313,7 @@ impl Alignment {
             }
             let read_coverage = calculate_basewise_coverage(
                 read.start,
-                &read.cigar,
+                &read.cigars,
                 read.read.sequence(),
                 reference_sequence,
             )?; // TODO: seq() is called twice. Optimize this in the future.
@@ -351,9 +353,9 @@ impl Alignment {
     }
 
     pub fn sort(&mut self, option: &AlignmentSort) -> Result<&mut Self, TGVError> {
-        // FIXME
-        todo!();
-        Ok(self)
+        Err(TGVError::ValueError(format!(
+            "Alignment sorting is not implemented yet for option {option}"
+        )))
     }
 }
 

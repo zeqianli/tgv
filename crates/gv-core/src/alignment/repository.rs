@@ -243,7 +243,7 @@ impl AlignmentRepositoryEnum {
     ) -> Result<Alignment, TGVError> {
         use futures::StreamExt;
 
-        let records = match region.alignment(contig_header)? {
+        let mut records = match region.alignment(contig_header)? {
             Some(region) => {
                 let mut records = Vec::new();
                 let mut index = 0;
@@ -297,6 +297,12 @@ impl AlignmentRepositoryEnum {
             }
             None => Vec::new(),
         };
+
+        for record in records.iter_mut() {
+            record.build_rendering_context(reference_sequence)?
+        }
+        // PERF: move this at rendering time for efficiency. Only calculate when it's about to be displayed.
+        // PERF: parallelize this with async
 
         Alignment::from_aligned_reads(
             records,

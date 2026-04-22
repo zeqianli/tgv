@@ -97,7 +97,7 @@ pub struct AlignedRead {
     /// Trailing softclips. Used for track stacking calculation.
     pub trailing_softclips: u64,
 
-    pub cigar: Vec<Op>,
+    pub cigars: Vec<Op>,
 
     pub flags: Flags,
 
@@ -111,28 +111,6 @@ pub struct AlignedRead {
     /// Key: 1-based reference position. Value: list of modifications at that position.
     /// Empty when the BAM record has no MM/ML tags.
     pub base_modifications: HashMap<u64, Vec<BaseModification>>,
-}
-
-#[derive(Clone, Debug)]
-pub struct ReadPair {
-    /// Read 1 index in the alignment
-    pub read_1_index: usize,
-
-    /// If some: Read 2 index in the alignment
-    /// if none: Read not shown as paired
-    pub read_2_index: Option<usize>,
-
-    /// 1-based start (including soft-clips)
-    pub stacking_start: u64,
-
-    /// 1-based end (including soft-clips)
-    pub stacking_end: u64,
-
-    /// Index in the alignment
-    pub index: usize,
-
-    /// The paired rendering contexts
-    pub rendering_contexts: Vec<RenderingContext>,
 }
 
 impl AlignedRead {
@@ -178,7 +156,7 @@ impl AlignedRead {
             self.flags,
             self.start,
             self.read.mapping_quality().unwrap().get(),
-            self.cigar
+            self.cigars
         ))
     }
 
@@ -292,7 +270,7 @@ impl AlignedRead {
         let mut reference_pivot: usize = self.start as usize;
         let mut query_pivot: usize = 1; // 1-based. # bases on the sequence. Note that need to substract leading softclips to get aligned base coordinate.
 
-        for op in self.cigar.iter() {
+        for op in self.cigars.iter() {
             if reference_pivot > coordinate {
                 break;
             }
@@ -379,6 +357,23 @@ impl AlignedRead {
 
     //     Self::from_bam_record(read_index, record, reference_sequence)
     // }
+    //
+
+    pub fn build_rendering_context(
+        &mut self,
+        reference_sequence: &Sequence,
+    ) -> Result<(), TGVError> {
+        calculate_rendering_contexts(
+            &mut self.rendering_contexts,
+            self.start,
+            &self.cigars,
+            self.read.sequence(),
+            self.flags.is_reverse_complemented(),
+            reference_sequence,
+        )?;
+
+        Ok(())
+    }
 
     pub fn from_record(
         read_index: usize,
@@ -412,14 +407,6 @@ impl AlignedRead {
         // read.pos() in htslib: 0-based, inclusive, excluding leading hardclips and softclips
         // read.reference_end() in htslib: 0-based, exclusive, excluding trailing hardclips and softclips
 
-        let rendering_contexts = calculate_rendering_contexts(
-            start,
-            &cigars,
-            read.sequence(),
-            flags.is_reverse_complemented(),
-            reference_sequence,
-        )?;
-
         let base_modifications = extract_base_modifications(&read, &cigars, start);
 
         Ok(Self {
@@ -427,13 +414,13 @@ impl AlignedRead {
 
             start,
             end,
-            cigar: cigars,
+            cigars,
             flags,
             leading_softclips,
             trailing_softclips,
             index: read_index,
 
-            rendering_contexts,
+            rendering_contexts: Vec::new(),
             base_modifications,
         })
     }
@@ -472,15 +459,16 @@ fn extract_base_modifications(
 
 /// See: https://samtools.github.io/hts-specs/SAMv1.pdf
 pub fn calculate_rendering_contexts(
+    rendering_context: &mut Vec<RenderingContext>,
     reference_start: u64, // 1-based. Alignment start, not softclip start
     cigars: &Vec<Op>,
     seq: &sam::alignment::record_buf::Sequence,
     is_reverse: bool,
     reference_sequence: &Sequence,
-) -> Result<Vec<RenderingContext>, TGVError> {
-    let mut output: Vec<RenderingContext> = Vec::new();
+) -> Result<(), TGVError> {
+    rendering_context.clear();
     if cigars.is_empty() {
-        return Ok(output);
+        return Ok(());
     }
 
     let mut reference_pivot: usize = reference_start as usize;
@@ -658,30 +646,31 @@ pub fn calculate_rendering_contexts(
         if is_reverse {
             // reverse: first one
             if cigar_index_with_arrow_annotation.is_none() {
-                cigar_index_with_arrow_annotation = Some(output.len());
+                cigar_index_with_arrow_annotation = Some(rendering_context.len());
             }
         } else {
             // forward: last one
             if can_be_annotated_with_arrows(&kind) {
-                cigar_index_with_arrow_annotation = Some(output.len() + new_contexts.len() - 1)
+                cigar_index_with_arrow_annotation =
+                    Some(rendering_context.len() + new_contexts.len() - 1)
                 // first context
             }
         }
-        output.extend(new_contexts);
+        rendering_context.extend(new_contexts);
 
         reference_pivot = next_reference_pivot;
         query_pivot = next_query_pivot;
     }
 
     if let Some(index) = cigar_index_with_arrow_annotation {
-        output[index].add_modifier(if is_reverse {
+        rendering_context[index].add_modifier(if is_reverse {
             RenderingContextModifier::Reverse
         } else {
             RenderingContextModifier::Forward
         })
     }
 
-    Ok(output)
+    Ok(())
 }
 
 /// Read 1 is the forward read, read 2 is the reverse read
@@ -979,6 +968,28 @@ fn can_be_annotated_with_arrows(kind: &Kind) -> bool {
     }
 }
 
+#[derive(Clone, Debug)]
+pub struct ReadPair {
+    /// Read 1 index in the alignment
+    pub read_1_index: usize,
+
+    /// If some: Read 2 index in the alignment
+    /// if none: Read not shown as paired
+    pub read_2_index: Option<usize>,
+
+    /// 1-based start (including soft-clips)
+    pub stacking_start: u64,
+
+    /// 1-based end (including soft-clips)
+    pub stacking_end: u64,
+
+    /// Index in the alignment
+    pub index: usize,
+
+    /// The paired rendering contexts
+    pub rendering_contexts: Vec<RenderingContext>,
+}
+
 #[cfg(test)]
 mod tests {
 
@@ -1177,7 +1188,9 @@ mod tests {
             .set_sequence(sam::alignment::record_buf::Sequence::from(seq))
             .build();
 
-        let contexts = calculate_rendering_contexts(
+        let mut contexts = Vec::new();
+        calculate_rendering_contexts(
+            &mut contexts,
             reference_start,
             &cigars,
             &record_buf.sequence(),
@@ -1187,21 +1200,5 @@ mod tests {
         .unwrap();
 
         assert_eq!(contexts, expected_rendering_contexts)
-    }
-
-    /// Helper function to create bam::Record test cases
-    fn serialize_as_bam_record(
-        header: &sam::Header,
-        record_buf: &sam::alignment::RecordBuf,
-    ) -> io::Result<bam::Record> {
-        let mut writer = bam::io::Writer::from(Vec::new());
-        writer.write_alignment_record(header, record_buf)?;
-
-        let src = writer.into_inner();
-        let mut reader = bam::io::Reader::from(&src[..]);
-        let mut record = bam::Record::default();
-        reader.read_record(&mut record)?;
-
-        Ok(record)
     }
 }

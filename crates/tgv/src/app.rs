@@ -8,6 +8,7 @@ use crate::{
     message::Message,
     mouse::MouseRegister,
     register::{KeyRegisterType, Registers},
+    session::SessionFile,
     settings::Settings,
 };
 use gv_core::{
@@ -16,6 +17,7 @@ use gv_core::{
     repository::Repository,
     state::State,
 };
+use std::path::PathBuf;
 
 #[derive(Debug, Clone, Eq, PartialEq)]
 pub enum Scene {
@@ -26,6 +28,7 @@ pub enum Scene {
 
 pub struct App {
     pub exit: bool,
+    pub session_path: PathBuf,
 
     pub layout: MainLayout,
     pub state: State,
@@ -40,7 +43,7 @@ pub struct App {
 }
 
 impl App {
-    pub async fn new(settings: Settings) -> Result<Self, TGVError> {
+    pub async fn new(settings: Settings, session_path: PathBuf) -> Result<Self, TGVError> {
         // Gather resources before initializing the state.
 
         let (mut repository, contig_header) = Repository::new(&settings.core).await?;
@@ -51,10 +54,16 @@ impl App {
         // TODO: go to foucs?
         // TODO: handle initial message with stricter error handling
 
+        let mut alignment_view = AlignmentView::new(focus);
+        if let Some(zoom) = settings.zoom {
+            alignment_view.zoom = zoom;
+        }
+
         Ok(Self {
             exit: false,
+            session_path,
             layout: MainLayout::new(&settings),
-            alignment_view: AlignmentView::new(focus),
+            alignment_view,
             state,
             settings: settings.clone(),
             repository,
@@ -72,7 +81,7 @@ impl App {
             .draw(|frame| {
                 let _ = self.layout.set_area(frame.area());
             })
-            .unwrap();
+            .map_err(|e| TGVError::IOError(format!("Failed to draw the terminal: {e}")))?;
 
         self.handle(self.settings.initial_state_messages.clone())
             .await?;
@@ -87,45 +96,54 @@ impl App {
             // FIXME: improve rendering performance. Not all sections need to be re-rendered at every loop.
             //
             let mut refresh_terminal = false;
+            let mut render_result = Ok(());
 
             terminal
                 .draw(|frame| {
                     let buffer = frame.buffer_mut();
                     refresh_terminal = self.layout.set_area(buffer.area);
-                    self.render(buffer).unwrap()
+                    render_result = self.render(buffer);
                 })
-                .unwrap();
+                .map_err(|e| TGVError::IOError(format!("Failed to draw the terminal: {e}")))?;
+            render_result?;
 
             if self.settings.test_mode {
                 break;
             }
 
             // handle events
-            match event::read() {
-                Ok(Event::Key(key_event)) if key_event.kind == KeyEventKind::Press => {
-                    let state_messages = self.registers.handle_key_event(key_event, &self.state)?;
-                    self.handle(state_messages).await?; // TODO: this should not error out?
+            match {
+                match event::read() {
+                    Ok(Event::Key(key_event)) if key_event.kind == KeyEventKind::Press => {
+                        let state_messages =
+                            self.registers.handle_key_event(key_event, &self.state)?;
+                        self.handle(state_messages).await // TODO: this should not error out?
+                    }
+
+                    Ok(Event::Mouse(mouse_event)) => {
+                        let state_messages = self.mouse_register.handle_mouse_event(
+                            &self.state,
+                            &self.layout,
+                            &self.alignment_view,
+                            mouse_event,
+                        )?;
+
+                        self.handle(state_messages).await // TODO: this should not error out?
+                    }
+
+                    Ok(Event::Resize(_width, _height)) => {
+                        self.alignment_view.self_correct(
+                            &self.layout.main_area,
+                            self.state.contig_length(&self.alignment_view.focus)?,
+                        );
+                        Ok(())
+                    }
+
+                    _ => Ok(()),
                 }
-
-                Ok(Event::Mouse(mouse_event)) => {
-                    let state_messages = self.mouse_register.handle_mouse_event(
-                        &self.state,
-                        &self.layout,
-                        &self.alignment_view,
-                        mouse_event,
-                    )?;
-
-                    self.handle(state_messages).await?; // TODO: this should not error out?
-                }
-
-                Ok(Event::Resize(_width, _height)) => {
-                    self.alignment_view.self_correct(
-                        &self.layout.main_area,
-                        self.state.contig_length(&self.alignment_view.focus)?,
-                    );
-                }
-
-                _ => {}
+            } {
+                Ok(_) => {}
+                Err(e) => self.state.add_message(format!("{e}")),
             }
 
             self.alignment_view.self_correct(
@@ -146,6 +164,12 @@ impl App {
         self.repository.close().await
     }
 
+    fn save_session_to_path(&mut self, path: PathBuf) -> Result<(), TGVError> {
+        SessionFile::try_from(&*self).and_then(|s| s.write_to_path(&path))?;
+        self.session_path = path;
+        Ok(())
+    }
+
     /// Handle messages after initialization. This blocks any error messages instead of propagating them.
     pub async fn handle(&mut self, messages: Vec<Message>) -> Result<(), TGVError> {
         self.state.messages.clear();
@@ -157,6 +181,7 @@ impl App {
                         .state
                         .movement(
                             self.alignment_view.focus.clone(),
+                            self.alignment_view.zoom,
                             &mut self.repository,
                             movement,
                         )
@@ -167,6 +192,34 @@ impl App {
                 }
 
                 Message::Core(gv_core::message::Message::Quit) => self.exit = true,
+
+                Message::Core(gv_core::message::Message::SaveSession(path)) => {
+                    let path = path
+                        .as_deref()
+                        .map(SessionFile::resolve_path)
+                        .unwrap_or_else(|| self.session_path.clone());
+                    match self.save_session_to_path(path.clone()) {
+                        Ok(()) => self
+                            .state
+                            .add_message(format!("Session saved to {}", path.display())),
+                        Err(e) => self
+                            .state
+                            .add_message(format!("Failed to save session: {e}")),
+                    }
+                }
+
+                Message::Core(gv_core::message::Message::SaveAndQuit(path)) => {
+                    let path = path
+                        .as_deref()
+                        .map(SessionFile::resolve_path)
+                        .unwrap_or_else(|| self.session_path.clone());
+                    match self.save_session_to_path(path) {
+                        Ok(()) => self.exit = true,
+                        Err(e) => self
+                            .state
+                            .add_message(format!("Failed to save session: {e}")),
+                    }
+                }
 
                 Message::Core(gv_core::message::Message::Scroll(scroll)) => {
                     self.alignment_view.scroll(scroll, &self.state.alignment);

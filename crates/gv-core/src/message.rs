@@ -11,6 +11,8 @@ pub enum Message {
     Zoom(Zoom),
 
     Quit,
+    SaveSession(Option<String>),
+    SaveAndQuit(Option<String>),
     SetAlignmentOption(Vec<AlignmentDisplayOption>),
 
     Message(String),

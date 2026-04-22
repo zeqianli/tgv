@@ -5,12 +5,12 @@
 <https://github.com/user-attachments/assets/d811a987-cac2-4c01-b21e-d38efe7789f6>
 
 
-[**Installation**](https://github.com/zeqianli/tgv/wiki/Installation)
+[**Installation**](doc/src/installation.md)
 
 - cargo: `cargo install tgv --locked`
-- brew: `brew install zeqianli/tgv/tgv`
+- brew: `brew tap zeqianli/tgv && brew install tgv`
 - bioconda: `conda install bioconda::tgv`
-- Pre-built binaries: [Github releases](https://github.com/zeqianli/tgv/releases/)
+- Pre-built binaries: [GitHub Releases](https://github.com/zeqianli/tgv/releases/)
 
 ## Quick start
 
@@ -23,6 +23,7 @@ tgv -g cat
 ```
 
 - `:q`: Quit
+- `:wq`: Save the current session and quit.
 - `h/j/k/l/y/p`: Left / down / up / right / faster left / faster right
 - `W/B/w/b`: Next gene / previous gene / next exon / previous exon
 - `z/o`: Zoom in / out
@@ -32,14 +33,14 @@ tgv -g cat
 - `:mod`: Color reads by base-modification probability (5mC / 5hmC / 6mA from `MM`/`ML` tags)
 - Mouse is supported
 
-[Full key bindings](https://github.com/zeqianli/tgv/wiki/Usage)
+[Full key bindings](doc/src/usage.md#key-bindings)
 
 ## Usage
 
 If you use a reference genome frequently, downloading a local cache is highly recommended. This makes TGV much faster.
 
 ```bash
-# Cache are in ~/.tgv by default.
+# The cache is in ~/.tgv by default.
 tgv download hg38
 ```
 
@@ -59,7 +60,7 @@ tgv s3://my-bucket/sorted.bam -r TP53 -g hg19
 tgv non_human.bam -r 1:123 --no-reference
 ```
 
-[Supported formats](https://github.com/zeqianli/tgv/wiki/Usage)
+[Supported formats](doc/src/usage.md#supported-formats)
 
 ## Base modification visualization (5mC / 5hmC / 6mA)
 
@@ -105,13 +106,7 @@ Browsing alignment files is essential for genomics. Genomics research is often i
 
 Contributing to tgv is a great way to learn Rust. There are many small, isolated components that need improvement, some requiring <10 lines of code change. You can find them by searching for `FIXME` comments. You can also find issues that are extra friendly to new contributors tagged with "contributor friendly".
 
-**I have a bug / Something isn't working**
-
-Search the issue tracker and discussions for similar issues.If your issue hasn't been reported already, open an issue and make sure to fill in the template completely.
-
-**I have an idea for a feature / I've implemented a feature**
-
-Thank you. Because TGV is still at an early stage, API changes frequently, so please coordinate with me in the discord / github discussion before starting to avoid large diffs.
+AI-assisted contribution is welcome but must be disclosed and human-reviewed. See [Ghostty's AI policy](https://github.com/ghostty-org/ghostty/blob/main/AI_POLICY.md). 
 
 ## Acknowledgements
 
