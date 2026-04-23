@@ -1,5 +1,5 @@
 use gv_core::cytoband::Stain;
-use gv_core::modification::ModificationType;
+use gv_core::alignment::BaseModification;
 use ratatui::style::{Color, palette::tailwind};
 
 // Background
@@ -123,9 +123,9 @@ impl Palette {
 
     /// Returns the background color for a base modification given its type and
     /// probability (0-255 from the ML tag, where 255 = fully modified).
-    pub fn modification_color(&self, mod_type: &ModificationType, probability: u8) -> Color {
-        match mod_type {
-            ModificationType::FiveMC => {
+    pub fn modification_color(&self, modification: &BaseModification, probability: u8) -> Color {
+        match modification {
+            BaseModification::Code(b'm') => {
                 if probability >= 179 {
                     self.MOD_5MC_HIGH
                 } else if probability >= 77 {
@@ -134,8 +134,9 @@ impl Palette {
                     self.MOD_5MC_LOW
                 }
             }
-            ModificationType::FiveHMC => self.MOD_5HMC,
-            ModificationType::SixMA => self.MOD_6MA,
+            BaseModification::Code(b'h') => self.MOD_5HMC,
+            BaseModification::Code(b'a') => self.MOD_6MA,
+            _ => self.MOD_5MC_MED,
         }
     }
 

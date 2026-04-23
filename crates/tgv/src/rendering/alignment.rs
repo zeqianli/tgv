@@ -4,14 +4,18 @@ use crate::{
 };
 use gv_core::{
     alignment::{
-        BaseModification, ModificationType, RenderingContext, RenderingContextKind,
+        BaseModification, BaseModificationProbability, RenderingContext, RenderingContextKind,
         RenderingContextModifier,
     },
     error::TGVError,
     message::AlignmentDisplayOption,
     state::State,
 };
-use ratatui::{buffer::Buffer, layout::Rect, style::{Color, Style}};
+use ratatui::{
+    buffer::Buffer,
+    layout::Rect,
+    style::{Color, Style},
+};
 use std::collections::HashMap;
 
 /// Render an alignment on the alignment area.
@@ -69,7 +73,7 @@ pub fn render_alignment(
             .try_for_each(|(y, read_indexes)| {
                 read_indexes.iter().try_for_each(|read_index| {
                     let read = &state.alignment.reads[*read_index];
-                    let mods: Option<&HashMap<u64, Vec<BaseModification>>> =
+                    let mods: Option<&HashMap<u64, Vec<BaseModificationProbability>>> =
                         if show_modifications && !read.base_modifications.is_empty() {
                             Some(&read.base_modifications)
                         } else {
@@ -91,11 +95,16 @@ fn render_contexts(
     alignment_view: &AlignmentView,
     area: &Rect,
     pallete: &Palette,
-    base_modifications: Option<&HashMap<u64, Vec<BaseModification>>>,
+    base_modifications: Option<&HashMap<u64, Vec<BaseModificationProbability>>>,
 ) -> Result<(), TGVError> {
-    if let Some(onscreen_contexts) =
-        get_read_rendering_info(context, y, alignment_view, area, pallete, base_modifications)?
-    {
+    if let Some(onscreen_contexts) = get_read_rendering_info(
+        context,
+        y,
+        alignment_view,
+        area,
+        pallete,
+        base_modifications,
+    )? {
         for onscreen_context in onscreen_contexts {
             buf.set_string(
                 area.x + onscreen_context.x,
@@ -122,21 +131,21 @@ struct OnScreenRenderingContext {
 /// Returns `None` when the position has no modification data.
 fn mod_bg_at(
     pos: u64,
-    mods: &HashMap<u64, Vec<BaseModification>>,
+    mods: &HashMap<u64, Vec<BaseModificationProbability>>,
     pallete: &Palette,
 ) -> Option<Color> {
     mods.get(&pos).and_then(|mod_list| {
-        // Prefer 5mC, then 5hmC, then 6mA.
+        // Prefer 5mC, then 5hmC, then the first available modification.
         mod_list
             .iter()
-            .find(|m| matches!(m.modification_type, ModificationType::FiveMC))
+            .find(|m| m.modification == BaseModification::Code(b'm'))
             .or_else(|| {
                 mod_list
                     .iter()
-                    .find(|m| matches!(m.modification_type, ModificationType::FiveHMC))
+                    .find(|m| m.modification == BaseModification::Code(b'h'))
             })
             .or_else(|| mod_list.first())
-            .map(|m| pallete.modification_color(&m.modification_type, m.probability))
+            .map(|m| pallete.modification_color(&m.modification, m.probability))
     })
 }
 
@@ -147,7 +156,7 @@ fn get_read_rendering_info(
     alignment_view: &AlignmentView,
     area: &Rect,
     pallete: &Palette,
-    base_modifications: Option<&HashMap<u64, Vec<BaseModification>>>,
+    base_modifications: Option<&HashMap<u64, Vec<BaseModificationProbability>>>,
 ) -> Result<Option<Vec<OnScreenRenderingContext>>, TGVError> {
     let onscreen_y = match alignment_view.onscreen_y_coordinate(y, area) {
         OnScreenCoordinate::OnScreen(y_start) => y_start as u16,
@@ -279,9 +288,7 @@ fn get_read_rendering_info(
                     let base_style = if let Some(mods) = base_modifications {
                         let bg =
                             mod_bg_at(*coordinate, mods, pallete).unwrap_or(pallete.MATCH_COLOR);
-                        Style::default()
-                            .bg(bg)
-                            .fg(pallete.mismatch_color(*base))
+                        Style::default().bg(bg).fg(pallete.mismatch_color(*base))
                     } else {
                         output
                             .first()
@@ -310,6 +317,8 @@ fn get_read_rendering_info(
                     })
                 }
             }
+
+            RenderingContextModifier::BaseModifications(_, _) => {}
         }
     }
 
