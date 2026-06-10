@@ -6,7 +6,12 @@ use crate::sequence::Sequence;
 //
 use itertools::Itertools;
 use noodles::bam::record::{self, Cigar, Record};
-pub use noodles::sam::record::data::field::value::base_modifications::group::Modification as BaseModification;
+use noodles::sam::alignment::record::data::field::Tag;
+use noodles::sam::alignment::record_buf::data::field::Value;
+use noodles::sam::alignment::record_buf::data::field::value::Array;
+use noodles::sam::record::data::field::value::base_modifications::group::Group;
+use noodles::sam::record::data::field::value::base_modifications::group::Modification;
+use noodles::sam::record::data::field::value::{BaseModifications, base_modifications};
 use noodles::sam::{
     self, Header,
     alignment::{
@@ -18,13 +23,6 @@ use noodles::sam::{
     },
 };
 use std::collections::HashMap;
-
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub struct BaseModificationProbability {
-    /// Probability from the ML tag, where 0 = unmodified and 255 = fully modified.
-    pub probability: u8,
-    pub modification: BaseModification,
-}
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum RenderingContextModifier {
@@ -44,8 +42,8 @@ pub enum RenderingContextModifier {
     /// (except Softclip + Match: softclip is displayed in this case (same as IGV))
     PairConflict(u64),
 
-    /// Base modifications observed at a reference coordinate on this read.
-    BaseModifications(u64, Vec<BaseModificationProbability>),
+    /// (Position, Modification, probability)
+    BaseModification(u64, Modification, u8),
 }
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum RenderingContextKind {
@@ -116,11 +114,6 @@ pub struct AlignedRead {
 
     /// Base mismatches with the reference
     pub rendering_contexts: Vec<RenderingContext>,
-
-    /// Per-position base modification data parsed from MM/ML auxiliary tags.
-    /// Key: 1-based reference position. Value: list of modifications at that position.
-    /// Empty when the BAM record has no MM/ML tags.
-    pub base_modifications: HashMap<u64, Vec<BaseModificationProbability>>,
 }
 
 impl AlignedRead {
@@ -375,12 +368,12 @@ impl AlignedRead {
     ) -> Result<(), TGVError> {
         calculate_rendering_contexts(
             &mut self.rendering_contexts,
+            &self.read,
             self.start,
             &self.cigars,
             self.read.sequence(),
             self.flags.is_reverse_complemented(),
             reference_sequence,
-            &self.base_modifications,
         )?;
 
         Ok(())
@@ -418,8 +411,6 @@ impl AlignedRead {
         // read.pos() in htslib: 0-based, inclusive, excluding leading hardclips and softclips
         // read.reference_end() in htslib: 0-based, exclusive, excluding trailing hardclips and softclips
 
-        let base_modifications = extract_base_modifications(&read, &cigars, start);
-
         Ok(Self {
             read: read,
 
@@ -432,7 +423,6 @@ impl AlignedRead {
             index: read_index,
 
             rendering_contexts: Vec::new(),
-            base_modifications,
         })
     }
 }
@@ -440,135 +430,88 @@ impl AlignedRead {
 /// Parse base modification data from the MM and ML auxiliary tags of a SAM record.
 /// Returns an empty map if the record has no MM/ML tags or if parsing fails.
 fn extract_base_modifications(
+    mm_string: String,
+    ml_bytes: Option<Vec<u8>>,
     record: &RecordBuf,
     cigars: &[Op],
     alignment_start: u64,
-) -> HashMap<u64, Vec<BaseModificationProbability>> {
-    use noodles::sam::alignment::record_buf::data::field::Value;
-    use noodles::sam::alignment::record_buf::data::field::value::Array;
-    use noodles::sam::record::data::field::value::{
-        BaseModifications as NoodlesBaseModifications,
-    };
-
-    let data = record.data();
-
-    // Fetch MM tag (string, type Z).
-    let mm_str: String = match data.get(b"MM") {
-        Some(Value::String(s)) => String::from_utf8_lossy(s.as_ref()).into_owned(),
-        _ => return HashMap::new(),
-    };
-
-    // Fetch ML tag (uint8 array, type B:C).
-    let ml_bytes: Vec<u8> = match data.get(b"ML") {
-        Some(Value::Array(Array::UInt8(values))) => values.clone(),
-        _ => Vec::new(),
-    };
-
-    let base_modifications = match NoodlesBaseModifications::parse(
-        mm_str.as_bytes(),
+) -> Result<Vec<(u64, Modification, u8)>, TGVError> {
+    let base_modifications: Vec<Group> = BaseModifications::parse(
+        mm_string.as_bytes(),
         record.flags().is_reverse_complemented(),
         record.sequence(),
-    ) {
-        Ok(base_modifications) => base_modifications,
-        Err(_) => return HashMap::new(),
-    };
+    )
+    .map_err(|_| {
+        TGVError::AlignmentParseError(format!("Failed to parse MM tag {mm_string}").to_string())
+    })?
+    .into();
 
-    let query_to_reference_position =
-        build_query_to_reference_position_map(cigars, alignment_start);
+    let n_modifications = base_modifications
+        .iter()
+        .map(|group| group.modifications().len())
+        .sum();
 
-    let mut result: HashMap<u64, Vec<BaseModificationProbability>> = HashMap::new();
-    let mut ml_index = 0;
+    let mut ml_bytes = ml_bytes.unwrap_or(vec![255; base_modifications.len()]);
 
-    for group in base_modifications.as_ref() {
-        for &query_position in group.positions() {
-            let reference_position = match query_to_reference_position.get(&query_position) {
-                Some(reference_position) => *reference_position,
-                None => {
-                    ml_index += group.modifications().len();
-                    continue;
-                }
-            };
+    // If probability values are missing (should not happen by SAM specification), pad probabilities with 255 so that no modificaitons are hidden
+    ml_bytes.resize(n_modifications, 255);
 
-            for modification in group.modifications() {
-                let probability = ml_bytes.get(ml_index).copied().unwrap_or(255);
-                ml_index += 1;
-
-                result
-                    .entry(reference_position)
-                    .or_default()
-                    .push(BaseModificationProbability {
-                        probability,
-                        modification: *modification,
-                    });
-            }
-        }
-    }
-
-    result
+    Ok(base_modifications
+        .iter()
+        .map(|group| group.modifications().iter().zip(group.positions().iter()))
+        .flatten()
+        .zip(ml_bytes.into_iter())
+        .map(|(mod_pos, prob)| {
+            (
+                get_reference_postion_from_seq_position(*mod_pos.1 as u64, alignment_start, cigars),
+                *mod_pos.0,
+                prob,
+            )
+        })
+        .collect_vec())
 }
 
-fn build_query_to_reference_position_map(
-    cigars: &[Op],
-    alignment_start: u64,
-) -> HashMap<usize, u64> {
-    let mut query_to_reference_position = HashMap::new();
-    let mut query_cursor = 0usize;
+fn get_reference_postion_from_seq_position(pos: u64, alignment_start: u64, cigars: &[Op]) -> u64 {
+    let mut query_cursor = 0u64;
     let mut reference_cursor = alignment_start;
 
     for op in cigars {
+        if pos <= query_cursor {
+            return reference_cursor;
+        }
         match op.kind() {
             Kind::SoftClip | Kind::Insertion => {
-                query_cursor += op.len();
+                query_cursor += op.len() as u64;
             }
             Kind::HardClip | Kind::Pad => {}
             Kind::Deletion | Kind::Skip => {
                 reference_cursor += op.len() as u64;
             }
             Kind::Match | Kind::SequenceMatch | Kind::SequenceMismatch => {
-                for i in 0..op.len() {
-                    query_to_reference_position
-                        .insert(query_cursor + i, reference_cursor + i as u64);
-                }
+                let next_query_cursor = query_cursor + op.len() as u64;
 
-                query_cursor += op.len();
-                reference_cursor += op.len() as u64;
+                if pos <= next_query_cursor {
+                    return pos - query_cursor + reference_cursor;
+                }
+                query_cursor = next_query_cursor;
+                reference_cursor = reference_cursor + op.len() as u64;
             }
         }
     }
 
-    query_to_reference_position
-}
-
-fn add_base_modification_modifiers(
-    rendering_contexts: &mut [RenderingContext],
-    base_modifications: &HashMap<u64, Vec<BaseModificationProbability>>,
-) {
-    let mut positions = base_modifications.iter().collect::<Vec<_>>();
-    positions.sort_by_key(|(position, _)| *position);
-
-    for (&position, modifications) in positions {
-        if let Some(context) = rendering_contexts.iter_mut().find(|context| {
-            matches!(context.kind, RenderingContextKind::Match)
-                && context.start <= position
-                && position <= context.end
-        }) {
-            context.add_modifier(RenderingContextModifier::BaseModifications(
-                position,
-                modifications.clone(),
-            ));
-        }
-    }
+    // Should not happen
+    return reference_cursor.saturating_sub(1);
 }
 
 /// See: https://samtools.github.io/hts-specs/SAMv1.pdf
 pub fn calculate_rendering_contexts(
     rendering_context: &mut Vec<RenderingContext>,
+    record: &RecordBuf,
     reference_start: u64, // 1-based. Alignment start, not softclip start
     cigars: &Vec<Op>,
     seq: &sam::alignment::record_buf::Sequence,
     is_reverse: bool,
     reference_sequence: &Sequence,
-    base_modifications: &HashMap<u64, Vec<BaseModificationProbability>>,
 ) -> Result<(), TGVError> {
     rendering_context.clear();
     if cigars.is_empty() {
@@ -774,7 +717,39 @@ pub fn calculate_rendering_contexts(
         })
     }
 
-    add_base_modification_modifiers(rendering_context, base_modifications);
+    let data = record.data();
+
+    // Fetch MM tag (string, type Z).
+    match data.get(&Tag::BASE_MODIFICATIONS) {
+        Some(Value::String(s)) => {
+            let ml_string = String::from_utf8_lossy(s.as_ref()).into_owned();
+
+            let ml_bytes = match data.get(&Tag::BASE_MODIFICATION_PROBABILITIES) {
+                Some(Value::Array(Array::UInt8(values))) => Some(values.clone()),
+                _ => None,
+            };
+            let base_modification_modifiers =
+                extract_base_modifications(ml_string, ml_bytes, record, cigars, reference_start)?;
+
+            for (pos, modification, prob) in base_modification_modifiers.into_iter() {
+                for context in rendering_context.iter_mut() {
+                    if (context.start..context.end).contains(&pos) {
+                        context
+                            .modifiers
+                            .push(RenderingContextModifier::BaseModification(
+                                pos,
+                                modification,
+                                prob,
+                            ));
+                        break;
+                    }
+                }
+            }
+        }
+        _ => {}
+    };
+
+    // Fetch ML tag (uint8 array, type B:C).
 
     Ok(())
 }
@@ -1297,12 +1272,12 @@ mod tests {
         let mut contexts = Vec::new();
         calculate_rendering_contexts(
             &mut contexts,
+            &record_buf,
             reference_start,
             &cigars,
             &record_buf.sequence(),
             is_reverse,
             &reference_sequence,
-            &HashMap::new(),
         )
         .unwrap();
 

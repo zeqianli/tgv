@@ -40,11 +40,6 @@ pub fn render_alignment(
         ));
     }
 
-    let show_modifications = state
-        .alignment_options
-        .iter()
-        .any(|option| *option == AlignmentDisplayOption::ShowBaseModifications);
-
     if display_as_pairs {
         state
             .alignment
@@ -73,14 +68,9 @@ pub fn render_alignment(
             .try_for_each(|(y, read_indexes)| {
                 read_indexes.iter().try_for_each(|read_index| {
                     let read = &state.alignment.reads[*read_index];
-                    let mods: Option<&HashMap<u64, Vec<BaseModificationProbability>>> =
-                        if show_modifications && !read.base_modifications.is_empty() {
-                            Some(&read.base_modifications)
-                        } else {
-                            None
-                        };
+
                     read.rendering_contexts.iter().try_for_each(|context| {
-                        render_contexts(context, y, buf, alignment_view, area, pallete, mods)
+                        render_contexts(context, y, buf, alignment_view, area, pallete);
                     })
                 })
             })?
@@ -95,16 +85,10 @@ fn render_contexts(
     alignment_view: &AlignmentView,
     area: &Rect,
     pallete: &Palette,
-    base_modifications: Option<&HashMap<u64, Vec<BaseModificationProbability>>>,
 ) -> Result<(), TGVError> {
-    if let Some(onscreen_contexts) = get_read_rendering_info(
-        context,
-        y,
-        alignment_view,
-        area,
-        pallete,
-        base_modifications,
-    )? {
+    if let Some(onscreen_contexts) =
+        get_read_rendering_info(context, y, alignment_view, area, pallete)?
+    {
         for onscreen_context in onscreen_contexts {
             buf.set_string(
                 area.x + onscreen_context.x,
@@ -156,7 +140,6 @@ fn get_read_rendering_info(
     alignment_view: &AlignmentView,
     area: &Rect,
     pallete: &Palette,
-    base_modifications: Option<&HashMap<u64, Vec<BaseModificationProbability>>>,
 ) -> Result<Option<Vec<OnScreenRenderingContext>>, TGVError> {
     let onscreen_y = match alignment_view.onscreen_y_coordinate(y, area) {
         OnScreenCoordinate::OnScreen(y_start) => y_start as u16,

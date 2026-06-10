@@ -15,7 +15,6 @@ bytes.workspace = true
 chrono.workspace = true
 clap.workspace = true
 csv.workspace = true
-ferro-hgvs = "0.2.0"
 futures.workspace = true
 itertools.workspace = true
 native-tls.workspace = true
