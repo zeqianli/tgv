@@ -3,6 +3,7 @@ use crate::tracks::UcscHost;
 use clap::ValueEnum;
 
 #[derive(Clone, Debug, PartialEq, Eq, ValueEnum)]
+#[derive(Default)]
 pub enum BackendType {
     /// Always use UCSC DB / API.
     Ucsc,
@@ -11,14 +12,10 @@ pub enum BackendType {
     Local,
 
     /// If local cache is available, use it. Otherwise, use UCSC DB / API.
+    #[default]
     Default,
 }
 
-impl Default for BackendType {
-    fn default() -> Self {
-        BackendType::Default
-    }
-}
 
 /// Where the BAM file is stored.
 #[derive(Debug, Clone, Eq, PartialEq)]

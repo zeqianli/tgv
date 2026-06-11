@@ -1,5 +1,5 @@
 use crate::{
-    layout::{AlignmentView, MainLayout, OnScreenCoordinate},
+    layout::{AlignmentView, OnScreenCoordinate},
     rendering::colors::Palette,
 };
 use gv_core::{
@@ -11,9 +11,8 @@ use gv_core::{
 use ratatui::{
     buffer::Buffer,
     layout::{Position, Rect},
-    style::{Color, Style},
+    style::Style,
 };
-use std::collections::HashMap;
 
 /// Render an alignment on the alignment area.
 pub fn render_alignment(
@@ -28,9 +27,7 @@ pub fn render_alignment(
     }
 
     let display_as_pairs = state
-        .alignment_options
-        .iter()
-        .any(|option| *option == AlignmentDisplayOption::ViewAsPairs);
+        .alignment_options.contains(&AlignmentDisplayOption::ViewAsPairs);
     if display_as_pairs && state.alignment.read_pairs.is_none() {
         return Err(TGVError::StateError(
             "Read pairs are not calculated before rendering.".to_string(),
@@ -152,66 +149,58 @@ fn render_contexts(
     for modifier in context.modifiers.iter() {
         match modifier {
             RenderingContextModifier::Forward => {
-                if let OnScreenCoordinate::OnScreen(x) = end_onscreen_coordinate {
-                    if let Some(cell) =
+                if let OnScreenCoordinate::OnScreen(_x) = end_onscreen_coordinate
+                    && let Some(cell) =
                         buf.cell_mut(Position::new(area.x + onscreen_x, area.y + onscreen_y))
                     {
                         cell.set_symbol("►");
                     }
-                }
             }
 
             RenderingContextModifier::Reverse => {
-                if let OnScreenCoordinate::OnScreen(x) = start_onscreen_coordinate {
-                    if let Some(cell) =
+                if let OnScreenCoordinate::OnScreen(_x) = start_onscreen_coordinate
+                    && let Some(cell) =
                         buf.cell_mut(Position::new(area.x + onscreen_x, area.y + onscreen_y))
                     {
                         cell.set_symbol("◄");
                     }
-                }
             }
 
             RenderingContextModifier::Insertion(_l) => {
-                if let OnScreenCoordinate::OnScreen(x) = start_onscreen_coordinate {
-                    if let Some(cell) =
+                if let OnScreenCoordinate::OnScreen(_x) = start_onscreen_coordinate
+                    && let Some(cell) =
                         buf.cell_mut(Position::new(area.x + onscreen_x, area.y + onscreen_y))
                     {
                         cell.set_symbol("▌")
                             .set_style(Style::default().fg(pallete.INSERTION_COLOR));
                     }
-                }
             }
 
             RenderingContextModifier::Mismatch(coordinate, base) => {
-                if let OnScreenCoordinate::OnScreen(modifier_onscreen_x) =
+                if let OnScreenCoordinate::OnScreen(_modifier_onscreen_x) =
                     alignment_view.onscreen_x_coordinate(*coordinate, area)
-                {
-                    if let Some(cell) =
+                    && let Some(cell) =
                         buf.cell_mut(Position::new(area.x + onscreen_x, area.y + onscreen_y))
                     {
                         cell.set_char(*base as char)
                             .set_style(Style::default().fg(pallete.mismatch_color(*base)));
                     }
-                }
             }
 
             RenderingContextModifier::PairConflict(coordinate) => {
-                if let OnScreenCoordinate::OnScreen(modifier_onscreen_x) =
+                if let OnScreenCoordinate::OnScreen(_modifier_onscreen_x) =
                     alignment_view.onscreen_x_coordinate(*coordinate, area)
-                {
-                    if let Some(cell) =
+                    && let Some(cell) =
                         buf.cell_mut(Position::new(area.x + onscreen_x, area.y + onscreen_y))
                     {
                         cell.set_symbol("?");
                     }
-                }
             }
 
             RenderingContextModifier::BaseModification(coordinate, modification, probability) => {
-                if let OnScreenCoordinate::OnScreen(modifier_onscreen_x) =
+                if let OnScreenCoordinate::OnScreen(_modifier_onscreen_x) =
                     alignment_view.onscreen_x_coordinate(*coordinate, area)
-                {
-                    if let Some(cell) =
+                    && let Some(cell) =
                         buf.cell_mut(Position::new(area.x + onscreen_x, area.y + onscreen_y))
                     {
                         cell.set_style(
@@ -219,7 +208,6 @@ fn render_contexts(
                                 .bg(pallete.modification_color(modification, *probability)),
                         );
                     }
-                }
             }
         }
     }

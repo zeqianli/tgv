@@ -31,8 +31,8 @@ use crate::{
     register::{KeyRegisterType, Registers},
 };
 
-use gv_core::{error::TGVError, repository::Repository, state::State};
-use ratatui::{buffer::Buffer, layout::Rect};
+use gv_core::{error::TGVError, state::State};
+use ratatui::buffer::Buffer;
 
 /// Render all areas in the layout
 pub fn render_main(
@@ -44,7 +44,7 @@ pub fn render_main(
     pallete: &Palette,
 ) -> Result<(), TGVError> {
     // Render each area based on its type
-    for (i, (area_type, rect)) in layout.areas.iter().enumerate() {
+    for (_i, (area_type, rect)) in layout.areas.iter().enumerate() {
         if rect.y >= buf.area.height || rect.x >= buf.area.width {
             continue;
         }
@@ -72,7 +72,7 @@ pub fn render_main(
             }
             AreaType::Console => {
                 if registers.current == KeyRegisterType::Command {
-                    render_console(rect, buf, &registers)?;
+                    render_console(rect, buf, registers)?;
                 }
             }
             AreaType::Error => {

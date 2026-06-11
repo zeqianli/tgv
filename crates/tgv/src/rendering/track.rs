@@ -1,5 +1,5 @@
 use crate::{
-    layout::{AlignmentView, MainLayout, OnScreenCoordinate},
+    layout::{AlignmentView, OnScreenCoordinate},
     rendering::colors::Palette,
 };
 use gv_core::intervals::GenomeInterval;
@@ -38,7 +38,7 @@ pub fn render_track(
 
     let mut right_most_label_onscreen_x = 0;
     for feature in state.track.genes().iter() {
-        for context in get_rendering_info(&alignment_view, area, feature, pallete) {
+        for context in get_rendering_info(alignment_view, area, feature, pallete) {
             buf.set_string(
                 context.x + area.x,
                 area.y,
@@ -46,8 +46,8 @@ pub fn render_track(
                 context.style,
             );
 
-            if let Some((label_x, label)) = context.label_info {
-                if area.height >= 2 && label_x > right_most_label_onscreen_x + 1 {
+            if let Some((label_x, label)) = context.label_info
+                && area.height >= 2 && label_x > right_most_label_onscreen_x + 1 {
                     right_most_label_onscreen_x = label_x + label.len() as u16 - 1;
 
                     buf.set_string(
@@ -57,7 +57,6 @@ pub fn render_track(
                         Style::default(),
                     );
                 }
-            }
         }
     }
 

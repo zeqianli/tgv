@@ -226,7 +226,7 @@ impl TrackServiceEnum {
                 // Otherwise, use the UCSC DB / API.
                 match LocalDbTrackService::new(&settings.reference, &settings.cache_dir).await {
                     Ok(ts) => Ok(Some(TrackServiceEnum::LocalDb(ts))),
-                    Err(TGVError::IOError(e)) => match reference {
+                    Err(TGVError::IOError(_e)) => match reference {
                         Reference::UcscAccession(_) => {
                             Ok(Some(TrackServiceEnum::Api(UcscApiTrackService::new()?)))
                         }
@@ -533,7 +533,9 @@ impl TrackService for TrackServiceEnum {
 
 #[derive(Debug, Clone, Eq, PartialEq, Serialize, Deserialize)]
 #[serde(into = "String", try_from = "String")]
+#[derive(Default)]
 pub enum UcscHost {
+    #[default]
     Us,
     Eu,
 }
@@ -551,11 +553,6 @@ impl TryFrom<String> for UcscHost {
     }
 }
 
-impl Default for UcscHost {
-    fn default() -> Self {
-        UcscHost::Us
-    }
-}
 
 impl std::str::FromStr for UcscHost {
     type Err = TGVError;

@@ -142,7 +142,7 @@ impl Alignment {
         let ys = stack_tracks_for_reads(&reads, &show_reads);
         let mut alignment = Self {
             reads,
-            contig_index: contig_index,
+            contig_index,
             coverage: BTreeMap::new(),
             data_complete_left_bound: data_complete_bound.0,
             data_complete_right_bound: data_complete_bound.1,
@@ -384,7 +384,9 @@ fn stack_tracks_for_reads(reads: &Vec<AlignedRead>, show_reads: &Vec<bool>) -> V
     let mut track_left_bounds: Vec<u64> = Vec::new();
     let mut track_right_bounds: Vec<u64> = Vec::new();
 
-    let ys = reads
+    
+
+    reads
         .iter()
         .zip(show_reads.iter())
         .map(|(read, show_read)| {
@@ -400,15 +402,15 @@ fn stack_tracks_for_reads(reads: &Vec<AlignedRead>, show_reads: &Vec<bool>) -> V
                 0
             }
         })
-        .collect::<Vec<usize>>();
-
-    ys
+        .collect::<Vec<usize>>()
 }
 fn stack_tracks_for_paired_reads(reads: &Vec<ReadPair>, show_reads: &Vec<bool>) -> Vec<usize> {
     let mut track_left_bounds: Vec<u64> = Vec::new();
     let mut track_right_bounds: Vec<u64> = Vec::new();
 
-    let ys = reads
+    
+
+    reads
         .iter()
         .zip(show_reads.iter())
         .map(|(read, show_read)| {
@@ -424,9 +426,7 @@ fn stack_tracks_for_paired_reads(reads: &Vec<ReadPair>, show_reads: &Vec<bool>) 
                 0
             }
         })
-        .collect::<Vec<usize>>();
-
-    ys
+        .collect::<Vec<usize>>()
 }
 
 fn find_track(

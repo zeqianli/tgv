@@ -6,8 +6,10 @@ const DEFAULT_DB_CSV: &[u8] = include_bytes!("resources/defaultDb.csv");
 
 #[derive(Debug, Clone, Eq, PartialEq, Serialize, Deserialize)]
 #[serde(into = "String", try_from = "String")]
+#[derive(Default)]
 pub enum Reference {
     Hg19,
+    #[default]
     Hg38,
     UcscGenome(String),
     UcscAccession(String),
@@ -59,11 +61,6 @@ impl Reference {
     }
 }
 
-impl Default for Reference {
-    fn default() -> Self {
-        Reference::Hg38
-    }
-}
 
 impl std::string::ToString for Reference {
     fn to_string(&self) -> String {

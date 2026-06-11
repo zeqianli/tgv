@@ -162,7 +162,7 @@ impl BaseCoverage {
         self.total += 1;
     }
 
-    pub fn update_softclip(&mut self, base: u8) {
+    pub fn update_softclip(&mut self, _base: u8) {
         self.softclip += 1
     }
 

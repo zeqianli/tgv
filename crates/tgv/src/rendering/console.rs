@@ -25,7 +25,7 @@ pub fn render_console(area: &Rect, buf: &mut Buffer, buffer: &Registers) -> Resu
     buf.set_stringn(
         area.x,
         area.y,
-        &format!(":{}", buffer.command),
+        format!(":{}", buffer.command),
         area.width as usize,
         Style::default(),
     );

@@ -65,7 +65,7 @@ fn round_up_max_coverage(x: usize) -> usize {
 
     let mut round_up = false;
     while x >= 100 {
-        if x % 10 > 0 {
+        if !x.is_multiple_of(10) {
             round_up = true;
         }
         x /= 10;

@@ -1,7 +1,7 @@
 /// The main app object
 ///
 use crossterm::event::{self, Event, KeyEventKind};
-use ratatui::{Terminal, buffer::Buffer, layout::Rect, prelude::Backend};
+use ratatui::{Terminal, buffer::Buffer, prelude::Backend};
 
 use crate::{
     layout::{AlignmentView, MainLayout},
@@ -13,7 +13,7 @@ use crate::{
 };
 use gv_core::{
     error::TGVError,
-    intervals::{Focus, GenomeInterval, Region},
+    intervals::GenomeInterval,
     repository::Repository,
     state::State,
 };

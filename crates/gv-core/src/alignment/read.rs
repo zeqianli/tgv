@@ -1,12 +1,12 @@
 use crate::error::TGVError;
-use crate::intervals::{GenomeInterval, Region};
+use crate::intervals::GenomeInterval;
 use crate::message::AlignmentFilter;
 use crate::sequence::Sequence;
 // use rust_htslib::bam::{record::Seq, Read, Record};
 //
 use itertools::Itertools;
 use noodles::sam::{
-    self, Header,
+    self,
     alignment::{
         RecordBuf,
         record::{
@@ -381,7 +381,7 @@ impl AlignedRead {
     pub fn from_record(
         read_index: usize,
         read: RecordBuf,
-        reference_sequence: &Sequence,
+        _reference_sequence: &Sequence,
     ) -> Result<Self, TGVError> {
         let start = read.alignment_start().unwrap().get() as u64;
         let cigars = read.cigar();
@@ -411,7 +411,7 @@ impl AlignedRead {
         // read.reference_end() in htslib: 0-based, exclusive, excluding trailing hardclips and softclips
 
         Ok(Self {
-            read: read,
+            read,
 
             start,
             end,
@@ -457,9 +457,8 @@ fn extract_base_modifications(
 
     Ok(base_modifications
         .iter()
-        .map(|group| group.modifications().iter().zip(group.positions().iter()))
-        .flatten()
-        .zip(ml_bytes.into_iter())
+        .flat_map(|group| group.modifications().iter().zip(group.positions().iter()))
+        .zip(ml_bytes)
         .map(|(mod_pos, prob)| {
             (
                 get_reference_postion_from_seq_position(*mod_pos.1 as u64, alignment_start, cigars),
@@ -493,13 +492,13 @@ fn get_reference_postion_from_seq_position(pos: u64, alignment_start: u64, cigar
                     return pos - query_cursor + reference_cursor;
                 }
                 query_cursor = next_query_cursor;
-                reference_cursor = reference_cursor + op.len() as u64;
+                reference_cursor += op.len() as u64;
             }
         }
     }
 
     // Should not happen
-    return reference_cursor.saturating_sub(1);
+    reference_cursor.saturating_sub(1)
 }
 
 /// See: https://samtools.github.io/hts-specs/SAMv1.pdf
@@ -719,33 +718,30 @@ pub fn calculate_rendering_contexts(
     let data = record.data();
 
     // Fetch MM tag (string, type Z).
-    match data.get(&Tag::BASE_MODIFICATIONS) {
-        Some(Value::String(s)) => {
-            let ml_string = String::from_utf8_lossy(s.as_ref()).into_owned();
+    if let Some(Value::String(s)) = data.get(&Tag::BASE_MODIFICATIONS) {
+        let ml_string = String::from_utf8_lossy(s.as_ref()).into_owned();
 
-            let ml_bytes = match data.get(&Tag::BASE_MODIFICATION_PROBABILITIES) {
-                Some(Value::Array(Array::UInt8(values))) => Some(values.clone()),
-                _ => None,
-            };
-            let base_modification_modifiers =
-                extract_base_modifications(ml_string, ml_bytes, record, cigars, reference_start)?;
+        let ml_bytes = match data.get(&Tag::BASE_MODIFICATION_PROBABILITIES) {
+            Some(Value::Array(Array::UInt8(values))) => Some(values.clone()),
+            _ => None,
+        };
+        let base_modification_modifiers =
+            extract_base_modifications(ml_string, ml_bytes, record, cigars, reference_start)?;
 
-            for (pos, modification, prob) in base_modification_modifiers.into_iter() {
-                for context in rendering_context.iter_mut() {
-                    if (context.start..context.end).contains(&pos) {
-                        context
-                            .modifiers
-                            .push(RenderingContextModifier::BaseModification(
-                                pos,
-                                modification,
-                                prob,
-                            ));
-                        break;
-                    }
+        for (pos, modification, prob) in base_modification_modifiers.into_iter() {
+            for context in rendering_context.iter_mut() {
+                if (context.start..context.end).contains(&pos) {
+                    context
+                        .modifiers
+                        .push(RenderingContextModifier::BaseModification(
+                            pos,
+                            modification,
+                            prob,
+                        ));
+                    break;
                 }
             }
         }
-        _ => {}
     };
 
     // Fetch ML tag (uint8 array, type B:C).

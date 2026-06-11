@@ -126,7 +126,7 @@ impl Palette {
     pub fn modification_color(&self, modification: &Modification, probability: u8) -> Color {
         // FIXME: colors for other modifications
         match modification {
-            FIVE_METHYLCYTOSINE => {
+            _FIVE_METHYLCYTOSINE => {
                 if probability >= 179 {
                     self.MOD_5MC_HIGH
                 } else if probability >= 77 {
@@ -135,8 +135,8 @@ impl Palette {
                     self.MOD_5MC_LOW
                 }
             }
-            FIVE_HYDROXYMETHYLCYTOSINE => self.MOD_5HMC,
-            SIX_METHYLADENINE => self.MOD_6MA,
+            _FIVE_HYDROXYMETHYLCYTOSINE => self.MOD_5HMC,
+            _SIX_METHYLADENINE => self.MOD_6MA,
             _ => self.MOD_5MC_MED,
         }
     }

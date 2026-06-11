@@ -83,7 +83,7 @@ impl LocalDbTrackService {
     /// Used for initailzing the local cache service.
     pub async fn get_contig_2bit_file_lookup(
         &self,
-        reference: &Reference,
+        _reference: &Reference,
         contig_header: &ContigHeader,
     ) -> Result<HashMap<usize, Option<String>>, TGVError> {
         let rows_with_alias = sqlx::query(
@@ -125,7 +125,7 @@ impl TrackService for LocalDbTrackService {
         Ok(())
     }
 
-    async fn get_all_contigs(&mut self, reference: &Reference) -> Result<Vec<Contig>, TGVError> {
+    async fn get_all_contigs(&mut self, _reference: &Reference) -> Result<Vec<Contig>, TGVError> {
         let contigs: Vec<ContigRow> = sqlx::query_as(
             "SELECT
                 chromInfo.chrom as chrom,

@@ -47,11 +47,10 @@ pub fn parse(input: &str) -> Result<Vec<Message>, TGVError> {
         ])]);
     }
 
-    if let Ok((remaining, options)) = parse_display_options(input) {
-        if remaining.is_empty() {
+    if let Ok((remaining, options)) = parse_display_options(input)
+        && remaining.is_empty() {
             return Ok(vec![Message::SetAlignmentOption(options)]);
         }
-    }
 
     let split = input.split(":").collect::<Vec<&str>>();
 

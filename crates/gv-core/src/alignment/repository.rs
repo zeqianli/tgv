@@ -4,15 +4,14 @@ use crate::{
     error::TGVError,
     intervals::{GenomeInterval, Region},
     sequence::Sequence,
-    settings::{AlignmentPath, BamSource, Settings},
+    settings::{AlignmentPath, BamSource},
 };
-use std::time::SystemTime;
 
 use async_compat::{Compat, CompatExt};
-use futures::{Stream, StreamExt, stream};
-use futures::{TryFuture, TryFutureExt, TryStream, TryStreamExt};
+use futures::StreamExt;
+use futures::TryStreamExt;
 use itertools::Itertools;
-use noodles::cram::{self as cram, crai};
+use noodles::cram::{self as cram};
 use noodles::fasta::{self as fasta, repository::adapters::IndexedReader as FastaIndexedReader};
 use noodles::sam::Header;
 use noodles::{
@@ -141,7 +140,7 @@ impl RemoteBamRepository {
 
         let operator = Operator::new(builder)?.finish();
 
-        let index = Self::read_index(s3_bai_path).await?;
+        let _index = Self::read_index(s3_bai_path).await?;
 
         let stream = operator
             .reader(name)
@@ -241,7 +240,7 @@ impl AlignmentRepositoryEnum {
         reference_sequence: &Sequence,
         contig_header: &ContigHeader,
     ) -> Result<Alignment, TGVError> {
-        use futures::StreamExt;
+        
 
         let mut records = match region.alignment(contig_header)? {
             Some(region) => {
@@ -279,7 +278,7 @@ impl AlignmentRepositoryEnum {
                         }
                     }
                     AlignmentRepositoryEnum::Cram(inner) => {
-                        let mut query = inner.reader.query(&inner.header, &region)?; //&inner.index,
+                        let query = inner.reader.query(&inner.header, &region)?; //&inner.index,
 
                         //while let Some(record_buf) = query.try_next().await? {
                         for record in query {
