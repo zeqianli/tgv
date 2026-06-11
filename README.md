@@ -62,34 +62,6 @@ tgv non_human.bam -r 1:123 --no-reference
 
 [Supported formats](doc/src/usage.md#supported-formats)
 
-## Base modification visualization (5mC / 5hmC / 6mA)
-
-TGV can display per-read base modification probabilities stored in the `MM` and `ML`
-auxiliary tags produced by Oxford Nanopore basecallers (Dorado, Guppy) and tools like
-`modkit`.
-
-```bash
-# View an ONT BAM with modification calls
-tgv reads.mod.bam
-```
-
-Inside TGV, type `:mod` (then `Enter`) to toggle modification colouring on.
-Each aligned base is coloured by the probability from the `ML` tag:
-
-| Colour | Meaning |
-|--------|---------|
-| Orange | High methylation > 70% |
-| Yellow | Ambiguous 30–70% |
-| Blue   | Low / unmethylated < 30% |
-| Teal   | 5hmC (any probability) |
-| Purple | 6mA (any probability) |
-
-Type `:clear` to reset to the default grey alignment view.
-
-Supported modification codes: `C+m` (5mC), `C+h` (5hmC), `A+a` (6mA).
-Forward-strand modifications only; multi-modification reads are supported.
-
-[Supported formats](https://github.com/zeqianli/tgv/wiki/Usage)
 
 ## FAQ
 

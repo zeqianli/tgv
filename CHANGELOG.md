@@ -1,8 +1,8 @@
 # Changelog
 
-## 0.0.7
+## 0.3.0
 
-- Base modification visualization: color reads by 5mC / 5hmC / 6mA probability from BAM `MM`/`ML` tags (`:mod` to toggle, `:clear` to reset)
+- Base modification visualization: color reads by 5mC / 5hmC / 6mA probability from BAM `MM`/`ML` tags
 
 ## 0.0.6
 
