@@ -1,7 +1,7 @@
 use gv_core::cytoband::Stain;
-use gv_core::alignment::BaseModification;
 use ratatui::style::{Color, palette::tailwind};
 
+use noodles::sam::record::data::field::value::base_modifications::group::*;
 // Background
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 #[allow(non_snake_case)]
@@ -123,9 +123,10 @@ impl Palette {
 
     /// Returns the background color for a base modification given its type and
     /// probability (0-255 from the ML tag, where 255 = fully modified).
-    pub fn modification_color(&self, modification: &BaseModification, probability: u8) -> Color {
+    pub fn modification_color(&self, modification: &Modification, probability: u8) -> Color {
+        // FIXME: colors for other modifications
         match modification {
-            BaseModification::Code(b'm') => {
+            FIVE_METHYLCYTOSINE => {
                 if probability >= 179 {
                     self.MOD_5MC_HIGH
                 } else if probability >= 77 {
@@ -134,8 +135,8 @@ impl Palette {
                     self.MOD_5MC_LOW
                 }
             }
-            BaseModification::Code(b'h') => self.MOD_5HMC,
-            BaseModification::Code(b'a') => self.MOD_6MA,
+            FIVE_HYDROXYMETHYLCYTOSINE => self.MOD_5HMC,
+            SIX_METHYLADENINE => self.MOD_6MA,
             _ => self.MOD_5MC_MED,
         }
     }
@@ -241,9 +242,9 @@ pub const DARK_THEME: Palette = Palette {
     INTRON_FOREGROUND_COLOR: tailwind::BLUE.c300,
 
     // Base modifications
-    MOD_5MC_HIGH: tailwind::ORANGE.c600,   // >70% — warm orange (highly methylated)
-    MOD_5MC_MED: tailwind::YELLOW.c700,    // 30-70% — muted yellow (ambiguous)
-    MOD_5MC_LOW: tailwind::BLUE.c700,      // <30% — cool blue (unmethylated)
-    MOD_5HMC: tailwind::TEAL.c500,         // 5hmC — teal
-    MOD_6MA: tailwind::PURPLE.c600,        // 6mA — purple
+    MOD_5MC_HIGH: tailwind::ORANGE.c600, // >70% — warm orange (highly methylated)
+    MOD_5MC_MED: tailwind::YELLOW.c700,  // 30-70% — muted yellow (ambiguous)
+    MOD_5MC_LOW: tailwind::BLUE.c700,    // <30% — cool blue (unmethylated)
+    MOD_5HMC: tailwind::TEAL.c500,       // 5hmC — teal
+    MOD_6MA: tailwind::PURPLE.c600,      // 6mA — purple
 };
