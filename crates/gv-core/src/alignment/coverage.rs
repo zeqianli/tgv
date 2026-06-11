@@ -1,6 +1,5 @@
 use crate::error::TGVError;
 use crate::sequence::Sequence;
-use noodles::bam::record::{self};
 use noodles::sam::{
     self,
     alignment::record::cigar::{Op, op::Kind},

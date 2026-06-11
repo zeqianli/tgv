@@ -5,13 +5,6 @@ use crate::sequence::Sequence;
 // use rust_htslib::bam::{record::Seq, Read, Record};
 //
 use itertools::Itertools;
-use noodles::bam::record::{self, Cigar, Record};
-use noodles::sam::alignment::record::data::field::Tag;
-use noodles::sam::alignment::record_buf::data::field::Value;
-use noodles::sam::alignment::record_buf::data::field::value::Array;
-use noodles::sam::record::data::field::value::base_modifications::group::Group;
-use noodles::sam::record::data::field::value::base_modifications::group::Modification;
-use noodles::sam::record::data::field::value::{BaseModifications, base_modifications};
 use noodles::sam::{
     self, Header,
     alignment::{
@@ -19,7 +12,13 @@ use noodles::sam::{
         record::{
             Cigar as CigarTrait, Flags,
             cigar::{Op, op::Kind},
+            data::field::Tag,
         },
+        record_buf::data::field::{Value, value::Array},
+    },
+    record::data::field::value::{
+        BaseModifications,
+        base_modifications::group::{Group, Modification},
     },
 };
 use std::collections::HashMap;
