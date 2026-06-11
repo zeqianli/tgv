@@ -384,8 +384,6 @@ fn stack_tracks_for_reads(reads: &Vec<AlignedRead>, show_reads: &Vec<bool>) -> V
     let mut track_left_bounds: Vec<u64> = Vec::new();
     let mut track_right_bounds: Vec<u64> = Vec::new();
 
-    
-
     reads
         .iter()
         .zip(show_reads.iter())
@@ -407,8 +405,6 @@ fn stack_tracks_for_reads(reads: &Vec<AlignedRead>, show_reads: &Vec<bool>) -> V
 fn stack_tracks_for_paired_reads(reads: &Vec<ReadPair>, show_reads: &Vec<bool>) -> Vec<usize> {
     let mut track_left_bounds: Vec<u64> = Vec::new();
     let mut track_right_bounds: Vec<u64> = Vec::new();
-
-    
 
     reads
         .iter()

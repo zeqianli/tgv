@@ -192,7 +192,7 @@ fn render_contexts(
                 if let OnScreenCoordinate::OnScreen(x) =
                     alignment_view.onscreen_x_coordinate(*coordinate, area)
                     && let Some(cell) =
-                        buf.cell_mut(Position::new(area.x + onscreen_x, area.y + onscreen_y))
+                        buf.cell_mut(Position::new(area.x + x as u16, area.y + onscreen_y))
                 {
                     cell.set_symbol("?");
                 }
