@@ -141,6 +141,7 @@ impl State {
 
     pub fn add_alignment_track(&mut self) {
         self.alignments.push(Alignment::default());
+        self.alignment_options.push(Vec::new());
     }
 
     pub async fn load_alignment_data(
@@ -193,7 +194,8 @@ impl State {
     }
 
     pub fn add_variant_track(&mut self) {
-        self.variants.push(VariantTrack::default())
+        self.variants.push(VariantTrack::default());
+        self.variant_loaded.push(false);
     }
 
     pub async fn load_variant_data(
@@ -212,7 +214,8 @@ impl State {
     }
 
     pub fn add_bed_track(&mut self) {
-        self.bed_intervals.push(BedTrack::default())
+        self.bed_intervals.push(BedTrack::default());
+        self.bed_loaded.push(false);
     }
 
     pub async fn load_bed_data(
