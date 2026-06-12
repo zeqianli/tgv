@@ -44,7 +44,7 @@ pub fn render_main(
     pallete: &Palette,
 ) -> Result<(), TGVError> {
     // Render each area based on its type
-    for (_i, (area_type, rect)) in layout.areas.iter().enumerate() {
+    for (area_type, rect) in layout.areas.iter() {
         if rect.y >= buf.area.height || rect.x >= buf.area.width {
             continue;
         }

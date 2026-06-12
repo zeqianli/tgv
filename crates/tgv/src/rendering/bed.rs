@@ -3,9 +3,9 @@ use crate::{
     rendering::{colors::Palette, intervals::render_simple_intervals},
 };
 use gv_core::{
-    bed::{BedInterval, BedTrack},
+    bed::BedTrack,
     error::TGVError,
-    intervals::{GenomeInterval, SortedIntervalCollection},
+    intervals::GenomeInterval,
 };
 use ratatui::{buffer::Buffer, layout::Rect};
 

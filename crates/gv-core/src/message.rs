@@ -13,7 +13,7 @@ pub enum Message {
     Quit,
     SaveSession(Option<String>),
     SaveAndQuit(Option<String>),
-    SetAlignmentOption(Vec<(AlignmentDisplayOption)>),
+    SetAlignmentOption(Vec<AlignmentDisplayOption>),
 
     Message(String),
 }

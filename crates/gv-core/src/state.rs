@@ -3,20 +3,20 @@ use crate::tracks::{TrackService, TrackServiceEnum};
 use crate::variant::VariantRepository;
 use crate::{
     alignment::{Alignment, AlignmentRepositoryEnum},
-    bed::{BedInterval, BedRepository, BedTrack},
+    bed::{BedRepository, BedTrack},
     contig_header::ContigHeader,
     cytoband::Cytoband,
     error::TGVError,
     feature::Gene,
-    intervals::{Focus, GenomeInterval, Region, SortedIntervalCollection},
+    intervals::{Focus, GenomeInterval, Region},
     message::{AlignmentDisplayOption, AlignmentFilter, Movement},
     reference::Reference,
     //register::Registers,
     //rendering::{MainLayout, layout::resize_node},
-    repository::{Repository, RepositoryFileIndex},
+    repository::Repository,
     sequence::Sequence,
     track::Track,
-    variant::{Variant, VariantTrack},
+    variant::VariantTrack,
 };
 use itertools::Itertools;
 

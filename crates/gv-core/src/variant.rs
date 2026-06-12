@@ -3,7 +3,6 @@ use crate::error::TGVError;
 use crate::intervals::{GenomeInterval, SortedIntervalCollection};
 use itertools::Itertools;
 use noodles::vcf::{self, variant::record::AlternateBases};
-use std::collections::HashSet;
 
 pub type VariantTrack = SortedIntervalCollection<Variant>;
 

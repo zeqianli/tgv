@@ -1,7 +1,7 @@
 use gv_core::{
     error::TGVError,
-    intervals::{GenomeInterval, SortedIntervalCollection},
-    variant::{Variant, VariantTrack},
+    intervals::GenomeInterval,
+    variant::VariantTrack,
 };
 
 use crate::{

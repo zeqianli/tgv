@@ -298,7 +298,7 @@ impl MainLayout {
         tracks.push(AreaType::Error);
 
         MainLayout {
-            tracks: tracks,
+            tracks,
             main_area: Rect::default(),
             areas: Vec::new(),
         }
