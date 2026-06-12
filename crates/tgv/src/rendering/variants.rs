@@ -1,7 +1,7 @@
 use gv_core::{
     error::TGVError,
     intervals::{GenomeInterval, SortedIntervalCollection},
-    variant::Variant,
+    variant::{Variant, VariantTrack},
 };
 
 use crate::{
@@ -13,7 +13,7 @@ use ratatui::{buffer::Buffer, layout::Rect};
 pub fn render_variants(
     area: &Rect,
     buf: &mut Buffer,
-    variants: &SortedIntervalCollection<Variant>,
+    variants: &VariantTrack,
     alignment_view: &AlignmentView,
     pallete: &Palette,
 ) -> Result<(), TGVError> {

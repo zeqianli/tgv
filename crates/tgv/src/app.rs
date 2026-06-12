@@ -11,7 +11,7 @@ use crate::{
     session::SessionFile,
     settings::Settings,
 };
-use gv_core::{error::TGVError, repository::Repository, state::State};
+use gv_core::{error::TGVError, repository::Repository, settings::FilePath, state::State};
 use std::path::PathBuf;
 
 #[derive(Debug, Clone, Eq, PartialEq)]
@@ -44,15 +44,16 @@ impl App {
         let (mut repository, contig_header, repository_file_indexes) =
             Repository::new(&settings.core).await?;
 
-        let state = State::new(
-            settings.core.reference.clone(),
-            contig_header,
-            &repository_file_indexes,
-        )?;
-        let focus = state.default_focus(&mut repository).await?;
+        let mut state = State::new(settings.core.reference.clone(), contig_header)?;
 
-        // TODO: go to foucs?
-        // TODO: handle initial message with stricter error handling
+        // Initiate empty track data
+        settings.core.file_paths.iter().for_each(|path| match path {
+            FilePath::AlignmentPath(_) => state.add_alignment_track(),
+            FilePath::VariantPath(_) => state.add_variant_track(),
+            FilePath::BedPath(_) => state.add_bed_track(),
+        });
+
+        let focus = state.default_focus(&mut repository).await?;
 
         let mut alignment_view = AlignmentView::new(focus);
         if let Some(zoom) = settings.zoom {
@@ -235,8 +236,14 @@ impl App {
                 }
 
                 Message::Core(gv_core::message::Message::SetAlignmentOption(options)) => {
-                    self.state
-                        .set_alignment_change(&self.alignment_view.focus, options)?;
+                    // TODO: introduce focus. Only apply option to the alignment in focus
+                    for index in 0..self.state.alignments.len() {
+                        self.state.set_alignment_options(
+                            index,
+                            &self.alignment_view.focus,
+                            options.clone(),
+                        )?;
+                    }
                 }
 
                 Message::Core(gv_core::message::Message::Message(message)) => {

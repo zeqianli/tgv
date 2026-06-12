@@ -13,7 +13,7 @@ pub enum Message {
     Quit,
     SaveSession(Option<String>),
     SaveAndQuit(Option<String>),
-    SetAlignmentOption(Vec<AlignmentDisplayOption>),
+    SetAlignmentOption(Vec<(AlignmentDisplayOption)>),
 
     Message(String),
 }
@@ -203,8 +203,7 @@ impl AlignmentFilter {
 /// Reference: https://github.com/igvteam/igv/blob/main/src/main/java/org/broad/igv/sam/SortOption.java
 ///
 
-#[derive(Debug, Clone, Eq, PartialEq, Display)]
-#[derive(Default)]
+#[derive(Debug, Clone, Eq, PartialEq, Display, Default)]
 pub enum AlignmentSort {
     /// Default
     #[default]
@@ -262,7 +261,6 @@ pub enum AlignmentSort {
     #[strum(to_string = "{0} (DESC)")]
     Reverse(Box<AlignmentSort>),
 }
-
 
 impl AlignmentSort {
     pub fn then(self, other: AlignmentSort) -> AlignmentSort {

@@ -3,7 +3,7 @@ use crate::tracks::{TrackService, TrackServiceEnum};
 use crate::variant::VariantRepository;
 use crate::{
     alignment::{Alignment, AlignmentRepositoryEnum},
-    bed::{BEDInterval, BEDRepository},
+    bed::{BedInterval, BedRepository, BedTrack},
     contig_header::ContigHeader,
     cytoband::Cytoband,
     error::TGVError,
@@ -16,7 +16,7 @@ use crate::{
     repository::{Repository, RepositoryFileIndex},
     sequence::Sequence,
     track::Track,
-    variant::Variant,
+    variant::{Variant, VariantTrack},
 };
 use itertools::Itertools;
 
@@ -26,13 +26,20 @@ pub struct State {
 
     pub contig_header: ContigHeader,
     pub reference: Reference,
+
+    /// Alignment track data.
+    /// Index always matches with AlignmentRepository index
     pub alignments: Vec<Alignment>,
     pub alignment_options: Vec<Vec<AlignmentDisplayOption>>,
 
-    pub variants: Vec<SortedIntervalCollection<Variant>>,
+    /// Variant track data.
+    /// Index always matches with VariantRepository index
+    pub variants: Vec<VariantTrack>,
     pub variant_loaded: Vec<bool>, // Temporary hack before proper implemetation for the indexed VCF IO
 
-    pub bed_intervals: Vec<SortedIntervalCollection<BEDInterval>>,
+    /// Bed track data
+    /// Index always matches with BedRepository index
+    pub bed_intervals: Vec<BedTrack>,
     pub bed_loaded: Vec<bool>, // Temporary hack before proper implemetation for large bed file io
 
     pub track: Track<Gene>,
@@ -44,41 +51,22 @@ impl State {
     pub fn new(
         reference: Reference,
         contigs: ContigHeader,
-        repository_file_indexes: &[RepositoryFileIndex],
+        //repository_file_indexes: &[RepositoryFileIndex],
     ) -> Result<Self, TGVError> {
-        let alignment_count = repository_file_indexes
-            .iter()
-            .filter(|index| matches!(index, RepositoryFileIndex::Alignment(_)))
-            .count();
-        let variant_count = repository_file_indexes
-            .iter()
-            .filter(|index| matches!(index, RepositoryFileIndex::Variant(_)))
-            .count();
-        let bed_count = repository_file_indexes
-            .iter()
-            .filter(|index| matches!(index, RepositoryFileIndex::Bed(_)))
-            .count();
-
         Ok(Self {
             reference,
 
             // /settings: settings.clone(),
             messages: Vec::new(),
 
-            alignments: std::iter::repeat_with(Alignment::default)
-                .take(alignment_count)
-                .collect(),
-            alignment_options: vec![Vec::new(); alignment_count],
+            alignments: Vec::new(),
+            alignment_options: Vec::new(),
             track: Track::<Gene>::default(),
             sequence: Sequence::default(),
-            variants: std::iter::repeat_with(SortedIntervalCollection::<Variant>::default)
-                .take(variant_count)
-                .collect(),
-            variant_loaded: vec![false; variant_count],
-            bed_intervals: std::iter::repeat_with(SortedIntervalCollection::<BEDInterval>::default)
-                .take(bed_count)
-                .collect(),
-            bed_loaded: vec![false; bed_count],
+            variants: Vec::new(),
+            variant_loaded: Vec::new(),
+            bed_intervals: Vec::new(),
+            bed_loaded: Vec::new(),
             contig_header: contigs,
         })
     }
@@ -151,6 +139,10 @@ impl State {
         self.messages.push(message);
     }
 
+    pub fn add_alignment_track(&mut self) {
+        self.alignments.push(Alignment::default());
+    }
+
     pub async fn load_alignment_data(
         &mut self,
         index: usize,
@@ -200,6 +192,10 @@ impl State {
         Ok(self)
     }
 
+    pub fn add_variant_track(&mut self) {
+        self.variants.push(VariantTrack::default())
+    }
+
     pub async fn load_variant_data(
         &mut self,
         index: usize,
@@ -215,11 +211,15 @@ impl State {
         Ok(self)
     }
 
+    pub fn add_bed_track(&mut self) {
+        self.bed_intervals.push(BedTrack::default())
+    }
+
     pub async fn load_bed_data(
         &mut self,
         index: usize,
         _region: &Region,
-        bed_repository: &mut BEDRepository,
+        bed_repository: &mut BedRepository,
     ) -> Result<&mut Self, TGVError> {
         *self
             .bed_intervals
@@ -257,8 +257,9 @@ impl State {
 
 impl State {
     /// Main function to route state message handling.
-    pub fn set_alignment_change(
+    pub fn set_alignment_options(
         &mut self,
+        index: usize,
         focus: &Focus,
         options: Vec<AlignmentDisplayOption>,
     ) -> Result<(), TGVError> {
@@ -280,14 +281,8 @@ impl State {
                 _ => option,
             })
             .collect_vec();
-        for alignment_options in &mut self.alignment_options {
-            *alignment_options = options.clone();
-        }
-        for (alignment, alignment_options) in
-            self.alignments.iter_mut().zip(&self.alignment_options)
-        {
-            alignment.apply_options(alignment_options, &self.sequence)?;
-        }
+        self.alignment_options[index] = options.clone();
+        self.alignments[index].apply_options(&options, &self.sequence)?;
 
         Ok(())
     }

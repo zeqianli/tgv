@@ -12,7 +12,7 @@ mod sequence;
 mod status_bar;
 mod track;
 mod variants;
-pub use alignment::render_alignment;
+pub use alignment::{render_alignment, render_paired_alignment};
 pub use bed::render_bed;
 pub use colors::{DARK_THEME, Palette};
 pub use console::render_console;
@@ -31,7 +31,7 @@ use crate::{
     register::{KeyRegisterType, Registers},
 };
 
-use gv_core::{error::TGVError, state::State};
+use gv_core::{error::TGVError, message::AlignmentDisplayOption, state::State};
 use ratatui::buffer::Buffer;
 
 /// Render all areas in the layout
@@ -68,14 +68,11 @@ pub fn render_main(
                         .get(*index)
                         .map(Vec::as_slice)
                         .unwrap_or(&[]);
-                    render_alignment(
-                        rect,
-                        buf,
-                        alignment,
-                        alignment_options,
-                        alignment_view,
-                        pallete,
-                    )?;
+                    if alignment_options.contains(&AlignmentDisplayOption::ViewAsPairs) {
+                        render_paired_alignment(rect, buf, alignment, alignment_view, pallete)?;
+                    } else {
+                        render_alignment(rect, buf, alignment, alignment_view, pallete)?;
+                    }
                 }
             }
             AreaType::Sequence => {

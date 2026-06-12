@@ -37,42 +37,6 @@ impl AreaType {
             AreaType::Bed(_) => Constraint::Length(1),
         }
     }
-
-    fn track_order(
-        settings: &Settings,
-        repository_file_indexes: &[RepositoryFileIndex], // TODO: unnecessary
-    ) -> Vec<Self> {
-        let mut children = vec![];
-        if settings.core.reference.needs_track() {
-            children.push(AreaType::Cytoband);
-        }
-
-        if settings.core.reference.needs_sequence() || settings.core.reference.needs_track() {
-            children.push(AreaType::Coordinate);
-        }
-
-        for repository_file_index in repository_file_indexes {
-            match repository_file_index {
-                RepositoryFileIndex::Alignment(index) => {
-                    children.push(AreaType::Coverage(*index));
-                    children.push(AreaType::Alignment(*index));
-                }
-                RepositoryFileIndex::Variant(index) => children.push(AreaType::Variant(*index)),
-                RepositoryFileIndex::Bed(index) => children.push(AreaType::Bed(*index)),
-            }
-        }
-
-        if settings.core.reference.needs_sequence() {
-            children.push(AreaType::Sequence);
-        }
-        if settings.core.reference.needs_track() {
-            children.push(AreaType::GeneTrack);
-        }
-
-        children.push(AreaType::Console);
-        children.push(AreaType::Error);
-        children
-    }
 }
 
 pub struct AlignmentView {
@@ -294,7 +258,7 @@ impl AlignmentView {
 
 /// Main page layout
 pub struct MainLayout {
-    pub track_order: Vec<AreaType>,
+    pub tracks: Vec<AreaType>,
 
     pub main_area: Rect,
 
@@ -303,8 +267,38 @@ pub struct MainLayout {
 
 impl MainLayout {
     pub fn new(settings: &Settings, repository_file_indexes: &[RepositoryFileIndex]) -> Self {
+        let mut tracks = vec![];
+        if settings.core.reference.needs_track() {
+            tracks.push(AreaType::Cytoband);
+        }
+
+        if settings.core.reference.needs_sequence() || settings.core.reference.needs_track() {
+            tracks.push(AreaType::Coordinate);
+        }
+
+        for repository_file_index in repository_file_indexes {
+            match repository_file_index {
+                RepositoryFileIndex::Alignment(index) => {
+                    tracks.push(AreaType::Coverage(*index));
+                    tracks.push(AreaType::Alignment(*index));
+                }
+                RepositoryFileIndex::Variant(index) => tracks.push(AreaType::Variant(*index)),
+                RepositoryFileIndex::Bed(index) => tracks.push(AreaType::Bed(*index)),
+            }
+        }
+
+        if settings.core.reference.needs_sequence() {
+            tracks.push(AreaType::Sequence);
+        }
+        if settings.core.reference.needs_track() {
+            tracks.push(AreaType::GeneTrack);
+        }
+
+        tracks.push(AreaType::Console);
+        tracks.push(AreaType::Error);
+
         MainLayout {
-            track_order: AreaType::track_order(settings, repository_file_indexes),
+            tracks: tracks,
             main_area: Rect::default(),
             areas: Vec::new(),
         }
@@ -315,7 +309,7 @@ impl MainLayout {
             self.main_area = area;
 
             let constraints = self
-                .track_order
+                .tracks
                 .iter()
                 .map(AreaType::constraint)
                 .collect::<Vec<_>>();
@@ -325,7 +319,7 @@ impl MainLayout {
                 .split(area);
 
             self.areas = self
-                .track_order
+                .tracks
                 .iter()
                 .copied()
                 .zip(areas.iter().copied())

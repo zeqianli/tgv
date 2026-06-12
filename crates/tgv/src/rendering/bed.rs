@@ -3,7 +3,7 @@ use crate::{
     rendering::{colors::Palette, intervals::render_simple_intervals},
 };
 use gv_core::{
-    bed::BEDInterval,
+    bed::{BedInterval, BedTrack},
     error::TGVError,
     intervals::{GenomeInterval, SortedIntervalCollection},
 };
@@ -12,13 +12,13 @@ use ratatui::{buffer::Buffer, layout::Rect};
 pub fn render_bed(
     area: &Rect,
     buf: &mut Buffer,
-    bed_intervals: &SortedIntervalCollection<BEDInterval>,
+    bed_intervals: &BedTrack,
     alignment_view: &AlignmentView,
     pallete: &Palette,
 ) -> Result<(), TGVError> {
     let region = alignment_view.region(area);
     let intervals =
-        bed_intervals.overlapping(region.contig_index(), region.start(), region.end())?; // FIXME: wasteful calculation here
+        bed_intervals.overlapping(region.contig_index(), region.start(), region.end())?; // Optimize?
     if !intervals.is_empty() {
         let first_color_index = intervals[0].index % 2;
         render_simple_intervals(
