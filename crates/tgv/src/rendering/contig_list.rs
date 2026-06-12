@@ -140,21 +140,22 @@ fn render_contig_at_y(
     }
 
     if let (Some(max_contig_length), Some(contig_length)) = (max_contig_length, contig_length)
-        && area.width >= MIN_CONTIG_LENGTH_SPACING + left_spacing + 5 {
-            let contig_length_x = usize::max(
-                0,
-                (contig_length as f64 / (max_contig_length) as f64
-                    * (area.width - MIN_CONTIG_LENGTH_SPACING - left_spacing) as f64)
-                    as usize,
-            );
+        && area.width >= MIN_CONTIG_LENGTH_SPACING + left_spacing + 5
+    {
+        let contig_length_x = usize::max(
+            0,
+            (contig_length as f64 / (max_contig_length) as f64
+                * (area.width - MIN_CONTIG_LENGTH_SPACING - left_spacing) as f64)
+                as usize,
+        );
 
-            buf.set_string(
-                area.x + left_spacing,
-                area.y + y,
-                "▅".repeat(contig_length_x),
-                Style::default(),
-            );
-        }
+        buf.set_string(
+            area.x + left_spacing,
+            area.y + y,
+            "▅".repeat(contig_length_x),
+            Style::default(),
+        );
+    }
 
     Ok(())
 }

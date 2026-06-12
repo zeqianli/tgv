@@ -240,8 +240,6 @@ impl AlignmentRepositoryEnum {
         reference_sequence: &Sequence,
         contig_header: &ContigHeader,
     ) -> Result<Alignment, TGVError> {
-        
-
         let mut records = match region.alignment(contig_header)? {
             Some(region) => {
                 let mut records = Vec::new();

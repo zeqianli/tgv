@@ -61,7 +61,6 @@ impl Reference {
     }
 }
 
-
 impl std::string::ToString for Reference {
     fn to_string(&self) -> String {
         match self {

@@ -553,7 +553,6 @@ impl TryFrom<String> for UcscHost {
     }
 }
 
-
 impl std::str::FromStr for UcscHost {
     type Err = TGVError;
 

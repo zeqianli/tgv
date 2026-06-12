@@ -47,16 +47,18 @@ pub fn render_track(
             );
 
             if let Some((label_x, label)) = context.label_info
-                && area.height >= 2 && label_x > right_most_label_onscreen_x + 1 {
-                    right_most_label_onscreen_x = label_x + label.len() as u16 - 1;
+                && area.height >= 2
+                && label_x > right_most_label_onscreen_x + 1
+            {
+                right_most_label_onscreen_x = label_x + label.len() as u16 - 1;
 
-                    buf.set_string(
-                        label_x + area.x,
-                        area.y + 1,
-                        label.clone(),
-                        Style::default(),
-                    );
-                }
+                buf.set_string(
+                    label_x + area.x,
+                    area.y + 1,
+                    label.clone(),
+                    Style::default(),
+                );
+            }
         }
     }
 
