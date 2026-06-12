@@ -5,16 +5,27 @@ use crate::sequence::Sequence;
 use crate::{
     alignment::{
         coverage::{BaseCoverage, DEFAULT_COVERAGE, calculate_basewise_coverage},
-        read::{AlignedRead, ReadPair, calculate_paired_context},
+        read::{
+            AlignedRead, ReadPair, RenderingContext, calculate_paired_context,
+            calculate_rendering_contexts,
+        },
     },
     message::AlignmentDisplayOption,
 };
 use std::collections::{BTreeMap, HashMap, hash_map::Entry};
 
+const RENDERING_CONTEXT_NOT_CALCULATED: u64 = u64::MAX;
+
 /// An alignment stack
 #[derive(Debug, Default)]
 pub struct Alignment {
     pub reads: Vec<AlignedRead>,
+
+    /// Base mismatches with the reference.
+    pub rendering_contexts: Vec<Vec<RenderingContext>>,
+
+    /// Read index to rendering context index.
+    pub read_rendering_context_indexes: Vec<u64>,
 
     pub contig_index: usize,
 
@@ -124,9 +135,9 @@ impl Alignment {
             .map(|index| &self.reads[*index])
     }
 
-    pub fn y_of(&self, read: &AlignedRead) -> Option<usize> {
-        if self.show_read[read.index] {
-            Some(self.ys[read.index])
+    pub fn y_of(&self, read_index: usize) -> Option<usize> {
+        if *self.show_read.get(read_index)? {
+            Some(*self.ys.get(read_index)?)
         } else {
             None
         }
@@ -141,6 +152,8 @@ impl Alignment {
         let show_reads = vec![true; reads.len()];
         let ys = stack_tracks_for_reads(&reads, &show_reads);
         let mut alignment = Self {
+            rendering_contexts: Vec::new(),
+            read_rendering_context_indexes: vec![RENDERING_CONTEXT_NOT_CALCULATED; reads.len()],
             reads,
             contig_index,
             coverage: BTreeMap::new(),
@@ -183,13 +196,168 @@ impl Alignment {
         Ok(self)
     }
 
+    pub fn read_rendering_contexts(
+        &mut self,
+        read_index: usize,
+        reference_sequence: &Sequence,
+    ) -> Result<&[RenderingContext], TGVError> {
+        let context_index = self.ensure_read_rendering_context(read_index, reference_sequence)?;
+        Ok(&self.rendering_contexts[context_index])
+    }
+
+    pub fn pair_rendering_contexts(
+        &mut self,
+        pair_index: usize,
+        reference_sequence: &Sequence,
+    ) -> Result<&[RenderingContext], TGVError> {
+        let context_index = self.ensure_pair_rendering_context(pair_index, reference_sequence)?;
+        Ok(&self.rendering_contexts[context_index])
+    }
+
+    fn ensure_read_rendering_context(
+        &mut self,
+        read_index: usize,
+        reference_sequence: &Sequence,
+    ) -> Result<usize, TGVError> {
+        let Some(context_index) = self.read_rendering_context_indexes.get(read_index).copied()
+        else {
+            return Err(TGVError::StateError(format!(
+                "Read index out of bounds while building rendering context: {read_index}"
+            )));
+        };
+
+        if context_index != RENDERING_CONTEXT_NOT_CALCULATED {
+            return self.valid_rendering_context_index(context_index);
+        }
+
+        let read = self.reads.get(read_index).ok_or_else(|| {
+            TGVError::StateError(format!(
+                "Read index out of bounds while building rendering context: {read_index}"
+            ))
+        })?;
+        let cigars = read.cigars()?;
+        let mut contexts = Vec::new();
+        calculate_rendering_contexts(
+            &mut contexts,
+            &read.record,
+            read.start,
+            &cigars,
+            read.record.sequence(),
+            read.record.flags().is_reverse_complemented(),
+            reference_sequence,
+        )?;
+
+        let context_index = self.push_rendering_contexts(contexts)?;
+        self.read_rendering_context_indexes[read_index] =
+            u64::try_from(context_index).map_err(|_| {
+                TGVError::StateError(
+                    "Rendering context cache index does not fit in u64.".to_string(),
+                )
+            })?;
+
+        Ok(context_index)
+    }
+
+    fn ensure_pair_rendering_context(
+        &mut self,
+        pair_index: usize,
+        reference_sequence: &Sequence,
+    ) -> Result<usize, TGVError> {
+        let (context_index, read_1_index, read_2_index) = {
+            let read_pairs = self.read_pairs.as_ref().ok_or_else(|| {
+                TGVError::StateError("Read pairs are not calculated before rendering.".to_string())
+            })?;
+            let read_pair = read_pairs.get(pair_index).ok_or_else(|| {
+                TGVError::StateError(format!(
+                    "Read pair index out of bounds while building rendering context: {pair_index}"
+                ))
+            })?;
+            (
+                read_pair.rendering_context_index,
+                read_pair.read_1_index,
+                read_pair.read_2_index,
+            )
+        };
+
+        if context_index != RENDERING_CONTEXT_NOT_CALCULATED {
+            return self.valid_rendering_context_index(context_index);
+        }
+
+        let read_1_context_index =
+            self.ensure_read_rendering_context(read_1_index, reference_sequence)?;
+        let context_index = match read_2_index {
+            Some(read_2_index) => {
+                let read_2_context_index =
+                    self.ensure_read_rendering_context(read_2_index, reference_sequence)?;
+                let contexts = calculate_paired_context(
+                    self.rendering_contexts[read_1_context_index].clone(),
+                    self.rendering_contexts[read_2_context_index].clone(),
+                );
+                self.push_rendering_contexts(contexts)?
+            }
+            None => read_1_context_index,
+        };
+
+        let context_index_u64 = u64::try_from(context_index).map_err(|_| {
+            TGVError::StateError("Rendering context cache index does not fit in u64.".to_string())
+        })?;
+        let read_pairs = self.read_pairs.as_mut().ok_or_else(|| {
+            TGVError::StateError("Read pairs are not calculated before rendering.".to_string())
+        })?;
+        let read_pair = read_pairs.get_mut(pair_index).ok_or_else(|| {
+            TGVError::StateError(format!(
+                "Read pair index out of bounds while building rendering context: {pair_index}"
+            ))
+        })?;
+        read_pair.rendering_context_index = context_index_u64;
+
+        Ok(context_index)
+    }
+
+    fn push_rendering_contexts(
+        &mut self,
+        contexts: Vec<RenderingContext>,
+    ) -> Result<usize, TGVError> {
+        let context_index = self.rendering_contexts.len();
+        u64::try_from(context_index).map_err(|_| {
+            TGVError::StateError("Rendering context cache index does not fit in u64.".to_string())
+        })?;
+        self.rendering_contexts.push(contexts);
+        Ok(context_index)
+    }
+
+    fn valid_rendering_context_index(&self, context_index: u64) -> Result<usize, TGVError> {
+        let context_index = usize::try_from(context_index).map_err(|_| {
+            TGVError::StateError("Rendering context cache index does not fit in usize.".to_string())
+        })?;
+        if context_index >= self.rendering_contexts.len() {
+            return Err(TGVError::StateError(format!(
+                "Rendering context cache index out of bounds: {context_index}"
+            )));
+        }
+        Ok(context_index)
+    }
+
+    fn clear_rendering_context_cache(&mut self) {
+        self.rendering_contexts.clear();
+        self.read_rendering_context_indexes
+            .fill(RENDERING_CONTEXT_NOT_CALCULATED);
+        if let Some(read_pairs) = self.read_pairs.as_mut() {
+            for read_pair in read_pairs {
+                read_pair.rendering_context_index = RENDERING_CONTEXT_NOT_CALCULATED;
+            }
+        }
+    }
+
     pub fn build_mate_rendering_contexts(&mut self) -> Result<&mut Self, TGVError> {
         if self.mate_map.is_none() {
             return Ok(self);
         }
 
+        self.clear_rendering_context_cache();
+
         let mate_map = self.mate_map.as_ref().unwrap();
-        let MATE_NOT_FOUND_FLAG = mate_map.len();
+        let mate_not_found_flag = mate_map.len();
 
         let mut read_pairs = Vec::new();
         let mut show_pairs = Vec::new();
@@ -210,7 +378,7 @@ impl Alignment {
             }
             if read.show_as_pair() {
                 let mate_index = mate_map[i];
-                if mate_index == MATE_NOT_FOUND_FLAG {
+                if mate_index == mate_not_found_flag {
                     read_pairs.push(self.make_read_pair(read_pairs.len(), i, None));
                     show_pairs.push(self.show_read[i]);
                     read_index_is_built[i] = true;
@@ -273,10 +441,6 @@ impl Alignment {
 
                 let stacking_start = u64::min(read_1.stacking_start(), read_2.stacking_start());
                 let stacking_end = u64::max(read_1.stacking_end(), read_2.stacking_end());
-                let rendering_contexts = calculate_paired_context(
-                    read_1.rendering_contexts.clone(),
-                    read_2.rendering_contexts.clone(),
-                );
 
                 ReadPair {
                     read_1_index: read_index_1,
@@ -284,7 +448,7 @@ impl Alignment {
                     stacking_start,
                     stacking_end,
                     index: pair_index,
-                    rendering_contexts,
+                    rendering_context_index: RENDERING_CONTEXT_NOT_CALCULATED,
                 }
             }
             None => {
@@ -295,7 +459,7 @@ impl Alignment {
                     stacking_start: read.stacking_start(),
                     stacking_end: read.stacking_end(),
                     index: pair_index,
-                    rendering_contexts: read.rendering_contexts.clone(),
+                    rendering_context_index: RENDERING_CONTEXT_NOT_CALCULATED,
                 }
             }
         }
@@ -309,10 +473,11 @@ impl Alignment {
             if !*show_read {
                 continue;
             }
+            let cigars = read.cigars()?;
             let read_coverage = calculate_basewise_coverage(
                 read.start,
-                &read.cigars,
-                read.read.sequence(),
+                &cigars,
+                read.record.sequence(),
                 reference_sequence,
             )?; // TODO: seq() is called twice. Optimize this in the future.
             for (i, coverage) in read_coverage.into_iter() {
@@ -364,16 +529,18 @@ pub fn calculate_mate_map(reads: &Vec<AlignedRead>) -> Result<Vec<usize>, TGVErr
 
     for (i, read) in reads.iter().enumerate() {
         if read.show_as_pair() {
-            let read_name = read.read.name().unwrap().to_vec();
-            match read_id_map.remove(&read_name) {
-                Some(mate_index) => {
-                    output[i] = mate_index;
-                    output[mate_index] = i;
+            if let Some(read_name) = read.record.name() {
+                let read_name = read_name.to_vec();
+                match read_id_map.remove(&read_name) {
+                    Some(mate_index) => {
+                        output[i] = mate_index;
+                        output[mate_index] = i;
+                    }
+                    _ => {
+                        read_id_map.insert(read_name, i);
+                    }
                 }
-                _ => {
-                    read_id_map.insert(read_name, i);
-                }
-            }
+            };
         }
     }
 

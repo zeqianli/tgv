@@ -1,5 +1,4 @@
 use crate::error::TGVError;
-use crate::intervals::GenomeInterval;
 use crate::message::AlignmentFilter;
 use crate::sequence::Sequence;
 // use rust_htslib::bam::{record::Seq, Read, Record};
@@ -10,7 +9,7 @@ use noodles::sam::{
     alignment::{
         RecordBuf,
         record::{
-            Cigar as CigarTrait, Flags,
+            Cigar as CigarTrait,
             cigar::{Op, op::Kind},
             data::field::Tag,
         },
@@ -84,11 +83,12 @@ impl RenderingContext {
     }
 }
 
-#[derive(Clone, Debug)]
 /// An aligned read with viewing coordinates.
+/// A few extra attributes are used frequently and thus saved.
+#[derive(Clone, Debug)]
 pub struct AlignedRead {
     /// Alignment record data
-    pub read: RecordBuf,
+    pub record: RecordBuf,
 
     /// Non-clipped start genome coordinate on the alignment view
     /// 1-based, inclusive
@@ -103,19 +103,13 @@ pub struct AlignedRead {
 
     /// Trailing softclips. Used for track stacking calculation.
     pub trailing_softclips: u64,
-
-    pub cigars: Vec<Op>,
-
-    pub flags: Flags,
-
-    /// index in the alignment read array.
-    pub index: usize,
-
-    /// Base mismatches with the reference
-    pub rendering_contexts: Vec<RenderingContext>,
 }
 
 impl AlignedRead {
+    pub fn cigars(&self) -> Result<Vec<Op>, TGVError> {
+        cigar_ops(&self.record)
+    }
+
     pub fn stacking_start(&self) -> u64 {
         u64::max(self.start.saturating_sub(self.leading_softclips), 1)
     }
@@ -152,29 +146,32 @@ impl AlignedRead {
         // AS = 0
         // Hidden tags: MDLocation = chr20:78,249
         // Base = C @ QV 30
+        let read_name = self
+            .record
+            .name()
+            .map(|name| name.to_string())
+            .unwrap_or_else(|| "<missing>".to_string());
+        let mapping_quality = self
+            .record
+            .mapping_quality()
+            .map(|quality| quality.get().to_string())
+            .unwrap_or_else(|| ".".to_string());
+
         Ok(format!(
-            "{}  Flags={:?}  Start={}  MAPQ={}  Cigar={:?}", // TODO
-            self.read.name().unwrap(),
-            self.flags,
+            "{}  Flags={:?}  Start={}  MAPQ={}  Cigar={:?}",
+            read_name,
+            self.record.flags(),
             self.start,
-            self.read.mapping_quality().unwrap().get(),
-            self.cigars
+            mapping_quality,
+            self.record.cigar()
         ))
     }
 
-    /// Whether the alignment segment (excluding softclips) covers a x_coordinate (1-based).
-    pub fn covers(&self, posiion: u64) -> bool {
-        self.start <= posiion && self.end >= posiion
-    }
     /// Whether the alignment segment (including softclips) covers a posiion (1-based).
     pub fn full_read_covers(&self, posiion: u64) -> bool {
         self.stacking_start() <= posiion && self.stacking_end() >= posiion
     }
 
-    /// Whether the alignment segment (excluding softclips) covers a x_coordinate (1-based).
-    pub fn overlaps(&self, left: u64, right: u64) -> bool {
-        self.start <= right && self.end >= left
-    }
     /// Whether the alignment segment (including softclips) covers a x_coordinate (1-based).
     pub fn full_read_overlaps(&self, left: u64, right: u64) -> bool {
         self.stacking_start() <= right && self.stacking_end() >= left
@@ -182,7 +179,9 @@ impl AlignedRead {
 
     /// Whether show together with the mate in paired view
     pub fn show_as_pair(&self) -> bool {
-        self.flags.is_segmented() && !self.flags.is_supplementary() && !self.flags.is_secondary()
+        self.record.flags().is_segmented()
+            && !self.record.flags().is_supplementary()
+            && !self.record.flags().is_secondary()
     }
 
     /// Return the base at coordinate.
@@ -197,16 +196,14 @@ impl AlignedRead {
 
         let coordinate = coordinate as usize;
 
-        let cigars = self.read.cigar();
         let mut reference_pivot = self.start as usize;
         let mut query_pivot: usize = 1; // 1-based. # bases on the sequence. Note that need to substract leading softclips to get aligned base coordinate.
 
+        let cigars = self.cigars().ok()?;
         for op in cigars.iter() {
             if reference_pivot > coordinate {
                 break;
             }
-
-            let op = op.unwrap();
 
             let kind = op.kind();
             let len = op.len();
@@ -242,7 +239,7 @@ impl AlignedRead {
 
                 Kind::SequenceMismatch | Kind::SequenceMatch | Kind::Match => {
                     return Some(
-                        self.read
+                        self.record
                             .sequence()
                             .get(query_pivot + coordinate - reference_pivot - 1)
                             .unwrap(),
@@ -272,7 +269,10 @@ impl AlignedRead {
         let mut reference_pivot: usize = self.start as usize;
         let mut query_pivot: usize = 1; // 1-based. # bases on the sequence. Note that need to substract leading softclips to get aligned base coordinate.
 
-        for op in self.cigars.iter() {
+        let Ok(cigars) = self.cigars() else {
+            return false;
+        };
+        for op in cigars.iter() {
             if reference_pivot > coordinate {
                 break;
             }
@@ -360,34 +360,22 @@ impl AlignedRead {
     //     Self::from_bam_record(read_index, record, reference_sequence)
     // }
     //
+}
 
-    pub fn build_rendering_context(
-        &mut self,
-        reference_sequence: &Sequence,
-    ) -> Result<(), TGVError> {
-        calculate_rendering_contexts(
-            &mut self.rendering_contexts,
-            &self.read,
-            self.start,
-            &self.cigars,
-            self.read.sequence(),
-            self.flags.is_reverse_complemented(),
-            reference_sequence,
-        )?;
+impl TryFrom<RecordBuf> for AlignedRead {
+    type Error = TGVError;
+    fn try_from(record: RecordBuf) -> Result<Self, TGVError> {
+        let start = record.alignment_start().ok_or_else(|| {
+            TGVError::AlignmentParseError(
+                "Alignment record is missing a start position.".to_string(),
+            )
+        })?;
+        let start = start.get() as u64;
 
-        Ok(())
-    }
+        let alignment_span = record.cigar().alignment_span() as u64;
+        let end = start.saturating_add(alignment_span.saturating_sub(1));
 
-    pub fn from_record(
-        read_index: usize,
-        read: RecordBuf,
-        _reference_sequence: &Sequence,
-    ) -> Result<Self, TGVError> {
-        let start = read.alignment_start().unwrap().get() as u64;
-        let cigars = read.cigar();
-        let end = start + cigars.alignment_span() as u64 - 1;
-
-        let cigars = cigars.iter().collect::<Result<Vec<Op>, _>>().unwrap();
+        let cigars = cigar_ops(&record)?;
         let leading_softclips = cigars
             .first()
             .map(|op| match op.kind() {
@@ -395,35 +383,30 @@ impl AlignedRead {
                 _ => 0,
             })
             .unwrap_or(0);
-        let trailing_softclips = if cigars.len() > 1 {
-            cigars
-                .last()
-                .map(|op| match op.kind() {
-                    Kind::SoftClip => op.len() as u64,
-                    _ => 0,
-                })
-                .unwrap_or(0)
-        } else {
-            0
-        };
-        let flags = read.flags();
-        // read.pos() in htslib: 0-based, inclusive, excluding leading hardclips and softclips
-        // read.reference_end() in htslib: 0-based, exclusive, excluding trailing hardclips and softclips
+        let trailing_softclips = cigars.last().map_or(0, |op| match op.kind() {
+            Kind::SoftClip => op.len() as u64,
+            _ => 0,
+        });
 
         Ok(Self {
-            read,
+            record,
 
             start,
             end,
-            cigars,
-            flags,
             leading_softclips,
             trailing_softclips,
-            index: read_index,
-
-            rendering_contexts: Vec::new(),
         })
     }
+}
+
+fn cigar_ops(record: &RecordBuf) -> Result<Vec<Op>, TGVError> {
+    record
+        .cigar()
+        .iter()
+        .collect::<Result<Vec<Op>, _>>()
+        .map_err(|error| {
+            TGVError::AlignmentParseError(format!("Failed to parse a CIGAR operation: {error}"))
+        })
 }
 
 /// Parse base modification data from the MM and ML auxiliary tags of a SAM record.
@@ -1062,8 +1045,8 @@ pub struct ReadPair {
     /// Index in the alignment
     pub index: usize,
 
-    /// The paired rendering contexts
-    pub rendering_contexts: Vec<RenderingContext>,
+    /// Index into the alignment rendering context cache.
+    pub rendering_context_index: u64,
 }
 
 #[cfg(test)]

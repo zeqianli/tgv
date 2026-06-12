@@ -351,12 +351,12 @@ impl App {
         Ok(())
     }
 
-    pub fn render(&self, buf: &mut Buffer) -> Result<(), TGVError> {
+    pub fn render(&mut self, buf: &mut Buffer) -> Result<(), TGVError> {
         use crate::rendering::{render_contig_list, render_help, render_main};
         match &self.scene {
             Scene::Main => render_main(
                 buf,
-                &self.state,
+                &mut self.state,
                 &self.registers,
                 &self.layout,
                 &self.alignment_view,

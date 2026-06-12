@@ -37,7 +37,7 @@ use ratatui::buffer::Buffer;
 /// Render all areas in the layout
 pub fn render_main(
     buf: &mut Buffer,
-    state: &State,
+    state: &mut State,
     registers: &Registers,
     layout: &MainLayout,
     alignment_view: &AlignmentView,
@@ -60,18 +60,35 @@ pub fn render_main(
                 }
             }
             AreaType::Alignment(index) => {
-                if alignment_view.zoom <= AlignmentView::MAX_ZOOM_TO_DISPLAY_ALIGNMENTS
-                    && let Some(alignment) = state.alignments.get(*index)
-                {
+                if alignment_view.zoom <= AlignmentView::MAX_ZOOM_TO_DISPLAY_ALIGNMENTS {
                     let alignment_options = state
                         .alignment_options
                         .get(*index)
                         .map(Vec::as_slice)
                         .unwrap_or(&[]);
-                    if alignment_options.contains(&AlignmentDisplayOption::ViewAsPairs) {
-                        render_paired_alignment(rect, buf, alignment, alignment_view, pallete)?;
-                    } else {
-                        render_alignment(rect, buf, alignment, alignment_view, pallete)?;
+                    let view_as_pairs =
+                        alignment_options.contains(&AlignmentDisplayOption::ViewAsPairs);
+                    let reference_sequence = &state.sequence;
+                    if let Some(alignment) = state.alignments.get_mut(*index) {
+                        if view_as_pairs {
+                            render_paired_alignment(
+                                rect,
+                                buf,
+                                alignment,
+                                reference_sequence,
+                                alignment_view,
+                                pallete,
+                            )?;
+                        } else {
+                            render_alignment(
+                                rect,
+                                buf,
+                                alignment,
+                                reference_sequence,
+                                alignment_view,
+                                pallete,
+                            )?;
+                        }
                     }
                 }
             }
