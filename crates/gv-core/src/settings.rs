@@ -2,8 +2,7 @@ use crate::reference::Reference;
 use crate::tracks::UcscHost;
 use clap::ValueEnum;
 
-#[derive(Clone, Debug, PartialEq, Eq, ValueEnum)]
-#[derive(Default)]
+#[derive(Clone, Debug, PartialEq, Eq, ValueEnum, Default)]
 pub enum BackendType {
     /// Always use UCSC DB / API.
     Ucsc,
@@ -15,7 +14,6 @@ pub enum BackendType {
     #[default]
     Default,
 }
-
 
 /// Where the BAM file is stored.
 #[derive(Debug, Clone, Eq, PartialEq)]
@@ -47,10 +45,15 @@ pub enum AlignmentPath {
 }
 
 #[derive(Debug, Clone, Eq, PartialEq)]
+pub enum FilePath {
+    AlignmentPath(AlignmentPath),
+    VariantPath(String),
+    BedPath(String),
+}
+
+#[derive(Debug, Clone, Eq, PartialEq)]
 pub struct Settings {
-    pub alignment_path: Option<AlignmentPath>,
-    pub vcf_path: Option<String>,
-    pub bed_path: Option<String>,
+    pub file_paths: Vec<FilePath>,
     pub reference: Reference,
     pub backend: BackendType,
 
@@ -63,9 +66,7 @@ pub struct Settings {
 impl Default for Settings {
     fn default() -> Settings {
         Settings {
-            alignment_path: None,
-            vcf_path: None,
-            bed_path: None,
+            file_paths: Vec::new(),
             reference: Reference::default(),
             backend: BackendType::default(), // Default backend
             ucsc_host: UcscHost::default(),

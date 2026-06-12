@@ -12,7 +12,6 @@ use ratatui::symbols::bar::{NINE_LEVELS, Set};
 use gv_core::{
     alignment::{Alignment, BaseCoverage},
     error::TGVError,
-    state::State,
 };
 
 use crate::{layout::AlignmentView, rendering::Palette};
@@ -23,7 +22,7 @@ const MIN_AREA_HEIGHT: u16 = 1;
 pub fn render_coverage(
     area: &Rect,
     buf: &mut Buffer,
-    state: &State,
+    alignment: &Alignment,
     alignment_view: &AlignmentView,
     palette: &Palette,
 ) -> Result<(), TGVError> {
@@ -32,7 +31,7 @@ pub fn render_coverage(
     }
 
     let mut binned_coverage = calculate_binned_coverage(
-        &state.alignment,
+        alignment,
         alignment_view.left(area),
         alignment_view.right(area),
         area.width as usize,

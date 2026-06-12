@@ -1,4 +1,8 @@
-use gv_core::{error::TGVError, intervals::GenomeInterval, state::State};
+use gv_core::{
+    error::TGVError,
+    intervals::{GenomeInterval, SortedIntervalCollection},
+    variant::Variant,
+};
 
 use crate::{
     layout::AlignmentView,
@@ -9,15 +13,12 @@ use ratatui::{buffer::Buffer, layout::Rect};
 pub fn render_variants(
     area: &Rect,
     buf: &mut Buffer,
-    state: &State,
+    variants: &SortedIntervalCollection<Variant>,
     alignment_view: &AlignmentView,
     pallete: &Palette,
 ) -> Result<(), TGVError> {
     let region = alignment_view.region(area);
-    let variants =
-        state
-            .variants
-            .overlapping(region.contig_index(), region.start(), region.end())?;
+    let variants = variants.overlapping(region.contig_index(), region.start(), region.end())?;
     if !variants.is_empty() {
         let first_color_index = variants[0].index % 2;
         render_simple_intervals(

@@ -5,7 +5,7 @@ use crate::{
     error::TGVError,
     reference::Reference,
     sequence::SequenceRepositoryEnum,
-    settings::Settings,
+    settings::{FilePath, Settings},
     tracks::{TrackService, TrackServiceEnum},
     variant::VariantRepository,
 };
@@ -13,12 +13,19 @@ use crate::{
 use itertools::Itertools;
 use std::path::Path;
 
+#[derive(Debug, Clone, Copy, Eq, PartialEq)]
+pub enum RepositoryFileIndex {
+    Alignment(usize),
+    Variant(usize),
+    Bed(usize),
+}
+
 pub struct Repository {
-    pub alignment_repository: Option<AlignmentRepositoryEnum>,
+    pub alignment_repositories: Vec<AlignmentRepositoryEnum>,
 
-    pub variant_repository: Option<VariantRepository>,
+    pub variant_repositories: Vec<VariantRepository>,
 
-    pub bed_repository: Option<BEDRepository>,
+    pub bed_repositories: Vec<BEDRepository>,
 
     pub track_service: Option<TrackServiceEnum>,
 
@@ -26,14 +33,40 @@ pub struct Repository {
 }
 
 impl Repository {
-    pub async fn new(settings: &Settings) -> Result<(Self, ContigHeader), TGVError> {
+    pub async fn new(
+        settings: &Settings,
+    ) -> Result<(Self, ContigHeader, Vec<RepositoryFileIndex>), TGVError> {
         let mut track_service = TrackServiceEnum::new(settings).await?;
         let mut sequence_service = SequenceRepositoryEnum::new(settings)?;
-        let alignment_repository = if let Some(alignment_path) = settings.alignment_path.as_ref() {
-            Some(AlignmentRepositoryEnum::new(alignment_path).await?)
-        } else {
-            None
-        };
+        let mut alignment_repositories = Vec::new();
+        let mut variant_repositories = Vec::new();
+        let mut bed_repositories = Vec::new();
+        let mut repository_file_indexes = Vec::new();
+
+        for file_path in &settings.file_paths {
+            match file_path {
+                FilePath::AlignmentPath(alignment_path) => {
+                    let index = alignment_repositories.len();
+                    alignment_repositories
+                        .push(AlignmentRepositoryEnum::new(alignment_path).await?);
+                    repository_file_indexes.push(RepositoryFileIndex::Alignment(index));
+                }
+                FilePath::VariantPath(vcf_path) => {
+                    let index = variant_repositories.len();
+                    variant_repositories.push(VariantRepository {
+                        vcf_path: vcf_path.clone(),
+                    });
+                    repository_file_indexes.push(RepositoryFileIndex::Variant(index));
+                }
+                FilePath::BedPath(bed_path) => {
+                    let index = bed_repositories.len();
+                    bed_repositories.push(BEDRepository {
+                        bed_path: bed_path.clone(),
+                    });
+                    repository_file_indexes.push(RepositoryFileIndex::Bed(index));
+                }
+            }
+        }
 
         // Contig header collect contigs from multiple sources.
         // - If the reference is a ucsc genome: ucsc database (local, mariadb, or api)
@@ -112,38 +145,63 @@ impl Repository {
             _ => {}
         }
 
-        // FIXME
-        // Warning when the reference contig is not present in the BAM header.
-        if let Some(bam) = alignment_repository.as_ref() {
-            bam.read_header()?.into_iter().for_each(|(name, length)| {
-                contig_header.update_or_add_contig(
-                    name,
-                    length.map(|l| l as u64),
-                    Vec::new(),
-                    ContigSource::Alignment,
-                );
-            })
+        for repository_file_index in &repository_file_indexes {
+            match repository_file_index {
+                RepositoryFileIndex::Alignment(index) => {
+                    // FIXME
+                    // Warning when the reference contig is not present in the BAM header.
+                    alignment_repositories[*index]
+                        .read_header()?
+                        .into_iter()
+                        .for_each(|(name, length)| {
+                            contig_header.update_or_add_contig(
+                                name,
+                                length.map(|l| l as u64),
+                                Vec::new(),
+                                ContigSource::Alignment,
+                            );
+                        });
+                }
+                RepositoryFileIndex::Variant(index) => {
+                    variant_repositories[*index]
+                        .read_contigs()?
+                        .into_iter()
+                        .for_each(|(name, length)| {
+                            contig_header.update_or_add_contig(
+                                name,
+                                length,
+                                Vec::new(),
+                                ContigSource::Annotation,
+                            );
+                        });
+                }
+                RepositoryFileIndex::Bed(index) => {
+                    bed_repositories[*index]
+                        .read_contigs()?
+                        .into_iter()
+                        .for_each(|(name, length)| {
+                            contig_header.update_or_add_contig(
+                                name,
+                                length,
+                                Vec::new(),
+                                ContigSource::Annotation,
+                            );
+                        });
+                }
+            }
         }
-
-        let variant_repository = settings
-            .vcf_path
-            .as_ref()
-            .map(|vcf_path| VariantRepository {
-                vcf_path: vcf_path.clone(),
-            });
 
         // PERF: async
         Ok((
             Self {
-                alignment_repository,
-                variant_repository,
-                bed_repository: settings.bed_path.as_ref().map(|bed_path| BEDRepository {
-                    bed_path: bed_path.clone(),
-                }),
+                alignment_repositories,
+                variant_repositories,
+                bed_repositories,
                 track_service,
                 sequence_service,
             },
             contig_header,
+            repository_file_indexes,
         ))
     }
 

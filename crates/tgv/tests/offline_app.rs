@@ -100,8 +100,8 @@ async fn offline_sequence_updates_tracks_and_scenes() {
         .unwrap();
 
     assert_eq!(harness.app.scene, Scene::Main);
-    assert!(harness.app.state.variant_loaded);
-    assert!(harness.app.state.bed_loaded);
+    assert_eq!(harness.app.state.variant_loaded, vec![true]);
+    assert_eq!(harness.app.state.bed_loaded, vec![true]);
     assert_eq!(harness.app.alignment_view.focus.position, 33_121_130);
     assert_eq!(
         harness.app.state.messages,

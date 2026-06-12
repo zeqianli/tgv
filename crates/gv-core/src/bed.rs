@@ -4,6 +4,7 @@ use crate::{
     intervals::{GenomeInterval, SortedIntervalCollection},
 };
 use noodles::bed::{self};
+use std::collections::HashSet;
 
 #[derive(Debug, Clone)]
 pub struct BEDInterval {
@@ -66,6 +67,22 @@ pub struct BEDRepository {
 }
 
 impl BEDRepository {
+    pub fn read_contigs(&self) -> Result<Vec<(String, Option<u64>)>, TGVError> {
+        let mut reader = bed::io::reader::Builder::<3>.build_from_path(self.bed_path.as_str())?;
+        let mut record = bed::Record::default();
+        let mut seen = HashSet::new();
+        let mut contigs = Vec::new();
+
+        while reader.read_record(&mut record)? != 0 {
+            let name = record.reference_sequence_name().to_string();
+            if seen.insert(name.clone()) {
+                contigs.push((name, None));
+            }
+        }
+
+        Ok(contigs)
+    }
+
     pub fn read_bed(
         &self,
         contig_header: &ContigHeader,

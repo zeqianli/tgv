@@ -3,10 +3,9 @@ use crate::{
     rendering::colors::Palette,
 };
 use gv_core::{
-    alignment::{RenderingContext, RenderingContextKind, RenderingContextModifier},
+    alignment::{Alignment, RenderingContext, RenderingContextKind, RenderingContextModifier},
     error::TGVError,
     message::AlignmentDisplayOption,
-    state::State,
 };
 use ratatui::{
     buffer::Buffer,
@@ -18,7 +17,8 @@ use ratatui::{
 pub fn render_alignment(
     area: &Rect,
     buf: &mut Buffer,
-    state: &State,
+    alignment: &Alignment,
+    alignment_options: &[AlignmentDisplayOption],
     alignment_view: &AlignmentView,
     pallete: &Palette,
 ) -> Result<(), TGVError> {
@@ -26,26 +26,23 @@ pub fn render_alignment(
         return Ok(());
     }
 
-    let display_as_pairs = state
-        .alignment_options
-        .contains(&AlignmentDisplayOption::ViewAsPairs);
-    if display_as_pairs && state.alignment.read_pairs.is_none() {
+    let display_as_pairs = alignment_options.contains(&AlignmentDisplayOption::ViewAsPairs);
+    if display_as_pairs && alignment.read_pairs.is_none() {
         return Err(TGVError::StateError(
             "Read pairs are not calculated before rendering.".to_string(),
         ));
     }
 
     if display_as_pairs {
-        state
-            .alignment
+        alignment
             .read_pairs
             .as_ref()
             .unwrap()
             .iter()
-            .zip(state.alignment.show_pairs.as_ref().unwrap().iter())
+            .zip(alignment.show_pairs.as_ref().unwrap().iter())
             .try_for_each(|(read_pair, show_pair)| {
                 if *show_pair {
-                    let y = state.alignment.ys[read_pair.read_1_index];
+                    let y = alignment.ys[read_pair.read_1_index];
                     read_pair.rendering_contexts.iter().try_for_each(|context| {
                         // Paired mode: modifications not supported yet; pass None.
                         render_contexts(context, y, buf, alignment_view, area, pallete)
@@ -55,14 +52,13 @@ pub fn render_alignment(
                 }
             })?;
     } else {
-        state
-            .alignment
+        alignment
             .ys_index
             .iter()
             .enumerate()
             .try_for_each(|(y, read_indexes)| {
                 read_indexes.iter().try_for_each(|read_index| {
-                    let read = &state.alignment.reads[*read_index];
+                    let read = &alignment.reads[*read_index];
 
                     read.rendering_contexts.iter().try_for_each(|context| {
                         render_contexts(context, y, buf, alignment_view, area, pallete)

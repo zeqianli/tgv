@@ -13,7 +13,7 @@ use crate::{
     reference::Reference,
     //register::Registers,
     //rendering::{MainLayout, layout::resize_node},
-    repository::Repository,
+    repository::{Repository, RepositoryFileIndex},
     sequence::Sequence,
     track::Track,
     variant::Variant,
@@ -26,14 +26,14 @@ pub struct State {
 
     pub contig_header: ContigHeader,
     pub reference: Reference,
-    pub alignment: Alignment,
-    pub alignment_options: Vec<AlignmentDisplayOption>,
+    pub alignments: Vec<Alignment>,
+    pub alignment_options: Vec<Vec<AlignmentDisplayOption>>,
 
-    pub variants: SortedIntervalCollection<Variant>,
-    pub variant_loaded: bool, // Temporary hack before proper implemetation for the indexed VCF IO
+    pub variants: Vec<SortedIntervalCollection<Variant>>,
+    pub variant_loaded: Vec<bool>, // Temporary hack before proper implemetation for the indexed VCF IO
 
-    pub bed_intervals: SortedIntervalCollection<BEDInterval>,
-    pub bed_loaded: bool, // Temporary hack before proper implemetation for large bed file io
+    pub bed_intervals: Vec<SortedIntervalCollection<BEDInterval>>,
+    pub bed_loaded: Vec<bool>, // Temporary hack before proper implemetation for large bed file io
 
     pub track: Track<Gene>,
 
@@ -41,21 +41,44 @@ pub struct State {
 }
 
 impl State {
-    pub fn new(reference: Reference, contigs: ContigHeader) -> Result<Self, TGVError> {
+    pub fn new(
+        reference: Reference,
+        contigs: ContigHeader,
+        repository_file_indexes: &[RepositoryFileIndex],
+    ) -> Result<Self, TGVError> {
+        let alignment_count = repository_file_indexes
+            .iter()
+            .filter(|index| matches!(index, RepositoryFileIndex::Alignment(_)))
+            .count();
+        let variant_count = repository_file_indexes
+            .iter()
+            .filter(|index| matches!(index, RepositoryFileIndex::Variant(_)))
+            .count();
+        let bed_count = repository_file_indexes
+            .iter()
+            .filter(|index| matches!(index, RepositoryFileIndex::Bed(_)))
+            .count();
+
         Ok(Self {
             reference,
 
             // /settings: settings.clone(),
             messages: Vec::new(),
 
-            alignment: Alignment::default(),
-            alignment_options: Vec::new(),
+            alignments: std::iter::repeat_with(Alignment::default)
+                .take(alignment_count)
+                .collect(),
+            alignment_options: vec![Vec::new(); alignment_count],
             track: Track::<Gene>::default(),
             sequence: Sequence::default(),
-            variants: SortedIntervalCollection::<Variant>::default(),
-            variant_loaded: false,
-            bed_intervals: SortedIntervalCollection::<BEDInterval>::default(),
-            bed_loaded: false,
+            variants: std::iter::repeat_with(SortedIntervalCollection::<Variant>::default)
+                .take(variant_count)
+                .collect(),
+            variant_loaded: vec![false; variant_count],
+            bed_intervals: std::iter::repeat_with(SortedIntervalCollection::<BEDInterval>::default)
+                .take(bed_count)
+                .collect(),
+            bed_loaded: vec![false; bed_count],
             contig_header: contigs,
         })
     }
@@ -130,18 +153,25 @@ impl State {
 
     pub async fn load_alignment_data(
         &mut self,
+        index: usize,
         region: &Region,
         alignment_repository: &mut AlignmentRepositoryEnum,
     ) -> Result<&mut Self, TGVError> {
         // if !self.alignment.has_complete_data(&region) {
         //     Ok(false)
         // } else {
-        self.alignment = alignment_repository
+        let mut alignment = alignment_repository
             .read_alignment(region, &self.sequence, &self.contig_header)
             .await?;
 
-        self.alignment
-            .apply_options(&self.alignment_options, &self.sequence)?;
+        let alignment_options = self.alignment_options.get(index).ok_or_else(|| {
+            TGVError::StateError(format!("Alignment options index out of bounds: {index}"))
+        })?;
+        alignment.apply_options(alignment_options, &self.sequence)?;
+
+        *self.alignments.get_mut(index).ok_or_else(|| {
+            TGVError::StateError(format!("Alignment index out of bounds: {index}"))
+        })? = alignment;
 
         Ok(self)
     }
@@ -172,21 +202,33 @@ impl State {
 
     pub async fn load_variant_data(
         &mut self,
+        index: usize,
         _region: &Region,
         variant_repository: &mut VariantRepository,
     ) -> Result<&mut Self, TGVError> {
-        self.variants = variant_repository.read_variants(&self.contig_header)?;
-        self.variant_loaded = true;
+        *self.variants.get_mut(index).ok_or_else(|| {
+            TGVError::StateError(format!("Variant index out of bounds: {index}"))
+        })? = variant_repository.read_variants(&self.contig_header)?;
+        *self.variant_loaded.get_mut(index).ok_or_else(|| {
+            TGVError::StateError(format!("Variant loaded index out of bounds: {index}"))
+        })? = true;
         Ok(self)
     }
 
     pub async fn load_bed_data(
         &mut self,
+        index: usize,
         _region: &Region,
         bed_repository: &mut BEDRepository,
     ) -> Result<&mut Self, TGVError> {
-        self.bed_intervals = bed_repository.read_bed(&self.contig_header)?;
-        self.bed_loaded = true;
+        *self
+            .bed_intervals
+            .get_mut(index)
+            .ok_or_else(|| TGVError::StateError(format!("BED index out of bounds: {index}")))? =
+            bed_repository.read_bed(&self.contig_header)?;
+        *self.bed_loaded.get_mut(index).ok_or_else(|| {
+            TGVError::StateError(format!("BED loaded index out of bounds: {index}"))
+        })? = true;
         Ok(self)
     }
 
@@ -220,7 +262,9 @@ impl State {
         focus: &Focus,
         options: Vec<AlignmentDisplayOption>,
     ) -> Result<(), TGVError> {
-        self.alignment.reset(&self.sequence)?;
+        for alignment in &mut self.alignments {
+            alignment.reset(&self.sequence)?;
+        }
 
         let options = options
             .into_iter()
@@ -236,9 +280,14 @@ impl State {
                 _ => option,
             })
             .collect_vec();
-        self.alignment_options = options;
-        self.alignment
-            .apply_options(&self.alignment_options, &self.sequence)?;
+        for alignment_options in &mut self.alignment_options {
+            *alignment_options = options.clone();
+        }
+        for (alignment, alignment_options) in
+            self.alignments.iter_mut().zip(&self.alignment_options)
+        {
+            alignment.apply_options(alignment_options, &self.sequence)?;
+        }
 
         Ok(())
     }

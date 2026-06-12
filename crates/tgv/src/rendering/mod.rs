@@ -52,14 +52,30 @@ pub fn render_main(
         match area_type {
             AreaType::Cytoband => render_cytobands(rect, buf, state, alignment_view, pallete)?,
             AreaType::Coordinate => render_coordinates(rect, buf, alignment_view, state)?,
-            AreaType::Coverage => {
-                if alignment_view.zoom <= AlignmentView::MAX_ZOOM_TO_DISPLAY_ALIGNMENTS {
-                    render_coverage(rect, buf, state, alignment_view, pallete)?;
+            AreaType::Coverage(index) => {
+                if alignment_view.zoom <= AlignmentView::MAX_ZOOM_TO_DISPLAY_ALIGNMENTS
+                    && let Some(alignment) = state.alignments.get(*index)
+                {
+                    render_coverage(rect, buf, alignment, alignment_view, pallete)?;
                 }
             }
-            AreaType::Alignment => {
-                if alignment_view.zoom <= AlignmentView::MAX_ZOOM_TO_DISPLAY_ALIGNMENTS {
-                    render_alignment(rect, buf, state, alignment_view, pallete)?;
+            AreaType::Alignment(index) => {
+                if alignment_view.zoom <= AlignmentView::MAX_ZOOM_TO_DISPLAY_ALIGNMENTS
+                    && let Some(alignment) = state.alignments.get(*index)
+                {
+                    let alignment_options = state
+                        .alignment_options
+                        .get(*index)
+                        .map(Vec::as_slice)
+                        .unwrap_or(&[]);
+                    render_alignment(
+                        rect,
+                        buf,
+                        alignment,
+                        alignment_options,
+                        alignment_view,
+                        pallete,
+                    )?;
                 }
             }
             AreaType::Sequence => {
@@ -78,8 +94,16 @@ pub fn render_main(
             AreaType::Error => {
                 render_status_bar(rect, buf, state, alignment_view)?;
             }
-            AreaType::Variant => render_variants(rect, buf, state, alignment_view, pallete)?,
-            AreaType::Bed => render_bed(rect, buf, state, alignment_view, pallete)?,
+            AreaType::Variant(index) => {
+                if let Some(variants) = state.variants.get(*index) {
+                    render_variants(rect, buf, variants, alignment_view, pallete)?;
+                }
+            }
+            AreaType::Bed(index) => {
+                if let Some(bed_intervals) = state.bed_intervals.get(*index) {
+                    render_bed(rect, buf, bed_intervals, alignment_view, pallete)?;
+                }
+            }
         };
     }
     Ok(())

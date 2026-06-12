@@ -35,20 +35,25 @@ pub fn render_status_bar(
         state.contig_name(&alignment_view.focus)?,
         alignment_view.focus.position
     );
-    let mut y_coordinate_string = if state.alignment.depth() == 0 {
+    let first_alignment = state.alignments.first();
+    let first_alignment_options = state.alignment_options.first();
+
+    let mut y_coordinate_string = if first_alignment.is_none_or(|alignment| alignment.depth() == 0)
+    {
         "".to_string()
     } else {
         let y = alignment_view.top() + 1; // Change to 1-base
-        let depth = state.alignment.depth();
+        let depth = first_alignment.unwrap().depth();
         let percent = y * 100 / depth;
         format!("{}% ({} / {})", percent, y, depth)
     };
 
     // Alignment options
 
-    if !state.alignment_options.is_empty() {
-        let alignment_option_string = state
-            .alignment_options
+    if let Some(alignment_options) = first_alignment_options
+        && !alignment_options.is_empty()
+    {
+        let alignment_option_string = alignment_options
             .iter()
             .map(|option| format!("{}", option))
             .join(",");
