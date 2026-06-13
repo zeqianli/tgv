@@ -266,9 +266,9 @@ impl State {
         focus: &Focus,
         options: Vec<AlignmentDisplayOption>,
     ) -> Result<(), TGVError> {
-        for alignment in &mut self.alignments {
-            alignment.reset(&self.sequence)?;
-        }
+        // for alignment in &mut self.alignments {
+        //     alignment.reset(&self.sequence)?;
+        // }
 
         let options = options
             .into_iter()

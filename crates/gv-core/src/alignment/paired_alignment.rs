@@ -29,23 +29,12 @@ pub struct PairedAlignment {
 
     /// Paired rendering contexts.
     rendering_contexts: Vec<Vec<RenderingContext>>,
-
-    pub contig_index: usize,
-
-    /// The left bound of region with complete data.
-    /// 1-based, inclusive.
-    data_complete_left_bound: u64,
-
-    /// The right bound of region with complete data.
-    /// 1-based, inclusive.
-    data_complete_right_bound: u64,
 }
 
 impl PairedAlignment {
     pub fn new(alignment: &mut Alignment, reference_sequence: &Sequence) -> Result<Self, TGVError> {
         let mate_map = calculate_mate_map(&alignment.reads)?;
-        let (data_complete_left_bound, data_complete_right_bound) =
-            alignment.data_complete_bounds();
+
         let mut paired_alignment = Self {
             mate_map,
             read_pairs: Vec::new(),
@@ -53,9 +42,6 @@ impl PairedAlignment {
             ys_index: Vec::new(),
             show_read: Vec::new(),
             rendering_contexts: Vec::new(),
-            contig_index: alignment.contig_index,
-            data_complete_left_bound,
-            data_complete_right_bound,
         };
 
         paired_alignment.read_pairs = paired_alignment.build_read_pairs(alignment)?;
@@ -65,14 +51,6 @@ impl PairedAlignment {
         paired_alignment.build_rendering_contexts(alignment, reference_sequence)?;
 
         Ok(paired_alignment)
-    }
-
-    /// Check if data in [left, right] is all loaded.
-    /// 1-based, inclusive.
-    pub fn has_complete_data(&self, region: &Region) -> bool {
-        (region.contig_index() == self.contig_index)
-            && (region.start() >= self.data_complete_left_bound)
-            && (region.end() <= self.data_complete_right_bound)
     }
 
     /// Return the number of paired alignment tracks.

@@ -17,6 +17,9 @@ pub(super) const RENDERING_CONTEXT_NOT_CALCULATED: u64 = u64::MAX;
 /// An alignment stack
 #[derive(Debug, Default)]
 pub struct Alignment {
+    /// Contig of the current alignment
+    pub contig_index: usize,
+
     pub reads: Vec<AlignedRead>,
 
     /// Base mismatches with the reference.
@@ -34,9 +37,8 @@ pub struct Alignment {
     /// y -> read indexes at y location
     pub ys_index: Vec<Vec<usize>>,
 
-    pub contig_index: usize,
-
     /// Coverage at each position. Keys are 1-based, inclusive.
+    /// Calculated as needed.
     coverage: BTreeMap<u64, BaseCoverage>,
 
     /// The left bound of region with complete data.
@@ -166,124 +168,82 @@ impl Alignment {
         Ok(self)
     }
 
-    pub fn read_rendering_contexts(
-        &mut self,
-        read_index: usize,
-        reference_sequence: &Sequence,
-    ) -> Result<&[RenderingContext], TGVError> {
-        let context_index = self.ensure_read_rendering_context(read_index, reference_sequence)?;
-        Ok(&self.rendering_contexts[context_index])
+    pub fn get_rendering_contexts(&self, read_index: usize) -> Option<&[RenderingContext]> {
+        match self.read_rendering_context_indexes[read_index] {
+            RENDERING_CONTEXT_NOT_CALCULATED => None,
+            i => Some(self.rendering_contexts[i as usize].as_ref()),
+        }
     }
 
-    pub(super) fn ensure_read_rendering_context(
+    /// Calculate and write rendering context for read_index.
+    /// The new context is added to the end of the context vector.
+    /// Returns the index of the new contexts.
+    pub(super) fn calculate_read_rendering_context(
         &mut self,
         read_index: usize,
         reference_sequence: &Sequence,
-    ) -> Result<usize, TGVError> {
-        let Some(context_index) = self.read_rendering_context_indexes.get(read_index).copied()
-        else {
-            return Err(TGVError::StateError(format!(
-                "Read index out of bounds while building rendering context: {read_index}"
-            )));
-        };
+    ) -> Result<u64, TGVError> {
+        let read = &self.reads[read_index];
 
-        if context_index != RENDERING_CONTEXT_NOT_CALCULATED {
-            return self.valid_rendering_context_index(context_index);
-        }
-
-        let read = self.reads.get(read_index).ok_or_else(|| {
-            TGVError::StateError(format!(
-                "Read index out of bounds while building rendering context: {read_index}"
-            ))
-        })?;
         let cigars = read.cigars()?;
         let mut contexts = Vec::new();
         calculate_rendering_contexts(
             &mut contexts,
-            &read.record,
             read.start,
-            &cigars,
+            &read.record.flags(),
+            read.record.cigar().as_ref(),
             read.record.sequence(),
-            read.record.flags().is_reverse_complemented(),
+            read.record.data(),
             reference_sequence,
         )?;
 
-        let context_index = self.push_rendering_contexts(contexts)?;
-        self.read_rendering_context_indexes[read_index] =
-            u64::try_from(context_index).map_err(|_| {
-                TGVError::StateError(
-                    "Rendering context cache index does not fit in u64.".to_string(),
-                )
-            })?;
-
-        Ok(context_index)
-    }
-
-    fn push_rendering_contexts(
-        &mut self,
-        contexts: Vec<RenderingContext>,
-    ) -> Result<usize, TGVError> {
-        let context_index = self.rendering_contexts.len();
-        u64::try_from(context_index).map_err(|_| {
-            TGVError::StateError("Rendering context cache index does not fit in u64.".to_string())
-        })?;
         self.rendering_contexts.push(contexts);
-        Ok(context_index)
+        let rendering_context_index = (self.rendering_contexts.len() - 1) as u64;
+        self.read_rendering_context_indexes[read_index] = rendering_context_index;
+
+        Ok(rendering_context_index)
     }
 
-    fn valid_rendering_context_index(&self, context_index: u64) -> Result<usize, TGVError> {
-        let context_index = usize::try_from(context_index).map_err(|_| {
-            TGVError::StateError("Rendering context cache index does not fit in usize.".to_string())
-        })?;
-        if context_index >= self.rendering_contexts.len() {
-            return Err(TGVError::StateError(format!(
-                "Rendering context cache index out of bounds: {context_index}"
-            )));
-        }
-        Ok(context_index)
-    }
+    // pub fn apply_options(
+    //     &mut self,
+    //     options: &Vec<AlignmentDisplayOption>,
+    //     reference_sequence: &Sequence,
+    // ) -> Result<&mut Self, TGVError> {
+    //     let view_as_pairs = options
+    //         .iter()
+    //         .any(|option| matches!(option, AlignmentDisplayOption::ViewAsPairs));
 
-    pub fn apply_options(
-        &mut self,
-        options: &Vec<AlignmentDisplayOption>,
-        reference_sequence: &Sequence,
-    ) -> Result<&mut Self, TGVError> {
-        let view_as_pairs = options
-            .iter()
-            .any(|option| matches!(option, AlignmentDisplayOption::ViewAsPairs));
+    //     for option in options {
+    //         match option {
+    //             AlignmentDisplayOption::Filter(filter) => {
+    //                 self.filter(filter, reference_sequence)?;
+    //             }
+    //             AlignmentDisplayOption::Sort(sort) => {
+    //                 self.sort(sort)?;
+    //             }
+    //             AlignmentDisplayOption::ViewAsPairs => {}
+    //         }
+    //     }
 
-        for option in options {
-            match option {
-                AlignmentDisplayOption::Filter(filter) => {
-                    self.filter(filter, reference_sequence)?;
-                }
-                AlignmentDisplayOption::Sort(sort) => {
-                    self.sort(sort)?;
-                }
-                AlignmentDisplayOption::ViewAsPairs => {}
-            }
-        }
+    //     if view_as_pairs {
+    //         self.view_as_pairs(reference_sequence)?;
+    //     }
 
-        if view_as_pairs {
-            self.view_as_pairs(reference_sequence)?;
-        }
-
-        Ok(self)
-    }
+    //     Ok(self)
+    // }
 
     /// Reset alignment options
-    pub fn reset(&mut self, reference_sequence: &Sequence) -> Result<&mut Self, TGVError> {
-        // TODO: reference sequence could be empty.
-        self.show_read = vec![true; self.reads.len()];
-        self.ys = stack_tracks_for_reads(&self.reads, &self.show_read);
-        self.paired_alignment = None;
+    // pub fn reset(&mut self, reference_sequence: &Sequence) -> Result<&mut Self, TGVError> {
+    //     // TODO: reference sequence could be empty.
+    //     self.show_read = vec![true; self.reads.len()];
+    //     self.ys = stack_tracks_for_reads(&self.reads, &self.show_read);
+    //     self.paired_alignment = None;
 
-        self.build_y_index()?.build_coverage(reference_sequence)
-    }
+    //     self.build_y_index()?.build_coverage(reference_sequence)
+    // }
 
     pub fn build_coverage(&mut self, reference_sequence: &Sequence) -> Result<&mut Self, TGVError> {
-        // coverage
-
+        // TODO: optimize
         let mut coverage_hashmap: HashMap<u64, BaseCoverage> = HashMap::new();
         for (read, show_read) in self.reads.iter().zip(self.show_read.iter()) {
             if !*show_read {
@@ -306,12 +266,7 @@ impl Alignment {
             }
         }
 
-        let mut coverage: BTreeMap<u64, BaseCoverage> = BTreeMap::new();
-        for (k, v) in coverage_hashmap.into_iter() {
-            coverage.insert(k, v);
-        }
-
-        self.coverage = coverage;
+        self.coverage = coverage_hashmap.into_iter().collect();
 
         Ok(self)
     }
@@ -357,21 +312,6 @@ impl Alignment {
                 TGVError::StateError("Read pairs are not calculated before rendering.".to_string())
             })?
             .visible_pairs()
-    }
-
-    pub(super) fn read_is_visible(&self, read_index: usize) -> Result<bool, TGVError> {
-        self.show_read.get(read_index).copied().ok_or_else(|| {
-            TGVError::StateError(format!(
-                "Read index out of bounds while checking visibility: {read_index}"
-            ))
-        })
-    }
-
-    pub(super) fn data_complete_bounds(&self) -> (u64, u64) {
-        (
-            self.data_complete_left_bound,
-            self.data_complete_right_bound,
-        )
     }
 }
 

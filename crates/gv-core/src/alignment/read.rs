@@ -9,11 +9,14 @@ use noodles::sam::{
     alignment::{
         RecordBuf,
         record::{
-            Cigar as CigarTrait,
+            Cigar as CigarTrait, Flags,
             cigar::{Op, op::Kind},
             data::field::Tag,
         },
-        record_buf::data::field::{Value, value::Array},
+        record_buf::data::{
+            Data,
+            field::{Value, value::Array},
+        },
     },
     record::data::field::value::{
         BaseModifications,
@@ -106,10 +109,6 @@ pub struct AlignedRead {
 }
 
 impl AlignedRead {
-    pub fn cigars(&self) -> Result<Vec<Op>, TGVError> {
-        cigar_ops(&self.record)
-    }
-
     pub fn stacking_start(&self) -> u64 {
         u64::max(self.start.saturating_sub(self.leading_softclips), 1)
     }
@@ -199,8 +198,7 @@ impl AlignedRead {
         let mut reference_pivot = self.start as usize;
         let mut query_pivot: usize = 1; // 1-based. # bases on the sequence. Note that need to substract leading softclips to get aligned base coordinate.
 
-        let cigars = self.cigars().ok()?;
-        for op in cigars.iter() {
+        for op in self.record.cigar().as_ref() {
             if reference_pivot > coordinate {
                 break;
             }
@@ -375,7 +373,7 @@ impl TryFrom<RecordBuf> for AlignedRead {
         let alignment_span = record.cigar().alignment_span() as u64;
         let end = start.saturating_add(alignment_span.saturating_sub(1));
 
-        let cigars = cigar_ops(&record)?;
+        let cigars = record.cigar().as_ref();
         let leading_softclips = cigars
             .first()
             .map(|op| match op.kind() {
@@ -399,29 +397,20 @@ impl TryFrom<RecordBuf> for AlignedRead {
     }
 }
 
-fn cigar_ops(record: &RecordBuf) -> Result<Vec<Op>, TGVError> {
-    record
-        .cigar()
-        .iter()
-        .collect::<Result<Vec<Op>, _>>()
-        .map_err(|error| {
-            TGVError::AlignmentParseError(format!("Failed to parse a CIGAR operation: {error}"))
-        })
-}
-
 /// Parse base modification data from the MM and ML auxiliary tags of a SAM record.
 /// Returns an empty map if the record has no MM/ML tags or if parsing fails.
 fn extract_base_modifications(
     mm_string: String,
     ml_bytes: Option<Vec<u8>>,
-    record: &RecordBuf,
+    flags: &Flags,
+    sequence: &sam::alignment::record_buf::Sequence,
     cigars: &[Op],
     alignment_start: u64,
 ) -> Result<Vec<(u64, Modification, u8)>, TGVError> {
     let base_modifications: Vec<Group> = BaseModifications::parse(
         mm_string.as_bytes(),
-        record.flags().is_reverse_complemented(),
-        record.sequence(),
+        flags.is_reverse_complemented(),
+        sequence,
     )
     .map_err(|_| {
         TGVError::AlignmentParseError(format!("Failed to parse MM tag {mm_string}").to_string())
@@ -487,11 +476,11 @@ fn get_reference_postion_from_seq_position(pos: u64, alignment_start: u64, cigar
 /// See: https://samtools.github.io/hts-specs/SAMv1.pdf
 pub fn calculate_rendering_contexts(
     rendering_context: &mut Vec<RenderingContext>,
-    record: &RecordBuf,
     reference_start: u64, // 1-based. Alignment start, not softclip start
-    cigars: &Vec<Op>,
+    flags: &Flags,
+    cigars: &[Op],
     seq: &sam::alignment::record_buf::Sequence,
-    is_reverse: bool,
+    data: &Data,
     reference_sequence: &Sequence,
 ) -> Result<(), TGVError> {
     rendering_context.clear();
@@ -505,6 +494,7 @@ pub fn calculate_rendering_contexts(
     let mut annotate_insertion_in_next_cigar = None;
 
     let mut cigar_index_with_arrow_annotation = None;
+    let is_reverse = flags.is_reverse_complemented();
 
     for (i_op, op) in cigars.iter().enumerate() {
         let kind = op.kind();
@@ -698,8 +688,6 @@ pub fn calculate_rendering_contexts(
         })
     }
 
-    let data = record.data();
-
     // Fetch MM tag (string, type Z).
     if let Some(Value::String(s)) = data.get(&Tag::BASE_MODIFICATIONS) {
         let ml_string = String::from_utf8_lossy(s.as_ref()).into_owned();
@@ -709,7 +697,7 @@ pub fn calculate_rendering_contexts(
             _ => None,
         };
         let base_modification_modifiers =
-            extract_base_modifications(ml_string, ml_bytes, record, cigars, reference_start)?;
+            extract_base_modifications(ml_string, ml_bytes, flags, seq, cigars, reference_start)?;
 
         for (pos, modification, prob) in base_modification_modifiers.into_iter() {
             for context in rendering_context.iter_mut() {
@@ -1042,7 +1030,10 @@ pub struct ReadPair {
     /// 1-based end (including soft-clips)
     pub stacking_end: u64,
 
-    /// Index into the paired alignment rendering context cache.
+    /// Index in the alignment
+    pub index: usize,
+
+    /// Index into the alignment rendering context cache.
     pub rendering_context_index: u64,
 }
 
