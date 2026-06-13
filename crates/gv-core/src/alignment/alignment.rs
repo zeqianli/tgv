@@ -185,7 +185,6 @@ impl Alignment {
     ) -> Result<u64, TGVError> {
         let read = &self.reads[read_index];
 
-        let cigars = read.cigars()?;
         let mut contexts = Vec::new();
         calculate_rendering_contexts(
             &mut contexts,
