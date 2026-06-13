@@ -27,6 +27,12 @@ pub struct Alignment {
     /// Read index to rendering context index.
     pub read_rendering_context_indexes: Vec<u64>,
 
+    // read index -> y locations
+    pub ys: Vec<usize>,
+
+    /// y -> read indexes at y location
+    pub ys_index: Vec<Vec<usize>>,
+
     pub contig_index: usize,
 
     /// Coverage at each position. Keys are 1-based, inclusive.
@@ -40,14 +46,8 @@ pub struct Alignment {
     /// 1-based, inclusive.
     data_complete_right_bound: u64,
 
-    // read index -> y locations
-    pub ys: Vec<usize>,
-
     // Whether to display the read
     show_read: Vec<bool>,
-
-    /// y -> read indexes at y location
-    pub ys_index: Vec<Vec<usize>>,
 
     /// Default ys
     default_ys: Vec<usize>,
@@ -86,15 +86,15 @@ impl Alignment {
         }
     }
 
-    /// Return the read at x_coordinate, yth track
-    pub fn read_at(&self, x_coordinate: u64, y: usize) -> Option<&AlignedRead> {
+    /// Return the read at x, yth track
+    pub fn read_at(&self, x: u64, y: usize) -> Option<&AlignedRead> {
         if y >= self.depth() {
             return None;
         }
 
         self.ys_index[y]
             .iter()
-            .find(|i_read| self.reads[**i_read].full_read_covers(x_coordinate))
+            .find(|i_read| self.reads[**i_read].full_read_covers(x))
             .map(|index| &self.reads[*index])
     }
 
