@@ -30,7 +30,11 @@ pub fn render_alignment(
         .ys_index
         .iter()
         .enumerate()
-        .flat_map(|(y, read_indexes)| read_indexes.iter().map(move |read_index| (y, *read_index)))
+        .flat_map(|(y, read_indexes)| {
+            read_indexes
+                .iter()
+                .map(move |read_index| (y, *read_index))
+        })
         .collect::<Vec<_>>();
 
     for (y, read_index) in visible_reads {
@@ -46,7 +50,6 @@ pub fn render_paired_alignment(
     area: &Rect,
     buf: &mut Buffer,
     alignment: &mut Alignment,
-    reference_sequence: &Sequence,
     alignment_view: &AlignmentView,
     pallete: &Palette,
 ) -> Result<(), TGVError> {
@@ -57,7 +60,7 @@ pub fn render_paired_alignment(
     let visible_pairs = alignment.visible_read_pairs()?;
 
     for (pair_index, y) in visible_pairs {
-        let contexts = alignment.pair_rendering_contexts(pair_index, reference_sequence)?;
+        let contexts = alignment.pair_rendering_contexts(pair_index)?;
         for context in contexts {
             render_contexts(context, y, buf, alignment_view, area, pallete)?;
         }

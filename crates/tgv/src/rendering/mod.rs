@@ -71,14 +71,7 @@ pub fn render_main(
                     let reference_sequence = &state.sequence;
                     if let Some(alignment) = state.alignments.get_mut(*index) {
                         if view_as_pairs {
-                            render_paired_alignment(
-                                rect,
-                                buf,
-                                alignment,
-                                reference_sequence,
-                                alignment_view,
-                                pallete,
-                            )?;
+                            render_paired_alignment(rect, buf, alignment, alignment_view, pallete)?;
                         } else {
                             render_alignment(
                                 rect,

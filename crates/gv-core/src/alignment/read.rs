@@ -1042,10 +1042,7 @@ pub struct ReadPair {
     /// 1-based end (including soft-clips)
     pub stacking_end: u64,
 
-    /// Index in the alignment
-    pub index: usize,
-
-    /// Index into the alignment rendering context cache.
+    /// Index into the paired alignment rendering context cache.
     pub rendering_context_index: u64,
 }
 
