@@ -51,16 +51,6 @@ pub struct Alignment {
 
     /// Default ys
     default_ys: Vec<usize>,
-
-    /// read index -> mate read index (if present)
-    /// Used when viewing as pairs.
-    pub mate_map: Option<Vec<usize>>,
-
-    /// Read pairs. Used when viewing as pairs.
-    pub read_pairs: Option<Vec<ReadPair>>,
-
-    /// Whether to show the pair
-    pub show_pairs: Option<Vec<bool>>,
 }
 
 impl Alignment {
@@ -98,30 +88,19 @@ impl Alignment {
             .map(|index| &self.reads[*index])
     }
 
-    fn view_as_pairs(&mut self) -> Result<&mut Self, TGVError> {
-        if self.mate_map.is_none() {
-            self.build_mate_index()?;
-        }
-        self.build_mate_rendering_contexts()?;
+    // fn view_as_pairs(&mut self) -> Result<&mut Self, TGVError> {
+    //     self.ensure_paired_alignment()?;
+    //     self.ys = self
+    //         .paired_alignment
+    //         .as_ref()
+    //         .ok_or_else(|| {
+    //             TGVError::StateError("Read pairs are not calculated before stacking.".to_string())
+    //         })?
+    //         .y_coordinates(self)?;
+    //     self.build_y_index()?;
 
-        // build y index
-        let paired_ys = stack_tracks_for_paired_reads(
-            self.read_pairs.as_ref().unwrap(),
-            self.show_pairs.as_ref().unwrap(),
-        );
-
-        let mut ys = vec![0; self.reads.len()];
-        for (pair, y) in self.read_pairs.as_ref().unwrap().iter().zip(paired_ys) {
-            ys[pair.read_1_index] = y;
-            if let Some(read_2_index) = pair.read_2_index {
-                ys[read_2_index] = y;
-            }
-        }
-        self.ys = ys;
-        self.build_y_index()?;
-
-        Ok(self)
-    }
+    //     Ok(self)
+    // }
 
     /// Return the read at x_coordinate, yth track
     pub fn read_overlapping(&self, left: u64, right: u64, y: usize) -> Option<&AlignedRead> {
@@ -163,9 +142,6 @@ impl Alignment {
             default_ys: ys,
             show_read: show_reads,
             ys_index: Vec::new(),
-            mate_map: None,
-            read_pairs: None,
-            show_pairs: None,
         };
         alignment
             .build_y_index()?
@@ -190,27 +166,12 @@ impl Alignment {
         Ok(self)
     }
 
-    /// Build mate index
-    pub fn build_mate_index(&mut self) -> Result<&mut Self, TGVError> {
-        self.mate_map = Some(calculate_mate_map(&self.reads)?);
-        Ok(self)
-    }
-
     pub fn read_rendering_contexts(
         &mut self,
         read_index: usize,
         reference_sequence: &Sequence,
     ) -> Result<&[RenderingContext], TGVError> {
         let context_index = self.ensure_read_rendering_context(read_index, reference_sequence)?;
-        Ok(&self.rendering_contexts[context_index])
-    }
-
-    pub fn pair_rendering_contexts(
-        &mut self,
-        pair_index: usize,
-        reference_sequence: &Sequence,
-    ) -> Result<&[RenderingContext], TGVError> {
-        let context_index = self.ensure_pair_rendering_context(pair_index, reference_sequence)?;
         Ok(&self.rendering_contexts[context_index])
     }
 
@@ -258,62 +219,6 @@ impl Alignment {
         Ok(context_index)
     }
 
-    fn ensure_pair_rendering_context(
-        &mut self,
-        pair_index: usize,
-        reference_sequence: &Sequence,
-    ) -> Result<usize, TGVError> {
-        let (context_index, read_1_index, read_2_index) = {
-            let read_pairs = self.read_pairs.as_ref().ok_or_else(|| {
-                TGVError::StateError("Read pairs are not calculated before rendering.".to_string())
-            })?;
-            let read_pair = read_pairs.get(pair_index).ok_or_else(|| {
-                TGVError::StateError(format!(
-                    "Read pair index out of bounds while building rendering context: {pair_index}"
-                ))
-            })?;
-            (
-                read_pair.rendering_context_index,
-                read_pair.read_1_index,
-                read_pair.read_2_index,
-            )
-        };
-
-        if context_index != RENDERING_CONTEXT_NOT_CALCULATED {
-            return self.valid_rendering_context_index(context_index);
-        }
-
-        let read_1_context_index =
-            self.ensure_read_rendering_context(read_1_index, reference_sequence)?;
-        let context_index = match read_2_index {
-            Some(read_2_index) => {
-                let read_2_context_index =
-                    self.ensure_read_rendering_context(read_2_index, reference_sequence)?;
-                let contexts = calculate_paired_context(
-                    self.rendering_contexts[read_1_context_index].clone(),
-                    self.rendering_contexts[read_2_context_index].clone(),
-                );
-                self.push_rendering_contexts(contexts)?
-            }
-            None => read_1_context_index,
-        };
-
-        let context_index_u64 = u64::try_from(context_index).map_err(|_| {
-            TGVError::StateError("Rendering context cache index does not fit in u64.".to_string())
-        })?;
-        let read_pairs = self.read_pairs.as_mut().ok_or_else(|| {
-            TGVError::StateError("Read pairs are not calculated before rendering.".to_string())
-        })?;
-        let read_pair = read_pairs.get_mut(pair_index).ok_or_else(|| {
-            TGVError::StateError(format!(
-                "Read pair index out of bounds while building rendering context: {pair_index}"
-            ))
-        })?;
-        read_pair.rendering_context_index = context_index_u64;
-
-        Ok(context_index)
-    }
-
     fn push_rendering_contexts(
         &mut self,
         contexts: Vec<RenderingContext>,
@@ -338,87 +243,24 @@ impl Alignment {
         Ok(context_index)
     }
 
-    fn clear_rendering_context_cache(&mut self) {
-        self.rendering_contexts.clear();
-        self.read_rendering_context_indexes
-            .fill(RENDERING_CONTEXT_NOT_CALCULATED);
-        if let Some(read_pairs) = self.read_pairs.as_mut() {
-            for read_pair in read_pairs {
-                read_pair.rendering_context_index = RENDERING_CONTEXT_NOT_CALCULATED;
-            }
-        }
-    }
-
-    pub fn build_mate_rendering_contexts(&mut self) -> Result<&mut Self, TGVError> {
-        if self.mate_map.is_none() {
-            return Ok(self);
-        }
-
-        self.clear_rendering_context_cache();
-
-        let mate_map = self.mate_map.as_ref().unwrap();
-        let mate_not_found_flag = mate_map.len();
-
-        let mut read_pairs = Vec::new();
-        let mut show_pairs = Vec::new();
-
-        let mut read_index_is_built = vec![false; self.reads.len()];
-
-        // FIXME
-        // Now, all these scenrios display a read alone with the same color:
-        // - Not paired
-        // - Paired but the mate is not loaded
-        // - Supplementary alignment
-        // - Secondary alignment
-        // Introduce some option (e.g. coloring) to seprate these scenarios.
-
-        for (i, read) in self.reads.iter().enumerate() {
-            if read_index_is_built[i] {
-                continue;
-            }
-            if read.show_as_pair() {
-                let mate_index = mate_map[i];
-                if mate_index == mate_not_found_flag {
-                    read_pairs.push(self.make_read_pair(read_pairs.len(), i, None));
-                    show_pairs.push(self.show_read[i]);
-                    read_index_is_built[i] = true;
-                } else {
-                    read_pairs.push(self.make_read_pair(read_pairs.len(), i, Some(mate_index)));
-                    show_pairs.push(self.show_read[i] || self.show_read[mate_index]);
-                    read_index_is_built[i] = true;
-                    read_index_is_built[mate_index] = true;
-                }
-            } else {
-                read_pairs.push(self.make_read_pair(read_pairs.len(), i, None));
-                show_pairs.push(self.show_read[i]);
-                read_index_is_built[i] = true;
-            };
-        }
-
-        self.read_pairs = Some(read_pairs);
-        self.show_pairs = Some(show_pairs);
-
-        Ok(self)
-    }
-
-    pub fn apply_options(
-        &mut self,
-        options: &Vec<AlignmentDisplayOption>,
-        reference_sequence: &Sequence,
-    ) -> Result<&mut Self, TGVError> {
-        options
-            .iter()
-            .try_fold(self, |alignment, option| match option {
-                AlignmentDisplayOption::Filter(filter) => {
-                    alignment.filter(filter, reference_sequence)
-                }
-                AlignmentDisplayOption::Sort(sort) => {
-                    // TODO
-                    alignment.sort(sort)
-                }
-                AlignmentDisplayOption::ViewAsPairs => alignment.view_as_pairs(),
-            })
-    }
+    // pub fn apply_options(
+    //     &mut self,
+    //     options: &Vec<AlignmentDisplayOption>,
+    //     reference_sequence: &Sequence,
+    // ) -> Result<&mut Self, TGVError> {
+    //     options
+    //         .iter()
+    //         .try_fold(self, |alignment, option| match option {
+    //             AlignmentDisplayOption::Filter(filter) => {
+    //                 alignment.filter(filter, reference_sequence)
+    //             }
+    //             AlignmentDisplayOption::Sort(sort) => {
+    //                 // TODO
+    //                 alignment.sort(sort)
+    //             }
+    //             AlignmentDisplayOption::ViewAsPairs => alignment.view_as_pairs(),
+    //         })
+    // }
 
     /// Reset alignment options
     pub fn reset(&mut self, reference_sequence: &Sequence) -> Result<&mut Self, TGVError> {
@@ -427,42 +269,6 @@ impl Alignment {
         self.show_read = vec![true; self.reads.len()];
 
         self.build_y_index()?.build_coverage(reference_sequence)
-    }
-
-    pub fn make_read_pair(
-        &self,
-        pair_index: usize,
-        read_index_1: usize,
-        read_index_2: Option<usize>,
-    ) -> ReadPair {
-        match read_index_2 {
-            Some(read_index_2) => {
-                let (read_1, read_2) = (&self.reads[read_index_1], &self.reads[read_index_2]);
-
-                let stacking_start = u64::min(read_1.stacking_start(), read_2.stacking_start());
-                let stacking_end = u64::max(read_1.stacking_end(), read_2.stacking_end());
-
-                ReadPair {
-                    read_1_index: read_index_1,
-                    read_2_index: Some(read_index_2),
-                    stacking_start,
-                    stacking_end,
-                    index: pair_index,
-                    rendering_context_index: RENDERING_CONTEXT_NOT_CALCULATED,
-                }
-            }
-            None => {
-                let read = &self.reads[read_index_1];
-                ReadPair {
-                    read_1_index: read_index_1,
-                    read_2_index: None,
-                    stacking_start: read.stacking_start(),
-                    stacking_end: read.stacking_end(),
-                    index: pair_index,
-                    rendering_context_index: RENDERING_CONTEXT_NOT_CALCULATED,
-                }
-            }
-        }
     }
 
     pub fn build_coverage(&mut self, reference_sequence: &Sequence) -> Result<&mut Self, TGVError> {
@@ -522,31 +328,6 @@ impl Alignment {
     }
 }
 
-pub fn calculate_mate_map(reads: &Vec<AlignedRead>) -> Result<Vec<usize>, TGVError> {
-    let mut read_id_map = HashMap::<Vec<u8>, usize>::new();
-
-    let mut output = vec![reads.len(); reads.len()];
-
-    for (i, read) in reads.iter().enumerate() {
-        if read.show_as_pair() {
-            if let Some(read_name) = read.record.name() {
-                let read_name = read_name.to_vec();
-                match read_id_map.remove(&read_name) {
-                    Some(mate_index) => {
-                        output[i] = mate_index;
-                        output[mate_index] = i;
-                    }
-                    _ => {
-                        read_id_map.insert(read_name, i);
-                    }
-                }
-            };
-        }
-    }
-
-    Ok(output)
-}
-
 fn stack_tracks_for_reads(reads: &Vec<AlignedRead>, show_reads: &Vec<bool>) -> Vec<usize> {
     let mut track_left_bounds: Vec<u64> = Vec::new();
     let mut track_right_bounds: Vec<u64> = Vec::new();
@@ -562,28 +343,6 @@ fn stack_tracks_for_reads(reads: &Vec<AlignedRead>, show_reads: &Vec<bool>) -> V
                     &mut track_left_bounds,
                     &mut track_right_bounds,
                     3,
-                )
-            } else {
-                0
-            }
-        })
-        .collect::<Vec<usize>>()
-}
-fn stack_tracks_for_paired_reads(reads: &Vec<ReadPair>, show_reads: &Vec<bool>) -> Vec<usize> {
-    let mut track_left_bounds: Vec<u64> = Vec::new();
-    let mut track_right_bounds: Vec<u64> = Vec::new();
-
-    reads
-        .iter()
-        .zip(show_reads.iter())
-        .map(|(read, show_read)| {
-            if *show_read {
-                find_track(
-                    read.stacking_start,
-                    read.stacking_end,
-                    &mut track_left_bounds,
-                    &mut track_right_bounds,
-                    10, // larger gap to make viewing easier
                 )
             } else {
                 0

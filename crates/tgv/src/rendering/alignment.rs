@@ -30,11 +30,7 @@ pub fn render_alignment(
         .ys_index
         .iter()
         .enumerate()
-        .flat_map(|(y, read_indexes)| {
-            read_indexes
-                .iter()
-                .map(move |read_index| (y, *read_index))
-        })
+        .flat_map(|(y, read_indexes)| read_indexes.iter().map(move |read_index| (y, *read_index)))
         .collect::<Vec<_>>();
 
     for (y, read_index) in visible_reads {
@@ -58,23 +54,7 @@ pub fn render_paired_alignment(
         return Ok(());
     }
 
-    if alignment.read_pairs.is_none() {
-        return Err(TGVError::StateError(
-            "Read pairs are not calculated before rendering.".to_string(),
-        ));
-    }
-
-    let visible_pairs = alignment
-        .read_pairs
-        .as_ref()
-        .unwrap()
-        .iter()
-        .zip(alignment.show_pairs.as_ref().unwrap().iter())
-        .enumerate()
-        .filter_map(|(pair_index, (read_pair, show_pair))| {
-            show_pair.then_some((pair_index, alignment.ys[read_pair.read_1_index]))
-        })
-        .collect::<Vec<_>>();
+    let visible_pairs = alignment.visible_read_pairs()?;
 
     for (pair_index, y) in visible_pairs {
         let contexts = alignment.pair_rendering_contexts(pair_index, reference_sequence)?;
