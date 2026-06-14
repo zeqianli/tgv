@@ -85,7 +85,7 @@ pub fn render_paired_alignment(
                 reference_sequence,
             )?
         };
-        for context in alignment.rendering_contexts[context_index as usize].iter() {
+        for context in paired_alignment.rendering_contexts[context_index as usize].iter() {
             render_contexts(context, y, buf, alignment_view, area, pallete)?;
         }
     }
