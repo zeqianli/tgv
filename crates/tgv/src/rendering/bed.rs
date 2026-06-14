@@ -2,11 +2,7 @@ use crate::{
     layout::AlignmentView,
     rendering::{colors::Palette, intervals::render_simple_intervals},
 };
-use gv_core::{
-    bed::BedTrack,
-    error::TGVError,
-    intervals::GenomeInterval,
-};
+use gv_core::{bed::BedTrack, error::TGVError, intervals::GenomeInterval};
 use ratatui::{buffer::Buffer, layout::Rect};
 
 pub fn render_bed(

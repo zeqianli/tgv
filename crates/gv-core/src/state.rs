@@ -2,7 +2,7 @@ use crate::sequence::SequenceRepositoryEnum;
 use crate::tracks::{TrackService, TrackServiceEnum};
 use crate::variant::VariantRepository;
 use crate::{
-    alignment::{Alignment, AlignmentRepositoryEnum},
+    alignment::{Alignment, AlignmentRepositoryEnum, PairedAlignment},
     bed::{BedRepository, BedTrack},
     contig_header::ContigHeader,
     cytoband::Cytoband,
@@ -31,6 +31,7 @@ pub struct State {
     /// Index always matches with AlignmentRepository index
     pub alignments: Vec<Alignment>,
     pub alignment_options: Vec<Vec<AlignmentDisplayOption>>,
+    pub paired_alignments: Vec<Option<PairedAlignment>>,
 
     /// Variant track data.
     /// Index always matches with VariantRepository index
@@ -61,6 +62,8 @@ impl State {
 
             alignments: Vec::new(),
             alignment_options: Vec::new(),
+            paired_alignments: Vec::new(),
+
             track: Track::<Gene>::default(),
             sequence: Sequence::default(),
             variants: Vec::new(),
@@ -142,6 +145,7 @@ impl State {
     pub fn add_alignment_track(&mut self) {
         self.alignments.push(Alignment::default());
         self.alignment_options.push(Vec::new());
+        self.paired_alignments.push(None);
     }
 
     pub async fn load_alignment_data(
@@ -153,18 +157,17 @@ impl State {
         // if !self.alignment.has_complete_data(&region) {
         //     Ok(false)
         // } else {
-        let mut alignment = alignment_repository
+        let alignment = alignment_repository
             .read_alignment(region, &self.sequence, &self.contig_header)
             .await?;
+        self.alignments[index] = alignment;
 
-        let alignment_options = self.alignment_options.get(index).ok_or_else(|| {
-            TGVError::StateError(format!("Alignment options index out of bounds: {index}"))
-        })?;
-        alignment.apply_options(alignment_options, &self.sequence)?;
+        // Re-compute paired alignment later, if needed.
+        // This is wasteful. Have it lke this for now. Fix later.
+        // This might also be problematic? read positions are re-shuffled at every load.
+        self.paired_alignments[index] = None;
 
-        *self.alignments.get_mut(index).ok_or_else(|| {
-            TGVError::StateError(format!("Alignment index out of bounds: {index}"))
-        })? = alignment;
+        self.set_alignment_options(index, &region.focus, self.alignment_options[index].clone())?;
 
         Ok(self)
     }
@@ -266,10 +269,6 @@ impl State {
         focus: &Focus,
         options: Vec<AlignmentDisplayOption>,
     ) -> Result<(), TGVError> {
-        for alignment in &mut self.alignments {
-            alignment.reset(&self.sequence)?;
-        }
-
         let options = options
             .into_iter()
             .map(|option| match option {
@@ -281,11 +280,26 @@ impl State {
                     AlignmentDisplayOption::Filter(AlignmentFilter::BaseSoftclip(focus.position))
                 }
 
-                _ => option,
+                option => option,
             })
             .collect_vec();
+
         self.alignment_options[index] = options.clone();
-        self.alignments[index].apply_options(&options, &self.sequence)?;
+
+        options.into_iter().try_for_each(|option| match option {
+            AlignmentDisplayOption::Filter(filter) => {
+                self.alignments[index].filter(filter, &self.sequence)
+            }
+
+            AlignmentDisplayOption::Sort(sort) => self.alignments[index].sort(sort), // TODO
+
+            AlignmentDisplayOption::ViewAsPairs => {
+                self.paired_alignments[index] =
+                    Some(PairedAlignment::new(&self.alignments[index])?);
+                Ok(())
+            }
+            _ => Ok(()),
+        })?;
 
         Ok(())
     }

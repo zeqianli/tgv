@@ -37,7 +37,7 @@ use ratatui::buffer::Buffer;
 /// Render all areas in the layout
 pub fn render_main(
     buf: &mut Buffer,
-    state: &State,
+    state: &mut State,
     registers: &Registers,
     layout: &MainLayout,
     alignment_view: &AlignmentView,
@@ -60,18 +60,35 @@ pub fn render_main(
                 }
             }
             AreaType::Alignment(index) => {
-                if alignment_view.zoom <= AlignmentView::MAX_ZOOM_TO_DISPLAY_ALIGNMENTS
-                    && let Some(alignment) = state.alignments.get(*index)
-                {
-                    let alignment_options = state
-                        .alignment_options
-                        .get(*index)
-                        .map(Vec::as_slice)
-                        .unwrap_or(&[]);
-                    if alignment_options.contains(&AlignmentDisplayOption::ViewAsPairs) {
-                        render_paired_alignment(rect, buf, alignment, alignment_view, pallete)?;
+                if alignment_view.zoom <= AlignmentView::MAX_ZOOM_TO_DISPLAY_ALIGNMENTS {
+                    if state.alignment_options[*index]
+                        .contains(&AlignmentDisplayOption::ViewAsPairs)
+                    {
+                        let paired_alignment = state.paired_alignments[*index].as_mut().ok_or(
+                            TGVError::StateError(
+                                format!("Paired alignment {index} not yet calculated at rendering")
+                                    .to_string(),
+                            ),
+                        )?;
+
+                        render_paired_alignment(
+                            rect,
+                            buf,
+                            &mut state.alignments[*index],
+                            alignment_view,
+                            paired_alignment,
+                            &state.sequence,
+                            pallete,
+                        )?;
                     } else {
-                        render_alignment(rect, buf, alignment, alignment_view, pallete)?;
+                        render_alignment(
+                            rect,
+                            buf,
+                            &mut state.alignments[*index],
+                            alignment_view,
+                            &state.sequence,
+                            pallete,
+                        )?;
                     }
                 }
             }
