@@ -2,7 +2,10 @@ use crate::error::TGVError;
 use crate::sequence::Sequence;
 use noodles::sam::{
     self,
-    alignment::record::cigar::{Op, op::Kind},
+    alignment::{
+        record::cigar::{Op, op::Kind},
+        record_buf::Cigar,
+    },
 };
 use std::collections::HashMap;
 use std::default::Default;
@@ -10,12 +13,12 @@ use std::default::Default;
 /// See: https://samtools.github.io/hts-specs/SAMv1.pdf
 pub fn calculate_basewise_coverage(
     reference_start: u64, // 1-based. Alignment start, not softclip start
-    cigars: &Vec<Op>,
+    cigar: &Cigar,
     sequence: &sam::alignment::record_buf::Sequence,
     reference_sequence: &Sequence,
 ) -> Result<HashMap<u64, BaseCoverage>, TGVError> {
     let mut output: HashMap<u64, BaseCoverage> = HashMap::new();
-    if cigars.is_empty() {
+    if cigar.as_ref().is_empty() {
         return Ok(output);
     }
 
@@ -24,7 +27,7 @@ pub fn calculate_basewise_coverage(
 
     // FIXME:
     // Mismatches are re-calculated by comparing with the reference genome, but BAM has MM/ML tags for this.
-    for (i_op, op) in cigars.iter().enumerate() {
+    for (i_op, op) in cigar.as_ref().iter().enumerate() {
         let kind = op.kind();
         let len = op.len();
         let next_reference_pivot = if kind.consumes_reference() {

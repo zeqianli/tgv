@@ -166,16 +166,10 @@ impl AlignedRead {
         ))
     }
 
-    /// Whether the alignment segment (including softclips) covers a posiion (1-based).
-    pub fn full_read_covers(&self, posiion: u64) -> bool {
-        self.stacking_start() <= posiion && self.stacking_end() >= posiion
-    }
-
     /// Whether the alignment segment (including softclips) covers a x_coordinate (1-based).
     pub fn full_read_overlaps(&self, left: u64, right: u64) -> bool {
         self.stacking_start() <= right && self.stacking_end() >= left
     }
-
     /// Whether show together with the mate in paired view
     pub fn show_as_pair(&self) -> bool {
         self.record.flags().is_segmented()
@@ -267,10 +261,7 @@ impl AlignedRead {
         let mut reference_pivot: usize = self.start as usize;
         let mut query_pivot: usize = 1; // 1-based. # bases on the sequence. Note that need to substract leading softclips to get aligned base coordinate.
 
-        let Ok(cigars) = self.cigars() else {
-            return false;
-        };
-        for op in cigars.iter() {
+        for op in self.record.cigar().as_ref().iter() {
             if reference_pivot > coordinate {
                 break;
             }
@@ -1023,18 +1014,24 @@ pub struct ReadPair {
     /// If some: Read 2 index in the alignment
     /// if none: Read not shown as paired
     pub read_2_index: Option<usize>,
+}
 
-    /// 1-based start (including soft-clips)
-    pub stacking_start: u64,
-
-    /// 1-based end (including soft-clips)
-    pub stacking_end: u64,
-
-    /// Index in the alignment
-    pub index: usize,
-
-    /// Index into the alignment rendering context cache.
-    pub rendering_context_index: u64,
+impl ReadPair {
+    /// Whether the alignment segment (including softclips) covers a x_coordinate (1-based).
+    pub fn full_pair_overlaps(&self, reads: &[AlignedRead], left: u64, right: u64) -> bool {
+        if let Some(read_2_index) = self.read_2_index {
+            u64::min(
+                reads[self.read_1_index].stacking_start(),
+                reads[read_2_index].stacking_start(),
+            ) <= right
+                && u64::max(
+                    reads[self.read_1_index].stacking_end(),
+                    reads[read_2_index].stacking_end(),
+                ) >= left
+        } else {
+            reads[self.read_1_index].full_read_overlaps(left, right)
+        }
+    }
 }
 
 #[cfg(test)]

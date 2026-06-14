@@ -18,6 +18,13 @@ pub struct PairedAlignment {
     /// Read pairs used when viewing as pairs.
     read_pairs: Vec<ReadPair>,
 
+    /// Paired rendering contexts.
+    rendering_contexts: Vec<Vec<RenderingContext>>,
+
+    /// Same length as read_pairs. read_index -> index in rendering_context.
+    /// If not yet calculated, use u64::MAX
+    pair_rendering_context_index: Vec<u64>,
+
     /// Pair index to y locations.
     ys: Vec<usize>,
 
@@ -26,9 +33,6 @@ pub struct PairedAlignment {
 
     /// Whether to display the pair.
     show_read: Vec<bool>,
-
-    /// Paired rendering contexts.
-    rendering_contexts: Vec<Vec<RenderingContext>>,
 }
 
 impl PairedAlignment {
@@ -38,17 +42,61 @@ impl PairedAlignment {
         let mut paired_alignment = Self {
             mate_map,
             read_pairs: Vec::new(),
-            ys: Vec::new(),
-            ys_index: Vec::new(),
             show_read: Vec::new(),
             rendering_contexts: Vec::new(),
+            pair_rendering_context_index: Vec::new(),
+            ys: Vec::new(),
+            ys_index: Vec::new(),
         };
 
         paired_alignment.read_pairs = paired_alignment.build_read_pairs(alignment)?;
-        paired_alignment.show_read = paired_alignment.build_show_read(alignment)?;
+
+        self.read_pairs
+            .iter()
+            .map(|read_pair| self.pair_is_visible(alignment, read_pair))
+            .collect()
         paired_alignment.ys = paired_alignment.stack_tracks();
         paired_alignment.build_y_index()?;
         paired_alignment.build_rendering_contexts(alignment, reference_sequence)?;
+
+        fn build_rendering_contexts(
+            &mut self,
+            alignment: &mut Alignment,
+            reference_sequence: &Sequence,
+        ) -> Result<(), TGVError> {
+            for pair_index in 0..self.read_pairs.len() {
+                let context_index = {
+                    let (read_1_index, read_2_index) = {
+                        let read_pair = self.read_pair(pair_index)?;
+                        (read_pair.read_1_index, read_pair.read_2_index)
+                    };
+
+                    let read_1_context_index =
+                        alignment.ensure_read_rendering_context(read_1_index, reference_sequence)?;
+                    let read_1_contexts = alignment.rendering_contexts[read_1_context_index].clone();
+                    let contexts = match read_2_index {
+                        Some(read_2_index) => {
+                            let read_2_context_index =
+                                alignment.ensure_read_rendering_context(read_2_index, reference_sequence)?;
+                            calculate_paired_context(
+                                read_1_contexts,
+                                alignment.rendering_contexts[read_2_context_index].clone(),
+                            )
+                        }
+                        None => read_1_contexts,
+                    };
+
+                    self.push_rendering_contexts(contexts)}
+                let context_index_u64 = u64::try_from(context_index).map_err(|_| {
+                    TGVError::StateError(
+                        "Rendering context cache index does not fit in u64.".to_string(),
+                    )
+                })?;
+                self.read_pair[pair_index].rendering_context_index = context_index_u64;
+            }
+
+            Ok(())
+        }
 
         Ok(paired_alignment)
     }
@@ -58,61 +106,45 @@ impl PairedAlignment {
         self.ys_index.len()
     }
 
-    pub fn visible_pairs(&self) -> Result<Vec<(usize, usize)>, TGVError> {
-        self.show_read
-            .iter()
-            .zip(self.ys.iter())
-            .enumerate()
-            .filter_map(|(pair_index, (show_read, y))| show_read.then_some((pair_index, *y)))
-            .map(|(pair_index, y)| {
-                self.read_pair(pair_index)?;
-                Ok((pair_index, y))
-            })
-            .collect()
-    }
-
-    pub fn pair_rendering_contexts(
+    pub fn pair_overlapping(
         &self,
-        pair_index: usize,
-    ) -> Result<&[RenderingContext], TGVError> {
-        let read_pair = self.read_pair(pair_index)?;
-        let context_index =
-            self.valid_rendering_context_index(read_pair.rendering_context_index)?;
-
-        Ok(&self.rendering_contexts[context_index])
-    }
-
-    pub fn read_at<'a>(
-        &self,
-        reads: &'a [AlignedRead],
-        x: u64,
-        y: usize,
-    ) -> Option<&'a AlignedRead> {
-        self.ys_index
-            .get(y)?
-            .iter()
-            .find_map(|pair_index| self.pair_read_at(reads, *pair_index, x))
-    }
-
-    pub fn read_overlapping<'a>(
-        &self,
-        reads: &'a [AlignedRead],
+        reads: &[AlignedRead],
         left: u64,
         right: u64,
         y: usize,
-    ) -> Option<&'a AlignedRead> {
-        self.ys_index
-            .get(y)?
+    ) -> Option<&ReadPair> {
+        if y >= self.depth() {
+            return None;
+        }
+
+        self.ys_index[y]
             .iter()
-            .find_map(|pair_index| self.pair_read_overlapping(reads, *pair_index, left, right))
+            .find(|i_pair| self.read_pairs[**i_pair].full_pair_overlaps(&reads, left, right))
+            .map(|index| &self.read_pairs[*index])
     }
 
-    fn build_show_read(&self, alignment: &Alignment) -> Result<Vec<bool>, TGVError> {
-        self.read_pairs
-            .iter()
-            .map(|read_pair| self.pair_is_visible(alignment, read_pair))
-            .collect()
+    // pub fn visible_pairs(&self) -> Result<Vec<(usize, usize)>, TGVError> {
+    //     self.show_read
+    //         .iter()
+    //         .zip(self.ys.iter())
+    //         .enumerate()
+    //         .filter_map(|(pair_index, (show_read, y))| show_read.then_some((pair_index, *y)))
+    //         .map(|(pair_index, y)| {
+    //             self.read_pair(pair_index)?;
+    //             Ok((pair_index, y))
+    //         })
+    //         .collect()
+    // }
+
+    /// If rendering context is calculated for read_index, return the rendering context index in self.rendering_contexts
+    /// Return None if not yet calculated.
+    pub fn get_pair_rendering_context_index(&self, pair_index: usize) -> Option<u64> {
+        match self.pair_rendering_context_index[pair_index] {
+            RENDERING_CONTEXT_NOT_CALCULATED => None,
+            i => Some(i),
+        }
     }
+
 
     fn build_y_index(&mut self) -> Result<(), TGVError> {
         let mut ys_index = vec![Vec::new(); *self.ys.iter().max().unwrap_or(&0) + 1];
@@ -126,53 +158,9 @@ impl PairedAlignment {
         Ok(())
     }
 
-    fn build_rendering_contexts(
-        &mut self,
-        alignment: &mut Alignment,
-        reference_sequence: &Sequence,
-    ) -> Result<(), TGVError> {
-        for pair_index in 0..self.read_pairs.len() {
-            let context_index =
-                self.build_pair_rendering_context(alignment, pair_index, reference_sequence)?;
-            let context_index_u64 = u64::try_from(context_index).map_err(|_| {
-                TGVError::StateError(
-                    "Rendering context cache index does not fit in u64.".to_string(),
-                )
-            })?;
-            self.read_pair_mut(pair_index)?.rendering_context_index = context_index_u64;
-        }
 
-        Ok(())
-    }
 
-    fn build_pair_rendering_context(
-        &mut self,
-        alignment: &mut Alignment,
-        pair_index: usize,
-        reference_sequence: &Sequence,
-    ) -> Result<usize, TGVError> {
-        let (read_1_index, read_2_index) = {
-            let read_pair = self.read_pair(pair_index)?;
-            (read_pair.read_1_index, read_pair.read_2_index)
-        };
 
-        let read_1_context_index =
-            alignment.ensure_read_rendering_context(read_1_index, reference_sequence)?;
-        let read_1_contexts = alignment.rendering_contexts[read_1_context_index].clone();
-        let contexts = match read_2_index {
-            Some(read_2_index) => {
-                let read_2_context_index =
-                    alignment.ensure_read_rendering_context(read_2_index, reference_sequence)?;
-                calculate_paired_context(
-                    read_1_contexts,
-                    alignment.rendering_contexts[read_2_context_index].clone(),
-                )
-            }
-            None => read_1_contexts,
-        };
-
-        self.push_rendering_contexts(contexts)
-    }
 
     fn build_read_pairs(&self, alignment: &Alignment) -> Result<Vec<ReadPair>, TGVError> {
         let mate_not_found_flag = self.mate_map.len();
@@ -300,89 +288,6 @@ impl PairedAlignment {
             .unwrap_or(false);
 
         Ok(read_1_is_visible || read_2_is_visible)
-    }
-
-    fn pair_read_at<'a>(
-        &self,
-        reads: &'a [AlignedRead],
-        pair_index: usize,
-        x: u64,
-    ) -> Option<&'a AlignedRead> {
-        let read_pair = self.read_pairs.get(pair_index)?;
-        let read_1 = reads.get(read_pair.read_1_index)?;
-        if read_1.full_read_covers(x) {
-            return Some(read_1);
-        }
-
-        read_pair
-            .read_2_index
-            .and_then(|read_2_index| reads.get(read_2_index))
-            .filter(|read_2| read_2.full_read_covers(x))
-    }
-
-    fn pair_read_overlapping<'a>(
-        &self,
-        reads: &'a [AlignedRead],
-        pair_index: usize,
-        left: u64,
-        right: u64,
-    ) -> Option<&'a AlignedRead> {
-        let read_pair = self.read_pairs.get(pair_index)?;
-        let read_1 = reads.get(read_pair.read_1_index)?;
-        if read_1.full_read_overlaps(left, right) {
-            return Some(read_1);
-        }
-
-        read_pair
-            .read_2_index
-            .and_then(|read_2_index| reads.get(read_2_index))
-            .filter(|read_2| read_2.full_read_overlaps(left, right))
-    }
-
-    fn read_pair(&self, pair_index: usize) -> Result<&ReadPair, TGVError> {
-        self.read_pairs.get(pair_index).ok_or_else(|| {
-            TGVError::StateError(format!(
-                "Read pair index out of bounds while accessing read pair: {pair_index}"
-            ))
-        })
-    }
-
-    fn read_pair_mut(&mut self, pair_index: usize) -> Result<&mut ReadPair, TGVError> {
-        self.read_pairs.get_mut(pair_index).ok_or_else(|| {
-            TGVError::StateError(format!(
-                "Read pair index out of bounds while accessing read pair: {pair_index}"
-            ))
-        })
-    }
-
-    fn push_rendering_contexts(
-        &mut self,
-        contexts: Vec<RenderingContext>,
-    ) -> Result<usize, TGVError> {
-        let context_index = self.rendering_contexts.len();
-        u64::try_from(context_index).map_err(|_| {
-            TGVError::StateError("Rendering context cache index does not fit in u64.".to_string())
-        })?;
-        self.rendering_contexts.push(contexts);
-        Ok(context_index)
-    }
-
-    fn valid_rendering_context_index(&self, context_index: u64) -> Result<usize, TGVError> {
-        if context_index == RENDERING_CONTEXT_NOT_CALCULATED {
-            return Err(TGVError::StateError(
-                "Read pair rendering context is not calculated.".to_string(),
-            ));
-        }
-
-        let context_index = usize::try_from(context_index).map_err(|_| {
-            TGVError::StateError("Rendering context cache index does not fit in usize.".to_string())
-        })?;
-        if context_index >= self.rendering_contexts.len() {
-            return Err(TGVError::StateError(format!(
-                "Rendering context cache index out of bounds: {context_index}"
-            )));
-        }
-        Ok(context_index)
     }
 }
 

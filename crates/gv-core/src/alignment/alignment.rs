@@ -28,8 +28,8 @@ pub struct Alignment {
     /// Read index to rendering context index.
     pub read_rendering_context_indexes: Vec<u64>,
 
-    /// Paired alignment view state.
-    paired_alignment: Option<PairedAlignment>,
+    // /// Paired alignment view state.
+    // paired_alignment: Option<PairedAlignment>,
 
     // read index -> y locations
     pub ys: Vec<usize>,
@@ -64,10 +64,7 @@ impl Alignment {
 
     /// Return the number of alignment tracks.
     pub fn depth(&self) -> usize {
-        self.paired_alignment
-            .as_ref()
-            .map(PairedAlignment::depth)
-            .unwrap_or(self.ys_index.len())
+        self.ys_index.len()
     }
 
     /// Basewise coverage at position.
@@ -79,33 +76,8 @@ impl Alignment {
         }
     }
 
-    /// Return the read at x, yth track
-    pub fn read_at(&self, x: u64, y: usize) -> Option<&AlignedRead> {
-        if let Some(paired_alignment) = &self.paired_alignment {
-            return paired_alignment.read_at(&self.reads, x, y);
-        }
-
-        if y >= self.depth() {
-            return None;
-        }
-
-        self.ys_index[y]
-            .iter()
-            .find(|i_read| self.reads[**i_read].full_read_covers(x))
-            .map(|index| &self.reads[*index])
-    }
-
-    fn view_as_pairs(&mut self, reference_sequence: &Sequence) -> Result<&mut Self, TGVError> {
-        self.paired_alignment = Some(PairedAlignment::new(self, reference_sequence)?);
-        Ok(self)
-    }
-
     /// Return the read at x_coordinate, yth track
     pub fn read_overlapping(&self, left: u64, right: u64, y: usize) -> Option<&AlignedRead> {
-        if let Some(paired_alignment) = &self.paired_alignment {
-            return paired_alignment.read_overlapping(&self.reads, left, right, y);
-        }
-
         if y >= self.depth() {
             return None;
         }
@@ -114,14 +86,6 @@ impl Alignment {
             .iter()
             .find(|i_read| self.reads[**i_read].full_read_overlaps(left, right))
             .map(|index| &self.reads[*index])
-    }
-
-    pub fn y_of(&self, read_index: usize) -> Option<usize> {
-        if *self.show_read.get(read_index)? {
-            Some(*self.ys.get(read_index)?)
-        } else {
-            None
-        }
     }
 
     pub fn from_aligned_reads(
@@ -135,7 +99,6 @@ impl Alignment {
         let mut alignment = Self {
             rendering_contexts: Vec::new(),
             read_rendering_context_indexes: vec![RENDERING_CONTEXT_NOT_CALCULATED; reads.len()],
-            paired_alignment: None,
             reads,
             contig_index,
             coverage: BTreeMap::new(),
@@ -168,10 +131,12 @@ impl Alignment {
         Ok(self)
     }
 
-    pub fn get_rendering_contexts(&self, read_index: usize) -> Option<&[RenderingContext]> {
+    /// If rendering context is calculated for read_index, return the rendering context index in self.rendering_contexts
+    /// Return None if not yet calculated.
+    pub fn get_rendering_context_index(&self, read_index: usize) -> Option<u64> {
         match self.read_rendering_context_indexes[read_index] {
             RENDERING_CONTEXT_NOT_CALCULATED => None,
-            i => Some(self.rendering_contexts[i as usize].as_ref()),
+            i => Some(i),
         }
     }
 
@@ -248,10 +213,9 @@ impl Alignment {
             if !*show_read {
                 continue;
             }
-            let cigars = read.cigars()?;
             let read_coverage = calculate_basewise_coverage(
                 read.start,
-                &cigars,
+                &read.record.cigar(),
                 read.record.sequence(),
                 reference_sequence,
             )?; // TODO: seq() is called twice. Optimize this in the future.
@@ -280,7 +244,6 @@ impl Alignment {
         }
 
         self.ys = stack_tracks_for_reads(&self.reads, &self.show_read);
-        self.paired_alignment = None;
         self.build_y_index()?.build_coverage(reference_sequence)?;
 
         Ok(self)
@@ -290,27 +253,6 @@ impl Alignment {
         Err(TGVError::ValueError(format!(
             "Alignment sorting is not implemented yet for option {option}"
         )))
-    }
-
-    pub fn pair_rendering_contexts(
-        &self,
-        pair_index: usize,
-    ) -> Result<&[RenderingContext], TGVError> {
-        self.paired_alignment
-            .as_ref()
-            .ok_or_else(|| {
-                TGVError::StateError("Read pairs are not calculated before rendering.".to_string())
-            })?
-            .pair_rendering_contexts(pair_index)
-    }
-
-    pub fn visible_read_pairs(&self) -> Result<Vec<(usize, usize)>, TGVError> {
-        self.paired_alignment
-            .as_ref()
-            .ok_or_else(|| {
-                TGVError::StateError("Read pairs are not calculated before rendering.".to_string())
-            })?
-            .visible_pairs()
     }
 }
 
