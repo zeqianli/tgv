@@ -1019,17 +1019,28 @@ pub struct ReadPair {
 impl ReadPair {
     /// Whether the alignment segment (including softclips) covers a x_coordinate (1-based).
     pub fn full_pair_overlaps(&self, reads: &[AlignedRead], left: u64, right: u64) -> bool {
+        self.stacking_start(reads) <= right && self.stacking_end(reads) >= left
+    }
+
+    pub fn stacking_start(&self, reads: &[AlignedRead]) -> u64 {
         if let Some(read_2_index) = self.read_2_index {
             u64::min(
                 reads[self.read_1_index].stacking_start(),
                 reads[read_2_index].stacking_start(),
-            ) <= right
-                && u64::max(
-                    reads[self.read_1_index].stacking_end(),
-                    reads[read_2_index].stacking_end(),
-                ) >= left
+            )
         } else {
-            reads[self.read_1_index].full_read_overlaps(left, right)
+            reads[self.read_1_index].stacking_start()
+        }
+    }
+
+    pub fn stacking_end(&self, reads: &[AlignedRead]) -> u64 {
+        if let Some(read_2_index) = self.read_2_index {
+            u64::max(
+                reads[self.read_1_index].stacking_end(),
+                reads[read_2_index].stacking_end(),
+            )
+        } else {
+            reads[self.read_1_index].stacking_end()
         }
     }
 }

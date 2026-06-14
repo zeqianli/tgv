@@ -279,7 +279,7 @@ fn stack_tracks_for_reads(reads: &Vec<AlignedRead>, show_reads: &Vec<bool>) -> V
         .collect::<Vec<usize>>()
 }
 
-fn find_track(
+pub(super) fn find_track(
     start: u64,
     end: u64,
     track_left_bounds: &mut Vec<u64>,
