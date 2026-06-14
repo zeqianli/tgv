@@ -74,6 +74,7 @@ impl Repository {
         // - If bam file is provided: from bam header
         let mut contig_header = ContigHeader::new(settings.reference.clone());
 
+        // Sync contigs from tracks
         match &settings.reference {
             Reference::Hg19
             | Reference::Hg38
@@ -93,7 +94,44 @@ impl Repository {
                             ContigSource::Track,
                         );
                     });
+            }
+            Reference::BYOIndexedFasta(_) => {
+                if let Some(SequenceRepositoryEnum::IndexedFasta(fasta_sr)) =
+                    sequence_service.as_mut()
+                {
+                    fasta_sr
+                        .get_all_contigs()
+                        .await?
+                        .into_iter()
+                        .for_each(|contig| {
+                            contig_header.update_or_add_contig(
+                                contig.name,
+                                contig.length,
+                                contig.aliases,
+                                ContigSource::Sequence,
+                            );
+                        });
+                } else {
+                    unreachable!()
+                }
+            }
 
+            Reference::BYOTwoBit(path) => {
+                if let Some(SequenceRepositoryEnum::TwoBit(twobit_sr)) = sequence_service.as_mut() {
+                    twobit_sr.add_2bit_file(path)?;
+                } else {
+                    unreachable!()
+                }
+            }
+            _ => {}
+        }
+
+        // Sync sequence repositories
+        match &settings.reference {
+            Reference::Hg19
+            | Reference::Hg38
+            | Reference::UcscGenome(_)
+            | Reference::UcscAccession(_) => {
                 if let Some(SequenceRepositoryEnum::TwoBit(twobit_sr)) = sequence_service.as_mut() {
                     track_service
                         .as_mut()
@@ -110,7 +148,7 @@ impl Repository {
                                 Path::new(&settings.reference.cache_dir(&settings.cache_dir))
                                     .join(path);
                             let twobit_file_path = twobit_file_path.to_str().unwrap();
-                            twobit_sr.add_contig_path(twobit_file_path, &mut contig_header)
+                            twobit_sr.add_2bit_file(twobit_file_path)
                         })?;
                 }
             }
@@ -137,7 +175,7 @@ impl Repository {
 
             Reference::BYOTwoBit(path) => {
                 if let Some(SequenceRepositoryEnum::TwoBit(twobit_sr)) = sequence_service.as_mut() {
-                    twobit_sr.add_contig_path(path, &mut contig_header)?;
+                    twobit_sr.add_2bit_file(path)?;
                 } else {
                     unreachable!()
                 }
@@ -145,6 +183,18 @@ impl Repository {
             _ => {}
         }
 
+        if let Some(sr) = sequence_service.as_mut() {
+            sr.get_all_contigs().await?.into_iter().for_each(|contig| {
+                contig_header.update_or_add_contig(
+                    contig.name,
+                    contig.length,
+                    contig.aliases,
+                    ContigSource::Sequence,
+                );
+            })
+        }
+
+        // Sync bioinformatics files
         for repository_file_index in &repository_file_indexes {
             match repository_file_index {
                 RepositoryFileIndex::Alignment(index) => {
