@@ -3,7 +3,10 @@ use crate::{
     rendering::colors::Palette,
 };
 use gv_core::{
-    alignment::{Alignment, RenderingContext, RenderingContextKind, RenderingContextModifier},
+    alignment::{
+        Alignment, PairedAlignment, RenderingContext, RenderingContextKind,
+        RenderingContextModifier,
+    },
     error::TGVError,
     sequence::Sequence,
 };
@@ -18,8 +21,8 @@ pub fn render_alignment(
     area: &Rect,
     buf: &mut Buffer,
     alignment: &mut Alignment,
-    reference_sequence: &Sequence,
     alignment_view: &AlignmentView,
+    reference_sequence: &Sequence,
     pallete: &Palette,
 ) -> Result<(), TGVError> {
     if area.height < 1 {
@@ -30,19 +33,22 @@ pub fn render_alignment(
         .ys_index
         .iter()
         .enumerate()
-        .flat_map(|(y, read_indexes)| {
-            read_indexes
-                .iter()
-                .map(move |read_index| (y, *read_index))
-        })
+        .flat_map(|(y, read_indexes)| read_indexes.iter().map(move |read_index| (y, *read_index)))
+        .filter(|(_y, read_index)| alignment.show_read[*read_index])
         .collect::<Vec<_>>();
 
     for (y, read_index) in visible_reads {
-        let contexts = alignment.read_rendering_contexts(read_index, reference_sequence)?;
-        for context in contexts {
+        let context_index =
+            if let Some(context_index) = alignment.get_rendering_context_index(read_index) {
+                context_index
+            } else {
+                alignment.calculate_read_rendering_context(read_index, reference_sequence)?
+            };
+        for context in alignment.rendering_contexts[context_index as usize].iter() {
             render_contexts(context, y, buf, alignment_view, area, pallete)?;
         }
     }
+
     Ok(())
 }
 
@@ -51,17 +57,35 @@ pub fn render_paired_alignment(
     buf: &mut Buffer,
     alignment: &mut Alignment,
     alignment_view: &AlignmentView,
+    paired_alignment: &mut PairedAlignment,
+    reference_sequence: &Sequence,
     pallete: &Palette,
 ) -> Result<(), TGVError> {
     if area.height < 1 {
         return Ok(());
     }
 
-    let visible_pairs = alignment.visible_read_pairs()?;
+    let visible_pairs = paired_alignment
+        .ys_index
+        .iter()
+        .enumerate()
+        .flat_map(|(y, read_indexes)| read_indexes.iter().map(move |read_index| (y, *read_index)))
+        .filter(|(_y, read_index)| paired_alignment.show_pair[*read_index])
+        .collect::<Vec<_>>();
 
-    for (pair_index, y) in visible_pairs {
-        let contexts = alignment.pair_rendering_contexts(pair_index)?;
-        for context in contexts {
+    for (y, pair_index) in visible_pairs {
+        let context_index = if let Some(context_index) =
+            paired_alignment.get_pair_rendering_context_index(pair_index)
+        {
+            context_index
+        } else {
+            paired_alignment.calculate_pair_rendering_context(
+                alignment,
+                pair_index,
+                reference_sequence,
+            )?
+        };
+        for context in alignment.rendering_contexts[context_index as usize].iter() {
             render_contexts(context, y, buf, alignment_view, area, pallete)?;
         }
     }

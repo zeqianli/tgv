@@ -5,7 +5,6 @@ use crate::sequence::Sequence;
 use crate::{
     alignment::{
         coverage::{BaseCoverage, DEFAULT_COVERAGE, calculate_basewise_coverage},
-        paired_alignment::PairedAlignment,
         read::{AlignedRead, RenderingContext, calculate_rendering_contexts},
     },
     message::AlignmentDisplayOption,
@@ -50,7 +49,7 @@ pub struct Alignment {
     data_complete_right_bound: u64,
 
     // Whether to display the read
-    show_read: Vec<bool>,
+    pub show_read: Vec<bool>,
 }
 
 impl Alignment {
@@ -143,7 +142,7 @@ impl Alignment {
     /// Calculate and write rendering context for read_index.
     /// The new context is added to the end of the context vector.
     /// Returns the index of the new contexts.
-    pub(super) fn calculate_read_rendering_context(
+    pub fn calculate_read_rendering_context(
         &mut self,
         read_index: usize,
         reference_sequence: &Sequence,
@@ -173,27 +172,7 @@ impl Alignment {
     //     options: &Vec<AlignmentDisplayOption>,
     //     reference_sequence: &Sequence,
     // ) -> Result<&mut Self, TGVError> {
-    //     let view_as_pairs = options
-    //         .iter()
-    //         .any(|option| matches!(option, AlignmentDisplayOption::ViewAsPairs));
 
-    //     for option in options {
-    //         match option {
-    //             AlignmentDisplayOption::Filter(filter) => {
-    //                 self.filter(filter, reference_sequence)?;
-    //             }
-    //             AlignmentDisplayOption::Sort(sort) => {
-    //                 self.sort(sort)?;
-    //             }
-    //             AlignmentDisplayOption::ViewAsPairs => {}
-    //         }
-    //     }
-
-    //     if view_as_pairs {
-    //         self.view_as_pairs(reference_sequence)?;
-    //     }
-
-    //     Ok(self)
     // }
 
     /// Reset alignment options
@@ -236,20 +215,20 @@ impl Alignment {
 
     pub fn filter(
         &mut self,
-        filter: &AlignmentFilter,
+        filter: AlignmentFilter,
         reference_sequence: &Sequence,
-    ) -> Result<&mut Self, TGVError> {
+    ) -> Result<(), TGVError> {
         for (i, read) in self.reads.iter().enumerate() {
-            self.show_read[i] = read.passes_filter(filter)
+            self.show_read[i] = read.passes_filter(&filter)
         }
 
         self.ys = stack_tracks_for_reads(&self.reads, &self.show_read);
         self.build_y_index()?.build_coverage(reference_sequence)?;
 
-        Ok(self)
+        Ok(())
     }
 
-    pub fn sort(&mut self, option: &AlignmentSort) -> Result<&mut Self, TGVError> {
+    pub fn sort(&mut self, option: AlignmentSort) -> Result<(), TGVError> {
         Err(TGVError::ValueError(format!(
             "Alignment sorting is not implemented yet for option {option}"
         )))

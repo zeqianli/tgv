@@ -61,27 +61,34 @@ pub fn render_main(
             }
             AreaType::Alignment(index) => {
                 if alignment_view.zoom <= AlignmentView::MAX_ZOOM_TO_DISPLAY_ALIGNMENTS {
-                    let alignment_options = state
-                        .alignment_options
-                        .get(*index)
-                        .map(Vec::as_slice)
-                        .unwrap_or(&[]);
-                    let view_as_pairs =
-                        alignment_options.contains(&AlignmentDisplayOption::ViewAsPairs);
-                    let reference_sequence = &state.sequence;
-                    if let Some(alignment) = state.alignments.get_mut(*index) {
-                        if view_as_pairs {
-                            render_paired_alignment(rect, buf, alignment, alignment_view, pallete)?;
-                        } else {
-                            render_alignment(
-                                rect,
-                                buf,
-                                alignment,
-                                reference_sequence,
-                                alignment_view,
-                                pallete,
-                            )?;
-                        }
+                    if state.alignment_options[*index]
+                        .contains(&AlignmentDisplayOption::ViewAsPairs)
+                    {
+                        let paired_alignment = state.paired_alignments[*index].as_mut().ok_or(
+                            TGVError::StateError(
+                                format!("Paired alignment {index} not yet calculated at rendering")
+                                    .to_string(),
+                            ),
+                        )?;
+
+                        render_paired_alignment(
+                            rect,
+                            buf,
+                            &mut state.alignments[*index],
+                            alignment_view,
+                            paired_alignment,
+                            &state.sequence,
+                            pallete,
+                        )?;
+                    } else {
+                        render_alignment(
+                            rect,
+                            buf,
+                            &mut state.alignments[*index],
+                            alignment_view,
+                            &state.sequence,
+                            pallete,
+                        )?;
                     }
                 }
             }

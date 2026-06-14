@@ -713,9 +713,15 @@ pub fn calculate_rendering_contexts(
 
 /// Read 1 is the forward read, read 2 is the reverse read
 pub fn calculate_paired_context(
-    rendering_contexts_1: Vec<RenderingContext>,
-    rendering_contexts_2: Vec<RenderingContext>,
+    rendering_contexts_1: &Vec<RenderingContext>,
+    rendering_contexts_2: Option<&Vec<RenderingContext>>,
 ) -> Vec<RenderingContext> {
+    let rendering_contexts_1 = rendering_contexts_1.clone();
+    let rendering_contexts_2 = if let Some(context) = rendering_contexts_2 {
+        context.clone()
+    } else {
+        return rendering_contexts_1;
+    };
     match (
         rendering_contexts_1.is_empty(),
         rendering_contexts_2.is_empty(),
@@ -1246,11 +1252,11 @@ mod tests {
         let mut contexts = Vec::new();
         calculate_rendering_contexts(
             &mut contexts,
-            &record_buf,
             reference_start,
+            &record_buf.flags(),
             &cigars,
             &record_buf.sequence(),
-            is_reverse,
+            &record_buf.data(),
             &reference_sequence,
         )
         .unwrap();
