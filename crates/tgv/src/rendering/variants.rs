@@ -1,8 +1,4 @@
-use gv_core::{
-    error::TGVError,
-    intervals::GenomeInterval,
-    variant::VariantTrack,
-};
+use gv_core::{error::TGVError, intervals::GenomeInterval, variant::VariantTrack};
 
 use crate::{
     layout::AlignmentView,
