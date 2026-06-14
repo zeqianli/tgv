@@ -3,7 +3,7 @@ use crate::sequence::Sequence;
 use noodles::sam::{
     self,
     alignment::{
-        record::cigar::{Op, op::Kind},
+        record::cigar::op::Kind,
         record_buf::Cigar,
     },
 };

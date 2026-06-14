@@ -4,7 +4,6 @@ use crate::{
         read::{AlignedRead, ReadPair, RenderingContext, calculate_paired_context},
     },
     error::TGVError,
-    intervals::{GenomeInterval, Region},
     sequence::Sequence,
 };
 use std::collections::HashMap;
@@ -45,11 +44,11 @@ impl PairedAlignment {
 
         let mut paired_alignment = Self {
             mate_map,
-            read_pairs: read_pairs,
-            show_pair: show_pair,
+            read_pairs,
+            show_pair,
             rendering_contexts: Vec::new(),
             pair_rendering_context_index: vec![RENDERING_CONTEXT_NOT_CALCULATED; n_pair],
-            ys: ys,
+            ys,
             ys_index: Vec::new(),
         };
 
@@ -81,7 +80,7 @@ impl PairedAlignment {
 
         self.ys_index[y]
             .iter()
-            .find(|i_pair| self.read_pairs[**i_pair].full_pair_overlaps(&reads, left, right))
+            .find(|i_pair| self.read_pairs[**i_pair].full_pair_overlaps(reads, left, right))
             .map(|index| &self.read_pairs[*index])
     }
 
@@ -150,8 +149,8 @@ pub fn calculate_mate_map(reads: &Vec<AlignedRead>) -> Result<Vec<usize>, TGVErr
     let mut output = vec![reads.len(); reads.len()];
 
     for (i, read) in reads.iter().enumerate() {
-        if read.show_as_pair() {
-            if let Some(read_name) = read.record.name() {
+        if read.show_as_pair()
+            && let Some(read_name) = read.record.name() {
                 let read_name = read_name.to_vec();
                 match read_id_map.remove(&read_name) {
                     Some(mate_index) => {
@@ -163,7 +162,6 @@ pub fn calculate_mate_map(reads: &Vec<AlignedRead>) -> Result<Vec<usize>, TGVErr
                     }
                 }
             };
-        }
     }
 
     Ok(output)
