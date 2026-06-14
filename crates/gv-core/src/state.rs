@@ -145,6 +145,7 @@ impl State {
     pub fn add_alignment_track(&mut self) {
         self.alignments.push(Alignment::default());
         self.alignment_options.push(Vec::new());
+        self.paired_alignments.push(None);
     }
 
     pub async fn load_alignment_data(
