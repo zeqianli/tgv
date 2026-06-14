@@ -1242,11 +1242,16 @@ mod tests {
             .into_iter()
             .map(|(kind, length)| Op::new(kind, length))
             .collect::<Vec<Op>>();
+        let mut flags = Flags::default();
+        if is_reverse {
+            flags = flags.union(Flags::from(0x10));
+        }
 
         let header = sam::Header::default();
 
         let record_buf = sam::alignment::RecordBuf::builder()
             .set_sequence(sam::alignment::record_buf::Sequence::from(seq))
+            .set_flags(flags)
             .build();
 
         let mut contexts = Vec::new();
