@@ -32,7 +32,7 @@ use crate::{
 };
 
 use gv_core::{error::TGVError, message::AlignmentDisplayOption, state::State};
-use ratatui::buffer::Buffer;
+use ratatui::{buffer::Buffer, layout::Rect, style::Style};
 
 /// Render all areas in the layout
 pub fn render_main(
@@ -92,6 +92,7 @@ pub fn render_main(
                     }
                 }
             }
+            AreaType::AlignmentDivider => render_alignment_divider(rect, buf),
             AreaType::Sequence => {
                 if alignment_view.zoom <= AlignmentView::MAX_ZOOM_TO_DISPLAY_SEQUENCES {
                     render_sequence(rect, buf, state, alignment_view, pallete)?;
@@ -121,6 +122,12 @@ pub fn render_main(
         };
     }
     Ok(())
+}
+
+fn render_alignment_divider(area: &Rect, buf: &mut Buffer) {
+    for y in area.top()..area.bottom() {
+        buf.set_string(area.x, y, "-".repeat(area.width as usize), Style::default());
+    }
 }
 
 pub fn get_abbreviated_length_string(length: u64) -> String {

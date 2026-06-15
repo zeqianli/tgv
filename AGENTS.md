@@ -97,7 +97,8 @@ For doctests, use `cargo test --doc` (doctests are not supported by nextest).
 ### Test organization
 
 - Unit tests in the same file as the code they test.
-- Use `#[rstest]` and `#[case(...)]` paratermized tests when possible.
+- Use `#[rstest]` and `#[case(...)]` parameterized tests when possible, especially for related scenarios that share the same setup and assertions.
+- Do not add unit tests for rendering code unless explicitly asked.
 
 ## Dependencies
 

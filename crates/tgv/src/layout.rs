@@ -14,6 +14,7 @@ pub enum AreaType {
     Coordinate,
     Coverage(usize),
     Alignment(usize),
+    AlignmentDivider,
     Sequence,
     GeneTrack,
     Console,
@@ -29,6 +30,7 @@ impl AreaType {
             AreaType::Coordinate => Constraint::Length(2),
             AreaType::Coverage(_) => Constraint::Length(6),
             AreaType::Alignment(_) => Constraint::Fill(1),
+            AreaType::AlignmentDivider => Constraint::Length(1),
             AreaType::Sequence => Constraint::Length(1),
             AreaType::GeneTrack => Constraint::Length(2),
             AreaType::Console => Constraint::Length(2),
@@ -276,11 +278,16 @@ impl MainLayout {
             tracks.push(AreaType::Coordinate);
         }
 
+        let mut has_alignment_track = false;
         for repository_file_index in repository_file_indexes {
             match repository_file_index {
                 RepositoryFileIndex::Alignment(index) => {
+                    if has_alignment_track {
+                        tracks.push(AreaType::AlignmentDivider);
+                    }
                     tracks.push(AreaType::Coverage(*index));
                     tracks.push(AreaType::Alignment(*index));
+                    has_alignment_track = true;
                 }
                 RepositoryFileIndex::Variant(index) => tracks.push(AreaType::Variant(*index)),
                 RepositoryFileIndex::Bed(index) => tracks.push(AreaType::Bed(*index)),
@@ -435,4 +442,76 @@ pub fn linear_scale(
     }
     Ok(new_start
         + (original_x as f64 / (original_length) as f64 * (new_end - new_start) as f64) as u16)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use gv_core::reference::Reference;
+    use rstest::rstest;
+
+    fn settings_without_reference() -> Settings {
+        let mut settings = Settings::default();
+        settings.core.reference = Reference::NoReference;
+        settings
+    }
+
+    #[rstest]
+    #[case(vec![], vec![AreaType::Console, AreaType::Error])]
+    #[case(
+        vec![RepositoryFileIndex::Alignment(0)],
+        vec![
+            AreaType::Coverage(0),
+            AreaType::Alignment(0),
+            AreaType::Console,
+            AreaType::Error,
+        ]
+    )]
+    #[case(
+        vec![
+            RepositoryFileIndex::Alignment(0),
+            RepositoryFileIndex::Alignment(1),
+            RepositoryFileIndex::Alignment(2),
+        ],
+        vec![
+            AreaType::Coverage(0),
+            AreaType::Alignment(0),
+            AreaType::AlignmentDivider,
+            AreaType::Coverage(1),
+            AreaType::Alignment(1),
+            AreaType::AlignmentDivider,
+            AreaType::Coverage(2),
+            AreaType::Alignment(2),
+            AreaType::Console,
+            AreaType::Error,
+        ]
+    )]
+    #[case(
+        vec![
+            RepositoryFileIndex::Variant(0),
+            RepositoryFileIndex::Alignment(0),
+            RepositoryFileIndex::Bed(0),
+            RepositoryFileIndex::Alignment(1),
+        ],
+        vec![
+            AreaType::Variant(0),
+            AreaType::Coverage(0),
+            AreaType::Alignment(0),
+            AreaType::Bed(0),
+            AreaType::AlignmentDivider,
+            AreaType::Coverage(1),
+            AreaType::Alignment(1),
+            AreaType::Console,
+            AreaType::Error,
+        ]
+    )]
+    fn layout_adds_alignment_dividers_between_alignment_groups(
+        #[case] repository_file_indexes: Vec<RepositoryFileIndex>,
+        #[case] expected_tracks: Vec<AreaType>,
+    ) {
+        let settings = settings_without_reference();
+
+        let layout = MainLayout::new(&settings, &repository_file_indexes);
+        assert_eq!(layout.tracks, expected_tracks);
+    }
 }
