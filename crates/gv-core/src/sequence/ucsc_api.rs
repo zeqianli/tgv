@@ -38,7 +38,7 @@ impl UCSCApiSequenceRepository {
         match &self.reference {
             Reference::Hg19 | Reference::Hg38 | Reference::UcscGenome(_) => Ok(format!(
                 "https://api.genome.ucsc.edu/getData/sequence?genome={};chrom={};start={};end={}",
-                self.reference.to_string(),
+                self.reference,
                 contig_name,
                 start - 1, // start is 0-based, inclusive.
                 end
@@ -68,16 +68,18 @@ impl UCSCApiSequenceRepository {
         &self,
         accession: &str,
     ) -> Result<String, TGVError> {
-        let response = self
-            .client
-            .get(format!(
-                "https://api.genome.ucsc.edu/list/genarkGenomes?genome={}",
-                accession
-            ))
-            .send()
-            .await?
-            .json::<UcscApiHubUrlResponse>()
-            .await?;
+        let url = format!(
+            "https://api.genome.ucsc.edu/list/genarkGenomes?genome={}",
+            accession
+        );
+        log::info!("HTTP request: method=GET url={url} context=UCSC sequence GenArk hub lookup");
+        let response = self.client.get(&url).send().await?;
+        log::info!(
+            "HTTP response: status={} url={} context=UCSC sequence GenArk hub lookup",
+            response.status(),
+            url
+        );
+        let response = response.json::<UcscApiHubUrlResponse>().await?;
 
         response.get_hub_url(accession)
     }
@@ -111,7 +113,26 @@ impl UCSCApiSequenceRepository {
             .get_api_url(contig_name, region.start(), region.end())
             .await?;
 
-        let response: UcscResponse = self.client.get(&url).send().await?.json().await?;
+        log::info!(
+            "HTTP request: method=GET url={} context=UCSC sequence query reference={} contig={} start={} end={}",
+            url,
+            self.reference,
+            contig_name,
+            region.start(),
+            region.end()
+        );
+        let response = self.client.get(&url).send().await?;
+        log::info!(
+            "HTTP response: status={} url={} context=UCSC sequence query",
+            response.status(),
+            url
+        );
+        let response: UcscResponse = response.json().await?;
+        log::debug!(
+            "UCSC sequence response: contig_index={} bases={}",
+            region.contig_index(),
+            response.dna.len()
+        );
 
         Ok(Sequence {
             start: region.start(),
@@ -129,7 +150,7 @@ impl UCSCApiSequenceRepository {
             Reference::Hg19 | Reference::Hg38 | Reference::UcscGenome(_) => {
                 format!(
                     "https://api.genome.ucsc.edu/list/chromosomes?genome={}",
-                    self.reference.to_string()
+                    self.reference
                 )
             }
             Reference::UcscAccession(genome) => {
@@ -151,13 +172,22 @@ impl UCSCApiSequenceRepository {
             }
         };
 
-        let response = self
-            .client
-            .get(query_url)
-            .send()
-            .await?
-            .json::<UcscListChromosomeResponse>()
-            .await?;
+        log::info!(
+            "HTTP request: method=GET url={} context=UCSC sequence chromosome list reference={}",
+            query_url,
+            self.reference
+        );
+        let response = self.client.get(&query_url).send().await?;
+        log::info!(
+            "HTTP response: status={} url={} context=UCSC sequence chromosome list",
+            response.status(),
+            query_url
+        );
+        let response = response.json::<UcscListChromosomeResponse>().await?;
+        log::debug!(
+            "UCSC sequence chromosome response: chromosomes={}",
+            response.chromosomes.len()
+        );
 
         let mut output = Vec::new();
         for (name_string, length) in response.chromosomes.into_iter() {

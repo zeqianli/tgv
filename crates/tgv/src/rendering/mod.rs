@@ -12,7 +12,7 @@ mod sequence;
 mod status_bar;
 mod track;
 mod variants;
-pub use alignment::render_alignment;
+pub use alignment::{render_alignment, render_paired_alignment};
 pub use bed::render_bed;
 pub use colors::{DARK_THEME, Palette};
 pub use console::render_console;
@@ -31,20 +31,20 @@ use crate::{
     register::{KeyRegisterType, Registers},
 };
 
-use gv_core::{error::TGVError, state::State};
+use gv_core::{error::TGVError, message::AlignmentDisplayOption, state::State};
 use ratatui::buffer::Buffer;
 
 /// Render all areas in the layout
 pub fn render_main(
     buf: &mut Buffer,
-    state: &State,
+    state: &mut State,
     registers: &Registers,
     layout: &MainLayout,
     alignment_view: &AlignmentView,
     pallete: &Palette,
 ) -> Result<(), TGVError> {
     // Render each area based on its type
-    for (_i, (area_type, rect)) in layout.areas.iter().enumerate() {
+    for (area_type, rect) in layout.areas.iter() {
         if rect.y >= buf.area.height || rect.x >= buf.area.width {
             continue;
         }
@@ -52,14 +52,44 @@ pub fn render_main(
         match area_type {
             AreaType::Cytoband => render_cytobands(rect, buf, state, alignment_view, pallete)?,
             AreaType::Coordinate => render_coordinates(rect, buf, alignment_view, state)?,
-            AreaType::Coverage => {
-                if alignment_view.zoom <= AlignmentView::MAX_ZOOM_TO_DISPLAY_ALIGNMENTS {
-                    render_coverage(rect, buf, state, alignment_view, pallete)?;
+            AreaType::Coverage(index) => {
+                if alignment_view.zoom <= AlignmentView::MAX_ZOOM_TO_DISPLAY_ALIGNMENTS
+                    && let Some(alignment) = state.alignments.get(*index)
+                {
+                    render_coverage(rect, buf, alignment, alignment_view, pallete)?;
                 }
             }
-            AreaType::Alignment => {
+            AreaType::Alignment(index) => {
                 if alignment_view.zoom <= AlignmentView::MAX_ZOOM_TO_DISPLAY_ALIGNMENTS {
-                    render_alignment(rect, buf, state, alignment_view, pallete)?;
+                    if state.alignment_options[*index]
+                        .contains(&AlignmentDisplayOption::ViewAsPairs)
+                    {
+                        let paired_alignment = state.paired_alignments[*index].as_mut().ok_or(
+                            TGVError::StateError(
+                                format!("Paired alignment {index} not yet calculated at rendering")
+                                    .to_string(),
+                            ),
+                        )?;
+
+                        render_paired_alignment(
+                            rect,
+                            buf,
+                            &mut state.alignments[*index],
+                            alignment_view,
+                            paired_alignment,
+                            &state.sequence,
+                            pallete,
+                        )?;
+                    } else {
+                        render_alignment(
+                            rect,
+                            buf,
+                            &mut state.alignments[*index],
+                            alignment_view,
+                            &state.sequence,
+                            pallete,
+                        )?;
+                    }
                 }
             }
             AreaType::Sequence => {
@@ -78,8 +108,16 @@ pub fn render_main(
             AreaType::Error => {
                 render_status_bar(rect, buf, state, alignment_view)?;
             }
-            AreaType::Variant => render_variants(rect, buf, state, alignment_view, pallete)?,
-            AreaType::Bed => render_bed(rect, buf, state, alignment_view, pallete)?,
+            AreaType::Variant(index) => {
+                if let Some(variants) = state.variants.get(*index) {
+                    render_variants(rect, buf, variants, alignment_view, pallete)?;
+                }
+            }
+            AreaType::Bed(index) => {
+                if let Some(bed_intervals) = state.bed_intervals.get(*index) {
+                    render_bed(rect, buf, bed_intervals, alignment_view, pallete)?;
+                }
+            }
         };
     }
     Ok(())

@@ -13,6 +13,7 @@ crossterm.workspace = true
 futures.workspace = true
 gv-core.workspace = true
 itertools.workspace = true
+log.workspace = true
 nom.workspace = true
 ratatui.workspace = true
 serde.workspace = true

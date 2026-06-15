@@ -2,13 +2,13 @@ use crate::sequence::SequenceRepositoryEnum;
 use crate::tracks::{TrackService, TrackServiceEnum};
 use crate::variant::VariantRepository;
 use crate::{
-    alignment::{Alignment, AlignmentRepositoryEnum},
-    bed::{BEDInterval, BEDRepository},
+    alignment::{Alignment, AlignmentRepositoryEnum, PairedAlignment},
+    bed::{BedRepository, BedTrack},
     contig_header::ContigHeader,
     cytoband::Cytoband,
     error::TGVError,
     feature::Gene,
-    intervals::{Focus, GenomeInterval, Region, SortedIntervalCollection},
+    intervals::{Focus, GenomeInterval, Region},
     message::{AlignmentDisplayOption, AlignmentFilter, Movement},
     reference::Reference,
     //register::Registers,
@@ -16,7 +16,7 @@ use crate::{
     repository::Repository,
     sequence::Sequence,
     track::Track,
-    variant::Variant,
+    variant::VariantTrack,
 };
 use itertools::Itertools;
 
@@ -26,14 +26,22 @@ pub struct State {
 
     pub contig_header: ContigHeader,
     pub reference: Reference,
-    pub alignment: Alignment,
-    pub alignment_options: Vec<AlignmentDisplayOption>,
 
-    pub variants: SortedIntervalCollection<Variant>,
-    pub variant_loaded: bool, // Temporary hack before proper implemetation for the indexed VCF IO
+    /// Alignment track data.
+    /// Index always matches with AlignmentRepository index
+    pub alignments: Vec<Alignment>,
+    pub alignment_options: Vec<Vec<AlignmentDisplayOption>>,
+    pub paired_alignments: Vec<Option<PairedAlignment>>,
 
-    pub bed_intervals: SortedIntervalCollection<BEDInterval>,
-    pub bed_loaded: bool, // Temporary hack before proper implemetation for large bed file io
+    /// Variant track data.
+    /// Index always matches with VariantRepository index
+    pub variants: Vec<VariantTrack>,
+    pub variant_loaded: Vec<bool>, // Temporary hack before proper implemetation for the indexed VCF IO
+
+    /// Bed track data
+    /// Index always matches with BedRepository index
+    pub bed_intervals: Vec<BedTrack>,
+    pub bed_loaded: Vec<bool>, // Temporary hack before proper implemetation for large bed file io
 
     pub track: Track<Gene>,
 
@@ -41,21 +49,27 @@ pub struct State {
 }
 
 impl State {
-    pub fn new(reference: Reference, contigs: ContigHeader) -> Result<Self, TGVError> {
+    pub fn new(
+        reference: Reference,
+        contigs: ContigHeader,
+        //repository_file_indexes: &[RepositoryFileIndex],
+    ) -> Result<Self, TGVError> {
         Ok(Self {
             reference,
 
             // /settings: settings.clone(),
             messages: Vec::new(),
 
-            alignment: Alignment::default(),
+            alignments: Vec::new(),
             alignment_options: Vec::new(),
+            paired_alignments: Vec::new(),
+
             track: Track::<Gene>::default(),
             sequence: Sequence::default(),
-            variants: SortedIntervalCollection::<Variant>::default(),
-            variant_loaded: false,
-            bed_intervals: SortedIntervalCollection::<BEDInterval>::default(),
-            bed_loaded: false,
+            variants: Vec::new(),
+            variant_loaded: Vec::new(),
+            bed_intervals: Vec::new(),
+            bed_loaded: Vec::new(),
             contig_header: contigs,
         })
     }
@@ -128,20 +142,32 @@ impl State {
         self.messages.push(message);
     }
 
+    pub fn add_alignment_track(&mut self) {
+        self.alignments.push(Alignment::default());
+        self.alignment_options.push(Vec::new());
+        self.paired_alignments.push(None);
+    }
+
     pub async fn load_alignment_data(
         &mut self,
+        index: usize,
         region: &Region,
         alignment_repository: &mut AlignmentRepositoryEnum,
     ) -> Result<&mut Self, TGVError> {
         // if !self.alignment.has_complete_data(&region) {
         //     Ok(false)
         // } else {
-        self.alignment = alignment_repository
+        let alignment = alignment_repository
             .read_alignment(region, &self.sequence, &self.contig_header)
             .await?;
+        self.alignments[index] = alignment;
 
-        self.alignment
-            .apply_options(&self.alignment_options, &self.sequence)?;
+        // Re-compute paired alignment later, if needed.
+        // This is wasteful. Have it lke this for now. Fix later.
+        // This might also be problematic? read positions are re-shuffled at every load.
+        self.paired_alignments[index] = None;
+
+        self.set_alignment_options(index, &region.focus, self.alignment_options[index].clone())?;
 
         Ok(self)
     }
@@ -170,23 +196,45 @@ impl State {
         Ok(self)
     }
 
+    pub fn add_variant_track(&mut self) {
+        self.variants.push(VariantTrack::default());
+        self.variant_loaded.push(false);
+    }
+
     pub async fn load_variant_data(
         &mut self,
+        index: usize,
         _region: &Region,
         variant_repository: &mut VariantRepository,
     ) -> Result<&mut Self, TGVError> {
-        self.variants = variant_repository.read_variants(&self.contig_header)?;
-        self.variant_loaded = true;
+        *self.variants.get_mut(index).ok_or_else(|| {
+            TGVError::StateError(format!("Variant index out of bounds: {index}"))
+        })? = variant_repository.read_variants(&self.contig_header)?;
+        *self.variant_loaded.get_mut(index).ok_or_else(|| {
+            TGVError::StateError(format!("Variant loaded index out of bounds: {index}"))
+        })? = true;
         Ok(self)
+    }
+
+    pub fn add_bed_track(&mut self) {
+        self.bed_intervals.push(BedTrack::default());
+        self.bed_loaded.push(false);
     }
 
     pub async fn load_bed_data(
         &mut self,
+        index: usize,
         _region: &Region,
-        bed_repository: &mut BEDRepository,
+        bed_repository: &mut BedRepository,
     ) -> Result<&mut Self, TGVError> {
-        self.bed_intervals = bed_repository.read_bed(&self.contig_header)?;
-        self.bed_loaded = true;
+        *self
+            .bed_intervals
+            .get_mut(index)
+            .ok_or_else(|| TGVError::StateError(format!("BED index out of bounds: {index}")))? =
+            bed_repository.read_bed(&self.contig_header)?;
+        *self.bed_loaded.get_mut(index).ok_or_else(|| {
+            TGVError::StateError(format!("BED loaded index out of bounds: {index}"))
+        })? = true;
         Ok(self)
     }
 
@@ -215,13 +263,12 @@ impl State {
 
 impl State {
     /// Main function to route state message handling.
-    pub fn set_alignment_change(
+    pub fn set_alignment_options(
         &mut self,
+        index: usize,
         focus: &Focus,
         options: Vec<AlignmentDisplayOption>,
     ) -> Result<(), TGVError> {
-        self.alignment.reset(&self.sequence)?;
-
         let options = options
             .into_iter()
             .map(|option| match option {
@@ -233,12 +280,26 @@ impl State {
                     AlignmentDisplayOption::Filter(AlignmentFilter::BaseSoftclip(focus.position))
                 }
 
-                _ => option,
+                option => option,
             })
             .collect_vec();
-        self.alignment_options = options;
-        self.alignment
-            .apply_options(&self.alignment_options, &self.sequence)?;
+
+        self.alignment_options[index] = options.clone();
+
+        options.into_iter().try_for_each(|option| match option {
+            AlignmentDisplayOption::Filter(filter) => {
+                self.alignments[index].filter(filter, &self.sequence)
+            }
+
+            AlignmentDisplayOption::Sort(sort) => self.alignments[index].sort(sort), // TODO
+
+            AlignmentDisplayOption::ViewAsPairs => {
+                self.paired_alignments[index] =
+                    Some(PairedAlignment::new(&self.alignments[index])?);
+                Ok(())
+            }
+            _ => Ok(()),
+        })?;
 
         Ok(())
     }

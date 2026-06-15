@@ -10,13 +10,14 @@ use gv_core::{
     error::TGVError,
     message::Movement,
     reference::Reference,
-    settings::{AlignmentPath, BackendType, BamSource},
+    settings::{AlignmentPath, BackendType, BamSource, FilePath},
     tracks::UcscHost,
 };
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
 
-const CURRENT_VERSION: u32 = 1;
+const MIN_SUPPORTED_VERSION: u32 = 1;
+const CURRENT_VERSION: u32 = 2;
 
 /// On-disk representation of a tgv session.
 ///
@@ -125,10 +126,10 @@ impl SessionFile {
     pub fn parse(content: &str) -> Result<Self, TGVError> {
         let session: Self = toml::from_str(content)
             .map_err(|e| TGVError::ParsingError(format!("Failed to parse session file: {e}")))?;
-        if session.version != CURRENT_VERSION {
+        if !(MIN_SUPPORTED_VERSION..=CURRENT_VERSION).contains(&session.version) {
             return Err(TGVError::ParsingError(format!(
-                "Unsupported session file version {}. Expected {}.",
-                session.version, CURRENT_VERSION
+                "Unsupported session file version {}. Expected a version between {} and {}.",
+                session.version, MIN_SUPPORTED_VERSION, CURRENT_VERSION
             )));
         }
         Ok(session)
@@ -177,15 +178,13 @@ impl TryFrom<SessionFile> for Settings {
     fn try_from(session: SessionFile) -> Result<Self, TGVError> {
         let initial_state_messages = parse_locus(&session.locus)?;
 
-        let mut alignment_path: Option<AlignmentPath> = None;
-        let mut vcf_path: Option<String> = None;
-        let mut bed_path: Option<String> = None;
+        let mut file_paths = Vec::new();
 
         for track in session.tracks {
             let lower = track.path.to_lowercase();
             if lower.ends_with(".bam") {
                 let index = track.index.unwrap_or_else(|| format!("{}.bai", track.path));
-                alignment_path = Some(AlignmentPath::Bam {
+                file_paths.push(FilePath::AlignmentPath(AlignmentPath::Bam {
                     source: if is_url(&track.path) {
                         BamSource::S3
                     } else {
@@ -193,7 +192,7 @@ impl TryFrom<SessionFile> for Settings {
                     },
                     path: track.path,
                     index,
-                });
+                }));
             } else if lower.ends_with(".cram") {
                 let crai = track
                     .index
@@ -207,24 +206,22 @@ impl TryFrom<SessionFile> for Settings {
                 let fai = track
                     .reference_index
                     .unwrap_or_else(|| format!("{fasta}.fai"));
-                alignment_path = Some(AlignmentPath::Cram {
+                file_paths.push(FilePath::AlignmentPath(AlignmentPath::Cram {
                     path: track.path,
                     crai,
                     fasta,
                     fai,
-                });
+                }));
             } else if lower.ends_with(".vcf") || lower.ends_with(".vcf.gz") {
-                vcf_path = Some(track.path);
+                file_paths.push(FilePath::VariantPath(track.path));
             } else if lower.ends_with(".bed") || lower.ends_with(".bed.gz") {
-                bed_path = Some(track.path);
+                file_paths.push(FilePath::BedPath(track.path));
             }
         }
 
         Ok(Settings {
             core: gv_core::settings::Settings {
-                alignment_path,
-                vcf_path,
-                bed_path,
+                file_paths,
                 reference: session.genome,
                 backend: BackendType::Default,
                 ucsc_host: session.ucsc_host,
@@ -256,26 +253,20 @@ impl TryFrom<&App> for SessionFile {
 
         let mut tracks = Vec::new();
 
-        if let Some(ap) = &app.settings.core.alignment_path {
-            tracks.push(TrackEntry::try_from(ap)?);
-        }
-
-        if let Some(vcf) = &app.settings.core.vcf_path {
-            tracks.push(TrackEntry {
-                path: vcf.clone(),
-                index: None,
-                reference: None,
-                reference_index: None,
-            });
-        }
-
-        if let Some(bed) = &app.settings.core.bed_path {
-            tracks.push(TrackEntry {
-                path: bed.clone(),
-                index: None,
-                reference: None,
-                reference_index: None,
-            });
+        for file_path in &app.settings.core.file_paths {
+            match file_path {
+                FilePath::AlignmentPath(alignment_path) => {
+                    tracks.push(TrackEntry::try_from(alignment_path)?);
+                }
+                FilePath::VariantPath(path) | FilePath::BedPath(path) => {
+                    tracks.push(TrackEntry {
+                        path: path.clone(),
+                        index: None,
+                        reference: None,
+                        reference_index: None,
+                    });
+                }
+            }
         }
 
         Ok(SessionFile {

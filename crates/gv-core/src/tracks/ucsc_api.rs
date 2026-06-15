@@ -74,7 +74,7 @@ impl UcscApiTrackService {
         let query_url = match reference {
             Reference::Hg19 | Reference::Hg38 | Reference::UcscGenome(_) => format!(
                 "https://api.genome.ucsc.edu/getData/track?genome={}&track={}&chrom={}",
-                reference.to_string(),
+                reference,
                 preferred_track,
                 contig_name
             ),
@@ -96,11 +96,31 @@ impl UcscApiTrackService {
             }
         };
 
-        let mut response: serde_json::Value =
-            self.client.get(query_url).send().await?.json().await?;
+        log::info!(
+            "HTTP request: method=GET url={} context=UCSC track data reference={} track={} contig={} contig_index={}",
+            query_url,
+            reference,
+            preferred_track,
+            contig_name,
+            contig_index
+        );
+        let response = self.client.get(&query_url).send().await?;
+        log::info!(
+            "HTTP response: status={} url={} context=UCSC track data",
+            response.status(),
+            query_url
+        );
+        let mut response: serde_json::Value = response.json().await?;
 
         let response: Vec<UcscGeneResponse> =
-            serde_json::from_value(response[preferred_track].take())?;
+            serde_json::from_value(response[preferred_track.as_str()].take())?;
+        log::debug!(
+            "UCSC track response: reference={} track={} contig={} genes={}",
+            reference,
+            preferred_track,
+            contig_name,
+            response.len()
+        );
 
         self.cache.add_track(
             contig_index,
@@ -110,6 +130,7 @@ impl UcscApiTrackService {
                     .map(|response| response.to_gene(contig_index))
                     .collect::<Result<Vec<Gene>, TGVError>>()?,
                 contig_index,
+                (1, u64::MAX),
             )?,
         );
 
@@ -120,16 +141,18 @@ impl UcscApiTrackService {
         &mut self,
         accession: &str,
     ) -> Result<String, TGVError> {
-        let response = self
-            .client
-            .get(format!(
-                "https://api.genome.ucsc.edu/list/genarkGenomes?genome={}",
-                accession
-            ))
-            .send()
-            .await?
-            .json::<UcscApiHubUrlResponse>()
-            .await?;
+        let url = format!(
+            "https://api.genome.ucsc.edu/list/genarkGenomes?genome={}",
+            accession
+        );
+        log::info!("HTTP request: method=GET url={url} context=UCSC track GenArk hub lookup");
+        let response = self.client.get(&url).send().await?;
+        log::info!(
+            "HTTP response: status={} url={} context=UCSC track GenArk hub lookup",
+            response.status(),
+            url
+        );
+        let response = response.json::<UcscApiHubUrlResponse>().await?;
 
         response.get_hub_url(accession)
     }
@@ -147,7 +170,7 @@ impl TrackService for UcscApiTrackService {
             Reference::Hg19 | Reference::Hg38 | Reference::UcscGenome(_) => {
                 format!(
                     "https://api.genome.ucsc.edu/list/chromosomes?genome={}",
-                    reference.to_string()
+                    reference
                 )
             }
             Reference::UcscAccession(genome) => {
@@ -169,13 +192,23 @@ impl TrackService for UcscApiTrackService {
             }
         };
 
-        let response = self
-            .client
-            .get(query_url)
-            .send()
-            .await?
-            .json::<UcscListChromosomeResponse>()
-            .await?;
+        log::info!(
+            "HTTP request: method=GET url={} context=UCSC track chromosome list reference={}",
+            query_url,
+            reference
+        );
+        let response = self.client.get(&query_url).send().await?;
+        log::info!(
+            "HTTP response: status={} url={} context=UCSC track chromosome list",
+            response.status(),
+            query_url
+        );
+        let response = response.json::<UcscListChromosomeResponse>().await?;
+        log::debug!(
+            "UCSC track chromosome response: reference={} chromosomes={}",
+            reference,
+            response.chromosomes.len()
+        );
 
         let mut output = Vec::new();
         for (name_string, length) in response.chromosomes.into_iter() {
@@ -207,7 +240,7 @@ impl TrackService for UcscApiTrackService {
         let query_url = match reference {
             Reference::Hg19 | Reference::Hg38 | Reference::UcscGenome(_) => format!(
                 "https://api.genome.ucsc.edu/getData/track?genome={}&track=cytoBandIdeo&chrom={}",
-                reference.to_string(),
+                reference,
                 contig_name
             ),
             Reference::UcscAccession(genome) => {
@@ -228,14 +261,20 @@ impl TrackService for UcscApiTrackService {
             }
         };
 
-        let response: UcscApiCytobandResponse = self
-            .client
-            .get(query_url)
-            .send()
-            .await?
-            .json()
-            .await
-            .unwrap_or_default();
+        log::info!(
+            "HTTP request: method=GET url={} context=UCSC cytoband track reference={} contig={} contig_index={}",
+            query_url,
+            reference,
+            contig_name,
+            contig_index
+        );
+        let response = self.client.get(&query_url).send().await?;
+        log::info!(
+            "HTTP response: status={} url={} context=UCSC cytoband track",
+            response.status(),
+            query_url
+        );
+        let response: UcscApiCytobandResponse = response.json().await.unwrap_or_default();
 
         response.to_cytoband(reference, contig_index)
     }
@@ -247,7 +286,7 @@ impl TrackService for UcscApiTrackService {
         let query_url = match reference {
             Reference::Hg19 | Reference::Hg38 | Reference::UcscGenome(_) => format!(
                 "https://api.genome.ucsc.edu/list/tracks?trackLeavesOnly=1;genome={}",
-                reference.to_string(),
+                reference,
             ),
             Reference::UcscAccession(genome) => {
                 if self.hub_url.is_none() {
@@ -269,10 +308,18 @@ impl TrackService for UcscApiTrackService {
         match reference.clone() {
             Reference::Hg19 | Reference::Hg38 => Ok(Some("ncbiRefSeqSelect".to_string())),
             reference => {
-                let response = reqwest::get(query_url)
-                    .await?
-                    .json::<serde_json::Value>()
-                    .await?;
+                log::info!(
+                    "HTTP request: method=GET url={} context=UCSC track list reference={}",
+                    query_url,
+                    reference
+                );
+                let response = reqwest::get(&query_url).await?;
+                log::info!(
+                    "HTTP response: status={} url={} context=UCSC track list",
+                    response.status(),
+                    query_url
+                );
+                let response = response.json::<serde_json::Value>().await?;
 
                 let track_names = response
                     .get(reference.to_string())

@@ -16,13 +16,21 @@ pub struct Track<T: GenomeInterval> {
     features_by_start: BTreeMap<u64, usize>, // start -> index in features
     features_by_end: BTreeMap<u64, usize>,   // end -> index in features
 
-    /// Left bound
+    /// Left bound.
     /// 1-based, inclusive.
     most_left_bound: u64,
 
-    /// Right bound
-    /// 1-based, exclusive.
+    /// Right bound.
+    /// 1-based, inclusive.
     most_right_bound: u64,
+
+    /// The left bound of the region with complete data.
+    /// 1-based, inclusive.
+    data_complete_left_bound: u64,
+
+    /// The right bound of the region with complete data.
+    /// 1-based, inclusive.
+    data_complete_right_bound: u64,
 
     /// Only for Track<Gene>
     /// (i, j) -> exon [self.genes[i].exon_starts[j], self.genes[i].exon_ends[j]]
@@ -43,6 +51,8 @@ impl<T: GenomeInterval> Default for Track<T> {
 
             most_left_bound: u64::MAX,
             most_right_bound: u64::MIN,
+            data_complete_left_bound: u64::MAX,
+            data_complete_right_bound: u64::MIN,
 
             exons_by_start: BTreeMap::new(),
             exons_by_end: BTreeMap::new(),
@@ -81,10 +91,10 @@ impl<T: GenomeInterval> Track<T> {
             contig_index,
             features_by_start,
             features_by_end,
-            // data_complete_left_bound: data_complete_left_bound,
-            // data_complete_right_bound: data_complete_right_bound,
             most_left_bound,
             most_right_bound,
+            data_complete_left_bound: most_left_bound,
+            data_complete_right_bound: most_right_bound,
             exons_by_start: BTreeMap::new(),
             exons_by_end: BTreeMap::new(),
             feature_lookup: HashMap::new(),
@@ -95,12 +105,12 @@ impl<T: GenomeInterval> Track<T> {
         self.features.is_empty()
     }
 
-    /// Check if the track has complete data in [left, right].
-    /// Note that this is assuming that the track has complete data.
-    /// left: 1-based, inclusive.
-    /// right: 1-based, exclusive.
+    /// Check whether the track has complete data for a region.
+    /// Coordinates are 1-based and inclusive.
     pub fn has_complete_data(&self, region: &Region) -> bool {
-        self.contains(region)
+        region.contig_index() == self.contig_index
+            && region.start() >= self.data_complete_left_bound
+            && region.end() <= self.data_complete_right_bound
     }
 }
 
@@ -256,7 +266,11 @@ impl Track<Gene> {
         }
     }
 
-    pub fn from_genes(genes: Vec<Gene>, contig_index: usize) -> Result<Self, TGVError> {
+    pub fn from_genes(
+        genes: Vec<Gene>,
+        contig_index: usize,
+        data_complete_bound: (u64, u64),
+    ) -> Result<Self, TGVError> {
         let mut genes = genes;
         genes.sort_by_key(|gene| gene.start());
 
@@ -292,6 +306,8 @@ impl Track<Gene> {
             features_by_end,
             most_left_bound,
             most_right_bound,
+            data_complete_left_bound: data_complete_bound.0,
+            data_complete_right_bound: data_complete_bound.1,
             exons_by_start,
             exons_by_end,
             feature_lookup: HashMap::new(),
@@ -438,6 +454,7 @@ impl Track<Gene> {
 #[cfg(test)]
 mod tests {
 
+    use crate::intervals::Focus;
     use crate::strand::Strand;
 
     /// Test track: [gene1: [2,5], [8,10]], [gene_no_exon (21-30)], [gene2: [41,50]]
@@ -484,7 +501,7 @@ mod tests {
             },
         ];
 
-        Track::from_genes(genes, 0).unwrap()
+        Track::from_genes(genes, 0, (1, 100)).unwrap()
     }
 
     use super::*;
@@ -611,5 +628,32 @@ mod tests {
             ),
             None => assert!(track.get_k_exons_after(position, k).is_none()),
         }
+    }
+
+    #[test]
+    fn test_has_complete_data_uses_loaded_region() {
+        let track = Track::from_genes(Vec::new(), 0, (100, 200)).unwrap();
+
+        assert!(track.has_complete_data(&Region {
+            focus: Focus {
+                contig_index: 0,
+                position: 150,
+            },
+            half_width: 25,
+        }));
+        assert!(!track.has_complete_data(&Region {
+            focus: Focus {
+                contig_index: 0,
+                position: 95,
+            },
+            half_width: 10,
+        }));
+        assert!(!track.has_complete_data(&Region {
+            focus: Focus {
+                contig_index: 1,
+                position: 150,
+            },
+            half_width: 25,
+        }));
     }
 }

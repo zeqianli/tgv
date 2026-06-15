@@ -1,9 +1,10 @@
 mod alignment;
 mod coverage;
+mod paired_alignment;
 mod read;
 mod repository;
-
 pub use alignment::Alignment;
 pub use coverage::BaseCoverage;
+pub use paired_alignment::PairedAlignment;
 pub use read::{AlignedRead, RenderingContext, RenderingContextKind, RenderingContextModifier};
 pub use repository::{AlignmentRepositoryEnum, is_url};

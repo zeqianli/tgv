@@ -6,6 +6,7 @@ pub mod cytoband;
 pub mod error;
 pub mod feature;
 pub mod intervals;
+pub mod logging;
 pub mod message;
 pub mod normal;
 pub mod reference;

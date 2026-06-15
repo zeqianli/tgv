@@ -77,7 +77,7 @@ impl MouseRegister {
                 } else {
                     // move alignment
                     match self.mouse_down_area_type {
-                        AreaType::Alignment | AreaType::Coverage => {
+                        AreaType::Alignment(_) | AreaType::Coverage(_) => {
                             if event.column < self.mouse_drag_x {
                                 messages.push(Movement::Right(1).into())
                             } else if event.column > self.mouse_drag_x {
@@ -108,20 +108,21 @@ impl MouseRegister {
                     layout.get_area_type_at_position(event.column, event.row)
                 {
                     match area_type {
-                        AreaType::Alignment => {
+                        AreaType::Alignment(index) => {
                             if let (Some((left_coordinate, right_coordinate)), Some(y_coordinate)) = (
                                 &alignment_view.coordinates_of_onscreen_x(event.column, area),
                                 &alignment_view.coordinate_of_onscreen_y(event.row, area),
-                            )
-                                && let Some(read) = state.alignment.read_overlapping(
+                            ) && let Some(alignment) = state.alignments.get(*index)
+                                && let Some(read) = alignment.read_overlapping(
                                     *left_coordinate,
                                     *right_coordinate,
                                     *y_coordinate,
-                                ) {
-                                    messages.push(Message::Core(
-                                        gv_core::message::Message::Message(read.describe()?),
-                                    ))
-                                }
+                                )
+                            {
+                                messages.push(Message::Core(gv_core::message::Message::Message(
+                                    read.describe()?,
+                                )))
+                            }
                         }
 
                         AreaType::Sequence => {
@@ -140,13 +141,14 @@ impl MouseRegister {
                             }
                         }
 
-                        AreaType::Coverage => {
+                        AreaType::Coverage(index) => {
                             if let Some((left_coordinate, right_coordinate)) =
                                 alignment_view.coordinates_of_onscreen_x(event.column, area)
+                                && let Some(alignment) = state.alignments.get(*index)
                             {
                                 let mut total_coverage: BaseCoverage = BaseCoverage::default();
                                 (left_coordinate..=right_coordinate).for_each(|coordinate| {
-                                    total_coverage.add(state.alignment.coverage_at(coordinate))
+                                    total_coverage.add(alignment.coverage_at(coordinate))
                                 });
 
                                 let message = if left_coordinate == right_coordinate {
@@ -163,12 +165,12 @@ impl MouseRegister {
                                 messages.push(Message::message(message));
                             }
                         }
-                        AreaType::Variant => {
+                        AreaType::Variant(index) => {
                             if let Some((left_coordinate, right_coordinate)) =
                                 alignment_view.coordinates_of_onscreen_x(event.column, area)
+                                && let Some(variants) = state.variants.get(*index)
                             {
-                                state
-                                    .variants
+                                variants
                                     .overlapping(
                                         alignment_view.focus.contig_index,
                                         left_coordinate,
@@ -181,12 +183,12 @@ impl MouseRegister {
                             }
                         }
 
-                        AreaType::Bed => {
+                        AreaType::Bed(index) => {
                             if let Some((left_coordinate, right_coordinate)) =
                                 alignment_view.coordinates_of_onscreen_x(event.column, area)
+                                && let Some(bed_intervals) = state.bed_intervals.get(*index)
                             {
-                                state
-                                    .bed_intervals
+                                bed_intervals
                                     .overlapping(
                                         alignment_view.focus.contig_index,
                                         left_coordinate,

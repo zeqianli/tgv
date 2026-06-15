@@ -55,6 +55,12 @@ impl UCSCDownloader {
 
         let db_path = Path::new(&self.cache_dir).join("tracks.sqlite");
 
+        let db_path_display = db_path.display().to_string();
+        log::info!(
+            "Database connect: database=local-sqlite connection={} context=download cache reference={}",
+            db_path_display,
+            self.reference
+        );
         let sqlite_pool = SqlitePoolOptions::new()
             .max_connections(1)
             .connect_with(
@@ -94,6 +100,11 @@ impl UCSCDownloader {
     ) -> Result<(), TGVError> {
         // Connect to MariaDB
         let mysql_url = UcscDbTrackService::get_mysql_url(&self.reference, &UcscHost::Us)?;
+        log::info!(
+            "Database connect: database=ucsc-mysql connection={} context=download reference={}",
+            mysql_url,
+            reference
+        );
         let mysql_pool = MySqlPoolOptions::new()
             .max_connections(5)
             .connect(&mysql_url)
@@ -114,7 +125,7 @@ impl UCSCDownloader {
 
         println!(
             "Successfully downloaded track data for {}",
-            reference.to_string(),
+            reference,
         );
         Ok(())
     }
@@ -189,18 +200,30 @@ impl UCSCDownloader {
         sqlite_pool: &SqlitePool,
     ) -> Result<(), TGVError> {
         let chrom_info_content: String = std::fs::read_to_string(chrom_info_path)?;
-        let chrom_info_lines = chrom_info_content.lines();
+        let chrom_info_lines = chrom_info_content.lines().collect::<Vec<_>>();
 
         println!("twobit_file_name: {:?}", twobit_file_name);
 
-        sqlx::query("DROP TABLE IF EXISTS chromInfo")
-            .execute(sqlite_pool)
-            .await?;
+        let drop_sql = "DROP TABLE IF EXISTS chromInfo";
+        log::info!(
+            "Database query: database=local-sqlite sql=\"{}\" context=download chromInfo reset",
+            drop_sql
+        );
+        sqlx::query(drop_sql).execute(sqlite_pool).await?;
 
-        sqlx::query("CREATE TABLE chromInfo (chrom TEXT, size INTEGER, fileName TEXT)")
-            .execute(sqlite_pool)
-            .await?;
+        let create_sql = "CREATE TABLE chromInfo (chrom TEXT, size INTEGER, fileName TEXT)";
+        log::info!(
+            "Database query: database=local-sqlite sql=\"{}\" context=download chromInfo create",
+            create_sql
+        );
+        sqlx::query(create_sql).execute(sqlite_pool).await?;
 
+        let insert_sql = "INSERT INTO chromInfo (chrom, size, fileName) VALUES (?, ?, ?)";
+        log::info!(
+            "Database batch: database=local-sqlite rows={} sql=\"{}\" context=download chromInfo rows",
+            chrom_info_lines.len(),
+            insert_sql
+        );
         for line in chrom_info_lines {
             let fields = line.split("\t").collect::<Vec<&str>>();
             let chrom = fields[0];
@@ -208,7 +231,7 @@ impl UCSCDownloader {
                 .parse::<i64>()
                 .map_err(|e| TGVError::IOError(format!("Failed to parse chrom size: {}", e)))?;
 
-            sqlx::query("INSERT INTO chromInfo (chrom, size, fileName) VALUES (?, ?, ?)")
+            sqlx::query(insert_sql)
                 .bind(chrom)
                 .bind(size)
                 .bind(match twobit_file_name {
@@ -232,9 +255,13 @@ impl UCSCDownloader {
         let mut column_types: HashMap<String, UCSCColumnType> = HashMap::new();
 
         // Check if table exists and get its structure
-        let columns_info = sqlx::query(&format!("SHOW COLUMNS FROM {}", table_name))
-            .fetch_all(mysql_pool)
-            .await?;
+        let columns_sql = format!("SHOW COLUMNS FROM {}", table_name);
+        log::info!(
+            "Database query: database=ucsc-mysql sql=\"{}\" context=inspect table schema table={}",
+            columns_sql,
+            table_name
+        );
+        let columns_info = sqlx::query(&columns_sql).fetch_all(mysql_pool).await?;
         if columns_info.is_empty() {
             return Err(TGVError::IOError(format!(
                 "{} table has no columns.",
@@ -305,21 +332,30 @@ impl UCSCDownloader {
         }
 
         // Drop existing table if it exists, then create fresh
-        sqlx::query(&format!("DROP TABLE IF EXISTS {}", table_name))
-            .execute(sqlite_pool)
-            .await?;
+        let drop_sql = format!("DROP TABLE IF EXISTS {}", table_name);
+        log::info!(
+            "Database query: database=local-sqlite sql=\"{}\" context=reset transferred table table={}",
+            drop_sql,
+            table_name
+        );
+        sqlx::query(&drop_sql).execute(sqlite_pool).await?;
 
-        sqlx::query(&format!(
-            "CREATE TABLE {} ({})",
-            table_name,
-            column_defs.join(", ")
-        ))
-        .execute(sqlite_pool)
-        .await?;
+        let create_sql = format!("CREATE TABLE {} ({})", table_name, column_defs.join(", "));
+        log::info!(
+            "Database query: database=local-sqlite sql=\"{}\" context=create transferred table table={}",
+            create_sql,
+            table_name
+        );
+        sqlx::query(&create_sql).execute(sqlite_pool).await?;
 
         // Transfer data
         let select_columns = valid_columns.join(", ");
         let query_sql = format!("SELECT {} FROM {}", select_columns, table_name);
+        log::info!(
+            "Database query: database=ucsc-mysql sql=\"{}\" context=transfer table data table={}",
+            query_sql,
+            table_name
+        );
         let rows = sqlx::query(&query_sql).fetch_all(mysql_pool).await?;
 
         if rows.is_empty() {
@@ -332,6 +368,12 @@ impl UCSCDownloader {
         let insert_sql = format!(
             "INSERT INTO {} ({}) VALUES ({})",
             table_name, select_columns, placeholders
+        );
+        log::info!(
+            "Database batch: database=local-sqlite rows={} sql=\"{}\" context=insert transferred table rows table={}",
+            rows.len(),
+            insert_sql,
+            table_name
         );
 
         let mut transaction: sqlx::Transaction<'_, sqlx::Sqlite> = sqlite_pool.begin().await?;
@@ -383,7 +425,12 @@ impl UCSCDownloader {
         sqlite_pool: &SqlitePool,
     ) -> Result<&Self, TGVError> {
         // Get list of available gene tracks
-        let table_rows = sqlx::query("SHOW TABLES").fetch_all(mysql_pool).await?;
+        let sql = "SHOW TABLES";
+        log::info!(
+            "Database query: database=ucsc-mysql sql=\"{}\" context=find available gene tracks",
+            sql
+        );
+        let table_rows = sqlx::query(sql).fetch_all(mysql_pool).await?;
 
         let available_tracks: Vec<String> = table_rows
             .into_iter()
@@ -408,11 +455,13 @@ impl UCSCDownloader {
         println!("Downloading genome files...");
 
         // Query SQLite for unique fileName values from chromInfo table
-        let rows = sqlx::query(
-            "SELECT DISTINCT fileName FROM chromInfo WHERE fileName IS NOT NULL AND fileName != ''",
-        )
-        .fetch_all(sqlite_pool)
-        .await?;
+        let sql =
+            "SELECT DISTINCT fileName FROM chromInfo WHERE fileName IS NOT NULL AND fileName != ''";
+        log::info!(
+            "Database query: database=local-sqlite sql=\"{}\" context=find genome files to download",
+            sql
+        );
+        let rows = sqlx::query(sql).fetch_all(sqlite_pool).await?;
 
         if rows.is_empty() {
             println!("No genome files found in chromInfo table");
@@ -438,13 +487,29 @@ impl UCSCDownloader {
 
         println!("Downloading file: {}", local_path.display());
 
+        log::info!(
+            "HTTP request: method=GET url={} context=download file to {}",
+            url,
+            local_path.display()
+        );
         // Download the file
         match client.get(url).send().await {
             Ok(response) => {
+                log::info!(
+                    "HTTP response: status={} url={} context=download file",
+                    response.status(),
+                    url
+                );
                 if response.status().is_success() {
                     let content = response.bytes().await.map_err(|e| {
                         TGVError::IOError(format!("Failed to read response bytes: {}", e))
                     })?;
+                    log::debug!(
+                        "Downloaded HTTP response body: url={} bytes={} local_path={}",
+                        url,
+                        content.len(),
+                        local_path.display()
+                    );
 
                     // Write file to disk
                     std::fs::write(&local_path, content).map_err(|e| {
@@ -465,6 +530,7 @@ impl UCSCDownloader {
                 }
             }
             Err(e) => {
+                log::warn!("HTTP request failed: url={url} error={e}");
                 println!("Failed to download {}: {}", local_path.display(), e);
             }
         }
@@ -582,9 +648,14 @@ impl BigBedConverter {
             .unwrap_or(0);
 
         // Drop existing table if it exists
-        sqlx::query(&format!("DROP TABLE IF EXISTS {}", track_name))
-            .execute(sqlite_pool)
-            .await?;
+        let drop_sql = format!("DROP TABLE IF EXISTS {}", track_name);
+        log::info!(
+            "Database query: database=local-sqlite sql=\"{}\" context=reset BigBed table track={} path={}",
+            drop_sql,
+            track_name,
+            bigbed_path
+        );
+        sqlx::query(&drop_sql).execute(sqlite_pool).await?;
 
         // Create table with gene track schema
 
@@ -603,6 +674,12 @@ impl BigBedConverter {
 
         let query_string = format!("CREATE TABLE {} ({})", track_name, query);
 
+        log::info!(
+            "Database query: database=local-sqlite sql=\"{}\" context=create BigBed table track={} path={}",
+            query_string,
+            track_name,
+            bigbed_path
+        );
         sqlx::query(&query_string).execute(sqlite_pool).await?;
 
         let mut transaction: sqlx::Transaction<'_, sqlx::Sqlite> = sqlite_pool.begin().await?;
@@ -614,6 +691,25 @@ impl BigBedConverter {
             .iter()
             .map(|chrom_info| (chrom_info.name.clone(), chrom_info.length))
             .collect();
+
+        let insert_query_string = format!(
+            "INSERT INTO {} ({}) VALUES ({})",
+            track_name,
+            "chrom, chromStart, chromEnd, ".to_string()
+                + &field_names.join(", ")
+                + if need_exon_conversion {
+                    ", exonStarts, exonEnds, cdsStart, cdsEnd"
+                } else {
+                    ""
+                },
+            vec!["?"; field_names.len() + 3 + if need_exon_conversion { 4 } else { 0 }].join(", ")
+        );
+        log::info!(
+            "Database query: database=local-sqlite sql=\"{}\" context=prepare BigBed row insert track={} path={}",
+            insert_query_string,
+            track_name,
+            bigbed_path
+        );
 
         for (chromosome_name, chromosome_length) in chromosomes {
             for interval in bigbed_reader.get_interval(&chromosome_name, 0, chromosome_length)? {
@@ -630,22 +726,8 @@ impl BigBedConverter {
                     )));
                 }
 
-                let query_string = format!(
-                    "INSERT INTO {} ({}) VALUES ({})",
-                    track_name,
-                    "chrom, chromStart, chromEnd, ".to_string()
-                        + &field_names.join(", ")
-                        + if need_exon_conversion {
-                            ", exonStarts, exonEnds, cdsStart, cdsEnd"
-                        } else {
-                            ""
-                        },
-                    vec!["?"; field_names.len() + 3 + if need_exon_conversion { 4 } else { 0 }]
-                        .join(", ")
-                );
-
                 let mut query: sqlx::query::Query<'_, Sqlite, sqlx::sqlite::SqliteArguments<'_>> =
-                    sqlx::query(&query_string);
+                    sqlx::query(&insert_query_string);
                 query = query
                     .bind(chromosome_name.clone())
                     .bind(interval.start as i64)
@@ -714,6 +796,13 @@ impl BigBedConverter {
         }
 
         transaction.commit().await?;
+        log::info!(
+            "Database batch: database=local-sqlite rows={} sql=\"{}\" context=insert BigBed rows track={} path={}",
+            record_count,
+            insert_query_string,
+            track_name,
+            bigbed_path
+        );
 
         // Special case:
         // For gene tracks, bigBed files store blockSizes and chromStarts, but UCSC db stores exonStarts and exonEnds.
@@ -819,7 +908,13 @@ struct UcscHubFileParser {}
 
 impl UcscHubFileParser {
     pub async fn parse_hub_file(hub_url: &str) -> Result<UcscHub, TGVError> {
+        log::info!("HTTP request: method=GET url={hub_url} context=parse UCSC hub file");
         let response = reqwest::get(hub_url).await?;
+        log::info!(
+            "HTTP response: status={} url={} context=parse UCSC hub file",
+            response.status(),
+            hub_url
+        );
         let body = response.text().await?;
 
         let mut current_track = None; // track name of the current track block being parsed

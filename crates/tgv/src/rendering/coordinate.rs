@@ -1,4 +1,3 @@
-
 use crate::layout::{AlignmentView, OnScreenCoordinate};
 use gv_core::{error::TGVError, state::State};
 

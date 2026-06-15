@@ -3,10 +3,12 @@ use crate::{
     rendering::colors::Palette,
 };
 use gv_core::{
-    alignment::{RenderingContext, RenderingContextKind, RenderingContextModifier},
+    alignment::{
+        Alignment, PairedAlignment, RenderingContext, RenderingContextKind,
+        RenderingContextModifier,
+    },
     error::TGVError,
-    message::AlignmentDisplayOption,
-    state::State,
+    sequence::Sequence,
 };
 use ratatui::{
     buffer::Buffer,
@@ -18,58 +20,76 @@ use ratatui::{
 pub fn render_alignment(
     area: &Rect,
     buf: &mut Buffer,
-    state: &State,
+    alignment: &mut Alignment,
     alignment_view: &AlignmentView,
+    reference_sequence: &Sequence,
     pallete: &Palette,
 ) -> Result<(), TGVError> {
     if area.height < 1 {
         return Ok(());
     }
 
-    let display_as_pairs = state
-        .alignment_options
-        .contains(&AlignmentDisplayOption::ViewAsPairs);
-    if display_as_pairs && state.alignment.read_pairs.is_none() {
-        return Err(TGVError::StateError(
-            "Read pairs are not calculated before rendering.".to_string(),
-        ));
+    let visible_reads = alignment
+        .ys_index
+        .iter()
+        .enumerate()
+        .flat_map(|(y, read_indexes)| read_indexes.iter().map(move |read_index| (y, *read_index)))
+        .filter(|(_y, read_index)| alignment.show_read[*read_index])
+        .collect::<Vec<_>>();
+
+    for (y, read_index) in visible_reads {
+        let context_index =
+            if let Some(context_index) = alignment.get_rendering_context_index(read_index) {
+                context_index
+            } else {
+                alignment.calculate_read_rendering_context(read_index, reference_sequence)?
+            };
+        for context in alignment.rendering_contexts[context_index as usize].iter() {
+            render_contexts(context, y, buf, alignment_view, area, pallete)?;
+        }
     }
 
-    if display_as_pairs {
-        state
-            .alignment
-            .read_pairs
-            .as_ref()
-            .unwrap()
-            .iter()
-            .zip(state.alignment.show_pairs.as_ref().unwrap().iter())
-            .try_for_each(|(read_pair, show_pair)| {
-                if *show_pair {
-                    let y = state.alignment.ys[read_pair.read_1_index];
-                    read_pair.rendering_contexts.iter().try_for_each(|context| {
-                        // Paired mode: modifications not supported yet; pass None.
-                        render_contexts(context, y, buf, alignment_view, area, pallete)
-                    })
-                } else {
-                    Ok(())
-                }
-            })?;
-    } else {
-        state
-            .alignment
-            .ys_index
-            .iter()
-            .enumerate()
-            .try_for_each(|(y, read_indexes)| {
-                read_indexes.iter().try_for_each(|read_index| {
-                    let read = &state.alignment.reads[*read_index];
+    Ok(())
+}
 
-                    read.rendering_contexts.iter().try_for_each(|context| {
-                        render_contexts(context, y, buf, alignment_view, area, pallete)
-                    })
-                })
-            })?
-    };
+pub fn render_paired_alignment(
+    area: &Rect,
+    buf: &mut Buffer,
+    alignment: &mut Alignment,
+    alignment_view: &AlignmentView,
+    paired_alignment: &mut PairedAlignment,
+    reference_sequence: &Sequence,
+    pallete: &Palette,
+) -> Result<(), TGVError> {
+    if area.height < 1 {
+        return Ok(());
+    }
+
+    let visible_pairs = paired_alignment
+        .ys_index
+        .iter()
+        .enumerate()
+        .flat_map(|(y, read_indexes)| read_indexes.iter().map(move |read_index| (y, *read_index)))
+        .filter(|(_y, read_index)| paired_alignment.show_pair[*read_index])
+        .collect::<Vec<_>>();
+
+    for (y, pair_index) in visible_pairs {
+        let context_index = if let Some(context_index) =
+            paired_alignment.get_pair_rendering_context_index(pair_index)
+        {
+            context_index
+        } else {
+            paired_alignment.calculate_pair_rendering_context(
+                alignment,
+                pair_index,
+                reference_sequence,
+            )?
+        };
+        for context in paired_alignment.rendering_contexts[context_index as usize].iter() {
+            render_contexts(context, y, buf, alignment_view, area, pallete)?;
+        }
+    }
+
     Ok(())
 }
 

@@ -197,6 +197,7 @@ pub enum ContigSource {
     Sequence,
     Alignment,
     Track,
+    Annotation,
 }
 
 /// A collection of contigs. This helps relative contig movements.
@@ -321,6 +322,7 @@ impl ContigHeader {
             ContigSource::Alignment => contig.alignment_name_index = Some(source_index),
             ContigSource::Sequence => contig.sequence_name_index = Some(source_index),
             ContigSource::Track => contig.track_name_index = Some(source_index),
+            ContigSource::Annotation => {}
         }
 
         contig_index

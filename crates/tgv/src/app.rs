@@ -11,12 +11,7 @@ use crate::{
     session::SessionFile,
     settings::Settings,
 };
-use gv_core::{
-    error::TGVError,
-    intervals::GenomeInterval,
-    repository::Repository,
-    state::State,
-};
+use gv_core::{error::TGVError, repository::Repository, settings::FilePath, state::State};
 use std::path::PathBuf;
 
 #[derive(Debug, Clone, Eq, PartialEq)]
@@ -45,14 +40,25 @@ pub struct App {
 impl App {
     pub async fn new(settings: Settings, session_path: PathBuf) -> Result<Self, TGVError> {
         // Gather resources before initializing the state.
+        log::info!(
+            "Initializing the app with session {}",
+            session_path.display()
+        );
 
-        let (mut repository, contig_header) = Repository::new(&settings.core).await?;
+        let (mut repository, contig_header, repository_file_indexes) =
+            Repository::new(&settings.core).await?;
+        log::info!("Repository resources are ready");
 
-        let state = State::new(settings.core.reference.clone(), contig_header)?;
+        let mut state = State::new(settings.core.reference.clone(), contig_header)?;
+
+        // Initiate empty track data
+        settings.core.file_paths.iter().for_each(|path| match path {
+            FilePath::AlignmentPath(_) => state.add_alignment_track(),
+            FilePath::VariantPath(_) => state.add_variant_track(),
+            FilePath::BedPath(_) => state.add_bed_track(),
+        });
+
         let focus = state.default_focus(&mut repository).await?;
-
-        // TODO: go to foucs?
-        // TODO: handle initial message with stricter error handling
 
         let mut alignment_view = AlignmentView::new(focus);
         if let Some(zoom) = settings.zoom {
@@ -62,7 +68,7 @@ impl App {
         Ok(Self {
             exit: false,
             session_path,
-            layout: MainLayout::new(&settings),
+            layout: MainLayout::new(&settings, &repository_file_indexes),
             alignment_view,
             state,
             settings: settings.clone(),
@@ -77,6 +83,7 @@ impl App {
 impl App {
     /// Main loop
     pub async fn run<B: Backend>(&mut self, terminal: &mut Terminal<B>) -> Result<(), TGVError> {
+        log::info!("Starting the app event loop");
         terminal
             .draw(|frame| {
                 let _ = self.layout.set_area(frame.area());
@@ -132,6 +139,7 @@ impl App {
                     }
 
                     Ok(Event::Resize(_width, _height)) => {
+                        log::debug!("Terminal resized to {_width}x{_height}");
                         self.alignment_view.self_correct(
                             &self.layout.main_area,
                             self.state.contig_length(&self.alignment_view.focus)?,
@@ -156,6 +164,7 @@ impl App {
                 terminal.clear()?;
             }
         }
+        log::info!("The app event loop exited");
         Ok(())
     }
 
@@ -222,7 +231,9 @@ impl App {
                 }
 
                 Message::Core(gv_core::message::Message::Scroll(scroll)) => {
-                    self.alignment_view.scroll(scroll, &self.state.alignment);
+                    if let Some(alignment) = self.state.alignments.first() {
+                        self.alignment_view.scroll(scroll, alignment);
+                    }
                 }
 
                 Message::Core(gv_core::message::Message::Zoom(zoom)) => {
@@ -233,8 +244,14 @@ impl App {
                 }
 
                 Message::Core(gv_core::message::Message::SetAlignmentOption(options)) => {
-                    self.state
-                        .set_alignment_change(&self.alignment_view.focus, options)?;
+                    // TODO: introduce focus. Only apply option to the alignment in focus
+                    for index in 0..self.state.alignments.len() {
+                        self.state.set_alignment_options(
+                            index,
+                            &self.alignment_view.focus,
+                            options.clone(),
+                        )?;
+                    }
                 }
 
                 Message::Core(gv_core::message::Message::Message(message)) => {
@@ -263,11 +280,13 @@ impl App {
         // Alignment IO requires calculating mismatches with the reference sequence.
         //
         let region = self.alignment_view.region(&self.layout.main_area);
+        log::debug!("Loading data for region {region:?}");
 
         if let Some(sequence_service) = self.repository.sequence_service.as_mut()
             && self.alignment_view.zoom <= AlignmentView::MAX_ZOOM_TO_DISPLAY_SEQUENCES
             && !self.state.sequence.has_complete_data(&region)
         {
+            log::debug!("Loading sequence data");
             self.state
                 .load_sequence_data(
                     &self.alignment_view.sequence_cache_region(region.clone()),
@@ -276,22 +295,35 @@ impl App {
                 .await?;
         }
 
-        if let Some(alignment_repository) = self.repository.alignment_repository.as_mut()
-            && self.alignment_view.zoom <= AlignmentView::MAX_ZOOM_TO_DISPLAY_ALIGNMENTS
-            && !self.state.alignment.has_complete_data(&region)
+        for (index, alignment_repository) in self
+            .repository
+            .alignment_repositories
+            .iter_mut()
+            .enumerate()
         {
-            self.state
-                .load_alignment_data(
-                    &self.alignment_view.alignment_cache_region(region.clone()),
-                    alignment_repository,
-                )
-                .await?;
+            if self.alignment_view.zoom <= AlignmentView::MAX_ZOOM_TO_DISPLAY_ALIGNMENTS
+                && self
+                    .state
+                    .alignments
+                    .get(index)
+                    .is_some_and(|alignment| !alignment.has_complete_data(&region))
+            {
+                log::debug!("Loading alignment data for track {index}");
+                self.state
+                    .load_alignment_data(
+                        index,
+                        &self.alignment_view.alignment_cache_region(region.clone()),
+                        alignment_repository,
+                    )
+                    .await?;
+            }
         }
 
         if let Some(track_service) = self.repository.track_service.as_mut()
             && !self.state.track.has_complete_data(&region)
         {
             // viewing_window.zoom <= Self::MAX_ZOOM_TO_DISPLAY_FEATURES is always true
+            log::debug!("Loading reference track data");
 
             self.state
                 .load_track_data(
@@ -301,18 +333,30 @@ impl App {
                 .await?;
         }
 
-        if let Some(variant_repository) = self.repository.variant_repository.as_mut()
-            && !self.state.variant_loaded
+        for (index, variant_repository) in
+            self.repository.variant_repositories.iter_mut().enumerate()
         {
-            self.state
-                .load_variant_data(&region, variant_repository)
-                .await?;
+            if !self
+                .state
+                .variant_loaded
+                .get(index)
+                .copied()
+                .unwrap_or(false)
+            {
+                log::debug!("Loading variant data for track {index}");
+                self.state
+                    .load_variant_data(index, &region, variant_repository)
+                    .await?;
+            }
         }
 
-        if let Some(bed_repository) = self.repository.bed_repository.as_mut()
-            && !self.state.bed_loaded
-        {
-            self.state.load_bed_data(&region, bed_repository).await?;
+        for (index, bed_repository) in self.repository.bed_repositories.iter_mut().enumerate() {
+            if !self.state.bed_loaded.get(index).copied().unwrap_or(false) {
+                log::debug!("Loading BED data for track {index}");
+                self.state
+                    .load_bed_data(index, &region, bed_repository)
+                    .await?;
+            }
         }
 
         // Cytobands
@@ -321,12 +365,12 @@ impl App {
         Ok(())
     }
 
-    pub fn render(&self, buf: &mut Buffer) -> Result<(), TGVError> {
+    pub fn render(&mut self, buf: &mut Buffer) -> Result<(), TGVError> {
         use crate::rendering::{render_contig_list, render_help, render_main};
         match &self.scene {
             Scene::Main => render_main(
                 buf,
-                &self.state,
+                &mut self.state,
                 &self.registers,
                 &self.layout,
                 &self.alignment_view,

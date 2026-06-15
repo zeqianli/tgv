@@ -3,6 +3,7 @@ use crate::{
     cytoband::{Cytoband, CytobandSegment, Stain},
     error::TGVError,
     feature::Gene,
+    intervals::GenomeInterval,
     reference::Reference,
     strand::Strand,
     track::Track,
@@ -116,7 +117,21 @@ impl Track<Gene> {
             .into_iter()
             .map(|row| row.to_gene(contig_header))
             .collect::<Result<Vec<Gene>, TGVError>>()?;
-        Track::from_genes(genes, contig_index)
+        let data_complete_left_bound = genes
+            .iter()
+            .map(|gene| gene.start())
+            .min()
+            .ok_or_else(|| TGVError::IOError("No genes found".to_string()))?;
+        let data_complete_right_bound = genes
+            .iter()
+            .map(|gene| gene.end())
+            .max()
+            .ok_or_else(|| TGVError::IOError("No genes found".to_string()))?;
+        Track::from_genes(
+            genes,
+            contig_index,
+            (data_complete_left_bound, data_complete_right_bound),
+        )
     }
 }
 

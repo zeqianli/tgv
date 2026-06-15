@@ -2,10 +2,10 @@ use crate::contig_header::ContigHeader;
 use crate::error::TGVError;
 use crate::intervals::{GenomeInterval, SortedIntervalCollection};
 use itertools::Itertools;
-use noodles::vcf::{
-    self,
-    variant::record::{AlternateBases, Filters},
-};
+use noodles::vcf::{self, variant::record::AlternateBases};
+
+pub type VariantTrack = SortedIntervalCollection<Variant>;
+
 pub struct Variant {
     /// Contig id name. This is not stored in the record.
     pub contig_index: usize,
@@ -89,6 +89,34 @@ pub struct VariantRepository {
 }
 
 impl VariantRepository {
+    // VCFs are not always well formatted. Don't use VCF header to build contigs for now.
+    // pub fn read_contigs(&self) -> Result<Vec<(String, Option<u64>)>, TGVError> {
+    //     let mut vcf =
+    //         vcf::io::reader::Builder::default().build_from_path(self.vcf_path.as_str())?;
+    //     let header = vcf.read_header()?;
+
+    //     let contigs = header
+    //         .contigs()
+    //         .iter()
+    //         .map(|(name, contig)| (name.clone(), contig.length().map(|length| length as u64)))
+    //         .collect::<Vec<_>>();
+
+    //     if !contigs.is_empty() {
+    //         return Ok(contigs);
+    //     }
+
+    //     let mut seen = HashSet::new();
+    //     let mut contigs = Vec::new();
+    //     for record in vcf.records() {
+    //         let name = record?.reference_sequence_name().to_string();
+    //         if seen.insert(name.clone()) {
+    //             contigs.push((name, None));
+    //         }
+    //     }
+
+    //     Ok(contigs)
+    // }
+
     pub fn read_variants(
         &self,
         contig_header: &ContigHeader,

@@ -8,7 +8,6 @@ use crate::{
 };
 
 use async_compat::{Compat, CompatExt};
-use futures::StreamExt;
 use futures::TryStreamExt;
 use itertools::Itertools;
 use noodles::cram::{self as cram};
@@ -142,6 +141,12 @@ impl RemoteBamRepository {
 
         let _index = Self::read_index(s3_bai_path).await?;
 
+        log::info!(
+            "Object storage request: operation=read object_url={} bucket={} key={} context=remote BAM header",
+            s3_bam_path,
+            bucket,
+            name
+        );
         let stream = operator
             .reader(name)
             .await?
@@ -176,6 +181,12 @@ impl RemoteBamRepository {
 
         let operator = Operator::new(builder)?.finish();
 
+        log::info!(
+            "Object storage request: operation=read object_url={} bucket={} key={} context=remote BAM index",
+            s3_bai_path,
+            bucket,
+            name
+        );
         let stream = operator
             .reader(name)
             .await?
@@ -240,12 +251,9 @@ impl AlignmentRepositoryEnum {
         reference_sequence: &Sequence,
         contig_header: &ContigHeader,
     ) -> Result<Alignment, TGVError> {
-        
-
-        let mut records = match region.alignment(contig_header)? {
+        let records = match region.alignment(contig_header)? {
             Some(region) => {
                 let mut records = Vec::new();
-                let mut index = 0;
                 match self {
                     AlignmentRepositoryEnum::Bam(inner) => {
                         let mut query = inner
@@ -254,27 +262,27 @@ impl AlignmentRepositoryEnum {
                             .records();
 
                         while let Some(record) = query.try_next().await? {
-                            records.push(AlignedRead::from_record(
-                                index,
+                            records.push(AlignedRead::try_from(
                                 RecordBuf::try_from_alignment_record(&inner.header, &record)?,
-                                reference_sequence,
                             )?);
-                            index += 1;
                         }
                     }
                     AlignmentRepositoryEnum::RemoteBam(inner) => {
+                        log::info!(
+                            "Object storage request: operation=query object_url={} index_url={} region={:?} context=remote BAM records",
+                            inner.bam_path,
+                            inner.bai_path,
+                            region
+                        );
                         let mut query = inner
                             .reader
                             .query(&inner.header, &inner.index, &region)?
                             .records();
 
                         while let Some(record) = query.try_next().await? {
-                            records.push(AlignedRead::from_record(
-                                index,
+                            records.push(AlignedRead::try_from(
                                 RecordBuf::try_from_alignment_record(&inner.header, &record)?,
-                                reference_sequence,
                             )?);
-                            index += 1;
                         }
                     }
                     AlignmentRepositoryEnum::Cram(inner) => {
@@ -282,12 +290,7 @@ impl AlignmentRepositoryEnum {
 
                         //while let Some(record_buf) = query.try_next().await? {
                         for record in query {
-                            records.push(AlignedRead::from_record(
-                                index,
-                                record?,
-                                reference_sequence,
-                            )?);
-                            index += 1;
+                            records.push(AlignedRead::try_from(record?)?);
                         }
                     }
                 };
@@ -296,12 +299,6 @@ impl AlignmentRepositoryEnum {
             }
             None => Vec::new(),
         };
-
-        for record in records.iter_mut() {
-            record.build_rendering_context(reference_sequence)?
-        }
-        // PERF: move this at rendering time for efficiency. Only calculate when it's about to be displayed.
-        // PERF: parallelize this with async
 
         Alignment::from_aligned_reads(
             records,
