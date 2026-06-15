@@ -40,9 +40,14 @@ pub struct App {
 impl App {
     pub async fn new(settings: Settings, session_path: PathBuf) -> Result<Self, TGVError> {
         // Gather resources before initializing the state.
+        log::info!(
+            "Initializing the app with session {}",
+            session_path.display()
+        );
 
         let (mut repository, contig_header, repository_file_indexes) =
             Repository::new(&settings.core).await?;
+        log::info!("Repository resources are ready");
 
         let mut state = State::new(settings.core.reference.clone(), contig_header)?;
 
@@ -78,6 +83,7 @@ impl App {
 impl App {
     /// Main loop
     pub async fn run<B: Backend>(&mut self, terminal: &mut Terminal<B>) -> Result<(), TGVError> {
+        log::info!("Starting the app event loop");
         terminal
             .draw(|frame| {
                 let _ = self.layout.set_area(frame.area());
@@ -133,6 +139,7 @@ impl App {
                     }
 
                     Ok(Event::Resize(_width, _height)) => {
+                        log::debug!("Terminal resized to {_width}x{_height}");
                         self.alignment_view.self_correct(
                             &self.layout.main_area,
                             self.state.contig_length(&self.alignment_view.focus)?,
@@ -157,6 +164,7 @@ impl App {
                 terminal.clear()?;
             }
         }
+        log::info!("The app event loop exited");
         Ok(())
     }
 
@@ -272,11 +280,13 @@ impl App {
         // Alignment IO requires calculating mismatches with the reference sequence.
         //
         let region = self.alignment_view.region(&self.layout.main_area);
+        log::debug!("Loading data for region {region:?}");
 
         if let Some(sequence_service) = self.repository.sequence_service.as_mut()
             && self.alignment_view.zoom <= AlignmentView::MAX_ZOOM_TO_DISPLAY_SEQUENCES
             && !self.state.sequence.has_complete_data(&region)
         {
+            log::debug!("Loading sequence data");
             self.state
                 .load_sequence_data(
                     &self.alignment_view.sequence_cache_region(region.clone()),
@@ -298,6 +308,7 @@ impl App {
                     .get(index)
                     .is_some_and(|alignment| !alignment.has_complete_data(&region))
             {
+                log::debug!("Loading alignment data for track {index}");
                 self.state
                     .load_alignment_data(
                         index,
@@ -312,6 +323,7 @@ impl App {
             && !self.state.track.has_complete_data(&region)
         {
             // viewing_window.zoom <= Self::MAX_ZOOM_TO_DISPLAY_FEATURES is always true
+            log::debug!("Loading reference track data");
 
             self.state
                 .load_track_data(
@@ -331,6 +343,7 @@ impl App {
                 .copied()
                 .unwrap_or(false)
             {
+                log::debug!("Loading variant data for track {index}");
                 self.state
                     .load_variant_data(index, &region, variant_repository)
                     .await?;
@@ -339,6 +352,7 @@ impl App {
 
         for (index, bed_repository) in self.repository.bed_repositories.iter_mut().enumerate() {
             if !self.state.bed_loaded.get(index).copied().unwrap_or(false) {
+                log::debug!("Loading BED data for track {index}");
                 self.state
                     .load_bed_data(index, &region, bed_repository)
                     .await?;

@@ -19,6 +19,9 @@ pub enum TGVError {
     #[error("File IO error: {0}")]
     FileIOError(#[from] std::io::Error),
 
+    #[error("Logging error: {0}")]
+    LoggingError(#[from] crate::logging::LoggingError),
+
     #[error("IO Error: {0}")]
     IOError(String),
 

@@ -141,6 +141,12 @@ impl RemoteBamRepository {
 
         let _index = Self::read_index(s3_bai_path).await?;
 
+        log::info!(
+            "Object storage request: operation=read object_url={} bucket={} key={} context=remote BAM header",
+            s3_bam_path,
+            bucket,
+            name
+        );
         let stream = operator
             .reader(name)
             .await?
@@ -175,6 +181,12 @@ impl RemoteBamRepository {
 
         let operator = Operator::new(builder)?.finish();
 
+        log::info!(
+            "Object storage request: operation=read object_url={} bucket={} key={} context=remote BAM index",
+            s3_bai_path,
+            bucket,
+            name
+        );
         let stream = operator
             .reader(name)
             .await?
@@ -256,6 +268,12 @@ impl AlignmentRepositoryEnum {
                         }
                     }
                     AlignmentRepositoryEnum::RemoteBam(inner) => {
+                        log::info!(
+                            "Object storage request: operation=query object_url={} index_url={} region={:?} context=remote BAM records",
+                            inner.bam_path,
+                            inner.bai_path,
+                            region
+                        );
                         let mut query = inner
                             .reader
                             .query(&inner.header, &inner.index, &region)?

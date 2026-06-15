@@ -112,6 +112,10 @@ pub struct Cli {
 }
 
 impl Cli {
+    pub fn debug_enabled(&self) -> bool {
+        self.debug
+    }
+
     pub fn initial_movement(&self) -> Result<Vec<Message>, TGVError> {
         let region_string = match &self.region {
             Some(region_string) => region_string,

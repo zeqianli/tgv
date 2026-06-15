@@ -150,18 +150,19 @@ pub fn calculate_mate_map(reads: &Vec<AlignedRead>) -> Result<Vec<usize>, TGVErr
 
     for (i, read) in reads.iter().enumerate() {
         if read.show_as_pair()
-            && let Some(read_name) = read.record.name() {
-                let read_name = read_name.to_vec();
-                match read_id_map.remove(&read_name) {
-                    Some(mate_index) => {
-                        output[i] = mate_index;
-                        output[mate_index] = i;
-                    }
-                    _ => {
-                        read_id_map.insert(read_name, i);
-                    }
+            && let Some(read_name) = read.record.name()
+        {
+            let read_name = read_name.to_vec();
+            match read_id_map.remove(&read_name) {
+                Some(mate_index) => {
+                    output[i] = mate_index;
+                    output[mate_index] = i;
                 }
-            };
+                _ => {
+                    read_id_map.insert(read_name, i);
+                }
+            }
+        };
     }
 
     Ok(output)

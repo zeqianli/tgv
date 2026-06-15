@@ -61,17 +61,16 @@ impl Reference {
     }
 }
 
-impl std::string::ToString for Reference {
-    fn to_string(&self) -> String {
-        match self {
-            Self::Hg19 => Self::HG19.to_string(),
-            Self::Hg38 => Self::HG38.to_string(),
-            Self::UcscGenome(s) => s.clone(),
-            Self::UcscAccession(s) => s.clone(),
-            Self::BYOIndexedFasta(s) => s.split('/').next_back().unwrap().to_string(),
-            Self::BYOTwoBit(s) => s.split('/').next_back().unwrap().to_string(),
-            Self::NoReference => "no_reference".to_string(),
-        }
+impl std::fmt::Display for Reference {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let reference = match self {
+            Self::Hg19 => Self::HG19,
+            Self::Hg38 => Self::HG38,
+            Self::UcscGenome(s) | Self::UcscAccession(s) => s,
+            Self::BYOIndexedFasta(s) | Self::BYOTwoBit(s) => s.split('/').next_back().unwrap_or(s),
+            Self::NoReference => "no_reference",
+        };
+        f.write_str(reference)
     }
 }
 

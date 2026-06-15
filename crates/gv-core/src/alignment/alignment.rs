@@ -1,11 +1,11 @@
+use crate::alignment::{
+    coverage::{BaseCoverage, DEFAULT_COVERAGE, calculate_basewise_coverage},
+    read::{AlignedRead, RenderingContext, calculate_rendering_contexts},
+};
 use crate::error::TGVError;
 use crate::intervals::{GenomeInterval, Region};
 use crate::message::{AlignmentFilter, AlignmentSort};
 use crate::sequence::Sequence;
-use crate::alignment::{
-        coverage::{BaseCoverage, DEFAULT_COVERAGE, calculate_basewise_coverage},
-        read::{AlignedRead, RenderingContext, calculate_rendering_contexts},
-    };
 use std::collections::{BTreeMap, HashMap, hash_map::Entry};
 
 pub(super) const RENDERING_CONTEXT_NOT_CALCULATED: u64 = u64::MAX;

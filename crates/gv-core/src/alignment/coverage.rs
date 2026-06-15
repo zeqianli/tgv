@@ -2,10 +2,7 @@ use crate::error::TGVError;
 use crate::sequence::Sequence;
 use noodles::sam::{
     self,
-    alignment::{
-        record::cigar::op::Kind,
-        record_buf::Cigar,
-    },
+    alignment::{record::cigar::op::Kind, record_buf::Cigar},
 };
 use std::collections::HashMap;
 use std::default::Default;

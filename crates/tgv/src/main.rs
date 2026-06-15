@@ -4,9 +4,10 @@ use crossterm::{
     execute,
 };
 use gv_core::error::TGVError;
+use gv_core::logging::{init_file_logging_with_level, timestamped_log_file_name};
 use gv_core::reference::Reference;
 use gv_core::tracks::{UCSCDownloader, UcscDbTrackService};
-use std::io::stdout;
+use std::{io::stdout, path::PathBuf};
 use tgv::{
     app::App,
     session::SessionFile,
@@ -15,18 +16,28 @@ use tgv::{
 #[tokio::main]
 async fn main() -> Result<(), TGVError> {
     let cli = Cli::parse();
+    let log_path = default_log_file_path();
+    let log_level = if cli.debug_enabled() {
+        log::LevelFilter::Debug
+    } else {
+        log::LevelFilter::Info
+    };
+    init_file_logging_with_level(&log_path, log_level)?;
+    log::info!("Logging to {}", log_path.display());
 
     match &cli.command {
         Some(Commands::Download {
             reference,
             cache_dir,
         }) => {
+            log::info!("Starting download for reference {reference}");
             let cache_dir = shellexpand::tilde(&cache_dir).to_string();
             let downloader = UCSCDownloader::new(reference.parse::<Reference>()?, &cache_dir)?;
             downloader.download().await?;
             return Ok(());
         }
         Some(Commands::List { more, all: _ }) => {
+            log::info!("Listing reference genomes");
             if *more {
                 let n = print_ucsc_assemblies().await?;
                 println!("{} UCSC assemblies", n);
@@ -46,8 +57,15 @@ async fn main() -> Result<(), TGVError> {
     let session_path = cli.session_path();
     let mut settings = if session_path.exists() {
         match SessionFile::from_path(&session_path).and_then(Settings::try_from) {
-            Ok(s) => s,
+            Ok(s) => {
+                log::info!("Loaded session from {}", session_path.display());
+                s
+            }
             Err(e) => {
+                log::warn!(
+                    "Failed to load session file {}: {e}. Using defaults.",
+                    session_path.display()
+                );
                 eprintln!("Warning: failed to load session file: {e}. Using defaults.");
                 Settings::default()
             }
@@ -55,7 +73,13 @@ async fn main() -> Result<(), TGVError> {
     } else if cli.session.is_none() {
         // First run: write a default session so future launches restore state.
         if let Err(e) = SessionFile::default().write_to_path(&session_path) {
+            log::warn!(
+                "Failed to write default session {}: {e}.",
+                session_path.display()
+            );
             eprintln!("Warning: failed to write default session: {e}.");
+        } else {
+            log::info!("Wrote default session to {}", session_path.display());
         }
         Settings::default()
     } else {
@@ -73,8 +97,10 @@ async fn main() -> Result<(), TGVError> {
     let mut app = match App::new(settings, session_path).await {
         Ok(app) => app,
         Err(e) => {
+            log::error!("Failed to initialize the app: {e}");
             ratatui::restore();
             if let Err(err) = execute!(stdout(), DisableMouseCapture) {
+                log::error!("Error disabling mouse capture: {err}");
                 eprintln!("Error disabling mouse capture: {err}");
             }
             return Err(e);
@@ -84,6 +110,7 @@ async fn main() -> Result<(), TGVError> {
 
     ratatui::restore();
     if let Err(err) = execute!(stdout(), DisableMouseCapture) {
+        log::error!("Error disabling mouse capture: {err}");
         eprintln!("Error disabling mouse capture: {err}");
     }
 
@@ -92,11 +119,23 @@ async fn main() -> Result<(), TGVError> {
         && app_result.is_ok()
         && let Err(e) = SessionFile::try_from(&app).and_then(|s| s.write_to_path(&app.session_path))
     {
+        log::warn!(
+            "Failed to save session {}: {e}.",
+            app.session_path.display()
+        );
         eprintln!("Warning: failed to save session: {e}.");
     }
 
     app.close().await?;
+    match &app_result {
+        Ok(()) => log::info!("The app exited successfully"),
+        Err(e) => log::error!("The app exited with an error: {e}"),
+    }
     app_result
+}
+
+fn default_log_file_path() -> PathBuf {
+    PathBuf::from(shellexpand::tilde("~/.tgv").as_ref()).join(timestamped_log_file_name())
 }
 
 fn print_common_genomes() -> Result<usize, TGVError> {
@@ -122,6 +161,7 @@ async fn print_ucsc_assemblies() -> Result<usize, TGVError> {
 fn set_panic_hook() {
     let hook = std::panic::take_hook();
     std::panic::set_hook(Box::new(move |info| {
+        log::error!("The app panicked: {info}");
         hook(info);
         if let Err(err) = execute!(stdout(), DisableMouseCapture) {
             eprintln!("Error disabling mouse capture: {err}");

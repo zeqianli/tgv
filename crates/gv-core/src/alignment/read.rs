@@ -158,6 +158,7 @@ impl AlignedRead {
 
         Ok(format!(
             "{}  Flags={:?}  Start={}  MAPQ={}  Cigar={:?}",
+            //String::from_utf8_lossy(&self.record.sequence()[..]),
             read_name,
             self.record.flags(),
             self.start,
