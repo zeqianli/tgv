@@ -1,12 +1,11 @@
 use crate::contig_header::ContigHeader;
 use crate::error::TGVError;
-use crate::intervals::{GenomeInterval, Region, SortedIntervalCollection};
+use crate::intervals::{GenomeInterval, SortedIntervalCollection};
 use itertools::Itertools;
 use noodles::vcf::{
     self,
     variant::record::{AlternateBases, Filters},
 };
-use std::collections::{BTreeMap, HashMap};
 pub struct Variant {
     /// Contig id name. This is not stored in the record.
     pub contig_index: usize,

@@ -131,7 +131,7 @@ impl Registers {
                     Message::SwitchKeyRegister(KeyRegisterType::ContigList),
                 ]),
                 _ => Ok(gv_core::command::parse(self.command.as_str())
-                    .map(|m| m.into_iter().map(|mm| Message::Core(mm)).collect_vec())
+                    .map(|m| m.into_iter().map(Message::Core).collect_vec())
                     .unwrap_or_else(|e| {
                         vec![Message::Core(gv_core::message::Message::Message(format!(
                             "{}",

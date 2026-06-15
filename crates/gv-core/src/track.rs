@@ -292,8 +292,8 @@ impl Track<Gene> {
             features_by_end,
             most_left_bound,
             most_right_bound,
-            exons_by_start: exons_by_start,
-            exons_by_end: exons_by_end,
+            exons_by_start,
+            exons_by_end,
             feature_lookup: HashMap::new(),
         })
     }

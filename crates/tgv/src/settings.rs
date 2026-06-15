@@ -10,7 +10,6 @@ use gv_core::reference::Reference;
 use gv_core::settings::{AlignmentPath, BackendType, BamSource};
 use gv_core::tracks::UcscHost;
 use std::path::PathBuf;
-use strum::Display;
 
 #[derive(Debug, Clone, Eq, PartialEq, ValueEnum)]
 pub enum UcscHostCli {
@@ -22,9 +21,9 @@ pub enum UcscHostCli {
     Auto,
 }
 
-impl Into<UcscHost> for UcscHostCli {
-    fn into(self) -> UcscHost {
-        match self {
+impl From<UcscHostCli> for UcscHost {
+    fn from(val: UcscHostCli) -> Self {
+        match val {
             UcscHostCli::Us => UcscHost::Us,
             UcscHostCli::Eu => UcscHost::Eu,
             UcscHostCli::Auto => UcscHost::auto(),
@@ -281,13 +280,12 @@ fn classify_and_build_tracks(
     }
 
     // CRAM requires a FASTA.
-    if let Some(ref ap) = alignment_file {
-        if ap.to_lowercase().ends_with(".cram") && fasta_path.is_none() {
+    if let Some(ref ap) = alignment_file
+        && ap.to_lowercase().ends_with(".cram") && fasta_path.is_none() {
             return Err(TGVError::CliError(
                 "CRAM files require a reference FASTA file (.fa or .fasta) as input.".to_string(),
             ));
         }
-    }
 
     let alignment_path = match alignment_file {
         None => None,

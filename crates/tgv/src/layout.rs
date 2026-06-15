@@ -84,13 +84,13 @@ impl LayoutNode {
     fn resizable(&self) -> bool {
         match self {
             LayoutNode::Area {
-                constraint,
+                constraint: _,
                 area_type,
             } => area_type.resizeable(),
             LayoutNode::Split {
-                direction,
-                constraint,
-                children,
+                direction: _,
+                constraint: _,
+                children: _,
             } => true,
         }
     }
@@ -105,7 +105,7 @@ impl LayoutNode {
         match self {
             LayoutNode::Split {
                 direction,
-                constraint,
+                constraint: _,
                 children,
             } => {
                 let child_areas = Layout::default()
@@ -118,7 +118,7 @@ impl LayoutNode {
                 }
             }
             LayoutNode::Area {
-                constraint,
+                constraint: _,
                 area_type,
             } => {
                 areas.push((*area_type, area));
@@ -454,7 +454,7 @@ impl MainLayout {
     }
 
     pub fn get_area_type_at_position(&self, x: u16, y: u16) -> Option<&(AreaType, Rect)> {
-        self.areas.iter().find(|(area_type, area)| {
+        self.areas.iter().find(|(_area_type, area)| {
             x >= area.x && x < area.right() && y >= area.y && y < area.bottom()
         })
     }
@@ -471,7 +471,7 @@ pub fn resize_node(
     match node {
         LayoutNode::Split {
             direction,
-            constraint,
+            constraint: _,
             children,
         } => {
             if children.len() <= 1 {
@@ -653,8 +653,8 @@ pub fn resize_node(
             }
         }
         LayoutNode::Area {
-            constraint,
-            area_type,
+            constraint: _,
+            area_type: _,
         } => {}
     }
 

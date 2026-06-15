@@ -1,9 +1,9 @@
 use crate::{
-    layout::{AlignmentView, AreaType, LayoutNode, MainLayout},
+    layout::{AlignmentView, AreaType, MainLayout},
     message::{Message, Movement, Scroll},
 };
 use crossterm::event;
-use gv_core::{alignment::BaseCoverage, error::TGVError, intervals::Region, state::State};
+use gv_core::{alignment::BaseCoverage, error::TGVError, state::State};
 use itertools::Itertools;
 
 pub struct MouseRegister {
@@ -112,8 +112,8 @@ impl MouseRegister {
                             if let (Some((left_coordinate, right_coordinate)), Some(y_coordinate)) = (
                                 &alignment_view.coordinates_of_onscreen_x(event.column, area),
                                 &alignment_view.coordinate_of_onscreen_y(event.row, area),
-                            ) {
-                                if let Some(read) = state.alignment.read_overlapping(
+                            )
+                                && let Some(read) = state.alignment.read_overlapping(
                                     *left_coordinate,
                                     *right_coordinate,
                                     *y_coordinate,
@@ -122,7 +122,6 @@ impl MouseRegister {
                                         gv_core::message::Message::Message(read.describe()?),
                                     ))
                                 }
-                            }
                         }
 
                         AreaType::Sequence => {

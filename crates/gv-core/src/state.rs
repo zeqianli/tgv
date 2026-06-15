@@ -137,7 +137,7 @@ impl State {
         //     Ok(false)
         // } else {
         self.alignment = alignment_repository
-            .read_alignment(&region, &self.sequence, &self.contig_header)
+            .read_alignment(region, &self.sequence, &self.contig_header)
             .await?;
 
         self.alignment
@@ -152,7 +152,7 @@ impl State {
         track_service: &mut TrackServiceEnum,
     ) -> Result<&mut Self, TGVError> {
         self.track = track_service
-            .query_gene_track(&self.reference, &region, &self.contig_header)
+            .query_gene_track(&self.reference, region, &self.contig_header)
             .await?;
 
         Ok(self)
@@ -164,7 +164,7 @@ impl State {
         sequence_repository: &mut SequenceRepositoryEnum,
     ) -> Result<&mut Self, TGVError> {
         self.sequence = sequence_repository
-            .query_sequence(&region, &self.contig_header)
+            .query_sequence(region, &self.contig_header)
             .await?;
 
         Ok(self)
@@ -172,7 +172,7 @@ impl State {
 
     pub async fn load_variant_data(
         &mut self,
-        region: &Region,
+        _region: &Region,
         variant_repository: &mut VariantRepository,
     ) -> Result<&mut Self, TGVError> {
         self.variants = variant_repository.read_variants(&self.contig_header)?;
@@ -182,7 +182,7 @@ impl State {
 
     pub async fn load_bed_data(
         &mut self,
-        region: &Region,
+        _region: &Region,
         bed_repository: &mut BEDRepository,
     ) -> Result<&mut Self, TGVError> {
         self.bed_intervals = bed_repository.read_bed(&self.contig_header)?;

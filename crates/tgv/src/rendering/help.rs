@@ -41,6 +41,9 @@ pub fn render_help(area: &Rect, buf: &mut Buffer) -> Result<(), TGVError> {
  |:_contig_:_pos_| Go to position on a contig.          Example: 17:7572659
  |:_gene_|         Go to _gene_                         Example: :KRAS
  |filter base(_pos_) = _base_|   Filter by base         Example: :filter base(123)=A
+ |:paired|                       View reads as pairs
+ |:mod|                          Color bases by 5mC/5hmC modification probability (MM/ML tags)
+ |:clear|                        Reset alignment display options
  ",
         env!("CARGO_PKG_VERSION")
     );

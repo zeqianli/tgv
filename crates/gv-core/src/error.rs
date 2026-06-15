@@ -57,4 +57,7 @@ pub enum TGVError {
 
     #[error("OpenDAL error")]
     OpenDALError(#[from] opendal::Error),
+
+    #[error("Alignment Parse error")]
+    AlignmentParseError(String),
 }

@@ -204,8 +204,10 @@ impl AlignmentFilter {
 ///
 
 #[derive(Debug, Clone, Eq, PartialEq, Display)]
+#[derive(Default)]
 pub enum AlignmentSort {
     /// Default
+    #[default]
     Default,
 
     /// Start
@@ -261,11 +263,6 @@ pub enum AlignmentSort {
     Reverse(Box<AlignmentSort>),
 }
 
-impl Default for AlignmentSort {
-    fn default() -> Self {
-        Self::Default
-    }
-}
 
 impl AlignmentSort {
     pub fn then(self, other: AlignmentSort) -> AlignmentSort {

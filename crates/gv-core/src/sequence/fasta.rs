@@ -11,8 +11,6 @@ use noodles::fasta::{
         indexed_reader::{Builder, IndexedReader},
     },
 };
-use noodles::{core::region::Region as noodlesRegion, vcf::header::record::value::map::contig};
-use std::str::FromStr;
 
 pub struct IndexedFastaSequenceRepository {
     index: Index,
@@ -44,7 +42,7 @@ impl IndexedFastaSequenceRepository {
             start: region.start(),
 
             // FIXME: pre-allocate the sequence array to read more efficiently
-            sequence: sequence,
+            sequence,
             contig_index: region.contig_index(),
         })
     }

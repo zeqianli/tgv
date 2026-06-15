@@ -1,6 +1,5 @@
 use crate::error::TGVError;
 use crate::sequence::Sequence;
-use noodles::bam::record::{self};
 use noodles::sam::{
     self,
     alignment::record::cigar::{Op, op::Kind},
@@ -163,7 +162,7 @@ impl BaseCoverage {
         self.total += 1;
     }
 
-    pub fn update_softclip(&mut self, base: u8) {
+    pub fn update_softclip(&mut self, _base: u8) {
         self.softclip += 1
     }
 

@@ -88,11 +88,12 @@ async fn main() -> Result<(), TGVError> {
     }
 
     // Auto-save the active session on clean exit, and skip in test mode.
-    if !app.settings.test_mode && app_result.is_ok()
+    if !app.settings.test_mode
+        && app_result.is_ok()
         && let Err(e) = SessionFile::try_from(&app).and_then(|s| s.write_to_path(&app.session_path))
-        {
-            eprintln!("Warning: failed to save session: {e}.");
-        }
+    {
+        eprintln!("Warning: failed to save session: {e}.");
+    }
 
     app.close().await?;
     app_result

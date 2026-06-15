@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.3.0
+
+- Base modification visualization: color reads by 5mC / 5hmC / 6mA probability from BAM `MM`/`ML` tags
+
 ## 0.0.6
 
 - Cache support

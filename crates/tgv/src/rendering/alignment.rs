@@ -1,5 +1,5 @@
 use crate::{
-    layout::{AlignmentView, MainLayout, OnScreenCoordinate},
+    layout::{AlignmentView, OnScreenCoordinate},
     rendering::colors::Palette,
 };
 use gv_core::{
@@ -8,7 +8,11 @@ use gv_core::{
     message::AlignmentDisplayOption,
     state::State,
 };
-use ratatui::{buffer::Buffer, layout::Rect, style::Style};
+use ratatui::{
+    buffer::Buffer,
+    layout::{Position, Rect},
+    style::Style,
+};
 
 /// Render an alignment on the alignment area.
 pub fn render_alignment(
@@ -24,8 +28,7 @@ pub fn render_alignment(
 
     let display_as_pairs = state
         .alignment_options
-        .iter()
-        .any(|option| *option == AlignmentDisplayOption::ViewAsPairs);
+        .contains(&AlignmentDisplayOption::ViewAsPairs);
     if display_as_pairs && state.alignment.read_pairs.is_none() {
         return Err(TGVError::StateError(
             "Read pairs are not calculated before rendering.".to_string(),
@@ -44,6 +47,7 @@ pub fn render_alignment(
                 if *show_pair {
                     let y = state.alignment.ys[read_pair.read_1_index];
                     read_pair.rendering_contexts.iter().try_for_each(|context| {
+                        // Paired mode: modifications not supported yet; pass None.
                         render_contexts(context, y, buf, alignment_view, area, pallete)
                     })
                 } else {
@@ -58,12 +62,11 @@ pub fn render_alignment(
             .enumerate()
             .try_for_each(|(y, read_indexes)| {
                 read_indexes.iter().try_for_each(|read_index| {
-                    state.alignment.reads[*read_index]
-                        .rendering_contexts
-                        .iter()
-                        .try_for_each(|context| {
-                            render_contexts(context, y, buf, alignment_view, area, pallete)
-                        })
+                    let read = &state.alignment.reads[*read_index];
+
+                    read.rendering_contexts.iter().try_for_each(|context| {
+                        render_contexts(context, y, buf, alignment_view, area, pallete)
+                    })
                 })
             })?
     };
@@ -78,43 +81,9 @@ fn render_contexts(
     area: &Rect,
     pallete: &Palette,
 ) -> Result<(), TGVError> {
-    if let Some(onscreen_contexts) =
-        get_read_rendering_info(context, y, alignment_view, area, pallete)?
-    {
-        for onscreen_context in onscreen_contexts {
-            buf.set_string(
-                area.x + onscreen_context.x,
-                area.y + onscreen_context.y,
-                onscreen_context.string,
-                onscreen_context.style,
-            );
-        }
-    }
-
-    Ok(())
-}
-
-struct OnScreenRenderingContext {
-    x: u16,
-    y: u16,
-
-    string: String,
-
-    style: Style,
-}
-
-/// Get rendering needs for an aligned read.
-/// Returns: x, y,
-fn get_read_rendering_info(
-    context: &RenderingContext,
-    y: usize,
-    alignment_view: &AlignmentView,
-    area: &Rect,
-    pallete: &Palette,
-) -> Result<Option<Vec<OnScreenRenderingContext>>, TGVError> {
     let onscreen_y = match alignment_view.onscreen_y_coordinate(y, area) {
         OnScreenCoordinate::OnScreen(y_start) => y_start as u16,
-        _ => return Ok(None),
+        _ => return Ok(()),
     };
 
     let start_onscreen_coordinate = alignment_view.onscreen_x_coordinate(context.start, area);
@@ -126,123 +95,122 @@ fn get_read_rendering_info(
         area,
     ) {
         Some((onscreen_x, length)) => (onscreen_x, length),
-        None => return Ok(None),
+        None => return Ok(()),
     };
 
-    let mut output = Vec::new();
-
+    // ── Base context rendering ─────────────────────────────────────────────
     match context.kind {
-        RenderingContextKind::Match => output.push(OnScreenRenderingContext {
-            x: onscreen_x,
-            y: onscreen_y,
-            string: "-".repeat(length as usize),
-            style: Style::default()
-                .bg(pallete.MATCH_COLOR)
-                .fg(pallete.MATCH_FG_COLOR),
-        }),
+        RenderingContextKind::Match => {
+            buf.set_string(
+                area.x + onscreen_x,
+                area.y + onscreen_y,
+                "-".repeat(length as usize),
+                Style::default()
+                    .bg(pallete.MATCH_COLOR)
+                    .fg(pallete.MATCH_FG_COLOR),
+            );
+        }
 
-        RenderingContextKind::Deletion => output.push(OnScreenRenderingContext {
-            x: onscreen_x,
-            y: onscreen_y,
-            string: "-".repeat(length as usize),
-            style: Style::new()
+        RenderingContextKind::Deletion => buf.set_string(
+            area.x + onscreen_x,
+            area.y + onscreen_y,
+            "-".repeat(length as usize),
+            Style::new()
                 .bg(pallete.background)
                 .fg(pallete.DELETION_COLOR),
-        }),
+        ),
 
-        RenderingContextKind::SoftClip(base) => output.push(OnScreenRenderingContext {
-            x: onscreen_x,
-            y: onscreen_y,
-            string: String::from_utf8(vec![base])?,
-            style: Style::default().bg(pallete.softclip_color(base)),
-        }),
+        RenderingContextKind::SoftClip(base) => buf.set_string(
+            area.x + onscreen_x,
+            area.y + onscreen_y,
+            String::from_utf8(vec![base])?, // FIXME
+            Style::default().bg(pallete.softclip_color(base)),
+        ),
 
-        RenderingContextKind::PairGap => output.push(OnScreenRenderingContext {
-            x: onscreen_x,
-            y: onscreen_y,
-            string: "-".repeat(length as usize),
-            style: Style::new()
+        RenderingContextKind::PairGap => buf.set_string(
+            area.x + onscreen_x,
+            area.y + onscreen_y,
+            "-".repeat(length as usize),
+            Style::new()
                 .bg(pallete.background)
                 .fg(pallete.PAIRGAP_COLOR),
-        }),
+        ),
 
-        RenderingContextKind::PairOverlap => output.push(OnScreenRenderingContext {
-            x: onscreen_x,
-            y: onscreen_y,
-            string: "-".repeat(length as usize),
-            style: Style::new()
+        RenderingContextKind::PairOverlap => buf.set_string(
+            area.x + onscreen_x,
+            area.y + onscreen_y,
+            "-".repeat(length as usize),
+            Style::new()
                 .bg(pallete.background)
                 .fg(pallete.PAIR_OVERLAP_COLOR),
-        }),
+        ),
     }
 
-    // Modifers
+    // ── Modifiers ─────────────────────────────────────────────────────────
     for modifier in context.modifiers.iter() {
         match modifier {
             RenderingContextModifier::Forward => {
-                if let OnScreenCoordinate::OnScreen(x) = end_onscreen_coordinate {
-                    output.push(OnScreenRenderingContext {
-                        x: x as u16,
-                        y: onscreen_y,
-                        string: "►".to_string(),
-                        style: output.first().unwrap().style,
-                    })
+                if let OnScreenCoordinate::OnScreen(x) = end_onscreen_coordinate
+                    && let Some(cell) =
+                        buf.cell_mut(Position::new(area.x + x as u16, area.y + onscreen_y))
+                {
+                    cell.set_symbol("►");
                 }
             }
 
             RenderingContextModifier::Reverse => {
-                if let OnScreenCoordinate::OnScreen(x) = start_onscreen_coordinate {
-                    output.push(OnScreenRenderingContext {
-                        x: x as u16,
-                        y: onscreen_y,
-                        string: "◄".to_string(),
-                        style: output.first().unwrap().style,
-                    })
+                if let OnScreenCoordinate::OnScreen(x) = start_onscreen_coordinate
+                    && let Some(cell) =
+                        buf.cell_mut(Position::new(area.x + x as u16, area.y + onscreen_y))
+                {
+                    cell.set_symbol("◄");
                 }
             }
 
-            RenderingContextModifier::Insertion(l) => {
-                if let OnScreenCoordinate::OnScreen(x) = start_onscreen_coordinate {
-                    output.push(OnScreenRenderingContext {
-                        x: x as u16,
-                        y: onscreen_y,
-                        string: "▌".to_string(),
-                        style: Style::default().fg(pallete.INSERTION_COLOR),
-                    })
+            RenderingContextModifier::Insertion(_l) => {
+                if let OnScreenCoordinate::OnScreen(x) = start_onscreen_coordinate
+                    && let Some(cell) =
+                        buf.cell_mut(Position::new(area.x + x as u16, area.y + onscreen_y))
+                {
+                    cell.set_symbol("▌")
+                        .set_style(Style::default().fg(pallete.INSERTION_COLOR));
                 }
             }
 
             RenderingContextModifier::Mismatch(coordinate, base) => {
-                if let OnScreenCoordinate::OnScreen(modifier_onscreen_x) =
+                if let OnScreenCoordinate::OnScreen(x) =
                     alignment_view.onscreen_x_coordinate(*coordinate, area)
+                    && let Some(cell) =
+                        buf.cell_mut(Position::new(area.x + x as u16, area.y + onscreen_y))
                 {
-                    output.push(OnScreenRenderingContext {
-                        x: modifier_onscreen_x as u16,
-                        y: onscreen_y,
-                        string: String::from_utf8(vec![*base])?,
-                        style: output
-                            .first()
-                            .unwrap()
-                            .style
-                            .fg(pallete.mismatch_color(*base)),
-                    })
+                    cell.set_char(*base as char)
+                        .set_style(Style::default().fg(pallete.mismatch_color(*base)));
                 }
             }
 
             RenderingContextModifier::PairConflict(coordinate) => {
-                if let OnScreenCoordinate::OnScreen(modifier_onscreen_x) =
+                if let OnScreenCoordinate::OnScreen(x) =
                     alignment_view.onscreen_x_coordinate(*coordinate, area)
+                    && let Some(cell) =
+                        buf.cell_mut(Position::new(area.x + x as u16, area.y + onscreen_y))
                 {
-                    output.push(OnScreenRenderingContext {
-                        x: modifier_onscreen_x as u16,
-                        y: onscreen_y,
-                        string: "?".to_string(),
-                        style: output.first().unwrap().style,
-                    })
+                    cell.set_symbol("?");
+                }
+            }
+
+            RenderingContextModifier::BaseModification(coordinate, modification, probability) => {
+                if let OnScreenCoordinate::OnScreen(x) =
+                    alignment_view.onscreen_x_coordinate(*coordinate, area)
+                    && let Some(cell) =
+                        buf.cell_mut(Position::new(area.x + x as u16, area.y + onscreen_y))
+                {
+                    cell.set_style(
+                        Style::default().bg(pallete.modification_color(modification, *probability)),
+                    );
                 }
             }
         }
     }
 
-    Ok(Some(output))
+    Ok(())
 }

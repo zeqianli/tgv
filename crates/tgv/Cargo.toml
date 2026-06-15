@@ -21,6 +21,7 @@ strum.workspace = true
 thiserror.workspace = true
 tokio.workspace = true
 toml.workspace = true
+noodles.workspace = true
 
 [dev-dependencies]
 cargo-insta = "1.42"

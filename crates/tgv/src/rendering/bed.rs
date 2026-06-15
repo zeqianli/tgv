@@ -2,7 +2,7 @@ use crate::{
     layout::AlignmentView,
     rendering::{colors::Palette, intervals::render_simple_intervals},
 };
-use gv_core::{alignment::Alignment, error::TGVError, intervals::GenomeInterval, state::State};
+use gv_core::{error::TGVError, intervals::GenomeInterval, state::State};
 use ratatui::{buffer::Buffer, layout::Rect};
 
 pub fn render_bed(

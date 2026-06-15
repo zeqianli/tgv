@@ -1,8 +1,5 @@
-use crate::{
-    layout::{AlignmentView, OnScreenCoordinate},
-    rendering::alignment,
-};
-use gv_core::{error::TGVError, intervals::GenomeInterval, state::State};
+use crate::layout::{AlignmentView, OnScreenCoordinate};
+use gv_core::{error::TGVError, intervals::GenomeInterval};
 
 use ratatui::{buffer::Buffer, layout::Rect, style::Color, style::Style};
 

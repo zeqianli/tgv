@@ -1,19 +1,24 @@
 use crate::error::TGVError;
-use crate::intervals::{GenomeInterval, Region};
+use crate::intervals::GenomeInterval;
 use crate::message::AlignmentFilter;
 use crate::sequence::Sequence;
 // use rust_htslib::bam::{record::Seq, Read, Record};
 //
 use itertools::Itertools;
-use noodles::bam::record::{self, Cigar, Record};
 use noodles::sam::{
-    self, Header,
+    self,
     alignment::{
         RecordBuf,
         record::{
             Cigar as CigarTrait, Flags,
             cigar::{Op, op::Kind},
+            data::field::Tag,
         },
+        record_buf::data::field::{Value, value::Array},
+    },
+    record::data::field::value::{
+        BaseModifications,
+        base_modifications::group::{Group, Modification},
     },
 };
 use std::collections::HashMap;
@@ -35,6 +40,9 @@ pub enum RenderingContextModifier {
     /// Pair overlaps and have differnet RenderingContextKind
     /// (except Softclip + Match: softclip is displayed in this case (same as IGV))
     PairConflict(u64),
+
+    /// (Position, Modification, probability)
+    BaseModification(u64, Modification, u8),
 }
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum RenderingContextKind {
@@ -103,9 +111,7 @@ pub struct AlignedRead {
     /// index in the alignment read array.
     pub index: usize,
 
-    /// Rendering contexts for each read.
-    /// Not guaranteed to be calculated. If empty, this is not yet calculated.
-    ///
+    /// Base mismatches with the reference
     pub rendering_contexts: Vec<RenderingContext>,
 }
 
@@ -361,6 +367,7 @@ impl AlignedRead {
     ) -> Result<(), TGVError> {
         calculate_rendering_contexts(
             &mut self.rendering_contexts,
+            &self.read,
             self.start,
             &self.cigars,
             self.read.sequence(),
@@ -374,7 +381,7 @@ impl AlignedRead {
     pub fn from_record(
         read_index: usize,
         read: RecordBuf,
-        reference_sequence: &Sequence,
+        _reference_sequence: &Sequence,
     ) -> Result<Self, TGVError> {
         let start = read.alignment_start().unwrap().get() as u64;
         let cigars = read.cigar();
@@ -404,7 +411,7 @@ impl AlignedRead {
         // read.reference_end() in htslib: 0-based, exclusive, excluding trailing hardclips and softclips
 
         Ok(Self {
-            read: read,
+            read,
 
             start,
             end,
@@ -413,14 +420,91 @@ impl AlignedRead {
             leading_softclips,
             trailing_softclips,
             index: read_index,
+
             rendering_contexts: Vec::new(),
         })
     }
 }
 
+/// Parse base modification data from the MM and ML auxiliary tags of a SAM record.
+/// Returns an empty map if the record has no MM/ML tags or if parsing fails.
+fn extract_base_modifications(
+    mm_string: String,
+    ml_bytes: Option<Vec<u8>>,
+    record: &RecordBuf,
+    cigars: &[Op],
+    alignment_start: u64,
+) -> Result<Vec<(u64, Modification, u8)>, TGVError> {
+    let base_modifications: Vec<Group> = BaseModifications::parse(
+        mm_string.as_bytes(),
+        record.flags().is_reverse_complemented(),
+        record.sequence(),
+    )
+    .map_err(|_| {
+        TGVError::AlignmentParseError(format!("Failed to parse MM tag {mm_string}").to_string())
+    })?
+    .into();
+
+    let n_modifications = base_modifications
+        .iter()
+        .map(|group| group.modifications().len())
+        .sum();
+
+    let mut ml_bytes = ml_bytes.unwrap_or(vec![255; base_modifications.len()]);
+
+    // If probability values are missing (should not happen by SAM specification), pad probabilities with 255 so that no modificaitons are hidden
+    ml_bytes.resize(n_modifications, 255);
+
+    Ok(base_modifications
+        .iter()
+        .flat_map(|group| group.modifications().iter().zip(group.positions().iter()))
+        .zip(ml_bytes)
+        .map(|(mod_pos, prob)| {
+            (
+                get_reference_postion_from_seq_position(*mod_pos.1 as u64, alignment_start, cigars),
+                *mod_pos.0,
+                prob,
+            )
+        })
+        .collect_vec())
+}
+
+fn get_reference_postion_from_seq_position(pos: u64, alignment_start: u64, cigars: &[Op]) -> u64 {
+    let mut query_cursor = 0u64;
+    let mut reference_cursor = alignment_start;
+
+    for op in cigars {
+        if pos <= query_cursor {
+            return reference_cursor;
+        }
+        match op.kind() {
+            Kind::SoftClip | Kind::Insertion => {
+                query_cursor += op.len() as u64;
+            }
+            Kind::HardClip | Kind::Pad => {}
+            Kind::Deletion | Kind::Skip => {
+                reference_cursor += op.len() as u64;
+            }
+            Kind::Match | Kind::SequenceMatch | Kind::SequenceMismatch => {
+                let next_query_cursor = query_cursor + op.len() as u64;
+
+                if pos <= next_query_cursor {
+                    return pos - query_cursor + reference_cursor;
+                }
+                query_cursor = next_query_cursor;
+                reference_cursor += op.len() as u64;
+            }
+        }
+    }
+
+    // Should not happen
+    reference_cursor.saturating_sub(1)
+}
+
 /// See: https://samtools.github.io/hts-specs/SAMv1.pdf
 pub fn calculate_rendering_contexts(
     rendering_context: &mut Vec<RenderingContext>,
+    record: &RecordBuf,
     reference_start: u64, // 1-based. Alignment start, not softclip start
     cigars: &Vec<Op>,
     seq: &sam::alignment::record_buf::Sequence,
@@ -630,6 +714,37 @@ pub fn calculate_rendering_contexts(
             RenderingContextModifier::Forward
         })
     }
+
+    let data = record.data();
+
+    // Fetch MM tag (string, type Z).
+    if let Some(Value::String(s)) = data.get(&Tag::BASE_MODIFICATIONS) {
+        let ml_string = String::from_utf8_lossy(s.as_ref()).into_owned();
+
+        let ml_bytes = match data.get(&Tag::BASE_MODIFICATION_PROBABILITIES) {
+            Some(Value::Array(Array::UInt8(values))) => Some(values.clone()),
+            _ => None,
+        };
+        let base_modification_modifiers =
+            extract_base_modifications(ml_string, ml_bytes, record, cigars, reference_start)?;
+
+        for (pos, modification, prob) in base_modification_modifiers.into_iter() {
+            for context in rendering_context.iter_mut() {
+                if (context.start..context.end).contains(&pos) {
+                    context
+                        .modifiers
+                        .push(RenderingContextModifier::BaseModification(
+                            pos,
+                            modification,
+                            prob,
+                        ));
+                    break;
+                }
+            }
+        }
+    };
+
+    // Fetch ML tag (uint8 array, type B:C).
 
     Ok(())
 }
@@ -1152,6 +1267,7 @@ mod tests {
         let mut contexts = Vec::new();
         calculate_rendering_contexts(
             &mut contexts,
+            &record_buf,
             reference_start,
             &cigars,
             &record_buf.sequence(),

@@ -1,9 +1,5 @@
-use std::fmt::Alignment;
 
-use crate::{
-    layout::{AlignmentView, MainLayout, OnScreenCoordinate},
-    rendering::alignment,
-};
+use crate::layout::{AlignmentView, OnScreenCoordinate};
 use gv_core::{error::TGVError, state::State};
 
 use itertools::izip;
@@ -123,16 +119,16 @@ fn get_abbreviated_coordinate_text(coordinate: u64, power: u64) -> String {
     if power < 3 {
         format!("{}bp", to_thousand_separated(coordinate))
     } else if power < 6 {
-        return format!("{}kb", to_thousand_separated(coordinate / 1_000));
+        format!("{}kb", to_thousand_separated(coordinate / 1_000))
     } else if power < 9 {
-        return format!("{}Mb", to_thousand_separated(coordinate / 1_000_000));
+        format!("{}Mb", to_thousand_separated(coordinate / 1_000_000))
     } else if power < 12 {
-        return format!("{}Gb", to_thousand_separated(coordinate / 1_000_000_000));
+        format!("{}Gb", to_thousand_separated(coordinate / 1_000_000_000))
     } else {
-        return format!(
+        format!(
             "{}Tb",
             to_thousand_separated(coordinate / 1_000_000_000_000)
-        );
+        )
     }
 }
 

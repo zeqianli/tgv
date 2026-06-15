@@ -1,4 +1,4 @@
-use gv_core::{error::TGVError, intervals::GenomeInterval, state::State};
+use gv_core::{error::TGVError, state::State};
 
 use itertools::Itertools;
 use ratatui::{buffer::Buffer, layout::Rect, style::Style};

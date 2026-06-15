@@ -123,7 +123,7 @@ fn render_contig_at_y(
     left_spacing: u16,
     max_contig_length: Option<u64>,
     y: u16,
-    pallete: &Palette,
+    _pallete: &Palette,
 ) -> Result<(), TGVError> {
     let contig_name = contig.name.clone();
     let contig_length = contig.length;
@@ -139,8 +139,8 @@ fn render_contig_at_y(
         );
     }
 
-    if let (Some(max_contig_length), Some(contig_length)) = (max_contig_length, contig_length) {
-        if area.width >= MIN_CONTIG_LENGTH_SPACING + left_spacing + 5 {
+    if let (Some(max_contig_length), Some(contig_length)) = (max_contig_length, contig_length)
+        && area.width >= MIN_CONTIG_LENGTH_SPACING + left_spacing + 5 {
             let contig_length_x = usize::max(
                 0,
                 (contig_length as f64 / (max_contig_length) as f64
@@ -155,7 +155,6 @@ fn render_contig_at_y(
                 Style::default(),
             );
         }
-    }
 
     Ok(())
 }

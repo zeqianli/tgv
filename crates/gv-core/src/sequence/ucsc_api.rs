@@ -19,7 +19,7 @@ pub struct UCSCApiSequenceRepository {
 }
 
 impl UCSCApiSequenceRepository {
-    pub fn new(reference: &Reference, host: &UcscHost) -> Result<Self, TGVError> {
+    pub fn new(reference: &Reference, _host: &UcscHost) -> Result<Self, TGVError> {
         // FIXME: decide API url based on host
         Ok(Self {
             client: Client::new(),
@@ -161,7 +161,7 @@ impl UCSCApiSequenceRepository {
 
         let mut output = Vec::new();
         for (name_string, length) in response.chromosomes.into_iter() {
-            output.push(Contig::new(&name_string, Some(length as u64)));
+            output.push(Contig::new(&name_string, Some(length)));
         }
 
         output.sort_by(|a, b| {
