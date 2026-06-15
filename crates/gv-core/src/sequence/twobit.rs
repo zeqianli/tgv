@@ -1,4 +1,4 @@
-use crate::contig_header::{Contig, ContigHeader, ContigSource};
+use crate::contig_header::{Contig, ContigHeader};
 use crate::error::TGVError;
 use crate::intervals::{GenomeInterval, Region};
 use crate::reference::Reference;
@@ -86,14 +86,13 @@ impl TwoBitSequenceRepository {
         Ok(self
             .buffers
             .iter()
-            .map(|tb| {
+            .flat_map(|tb| {
                 tb.chrom_names().into_iter().zip(tb.chrom_sizes()).map(
                     |(chrom_name, chrom_size)| {
                         Contig::new(chrom_name.as_str(), Some(chrom_size as u64))
                     },
                 )
             })
-            .flatten()
             .collect_vec())
     }
 }

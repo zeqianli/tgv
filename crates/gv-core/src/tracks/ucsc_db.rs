@@ -51,11 +51,11 @@ impl UcscDbTrackService {
             Reference::Hg19 | Reference::Hg38 | Reference::UcscGenome(_) => Ok(format!(
                 "mysql://genome@{}/{}",
                 ucsc_host.url(),
-                reference.to_string()
+                reference
             )),
             _ => Err(TGVError::ValueError(format!(
                 "Unsupported reference: {}",
-                reference.to_string()
+                reference
             ))),
         }
     }

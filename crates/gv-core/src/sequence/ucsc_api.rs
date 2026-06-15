@@ -38,7 +38,7 @@ impl UCSCApiSequenceRepository {
         match &self.reference {
             Reference::Hg19 | Reference::Hg38 | Reference::UcscGenome(_) => Ok(format!(
                 "https://api.genome.ucsc.edu/getData/sequence?genome={};chrom={};start={};end={}",
-                self.reference.to_string(),
+                self.reference,
                 contig_name,
                 start - 1, // start is 0-based, inclusive.
                 end
@@ -150,7 +150,7 @@ impl UCSCApiSequenceRepository {
             Reference::Hg19 | Reference::Hg38 | Reference::UcscGenome(_) => {
                 format!(
                     "https://api.genome.ucsc.edu/list/chromosomes?genome={}",
-                    self.reference.to_string()
+                    self.reference
                 )
             }
             Reference::UcscAccession(genome) => {

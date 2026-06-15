@@ -74,7 +74,7 @@ impl UcscApiTrackService {
         let query_url = match reference {
             Reference::Hg19 | Reference::Hg38 | Reference::UcscGenome(_) => format!(
                 "https://api.genome.ucsc.edu/getData/track?genome={}&track={}&chrom={}",
-                reference.to_string(),
+                reference,
                 preferred_track,
                 contig_name
             ),
@@ -170,7 +170,7 @@ impl TrackService for UcscApiTrackService {
             Reference::Hg19 | Reference::Hg38 | Reference::UcscGenome(_) => {
                 format!(
                     "https://api.genome.ucsc.edu/list/chromosomes?genome={}",
-                    reference.to_string()
+                    reference
                 )
             }
             Reference::UcscAccession(genome) => {
@@ -240,7 +240,7 @@ impl TrackService for UcscApiTrackService {
         let query_url = match reference {
             Reference::Hg19 | Reference::Hg38 | Reference::UcscGenome(_) => format!(
                 "https://api.genome.ucsc.edu/getData/track?genome={}&track=cytoBandIdeo&chrom={}",
-                reference.to_string(),
+                reference,
                 contig_name
             ),
             Reference::UcscAccession(genome) => {
@@ -286,7 +286,7 @@ impl TrackService for UcscApiTrackService {
         let query_url = match reference {
             Reference::Hg19 | Reference::Hg38 | Reference::UcscGenome(_) => format!(
                 "https://api.genome.ucsc.edu/list/tracks?trackLeavesOnly=1;genome={}",
-                reference.to_string(),
+                reference,
             ),
             Reference::UcscAccession(genome) => {
                 if self.hub_url.is_none() {

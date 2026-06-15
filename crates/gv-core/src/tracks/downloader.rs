@@ -125,7 +125,7 @@ impl UCSCDownloader {
 
         println!(
             "Successfully downloaded track data for {}",
-            reference.to_string(),
+            reference,
         );
         Ok(())
     }
