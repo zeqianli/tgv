@@ -122,7 +122,7 @@ pub trait TrackService {
         let genes = self
             .query_genes_overlapping(reference, region, contig_header)
             .await?;
-        Track::from_genes(genes, region.contig_index())
+        Track::from_genes(genes, region.contig_index(), (region.start(), region.end()))
     }
 
     /// Given a reference, return the prefered track name.

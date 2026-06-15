@@ -130,6 +130,7 @@ impl UcscApiTrackService {
                     .map(|response| response.to_gene(contig_index))
                     .collect::<Result<Vec<Gene>, TGVError>>()?,
                 contig_index,
+                (1, u64::MAX),
             )?,
         );
 
