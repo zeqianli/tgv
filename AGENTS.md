@@ -17,6 +17,7 @@
 ### Pragmatic incrementalism
 
 - "Not overly generic"—prefer specific, composable logic over abstract frameworks.
+- Prefer keeping simple one-off logic at the call site instead of creating small helper functions that only wrap a single operation.
 - Evolve the design incrementally rather than attempting perfect upfront architecture.
 - Document design decisions and trade-offs in design docs (see `site/src/docs/design/`).
 - When uncertain, explore and iterate; tgv is an ongoing exploration of what a genome viewer should do.
