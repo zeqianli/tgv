@@ -30,7 +30,6 @@ tgv -g cat
 - `:_gene_` / `:_chr_:_position_`: Go to gene: (e.g. `:TP53`) / chromosome position (e.g. `:1:2345`)
 - `_number_` + `_movement_`: Repeat movements (e.g. `20B`: left by 20 genes)
 - `:ls`: Switch chromosomes.
-- `:mod`: Color reads by base-modification probability (5mC / 5hmC / 6mA from `MM`/`ML` tags)
 - Mouse is supported
 
 [Full key bindings](doc/src/usage.md#key-bindings)
