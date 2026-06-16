@@ -37,7 +37,7 @@ pub fn render_status_bar(
     );
 
     let mut y_coordinate_string = if let Some(first_alignment) = state.alignments.first() {
-        let y = alignment_view.top() + 1; // Change to 1-base
+        let y = alignment_view.top(0) + 1; // Change to 1-base
         let depth = first_alignment.depth(); // TODO: Fix after introducing focus
         let percent = y * 100 / depth;
         format!("{}% ({} / {})", percent, y, depth)

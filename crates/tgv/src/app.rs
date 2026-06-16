@@ -231,9 +231,7 @@ impl App {
                 }
 
                 Message::Core(gv_core::message::Message::Scroll(scroll)) => {
-                    if let Some(alignment) = self.state.alignments.first() {
-                        self.alignment_view.scroll(scroll, alignment);
-                    }
+                    self.alignment_view.scroll(scroll, &self.state.alignments);
                 }
 
                 Message::Core(gv_core::message::Message::Zoom(zoom)) => {

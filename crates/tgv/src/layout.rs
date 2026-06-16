@@ -44,7 +44,7 @@ impl AreaType {
 pub struct AlignmentView {
     pub focus: Focus,
     pub zoom: u64,
-    pub y: usize,
+    pub y: Vec<usize>,
 }
 
 /// States for the alignment view
@@ -56,7 +56,7 @@ impl AlignmentView {
         AlignmentView {
             focus,
             zoom: 1,
-            y: 0,
+            y: Vec::new(),
         }
     }
     const ALIGNMENT_CACHE_RATIO: u64 = 3;
@@ -86,12 +86,34 @@ impl AlignmentView {
         }
     }
 
-    pub fn scroll(&mut self, scroll: Scroll, alignment: &Alignment) {
+    pub fn scroll(&mut self, scroll: Scroll, alignments: &[Alignment]) {
         match scroll {
-            Scroll::Up(n) => self.y = self.y.saturating_sub(n),
-            Scroll::Down(n) => self.y = usize::min(self.y.saturating_add(n), alignment.depth()),
-            Scroll::Position(y) => self.y = y,
-            Scroll::Bottom => self.y = alignment.depth().saturating_sub(1),
+            Scroll::Up { index, n } => {
+                if alignments.get(index).is_some() {
+                    self.ensure_y(index);
+                    self.y[index] = self.y[index].saturating_sub(n);
+                }
+            }
+            Scroll::Down { index, n } => {
+                if let Some(alignment) = alignments.get(index) {
+                    self.ensure_y(index);
+                    self.y[index] = usize::min(self.y[index].saturating_add(n), alignment.depth());
+                }
+            }
+            Scroll::Position(y) => {
+                if !alignments.is_empty() {
+                    self.ensure_y(alignments.len() - 1);
+                    self.y.iter_mut().for_each(|alignment_y| *alignment_y = y);
+                }
+            }
+            Scroll::Bottom => {
+                if !alignments.is_empty() {
+                    self.ensure_y(alignments.len() - 1);
+                    for (index, alignment) in alignments.iter().enumerate() {
+                        self.y[index] = alignment.depth().saturating_sub(1);
+                    }
+                }
+            }
         }
     }
 
@@ -144,8 +166,9 @@ impl AlignmentView {
 
     /// Set the top track # of the viewing window.
     /// 0-based.
-    pub fn set_y(&mut self, y: usize, depth: usize) {
-        self.y = usize::min(y, depth.saturating_sub(1))
+    pub fn set_y(&mut self, index: usize, y: usize, depth: usize) {
+        self.ensure_y(index);
+        self.y[index] = usize::min(y, depth.saturating_sub(1))
     }
 
     /// Check if the viewing window overlaps with [left, right].
@@ -157,14 +180,14 @@ impl AlignmentView {
 
     /// Top track # of the viewing window.
     /// 0-based, inclusive.
-    pub fn top(&self) -> usize {
-        self.y
+    pub fn top(&self, index: usize) -> usize {
+        self.y.get(index).copied().unwrap_or_default()
     }
 
     /// Bottom track # of the viewing window.
     /// 0-based, exclusive.
-    pub fn bottom(&self, area: &Rect) -> usize {
-        self.y + area.height as usize
+    pub fn bottom(&self, index: usize, area: &Rect) -> usize {
+        self.top(index) + area.height as usize
     }
 
     /// Move the viewing window be within the contig range.
@@ -194,8 +217,8 @@ impl AlignmentView {
 
     /// Check if the viewing window overlaps with [top, bottom).
     /// y: 0-based.
-    pub fn overlaps_y(&self, y: usize, area: &Rect) -> bool {
-        (self.top()..self.bottom(area)).contains(&y)
+    pub fn overlaps_y(&self, index: usize, y: usize, area: &Rect) -> bool {
+        (self.top(index)..self.bottom(index, area)).contains(&y)
     }
 
     /// Returns the onscreen x coordinate in the area. Example:
@@ -234,19 +257,19 @@ impl AlignmentView {
     }
 
     /// Given an onscreen x position, return the genome coordinate range (1-based, inclusive) at that x location.
-    pub fn coordinate_of_onscreen_y(&self, y: u16, area: &Rect) -> Option<usize> {
+    pub fn coordinate_of_onscreen_y(&self, index: usize, y: u16, area: &Rect) -> Option<usize> {
         if y < area.top() || y >= area.bottom() {
             return None;
         }
 
-        Some(self.top() + (y - area.top()) as usize)
+        Some(self.top(index) + (y - area.top()) as usize)
     }
 
     /// Returns the onscreen y coordinate in the area. Example
     /// y: 0-based.
-    pub fn onscreen_y_coordinate(&self, y: usize, area: &Rect) -> OnScreenCoordinate {
-        let self_top = self.top();
-        let self_bottom = self.bottom(area);
+    pub fn onscreen_y_coordinate(&self, index: usize, y: usize, area: &Rect) -> OnScreenCoordinate {
+        let self_top = self.top(index);
+        let self_bottom = self.bottom(index, area);
 
         if y < self_top {
             OnScreenCoordinate::Left(self_top - y)
@@ -254,6 +277,12 @@ impl AlignmentView {
             OnScreenCoordinate::Right(y - self_bottom) // Note that this is different from the x coordinate. TODO: think about this.
         } else {
             OnScreenCoordinate::OnScreen(y - self_top)
+        }
+    }
+
+    fn ensure_y(&mut self, index: usize) {
+        if self.y.len() <= index {
+            self.y.resize(index + 1, 0);
         }
     }
 }
@@ -625,6 +654,12 @@ mod tests {
             .expect("area exists")
     }
 
+    fn alignment_with_depth(depth: usize) -> Alignment {
+        let mut alignment = Alignment::default();
+        alignment.ys_index.resize(depth, Vec::new());
+        alignment
+    }
+
     #[rstest]
     #[case(vec![], vec![AreaType::Console, AreaType::Error])]
     #[case(
@@ -682,6 +717,24 @@ mod tests {
 
         let layout = MainLayout::new(&settings, &repository_file_indexes);
         assert_eq!(layout.tracks, expected_tracks);
+    }
+
+    #[test]
+    fn alignment_view_scrolls_only_the_requested_alignment() {
+        let alignments = vec![alignment_with_depth(10), alignment_with_depth(10)];
+        let mut alignment_view = AlignmentView::new(Focus::default());
+
+        alignment_view.scroll(Scroll::Down { index: 1, n: 3 }, &alignments);
+        assert_eq!(alignment_view.top(0), 0);
+        assert_eq!(alignment_view.top(1), 3);
+
+        alignment_view.scroll(Scroll::Up { index: 1, n: 1 }, &alignments);
+        assert_eq!(alignment_view.top(0), 0);
+        assert_eq!(alignment_view.top(1), 2);
+
+        alignment_view.scroll(Scroll::Down { index: 0, n: 4 }, &alignments);
+        assert_eq!(alignment_view.top(0), 4);
+        assert_eq!(alignment_view.top(1), 2);
     }
 
     #[rstest]

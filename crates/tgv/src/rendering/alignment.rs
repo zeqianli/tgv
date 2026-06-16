@@ -18,6 +18,7 @@ use ratatui::{
 
 /// Render an alignment on the alignment area.
 pub fn render_alignment(
+    index: usize,
     area: &Rect,
     buf: &mut Buffer,
     alignment: &mut Alignment,
@@ -45,7 +46,7 @@ pub fn render_alignment(
                 alignment.calculate_read_rendering_context(read_index, reference_sequence)?
             };
         for context in alignment.rendering_contexts[context_index as usize].iter() {
-            render_contexts(context, y, buf, alignment_view, area, pallete)?;
+            render_contexts(context, index, y, buf, alignment_view, area, pallete)?;
         }
     }
 
@@ -53,6 +54,7 @@ pub fn render_alignment(
 }
 
 pub fn render_paired_alignment(
+    index: usize,
     area: &Rect,
     buf: &mut Buffer,
     alignment: &mut Alignment,
@@ -86,7 +88,7 @@ pub fn render_paired_alignment(
             )?
         };
         for context in paired_alignment.rendering_contexts[context_index as usize].iter() {
-            render_contexts(context, y, buf, alignment_view, area, pallete)?;
+            render_contexts(context, index, y, buf, alignment_view, area, pallete)?;
         }
     }
 
@@ -95,13 +97,14 @@ pub fn render_paired_alignment(
 
 fn render_contexts(
     context: &RenderingContext,
+    index: usize,
     y: usize,
     buf: &mut Buffer,
     alignment_view: &AlignmentView,
     area: &Rect,
     pallete: &Palette,
 ) -> Result<(), TGVError> {
-    let onscreen_y = match alignment_view.onscreen_y_coordinate(y, area) {
+    let onscreen_y = match alignment_view.onscreen_y_coordinate(index, y, area) {
         OnScreenCoordinate::OnScreen(y_start) => y_start as u16,
         _ => return Ok(()),
     };

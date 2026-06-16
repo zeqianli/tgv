@@ -74,6 +74,7 @@ pub fn render_main(
                         )?;
 
                         render_paired_alignment(
+                            *index,
                             rect,
                             buf,
                             &mut state.alignments[*index],
@@ -84,6 +85,7 @@ pub fn render_main(
                         )?;
                     } else {
                         render_alignment(
+                            *index,
                             rect,
                             buf,
                             &mut state.alignments[*index],

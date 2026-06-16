@@ -103,12 +103,14 @@ fn parse_input(input: String) -> Result<Vec<Message>, TGVError> {
         "l" => Ok(vec![Message::from(Movement::Right(
             n_movements as u64 * SMALL_HORIZONTAL_STEP,
         ))]),
-        "j" => Ok(vec![Message::from(Scroll::Down(
-            n_movements * SMALL_VERTICAL_STEP,
-        ))]),
-        "k" => Ok(vec![Message::from(Scroll::Up(
-            n_movements * SMALL_VERTICAL_STEP,
-        ))]),
+        "j" => Ok(vec![Message::from(Scroll::Down {
+            index: 0,
+            n: n_movements * SMALL_VERTICAL_STEP,
+        })]),
+        "k" => Ok(vec![Message::from(Scroll::Up {
+            index: 0,
+            n: n_movements * SMALL_VERTICAL_STEP,
+        })]),
 
         "y" => Ok(vec![Message::from(Movement::Left(
             LARGE_HORIZONTAL_STEP * n_movements as u64,
@@ -123,12 +125,14 @@ fn parse_input(input: String) -> Result<Vec<Message>, TGVError> {
         "o" => Ok(vec![Message::from(Zoom::Out(
             ZOOM_STEP * n_movements as u64,
         ))]),
-        "{" => Ok(vec![Message::from(Scroll::Up(
-            LARGE_VERTICAL_STEP * n_movements,
-        ))]),
-        "}" => Ok(vec![Message::from(Scroll::Down(
-            LARGE_VERTICAL_STEP * n_movements,
-        ))]),
+        "{" => Ok(vec![Message::from(Scroll::Up {
+            index: 0,
+            n: LARGE_VERTICAL_STEP * n_movements,
+        })]),
+        "}" => Ok(vec![Message::from(Scroll::Down {
+            index: 0,
+            n: LARGE_VERTICAL_STEP * n_movements,
+        })]),
         _ => Err(TGVError::RegisterError(format!(
             "Invalid normal mode input: {}",
             input
@@ -154,12 +158,12 @@ mod tests {
     #[case("", 'e', Ok(vec![Movement::NextExonsEnd(1).into()]))]
     #[case("", 'h', Ok(vec![Movement::Left(1).into()]))]
     #[case("", 'l', Ok(vec![Movement::Right(1).into()]))]
-    #[case("", 'j', Ok(vec![Scroll::Down(1).into()]))]
-    #[case("", 'k', Ok(vec![Scroll::Up(1).into()]))]
+    #[case("", 'j', Ok(vec![Scroll::Down { index: 0, n: 1 }.into()]))]
+    #[case("", 'k', Ok(vec![Scroll::Up { index: 0, n: 1 }.into()]))]
     #[case("", 'z', Ok(vec![Zoom::In(2).into()]))]
     #[case("", 'o', Ok(vec![Zoom::Out(2).into()]))]
-    #[case("", '{', Ok(vec![Scroll::Up(30).into()]))]
-    #[case("", '}', Ok(vec![Scroll::Down(30).into()]))]
+    #[case("", '{', Ok(vec![Scroll::Up { index: 0, n: 30 }.into()]))]
+    #[case("", '}', Ok(vec![Scroll::Down { index: 0, n: 30 }.into()]))]
     #[case("g", 'e', Ok(vec![Movement::PreviousExonsEnd(1).into()]))]
     #[case("g", 'E', Ok(vec![Movement::PreviousGenesEnd(1).into()]))]
     #[case("3", 'w', Ok(vec![Movement::NextExonsStart(3).into()]))]

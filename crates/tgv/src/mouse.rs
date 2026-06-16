@@ -55,6 +55,7 @@ impl MouseRegister {
                 self.mouse_drag_y = event.row;
                 self.resizing = false;
                 self.active_divider = None;
+                self.mouse_down_area_type = AreaType::Error;
                 //self.root = state.layout.root.clone();
 
                 if let Some((area_type, area)) =
@@ -95,18 +96,18 @@ impl MouseRegister {
                     }
                 } else {
                     // move alignment
-                    match self.mouse_down_area_type {
-                        AreaType::Alignment(_) | AreaType::Coverage(_) => {
+                    match Self::alignment_index_for_area_type(&self.mouse_down_area_type) {
+                        Some(index) => {
                             if event.column < self.mouse_drag_x {
                                 messages.push(Movement::Right(1).into())
                             } else if event.column > self.mouse_drag_x {
                                 messages.push(Movement::Left(1).into())
                             }
 
-                            if event.row > self.mouse_down_y {
-                                messages.push(Scroll::Up(1).into())
-                            } else if event.row < self.mouse_down_y {
-                                messages.push(Scroll::Down(1).into())
+                            if event.row > self.mouse_drag_y {
+                                messages.push(Scroll::Up { index, n: 1 }.into())
+                            } else if event.row < self.mouse_drag_y {
+                                messages.push(Scroll::Down { index, n: 1 }.into())
                             }
                         }
                         _ => {}
@@ -139,7 +140,7 @@ impl MouseRegister {
                         AreaType::Alignment(index) => {
                             if let (Some((left_coordinate, right_coordinate)), Some(y_coordinate)) = (
                                 &alignment_view.coordinates_of_onscreen_x(event.column, area),
-                                &alignment_view.coordinate_of_onscreen_y(event.row, area),
+                                &alignment_view.coordinate_of_onscreen_y(*index, event.row, area),
                             ) && let Some(alignment) = state.alignments.get(*index)
                                 && let Some(read) = alignment.read_overlapping(
                                     *left_coordinate,
@@ -233,9 +234,21 @@ impl MouseRegister {
                 }
             }
 
-            event::MouseEventKind::ScrollDown => messages.push(Scroll::Down(1).into()),
+            event::MouseEventKind::ScrollDown => {
+                if let Some(index) =
+                    Self::alignment_index_at_position(layout, event.column, event.row)
+                {
+                    messages.push(Scroll::Down { index, n: 1 }.into());
+                }
+            }
 
-            event::MouseEventKind::ScrollUp => messages.push(Scroll::Up(1).into()),
+            event::MouseEventKind::ScrollUp => {
+                if let Some(index) =
+                    Self::alignment_index_at_position(layout, event.column, event.row)
+                {
+                    messages.push(Scroll::Up { index, n: 1 }.into());
+                }
+            }
 
             event::MouseEventKind::ScrollLeft => messages.push(Movement::Left(1).into()),
 
@@ -250,5 +263,18 @@ impl MouseRegister {
     pub fn is_divider_highlighted(&self, area_type: &AreaType) -> bool {
         matches!(area_type, AreaType::AlignmentDivider { .. })
             && (self.hovered_divider == Some(*area_type) || self.active_divider == Some(*area_type))
+    }
+
+    fn alignment_index_at_position(layout: &MainLayout, x: u16, y: u16) -> Option<usize> {
+        layout
+            .get_area_type_at_position(x, y)
+            .and_then(|(area_type, _area)| Self::alignment_index_for_area_type(area_type))
+    }
+
+    fn alignment_index_for_area_type(area_type: &AreaType) -> Option<usize> {
+        match area_type {
+            AreaType::Alignment(index) | AreaType::Coverage(index) => Some(*index),
+            _ => None,
+        }
     }
 }
