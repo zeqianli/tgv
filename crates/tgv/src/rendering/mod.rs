@@ -116,7 +116,13 @@ pub fn render_main(
                 }
             }
             AreaType::Error => {
-                render_status_bar(rect, buf, state, alignment_view)?;
+                render_status_bar(
+                    rect,
+                    buf,
+                    state,
+                    alignment_view,
+                    mouse_register.hovered_alignment,
+                )?;
             }
             AreaType::Variant(index) => {
                 if let Some(variants) = state.variants.get(*index) {

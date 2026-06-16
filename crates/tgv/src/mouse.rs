@@ -12,6 +12,7 @@ pub struct MouseRegister {
     pub mouse_down_y: u16,
     pub mouse_down_area_type: AreaType,
     pub resizing: bool,
+    pub hovered_alignment: Option<usize>,
     pub hovered_divider: Option<AreaType>,
     pub active_divider: Option<AreaType>,
 
@@ -29,6 +30,7 @@ impl Default for MouseRegister {
             mouse_down_y: 0,
             mouse_down_area_type: AreaType::Error,
             resizing: false,
+            hovered_alignment: None,
             hovered_divider: None,
             active_divider: None,
             mouse_drag_x: 0,
@@ -47,6 +49,8 @@ impl MouseRegister {
         event: event::MouseEvent,
     ) -> Result<Vec<Message>, TGVError> {
         let mut messages = Vec::new();
+        self.update_hovered_areas(layout, event.column, event.row);
+
         match event.kind {
             event::MouseEventKind::Down(_) => {
                 self.mouse_down_x = event.column;
@@ -124,14 +128,6 @@ impl MouseRegister {
             }
 
             event::MouseEventKind::Moved => {
-                self.hovered_divider =
-                    match layout.get_area_type_at_position(event.column, event.row) {
-                        Some((area_type @ AreaType::AlignmentDivider { .. }, _area)) => {
-                            Some(*area_type)
-                        }
-                        _ => None,
-                    };
-
                 // Display read information
                 if let Some((area_type, area)) =
                     layout.get_area_type_at_position(event.column, event.row)
@@ -263,6 +259,14 @@ impl MouseRegister {
     pub fn is_divider_highlighted(&self, area_type: &AreaType) -> bool {
         matches!(area_type, AreaType::AlignmentDivider { .. })
             && (self.hovered_divider == Some(*area_type) || self.active_divider == Some(*area_type))
+    }
+
+    fn update_hovered_areas(&mut self, layout: &MainLayout, x: u16, y: u16) {
+        self.hovered_alignment = Self::alignment_index_at_position(layout, x, y);
+        self.hovered_divider = match layout.get_area_type_at_position(x, y) {
+            Some((area_type @ AreaType::AlignmentDivider { .. }, _area)) => Some(*area_type),
+            _ => None,
+        };
     }
 
     fn alignment_index_at_position(layout: &MainLayout, x: u16, y: u16) -> Option<usize> {
