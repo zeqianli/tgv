@@ -12,6 +12,8 @@ pub struct MouseRegister {
     pub mouse_down_y: u16,
     pub mouse_down_area_type: AreaType,
     pub resizing: bool,
+    pub hovered_divider: Option<AreaType>,
+    pub active_divider: Option<AreaType>,
 
     // Track mouse dragging
     pub mouse_drag_x: u16,
@@ -27,6 +29,8 @@ impl Default for MouseRegister {
             mouse_down_y: 0,
             mouse_down_area_type: AreaType::Error,
             resizing: false,
+            hovered_divider: None,
+            active_divider: None,
             mouse_drag_x: 0,
             mouse_drag_y: 0,
             //root: root.clone(),
@@ -38,7 +42,7 @@ impl MouseRegister {
     pub fn handle_mouse_event(
         &mut self,
         state: &State,
-        layout: &MainLayout,
+        layout: &mut MainLayout,
         alignment_view: &AlignmentView,
         event: event::MouseEvent,
     ) -> Result<Vec<Message>, TGVError> {
@@ -47,6 +51,10 @@ impl MouseRegister {
             event::MouseEventKind::Down(_) => {
                 self.mouse_down_x = event.column;
                 self.mouse_down_y = event.row;
+                self.mouse_drag_x = event.column;
+                self.mouse_drag_y = event.row;
+                self.resizing = false;
+                self.active_divider = None;
                 //self.root = state.layout.root.clone();
 
                 if let Some((area_type, area)) =
@@ -59,12 +67,23 @@ impl MouseRegister {
                     {
                         self.resizing = true;
                     }
-                    self.mouse_down_area_type = *area_type
+                    self.mouse_down_area_type = *area_type;
+                    if matches!(area_type, AreaType::AlignmentDivider { .. }) {
+                        self.resizing = true;
+                        self.active_divider = Some(*area_type);
+                    }
                 }
             }
 
             event::MouseEventKind::Drag(_) => {
-                if self.resizing {
+                if let Some(AreaType::AlignmentDivider { upper, lower }) = self.active_divider {
+                    let delta_rows = event.row as i32 - self.mouse_drag_y as i32;
+                    if delta_rows != 0 {
+                        layout.resize_alignment_pair(upper, lower, delta_rows);
+                    }
+                    self.mouse_drag_x = event.column;
+                    self.mouse_drag_y = event.row;
+                } else if self.resizing {
                     if (event.row != self.mouse_down_y) || (event.column != self.mouse_down_x) {
                         // TODO: next release
                         // messages.push(StateMessage::ResizeTrack {
@@ -100,9 +119,18 @@ impl MouseRegister {
 
             event::MouseEventKind::Up(_) => {
                 self.resizing = false;
+                self.active_divider = None;
             }
 
             event::MouseEventKind::Moved => {
+                self.hovered_divider =
+                    match layout.get_area_type_at_position(event.column, event.row) {
+                        Some((area_type @ AreaType::AlignmentDivider { .. }, _area)) => {
+                            Some(*area_type)
+                        }
+                        _ => None,
+                    };
+
                 // Display read information
                 if let Some((area_type, area)) =
                     layout.get_area_type_at_position(event.column, event.row)
@@ -217,5 +245,10 @@ impl MouseRegister {
         }
 
         Ok(messages)
+    }
+
+    pub fn is_divider_highlighted(&self, area_type: &AreaType) -> bool {
+        matches!(area_type, AreaType::AlignmentDivider { .. })
+            && (self.hovered_divider == Some(*area_type) || self.active_divider == Some(*area_type))
     }
 }

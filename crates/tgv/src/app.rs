@@ -130,7 +130,7 @@ impl App {
                     Ok(Event::Mouse(mouse_event)) => {
                         let state_messages = self.mouse_register.handle_mouse_event(
                             &self.state,
-                            &self.layout,
+                            &mut self.layout,
                             &self.alignment_view,
                             mouse_event,
                         )?;
@@ -374,6 +374,7 @@ impl App {
                 &self.registers,
                 &self.layout,
                 &self.alignment_view,
+                &self.mouse_register,
                 &self.settings.palette,
             ),
             Scene::Help => render_help(&self.layout.main_area, buf),

@@ -6,7 +6,7 @@ use gv_core::{
     message::{Scroll, Zoom},
     repository::RepositoryFileIndex,
 };
-use ratatui::layout::{Constraint, Direction, Layout, Rect};
+use ratatui::layout::Rect;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum AreaType {
@@ -14,7 +14,7 @@ pub enum AreaType {
     Coordinate,
     Coverage(usize),
     Alignment(usize),
-    AlignmentDivider,
+    AlignmentDivider { upper: usize, lower: usize },
     Sequence,
     GeneTrack,
     Console,
@@ -24,19 +24,19 @@ pub enum AreaType {
 }
 
 impl AreaType {
-    fn constraint(&self) -> Constraint {
+    fn desired_height(&self) -> Option<u16> {
         match self {
-            AreaType::Cytoband => Constraint::Length(2),
-            AreaType::Coordinate => Constraint::Length(2),
-            AreaType::Coverage(_) => Constraint::Length(6),
-            AreaType::Alignment(_) => Constraint::Fill(1),
-            AreaType::AlignmentDivider => Constraint::Length(1),
-            AreaType::Sequence => Constraint::Length(1),
-            AreaType::GeneTrack => Constraint::Length(2),
-            AreaType::Console => Constraint::Length(2),
-            AreaType::Error => Constraint::Length(2),
-            AreaType::Variant(_) => Constraint::Length(1),
-            AreaType::Bed(_) => Constraint::Length(1),
+            AreaType::Cytoband => Some(2),
+            AreaType::Coordinate => Some(2),
+            AreaType::Coverage(_) => Some(MainLayout::COVERAGE_HEIGHT),
+            AreaType::Alignment(_) => None,
+            AreaType::AlignmentDivider { .. } => Some(1),
+            AreaType::Sequence => Some(1),
+            AreaType::GeneTrack => Some(2),
+            AreaType::Console => Some(2),
+            AreaType::Error => Some(2),
+            AreaType::Variant(_) => Some(1),
+            AreaType::Bed(_) => Some(1),
         }
     }
 }
@@ -265,9 +265,14 @@ pub struct MainLayout {
     pub main_area: Rect,
 
     pub areas: Vec<(AreaType, Rect)>,
+
+    alignment_heights: Vec<u16>,
 }
 
 impl MainLayout {
+    const ALIGNMENT_MIN_HEIGHT: u16 = 1;
+    const COVERAGE_HEIGHT: u16 = 6;
+
     pub fn new(settings: &Settings, repository_file_indexes: &[RepositoryFileIndex]) -> Self {
         let mut tracks = vec![];
         if settings.core.reference.needs_track() {
@@ -278,16 +283,19 @@ impl MainLayout {
             tracks.push(AreaType::Coordinate);
         }
 
-        let mut has_alignment_track = false;
+        let mut last_alignment_index = None;
         for repository_file_index in repository_file_indexes {
             match repository_file_index {
                 RepositoryFileIndex::Alignment(index) => {
-                    if has_alignment_track {
-                        tracks.push(AreaType::AlignmentDivider);
+                    if let Some(upper) = last_alignment_index {
+                        tracks.push(AreaType::AlignmentDivider {
+                            upper,
+                            lower: *index,
+                        });
                     }
                     tracks.push(AreaType::Coverage(*index));
                     tracks.push(AreaType::Alignment(*index));
-                    has_alignment_track = true;
+                    last_alignment_index = Some(*index);
                 }
                 RepositoryFileIndex::Variant(index) => tracks.push(AreaType::Variant(*index)),
                 RepositoryFileIndex::Bed(index) => tracks.push(AreaType::Bed(*index)),
@@ -308,32 +316,175 @@ impl MainLayout {
             tracks,
             main_area: Rect::default(),
             areas: Vec::new(),
+            alignment_heights: Vec::new(),
         }
     }
+
     /// Update the area. If the area size changed, terminal refresh is needed.
     pub fn set_area(&mut self, area: Rect) -> bool {
         if area.width != self.main_area.width || area.height != self.main_area.height {
             self.main_area = area;
-
-            let constraints = self
-                .tracks
-                .iter()
-                .map(AreaType::constraint)
-                .collect::<Vec<_>>();
-            let areas = Layout::default()
-                .direction(Direction::Vertical)
-                .constraints(constraints)
-                .split(area);
-
-            self.areas = self
-                .tracks
-                .iter()
-                .copied()
-                .zip(areas.iter().copied())
-                .collect();
+            self.recalculate_areas();
             true
         } else {
             false
+        }
+    }
+
+    pub fn resize_alignment_pair(&mut self, upper: usize, lower: usize, delta_rows: i32) {
+        if delta_rows == 0 {
+            return;
+        }
+
+        self.capture_current_alignment_heights();
+        self.ensure_alignment_height(usize::max(upper, lower));
+
+        let minimum_height = if self.can_fit_alignment_minimums() {
+            Self::ALIGNMENT_MIN_HEIGHT
+        } else {
+            0
+        };
+        let upper_height = self.alignment_heights[upper];
+        let lower_height = self.alignment_heights[lower];
+        let actual_delta = if delta_rows > 0 {
+            delta_rows.min((lower_height.saturating_sub(minimum_height)) as i32)
+        } else {
+            delta_rows.max(-((upper_height.saturating_sub(minimum_height)) as i32))
+        };
+
+        if actual_delta == 0 {
+            return;
+        }
+
+        if actual_delta > 0 {
+            let actual_delta = actual_delta as u16;
+            self.alignment_heights[upper] = upper_height.saturating_add(actual_delta);
+            self.alignment_heights[lower] = lower_height.saturating_sub(actual_delta);
+        } else {
+            let actual_delta = (-actual_delta) as u16;
+            self.alignment_heights[upper] = upper_height.saturating_sub(actual_delta);
+            self.alignment_heights[lower] = lower_height.saturating_add(actual_delta);
+        }
+
+        self.recalculate_areas();
+    }
+
+    fn recalculate_areas(&mut self) {
+        let alignment_heights = self.resolved_alignment_heights();
+        let mut y = self.main_area.y;
+        let mut remaining_height = self.main_area.height;
+
+        self.areas = self
+            .tracks
+            .iter()
+            .map(|track| {
+                let desired_height = match track {
+                    AreaType::Alignment(index) => {
+                        alignment_heights.get(*index).copied().unwrap_or(0)
+                    }
+                    _ => track.desired_height().unwrap_or_default(),
+                };
+                let height = u16::min(desired_height, remaining_height);
+                let rect = Rect::new(self.main_area.x, y, self.main_area.width, height);
+                y = y.saturating_add(height);
+                remaining_height = remaining_height.saturating_sub(height);
+                (*track, rect)
+            })
+            .collect();
+    }
+
+    fn resolved_alignment_heights(&mut self) -> Vec<u16> {
+        let alignment_count = self.alignment_count();
+        if alignment_count == 0 {
+            return Vec::new();
+        }
+
+        self.ensure_alignment_height(alignment_count - 1);
+        let fixed_height = self.fixed_desired_height();
+        let available_height = self.main_area.height.saturating_sub(fixed_height);
+
+        if available_height < alignment_count as u16 * Self::ALIGNMENT_MIN_HEIGHT {
+            return (0..alignment_count)
+                .scan(available_height, |remaining_height, _| {
+                    let height = u16::min(Self::ALIGNMENT_MIN_HEIGHT, *remaining_height);
+                    *remaining_height = remaining_height.saturating_sub(height);
+                    Some(height)
+                })
+                .collect();
+        }
+
+        let mut heights = Vec::with_capacity(alignment_count);
+        let mut remaining_height = available_height;
+        for index in 0..alignment_count {
+            let remaining_alignments = alignment_count - index - 1;
+            let reserved_height = remaining_alignments as u16 * Self::ALIGNMENT_MIN_HEIGHT;
+            let maximum_height = remaining_height.saturating_sub(reserved_height);
+            let height = self.alignment_heights[index]
+                .max(Self::ALIGNMENT_MIN_HEIGHT)
+                .min(maximum_height);
+            heights.push(height);
+            remaining_height = remaining_height.saturating_sub(height);
+        }
+
+        if remaining_height > 0 {
+            let shared_extra_height = remaining_height / alignment_count as u16;
+            let mut extra_remainder = remaining_height % alignment_count as u16;
+            for height in &mut heights {
+                *height = height.saturating_add(shared_extra_height);
+                if extra_remainder > 0 {
+                    *height = height.saturating_add(1);
+                    extra_remainder -= 1;
+                }
+            }
+        }
+
+        heights
+    }
+
+    fn capture_current_alignment_heights(&mut self) {
+        let alignment_count = self.alignment_count();
+        if alignment_count == 0 {
+            return;
+        }
+
+        self.ensure_alignment_height(alignment_count - 1);
+        for (area_type, area) in &self.areas {
+            if let AreaType::Alignment(index) = area_type {
+                self.alignment_heights[*index] = area.height;
+            }
+        }
+    }
+
+    fn can_fit_alignment_minimums(&self) -> bool {
+        let alignment_count = self.alignment_count() as u16;
+        self.main_area
+            .height
+            .saturating_sub(self.fixed_desired_height())
+            >= alignment_count.saturating_mul(Self::ALIGNMENT_MIN_HEIGHT)
+    }
+
+    fn fixed_desired_height(&self) -> u16 {
+        self.tracks
+            .iter()
+            .filter_map(AreaType::desired_height)
+            .fold(0, u16::saturating_add)
+    }
+
+    fn alignment_count(&self) -> usize {
+        self.tracks
+            .iter()
+            .filter_map(|area_type| match area_type {
+                AreaType::Alignment(index) => Some(*index + 1),
+                _ => None,
+            })
+            .max()
+            .unwrap_or_default()
+    }
+
+    fn ensure_alignment_height(&mut self, index: usize) {
+        if self.alignment_heights.len() <= index {
+            self.alignment_heights
+                .resize(index + 1, Self::ALIGNMENT_MIN_HEIGHT);
         }
     }
 
@@ -456,6 +607,24 @@ mod tests {
         settings
     }
 
+    fn alignment_layout(alignment_count: usize, height: u16) -> MainLayout {
+        let settings = settings_without_reference();
+        let repository_file_indexes = (0..alignment_count)
+            .map(RepositoryFileIndex::Alignment)
+            .collect::<Vec<_>>();
+        let mut layout = MainLayout::new(&settings, &repository_file_indexes);
+        layout.set_area(Rect::new(0, 0, 80, height));
+        layout
+    }
+
+    fn area_height(layout: &MainLayout, expected_area_type: AreaType) -> u16 {
+        layout
+            .areas
+            .iter()
+            .find_map(|(area_type, area)| (*area_type == expected_area_type).then_some(area.height))
+            .expect("area exists")
+    }
+
     #[rstest]
     #[case(vec![], vec![AreaType::Console, AreaType::Error])]
     #[case(
@@ -476,10 +645,10 @@ mod tests {
         vec![
             AreaType::Coverage(0),
             AreaType::Alignment(0),
-            AreaType::AlignmentDivider,
+            AreaType::AlignmentDivider { upper: 0, lower: 1 },
             AreaType::Coverage(1),
             AreaType::Alignment(1),
-            AreaType::AlignmentDivider,
+            AreaType::AlignmentDivider { upper: 1, lower: 2 },
             AreaType::Coverage(2),
             AreaType::Alignment(2),
             AreaType::Console,
@@ -498,7 +667,7 @@ mod tests {
             AreaType::Coverage(0),
             AreaType::Alignment(0),
             AreaType::Bed(0),
-            AreaType::AlignmentDivider,
+            AreaType::AlignmentDivider { upper: 0, lower: 1 },
             AreaType::Coverage(1),
             AreaType::Alignment(1),
             AreaType::Console,
@@ -513,5 +682,91 @@ mod tests {
 
         let layout = MainLayout::new(&settings, &repository_file_indexes);
         assert_eq!(layout.tracks, expected_tracks);
+    }
+
+    #[rstest]
+    #[case(1, 1)]
+    #[case(2, 1)]
+    fn resizing_alignment_divider_moves_height_between_adjacent_alignments(
+        #[case] initial_delta: i16,
+        #[case] second_delta: i16,
+    ) {
+        let mut layout = alignment_layout(2, 24);
+        let initial_upper_height = area_height(&layout, AreaType::Alignment(0));
+        let initial_lower_height = area_height(&layout, AreaType::Alignment(1));
+        let initial_first_coverage_height = area_height(&layout, AreaType::Coverage(0));
+        let initial_second_coverage_height = area_height(&layout, AreaType::Coverage(1));
+
+        layout.resize_alignment_pair(0, 1, initial_delta as i32);
+        assert_eq!(
+            area_height(&layout, AreaType::Alignment(0)),
+            initial_upper_height + initial_delta as u16
+        );
+        assert_eq!(
+            area_height(&layout, AreaType::Alignment(1)),
+            initial_lower_height - initial_delta as u16
+        );
+        assert_eq!(
+            area_height(&layout, AreaType::Coverage(0)),
+            initial_first_coverage_height
+        );
+        assert_eq!(
+            area_height(&layout, AreaType::Coverage(1)),
+            initial_second_coverage_height
+        );
+
+        layout.resize_alignment_pair(0, 1, -(second_delta as i32));
+        assert_eq!(
+            area_height(&layout, AreaType::Alignment(0)),
+            initial_upper_height + initial_delta as u16 - second_delta as u16
+        );
+        assert_eq!(
+            area_height(&layout, AreaType::Alignment(1)),
+            initial_lower_height - initial_delta as u16 + second_delta as u16
+        );
+    }
+
+    #[rstest]
+    #[case(99, 6, 1)]
+    #[case(-99, 1, 6)]
+    fn resizing_alignment_divider_clamps_to_minimum_alignment_height(
+        #[case] delta: i16,
+        #[case] expected_upper_height: u16,
+        #[case] expected_lower_height: u16,
+    ) {
+        let mut layout = alignment_layout(2, 24);
+
+        layout.resize_alignment_pair(0, 1, delta as i32);
+
+        assert_eq!(
+            area_height(&layout, AreaType::Alignment(0)),
+            expected_upper_height
+        );
+        assert_eq!(
+            area_height(&layout, AreaType::Alignment(1)),
+            expected_lower_height
+        );
+    }
+
+    #[test]
+    fn small_windows_allocate_layout_top_first() {
+        let layout = alignment_layout(3, 16);
+
+        assert_eq!(area_height(&layout, AreaType::Coverage(0)), 6);
+        assert_eq!(area_height(&layout, AreaType::Alignment(0)), 0);
+        assert_eq!(
+            area_height(&layout, AreaType::AlignmentDivider { upper: 0, lower: 1 }),
+            1
+        );
+        assert_eq!(area_height(&layout, AreaType::Coverage(1)), 6);
+        assert_eq!(area_height(&layout, AreaType::Alignment(1)), 0);
+        assert_eq!(
+            area_height(&layout, AreaType::AlignmentDivider { upper: 1, lower: 2 }),
+            1
+        );
+        assert_eq!(area_height(&layout, AreaType::Coverage(2)), 2);
+        assert_eq!(area_height(&layout, AreaType::Alignment(2)), 0);
+        assert_eq!(area_height(&layout, AreaType::Console), 0);
+        assert_eq!(area_height(&layout, AreaType::Error), 0);
     }
 }

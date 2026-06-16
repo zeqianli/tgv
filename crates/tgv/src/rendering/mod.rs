@@ -28,6 +28,7 @@ pub use variants::render_variants;
 
 use crate::{
     layout::{AlignmentView, AreaType, MainLayout},
+    mouse::MouseRegister,
     register::{KeyRegisterType, Registers},
 };
 
@@ -41,6 +42,7 @@ pub fn render_main(
     registers: &Registers,
     layout: &MainLayout,
     alignment_view: &AlignmentView,
+    mouse_register: &MouseRegister,
     pallete: &Palette,
 ) -> Result<(), TGVError> {
     // Render each area based on its type
@@ -92,7 +94,12 @@ pub fn render_main(
                     }
                 }
             }
-            AreaType::AlignmentDivider => render_alignment_divider(rect, buf),
+            AreaType::AlignmentDivider { .. } => render_alignment_divider(
+                rect,
+                buf,
+                pallete,
+                mouse_register.is_divider_highlighted(area_type),
+            ),
             AreaType::Sequence => {
                 if alignment_view.zoom <= AlignmentView::MAX_ZOOM_TO_DISPLAY_SEQUENCES {
                     render_sequence(rect, buf, state, alignment_view, pallete)?;
@@ -124,9 +131,15 @@ pub fn render_main(
     Ok(())
 }
 
-fn render_alignment_divider(area: &Rect, buf: &mut Buffer) {
+fn render_alignment_divider(area: &Rect, buf: &mut Buffer, palette: &Palette, highlighted: bool) {
+    let style = if highlighted {
+        Style::default().bg(palette.HIGHLIGHT_COLOR)
+    } else {
+        Style::default()
+    };
+
     for y in area.top()..area.bottom() {
-        buf.set_string(area.x, y, "-".repeat(area.width as usize), Style::default());
+        buf.set_string(area.x, y, "-".repeat(area.width as usize), style);
     }
 }
 
