@@ -19,6 +19,7 @@ use crate::{
     variant::VariantTrack,
 };
 use itertools::Itertools;
+use std::time::Instant;
 
 /// Holds states of the application.
 pub struct State {
@@ -157,9 +158,29 @@ impl State {
         // if !self.alignment.has_complete_data(&region) {
         //     Ok(false)
         // } else {
-        let alignment = alignment_repository
+        let started = Instant::now();
+        log::debug!(
+            "Loading alignment data: track={} region={:?}",
+            index,
+            region,
+        );
+        let alignment = match alignment_repository
             .read_alignment(region, &self.sequence, &self.contig_header)
-            .await?;
+            .await
+        {
+            Ok(alignment) => alignment,
+            Err(e) => {
+                log::warn!(
+                    "Failed to load alignment data: track={} region={:?} elapsed_ms={} error={e}",
+                    index,
+                    region,
+                    started.elapsed().as_millis(),
+                );
+                return Err(e);
+            }
+        };
+        let read_count = alignment.reads.len();
+        let depth = alignment.depth();
         self.alignments[index] = alignment;
 
         // Re-compute paired alignment later, if needed.
@@ -167,7 +188,26 @@ impl State {
         // This might also be problematic? read positions are re-shuffled at every load.
         self.paired_alignments[index] = None;
 
-        self.set_alignment_options(index, &region.focus, self.alignment_options[index].clone())?;
+        if let Err(e) =
+            self.set_alignment_options(index, &region.focus, self.alignment_options[index].clone())
+        {
+            log::warn!(
+                "Failed to apply alignment options after loading data: track={} region={:?} elapsed_ms={} error={e}",
+                index,
+                region,
+                started.elapsed().as_millis(),
+            );
+            return Err(e);
+        }
+
+        log::info!(
+            "Loaded alignment data: track={} region={:?} reads={} depth={} elapsed_ms={}",
+            index,
+            region,
+            read_count,
+            depth,
+            started.elapsed().as_millis(),
+        );
 
         Ok(self)
     }
@@ -177,9 +217,30 @@ impl State {
         region: &Region,
         track_service: &mut TrackServiceEnum,
     ) -> Result<&mut Self, TGVError> {
-        self.track = track_service
+        let started = Instant::now();
+        log::debug!("Loading reference track data: region={:?}", region);
+        let track = match track_service
             .query_gene_track(&self.reference, region, &self.contig_header)
-            .await?;
+            .await
+        {
+            Ok(track) => track,
+            Err(e) => {
+                log::warn!(
+                    "Failed to load reference track data: region={:?} elapsed_ms={} error={e}",
+                    region,
+                    started.elapsed().as_millis(),
+                );
+                return Err(e);
+            }
+        };
+        let feature_count = track.features.len();
+        self.track = track;
+        log::debug!(
+            "Loaded reference track data: region={:?} features={} elapsed_ms={}",
+            region,
+            feature_count,
+            started.elapsed().as_millis(),
+        );
 
         Ok(self)
     }
@@ -189,9 +250,30 @@ impl State {
         region: &Region,
         sequence_repository: &mut SequenceRepositoryEnum,
     ) -> Result<&mut Self, TGVError> {
-        self.sequence = sequence_repository
+        let started = Instant::now();
+        log::debug!("Loading sequence data: region={:?}", region);
+        let sequence = match sequence_repository
             .query_sequence(region, &self.contig_header)
-            .await?;
+            .await
+        {
+            Ok(sequence) => sequence,
+            Err(e) => {
+                log::warn!(
+                    "Failed to load sequence data: region={:?} elapsed_ms={} error={e}",
+                    region,
+                    started.elapsed().as_millis(),
+                );
+                return Err(e);
+            }
+        };
+        let base_count = sequence.len();
+        self.sequence = sequence;
+        log::debug!(
+            "Loaded sequence data: region={:?} bases={} elapsed_ms={}",
+            region,
+            base_count,
+            started.elapsed().as_millis(),
+        );
 
         Ok(self)
     }
@@ -204,15 +286,53 @@ impl State {
     pub async fn load_variant_data(
         &mut self,
         index: usize,
-        _region: &Region,
+        region: &Region,
         variant_repository: &mut VariantRepository,
     ) -> Result<&mut Self, TGVError> {
-        *self.variants.get_mut(index).ok_or_else(|| {
-            TGVError::StateError(format!("Variant index out of bounds: {index}"))
-        })? = variant_repository.read_variants(&self.contig_header)?;
-        *self.variant_loaded.get_mut(index).ok_or_else(|| {
-            TGVError::StateError(format!("Variant loaded index out of bounds: {index}"))
-        })? = true;
+        let started = Instant::now();
+        log::debug!("Loading variant data: track={} region={:?}", index, region);
+        let variants = match variant_repository.read_variants(&self.contig_header) {
+            Ok(variants) => variants,
+            Err(e) => {
+                log::warn!(
+                    "Failed to load variant data: track={} region={:?} elapsed_ms={} error={e}",
+                    index,
+                    region,
+                    started.elapsed().as_millis(),
+                );
+                return Err(e);
+            }
+        };
+        let record_count = variants.intervals.len();
+        let Some(variant_track) = self.variants.get_mut(index) else {
+            let e = TGVError::StateError(format!("Variant index out of bounds: {index}"));
+            log::warn!(
+                "Failed to store variant data: track={} region={:?} elapsed_ms={} error={e}",
+                index,
+                region,
+                started.elapsed().as_millis(),
+            );
+            return Err(e);
+        };
+        *variant_track = variants;
+        let Some(variant_loaded) = self.variant_loaded.get_mut(index) else {
+            let e = TGVError::StateError(format!("Variant loaded index out of bounds: {index}"));
+            log::warn!(
+                "Failed to mark variant data loaded: track={} region={:?} elapsed_ms={} error={e}",
+                index,
+                region,
+                started.elapsed().as_millis(),
+            );
+            return Err(e);
+        };
+        *variant_loaded = true;
+        log::debug!(
+            "Loaded variant data: track={} region={:?} records={} elapsed_ms={}",
+            index,
+            region,
+            record_count,
+            started.elapsed().as_millis(),
+        );
         Ok(self)
     }
 
@@ -224,17 +344,53 @@ impl State {
     pub async fn load_bed_data(
         &mut self,
         index: usize,
-        _region: &Region,
+        region: &Region,
         bed_repository: &mut BedRepository,
     ) -> Result<&mut Self, TGVError> {
-        *self
-            .bed_intervals
-            .get_mut(index)
-            .ok_or_else(|| TGVError::StateError(format!("BED index out of bounds: {index}")))? =
-            bed_repository.read_bed(&self.contig_header)?;
-        *self.bed_loaded.get_mut(index).ok_or_else(|| {
-            TGVError::StateError(format!("BED loaded index out of bounds: {index}"))
-        })? = true;
+        let started = Instant::now();
+        log::debug!("Loading BED data: track={} region={:?}", index, region);
+        let bed_intervals = match bed_repository.read_bed(&self.contig_header) {
+            Ok(bed_intervals) => bed_intervals,
+            Err(e) => {
+                log::warn!(
+                    "Failed to load BED data: track={} region={:?} elapsed_ms={} error={e}",
+                    index,
+                    region,
+                    started.elapsed().as_millis(),
+                );
+                return Err(e);
+            }
+        };
+        let record_count = bed_intervals.intervals.len();
+        let Some(bed_track) = self.bed_intervals.get_mut(index) else {
+            let e = TGVError::StateError(format!("BED index out of bounds: {index}"));
+            log::warn!(
+                "Failed to store BED data: track={} region={:?} elapsed_ms={} error={e}",
+                index,
+                region,
+                started.elapsed().as_millis(),
+            );
+            return Err(e);
+        };
+        *bed_track = bed_intervals;
+        let Some(bed_loaded) = self.bed_loaded.get_mut(index) else {
+            let e = TGVError::StateError(format!("BED loaded index out of bounds: {index}"));
+            log::warn!(
+                "Failed to mark BED data loaded: track={} region={:?} elapsed_ms={} error={e}",
+                index,
+                region,
+                started.elapsed().as_millis(),
+            );
+            return Err(e);
+        };
+        *bed_loaded = true;
+        log::debug!(
+            "Loaded BED data: track={} region={:?} records={} elapsed_ms={}",
+            index,
+            region,
+            record_count,
+            started.elapsed().as_millis(),
+        );
         Ok(self)
     }
 

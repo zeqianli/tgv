@@ -12,12 +12,13 @@ use crate::{
 };
 use async_trait::async_trait;
 use sqlx::{
-    Column, Row,
+    Row,
     sqlite::{SqliteConnectOptions, SqlitePool, SqlitePoolOptions},
 };
 use std::collections::HashMap;
 use std::path::Path;
 use std::sync::Arc;
+use std::time::Instant;
 
 /// Local database track service that reads from SQLite files created by UcscDownloader
 #[derive(Debug)]
@@ -49,10 +50,16 @@ impl LocalDbTrackService {
             connection,
             reference
         );
+        let started = Instant::now();
         let pool = SqlitePoolOptions::new()
             .max_connections(1)
             .connect_with(options)
             .await?;
+        log::info!(
+            "Database connect result: database=local-sqlite context=reference={} elapsed_ms={}",
+            reference,
+            started.elapsed().as_millis()
+        );
 
         Ok(Self {
             pool: Arc::new(pool),
@@ -98,7 +105,13 @@ impl LocalDbTrackService {
             "Database query: database=local-sqlite sql=\"{}\" context=get contig 2bit file lookup",
             sql
         );
+        let started = Instant::now();
         let rows_with_alias = sqlx::query(sql).fetch_all(&*self.pool).await?;
+        log::info!(
+            "Database query result: database=local-sqlite context=get contig 2bit file lookup rows={} elapsed_ms={}",
+            rows_with_alias.len(),
+            started.elapsed().as_millis()
+        );
 
         let mut filename_hashmap: HashMap<usize, Option<String>> = HashMap::new();
         for row in rows_with_alias {
@@ -148,10 +161,22 @@ impl TrackService for LocalDbTrackService {
             "Database query: database=local-sqlite sql=\"{}\" context=get all contigs with aliases",
             sql
         );
+        let started = Instant::now();
         let contigs: Vec<ContigRow> = match sqlx::query_as(sql).fetch_all(&*self.pool).await {
-            Ok(contigs) => contigs,
+            Ok(contigs) => {
+                log::info!(
+                    "Database query result: database=local-sqlite context=get all contigs with aliases rows={} elapsed_ms={}",
+                    contigs.len(),
+                    started.elapsed().as_millis()
+                );
+                contigs
+            }
             Err(error) => {
-                log::warn!("Falling back to local contig query without aliases: {error}");
+                log::warn!(
+                    "Falling back to local contig query without aliases: error={} elapsed_ms={}",
+                    error,
+                    started.elapsed().as_millis()
+                );
                 let fallback_sql = "SELECT
                     chromInfo.chrom as chrom,
                     chromInfo.size as size
@@ -162,7 +187,14 @@ impl TrackService for LocalDbTrackService {
                     "Database query: database=local-sqlite sql=\"{}\" context=get all contigs without aliases",
                     fallback_sql
                 );
-                sqlx::query_as(fallback_sql).fetch_all(&*self.pool).await?
+                let fallback_started = Instant::now();
+                let contigs = sqlx::query_as(fallback_sql).fetch_all(&*self.pool).await?;
+                log::info!(
+                    "Database query result: database=local-sqlite context=get all contigs without aliases rows={} elapsed_ms={}",
+                    contigs.len(),
+                    fallback_started.elapsed().as_millis()
+                );
+                contigs
             }
         };
 
@@ -200,10 +232,16 @@ impl TrackService for LocalDbTrackService {
             reference,
             contig_name
         );
+        let started = Instant::now();
         let cytoband_segment_rows: Vec<CytobandSegmentRow> = sqlx::query_as(sql)
             .bind(contig_name)
             .fetch_all(&*self.pool)
             .await?;
+        log::info!(
+            "Database query result: database=local-sqlite context=get cytoband rows={} elapsed_ms={}",
+            cytoband_segment_rows.len(),
+            started.elapsed().as_millis()
+        );
 
         if cytoband_segment_rows.is_empty() {
             return Ok(None);
@@ -236,7 +274,13 @@ impl TrackService for LocalDbTrackService {
             sql,
             reference
         );
+        let started = Instant::now();
         let gene_track_rows = sqlx::query(sql).fetch_all(&*self.pool).await?;
+        log::info!(
+            "Database query result: database=local-sqlite context=get preferred track rows={} elapsed_ms={}",
+            gene_track_rows.len(),
+            started.elapsed().as_millis()
+        );
 
         let available_gene_tracks: Vec<String> = gene_track_rows
             .into_iter()
@@ -282,12 +326,18 @@ impl TrackService for LocalDbTrackService {
             region.start(),
             region.end()
         );
+        let started = Instant::now();
         let rows: Vec<UcscGeneRow> = sqlx::query_as(sql.as_str())
             .bind(contig_name)
             .bind(region.end() as i64) // end is 1-based inclusive, UCSC is 0-based exclusive
             .bind(region.start().saturating_sub(1) as i64) // start is 1-based inclusive, UCSC is 0-based inclusive
             .fetch_all(&*self.pool)
             .await?;
+        log::info!(
+            "Database query result: database=local-sqlite context=query overlapping genes rows={} elapsed_ms={}",
+            rows.len(),
+            started.elapsed().as_millis()
+        );
 
         rows.into_iter()
             .map(|row| row.to_gene(contig_header))
@@ -329,12 +379,18 @@ impl TrackService for LocalDbTrackService {
             contig_index,
             coord
         );
+        let started = Instant::now();
         let gene_row: Option<UcscGeneRow> = sqlx::query_as(sql.as_str())
             .bind(contig_name)
             .bind(coord.saturating_sub(1) as i64) // coord is 1-based inclusive, UCSC is 0-based inclusive
             .bind(coord as i64) // coord is 1-based inclusive, UCSC is 0-based exclusive
             .fetch_optional(&*self.pool)
             .await?;
+        log::info!(
+            "Database query result: database=local-sqlite context=query gene covering found={} elapsed_ms={}",
+            gene_row.is_some(),
+            started.elapsed().as_millis()
+        );
 
         gene_row.map(|row| row.to_gene(contig_header)).transpose()
     }
@@ -360,10 +416,16 @@ impl TrackService for LocalDbTrackService {
             track_name,
             gene_name
         );
+        let started = Instant::now();
         let gene_row: Option<UcscGeneRow> = sqlx::query_as(sql.as_str())
             .bind(gene_name)
             .fetch_optional(&*self.pool)
             .await?;
+        log::info!(
+            "Database query result: database=local-sqlite context=query gene by name found={} elapsed_ms={}",
+            gene_row.is_some(),
+            started.elapsed().as_millis()
+        );
 
         gene_row
             .ok_or(TGVError::IOError(format!(
@@ -415,12 +477,18 @@ impl TrackService for LocalDbTrackService {
             coord,
             k
         );
+        let started = Instant::now();
         let gene_rows: Vec<UcscGeneRow> = sqlx::query_as(sql.as_str())
             .bind(contig_name)
             .bind(coord as i64) // coord is 1-based inclusive, UCSC is 0-based exclusive
             .bind((k + 1) as i64)
             .fetch_all(&*self.pool)
             .await?;
+        log::info!(
+            "Database query result: database=local-sqlite context=query k genes after rows={} elapsed_ms={}",
+            gene_rows.len(),
+            started.elapsed().as_millis()
+        );
 
         Track::from_gene_rows(gene_rows, contig_index, contig_header)?
             .get_saturating_k_genes_after(coord, k)
@@ -470,12 +538,18 @@ impl TrackService for LocalDbTrackService {
             coord,
             k
         );
+        let started = Instant::now();
         let gene_rows: Vec<UcscGeneRow> = sqlx::query_as(sql.as_str())
             .bind(contig_name)
             .bind(coord.saturating_sub(1) as i64) // coord is 1-based inclusive, UCSC is 0-based inclusive
             .bind((k + 1) as i64)
             .fetch_all(&*self.pool)
             .await?;
+        log::info!(
+            "Database query result: database=local-sqlite context=query k genes before rows={} elapsed_ms={}",
+            gene_rows.len(),
+            started.elapsed().as_millis()
+        );
 
         Track::from_gene_rows(gene_rows, contig_index, contig_header)?
             .get_saturating_k_genes_before(coord, k)
@@ -526,12 +600,18 @@ impl TrackService for LocalDbTrackService {
             coord,
             k
         );
+        let started = Instant::now();
         let gene_rows: Vec<UcscGeneRow> = sqlx::query_as(sql.as_str())
             .bind(contig_name)
             .bind(coord as i64) // coord is 1-based inclusive, UCSC is 0-based exclusive
             .bind((k + 1) as i64)
             .fetch_all(&*self.pool)
             .await?;
+        log::info!(
+            "Database query result: database=local-sqlite context=query k exons after rows={} elapsed_ms={}",
+            gene_rows.len(),
+            started.elapsed().as_millis()
+        );
 
         Track::from_gene_rows(gene_rows, contig_index, contig_header)?
             .get_saturating_k_exons_after(coord, k)
@@ -580,12 +660,18 @@ impl TrackService for LocalDbTrackService {
             coord,
             k
         );
+        let started = Instant::now();
         let gene_rows: Vec<UcscGeneRow> = sqlx::query_as(sql.as_str())
             .bind(contig_name)
             .bind(coord.saturating_sub(1) as i64) // coord is 1-based inclusive, UCSC is 0-based inclusive
             .bind((k + 1) as i64)
             .fetch_all(&*self.pool)
             .await?;
+        log::info!(
+            "Database query result: database=local-sqlite context=query k exons before rows={} elapsed_ms={}",
+            gene_rows.len(),
+            started.elapsed().as_millis()
+        );
 
         Track::from_gene_rows(gene_rows, contig_index, contig_header)?
             .get_saturating_k_exons_before(coord, k)

@@ -76,6 +76,12 @@ impl MouseRegister {
                     if matches!(area_type, AreaType::AlignmentDivider { .. }) {
                         self.resizing = true;
                         self.active_divider = Some(*area_type);
+                        log::debug!(
+                            "Started alignment divider drag: divider={:?} column={} row={}",
+                            area_type,
+                            event.column,
+                            event.row,
+                        );
                     }
                 }
             }
@@ -123,6 +129,14 @@ impl MouseRegister {
             }
 
             event::MouseEventKind::Up(_) => {
+                if let Some(active_divider) = self.active_divider {
+                    log::debug!(
+                        "Finished alignment divider drag: divider={:?} column={} row={}",
+                        active_divider,
+                        event.column,
+                        event.row,
+                    );
+                }
                 self.resizing = false;
                 self.active_divider = None;
             }
@@ -234,6 +248,12 @@ impl MouseRegister {
                 if let Some(index) =
                     Self::alignment_index_at_position(layout, event.column, event.row)
                 {
+                    log::debug!(
+                        "Mouse wheel generated vertical scroll: alignment_index={} direction=down column={} row={}",
+                        index,
+                        event.column,
+                        event.row,
+                    );
                     messages.push(Scroll::Down { index, n: 1 }.into());
                 }
             }
@@ -242,13 +262,33 @@ impl MouseRegister {
                 if let Some(index) =
                     Self::alignment_index_at_position(layout, event.column, event.row)
                 {
+                    log::debug!(
+                        "Mouse wheel generated vertical scroll: alignment_index={} direction=up column={} row={}",
+                        index,
+                        event.column,
+                        event.row,
+                    );
                     messages.push(Scroll::Up { index, n: 1 }.into());
                 }
             }
 
-            event::MouseEventKind::ScrollLeft => messages.push(Movement::Left(1).into()),
+            event::MouseEventKind::ScrollLeft => {
+                log::debug!(
+                    "Mouse wheel generated horizontal movement: direction=left column={} row={}",
+                    event.column,
+                    event.row,
+                );
+                messages.push(Movement::Left(1).into());
+            }
 
-            event::MouseEventKind::ScrollRight => messages.push(Movement::Right(1).into()),
+            event::MouseEventKind::ScrollRight => {
+                log::debug!(
+                    "Mouse wheel generated horizontal movement: direction=right column={} row={}",
+                    event.column,
+                    event.row,
+                );
+                messages.push(Movement::Right(1).into());
+            }
 
             _ => {}
         }

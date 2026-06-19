@@ -20,6 +20,7 @@ use noodles::{
 use opendal::{FuturesAsyncReader, Operator, services};
 use std::fs;
 use std::path::Path;
+use std::time::Instant;
 use tokio::fs::File;
 
 pub struct BamRepository {
@@ -251,7 +252,42 @@ impl AlignmentRepositoryEnum {
         reference_sequence: &Sequence,
         contig_header: &ContigHeader,
     ) -> Result<Alignment, TGVError> {
-        let records = match region.alignment(contig_header)? {
+        let started = Instant::now();
+        let (source_kind, data_path, index_path) = match self {
+            AlignmentRepositoryEnum::Bam(inner) => {
+                ("BAM", inner.bam_path.clone(), inner.bai_path.clone())
+            }
+            AlignmentRepositoryEnum::RemoteBam(inner) => {
+                ("remote BAM", inner.bam_path.clone(), inner.bai_path.clone())
+            }
+            AlignmentRepositoryEnum::Cram(inner) => {
+                ("CRAM", inner.cram_path.clone(), inner.crai_path.clone())
+            }
+        };
+        log::debug!(
+            "Reading alignment records: source_type={} path={} index={} region={:?}",
+            source_kind,
+            data_path,
+            index_path,
+            region,
+        );
+
+        let query_region = match region.alignment(contig_header) {
+            Ok(query_region) => query_region,
+            Err(e) => {
+                log::warn!(
+                    "Failed to resolve alignment query region: source_type={} path={} index={} region={:?} elapsed_ms={} error={e}",
+                    source_kind,
+                    data_path,
+                    index_path,
+                    region,
+                    started.elapsed().as_millis(),
+                );
+                return Err(e);
+            }
+        };
+
+        let records = match query_region {
             Some(region) => {
                 let mut records = Vec::new();
                 match self {
@@ -297,15 +333,52 @@ impl AlignmentRepositoryEnum {
 
                 records
             }
-            None => Vec::new(),
+            None => {
+                log::debug!(
+                    "Skipped alignment record query because the region does not map to the alignment header: source_type={} path={} index={} region={:?} elapsed_ms={}",
+                    source_kind,
+                    data_path,
+                    index_path,
+                    region,
+                    started.elapsed().as_millis(),
+                );
+                Vec::new()
+            }
         };
 
-        Alignment::from_aligned_reads(
+        let record_count = records.len();
+        let alignment = match Alignment::from_aligned_reads(
             records,
             region.contig_index(),
             (region.start(), region.end()),
             reference_sequence,
-        )
+        ) {
+            Ok(alignment) => alignment,
+            Err(e) => {
+                log::warn!(
+                    "Failed to build alignment from records: source_type={} path={} index={} region={:?} records={} elapsed_ms={} error={e}",
+                    source_kind,
+                    data_path,
+                    index_path,
+                    region,
+                    record_count,
+                    started.elapsed().as_millis(),
+                );
+                return Err(e);
+            }
+        };
+
+        log::debug!(
+            "Read alignment records: source_type={} path={} index={} region={:?} records={} elapsed_ms={}",
+            source_kind,
+            data_path,
+            index_path,
+            region,
+            record_count,
+            started.elapsed().as_millis(),
+        );
+
+        Ok(alignment)
     }
 
     /// Read BAM headers and return contig namesa and lengths.

@@ -12,7 +12,7 @@ use crate::{
     settings::Settings,
 };
 use gv_core::{error::TGVError, repository::Repository, settings::FilePath, state::State};
-use std::path::PathBuf;
+use std::{path::PathBuf, time::Instant};
 
 #[derive(Debug, Clone, Eq, PartialEq)]
 pub enum Scene {
@@ -39,6 +39,8 @@ pub struct App {
 
 impl App {
     pub async fn new(settings: Settings, session_path: PathBuf) -> Result<Self, TGVError> {
+        let app_init_started = Instant::now();
+
         // Gather resources before initializing the state.
         log::info!(
             "Initializing the app with session {}",
@@ -47,7 +49,6 @@ impl App {
 
         let (mut repository, contig_header, repository_file_indexes) =
             Repository::new(&settings.core).await?;
-        log::info!("Repository resources are ready");
 
         let mut state = State::new(settings.core.reference.clone(), contig_header)?;
 
@@ -64,6 +65,17 @@ impl App {
         if let Some(zoom) = settings.zoom {
             alignment_view.zoom = zoom;
         }
+        log::info!(
+            "App state initialized: reference={} contigs={} alignment_tracks={} variant_tracks={} bed_tracks={} default_focus={:?} initial_zoom={} elapsed_ms={}",
+            settings.core.reference,
+            state.contig_header.contigs.len(),
+            state.alignments.len(),
+            state.variants.len(),
+            state.bed_intervals.len(),
+            alignment_view.focus,
+            alignment_view.zoom,
+            app_init_started.elapsed().as_millis(),
+        );
 
         Ok(Self {
             exit: false,
@@ -151,7 +163,10 @@ impl App {
                 }
             } {
                 Ok(_) => {}
-                Err(e) => self.state.add_message(format!("{e}")),
+                Err(e) => {
+                    log::warn!("Error while handling event: {e}");
+                    self.state.add_message(format!("{e}"));
+                }
             }
 
             self.alignment_view.self_correct(
@@ -186,62 +201,134 @@ impl App {
         for message in messages {
             match message {
                 Message::Core(gv_core::message::Message::Move(movement)) => {
+                    let previous_focus = self.alignment_view.focus.clone();
+                    log::debug!(
+                        "Handling movement: movement={:?} previous_focus={:?} zoom={}",
+                        movement,
+                        previous_focus,
+                        self.alignment_view.zoom,
+                    );
                     let focus = self
                         .state
                         .movement(
                             self.alignment_view.focus.clone(),
                             self.alignment_view.zoom,
                             &mut self.repository,
-                            movement,
+                            movement.clone(),
                         )
                         .await?;
 
+                    log::debug!(
+                        "Movement applied: movement={:?} previous_focus={:?} new_focus={:?}",
+                        movement,
+                        previous_focus,
+                        focus,
+                    );
                     self.alignment_view.focus = focus;
                     self.load_data().await?
                 }
 
-                Message::Core(gv_core::message::Message::Quit) => self.exit = true,
+                Message::Core(gv_core::message::Message::Quit) => {
+                    log::info!("Quit requested");
+                    self.exit = true;
+                }
 
                 Message::Core(gv_core::message::Message::SaveSession(path)) => {
+                    let explicit_path = path.is_some();
                     let path = path
                         .as_deref()
                         .map(SessionFile::resolve_path)
                         .unwrap_or_else(|| self.session_path.clone());
+                    log::info!(
+                        "Saving session: path={} explicit={}",
+                        path.display(),
+                        explicit_path,
+                    );
                     match self.save_session_to_path(path.clone()) {
-                        Ok(()) => self
-                            .state
-                            .add_message(format!("Session saved to {}", path.display())),
-                        Err(e) => self
-                            .state
-                            .add_message(format!("Failed to save session: {e}")),
+                        Ok(()) => {
+                            log::info!("Session saved: path={}", path.display());
+                            self.state
+                                .add_message(format!("Session saved to {}", path.display()));
+                        }
+                        Err(e) => {
+                            log::warn!("Failed to save session: path={} error={e}", path.display());
+                            self.state
+                                .add_message(format!("Failed to save session: {e}"));
+                        }
                     }
                 }
 
                 Message::Core(gv_core::message::Message::SaveAndQuit(path)) => {
+                    let explicit_path = path.is_some();
                     let path = path
                         .as_deref()
                         .map(SessionFile::resolve_path)
                         .unwrap_or_else(|| self.session_path.clone());
+                    log::info!(
+                        "Saving session before quit: path={} explicit={}",
+                        path.display(),
+                        explicit_path,
+                    );
                     match self.save_session_to_path(path) {
-                        Ok(()) => self.exit = true,
-                        Err(e) => self
-                            .state
-                            .add_message(format!("Failed to save session: {e}")),
+                        Ok(()) => {
+                            log::info!("Session saved before quit");
+                            self.exit = true;
+                        }
+                        Err(e) => {
+                            log::warn!("Failed to save session before quit: {e}");
+                            self.state
+                                .add_message(format!("Failed to save session: {e}"));
+                        }
                     }
                 }
 
                 Message::Core(gv_core::message::Message::Scroll(scroll)) => {
-                    self.alignment_view.scroll(scroll, &self.state.alignments);
+                    let previous_y = self.alignment_view.y.clone();
+                    log::debug!(
+                        "Handling scroll: scroll={:?} y_before={:?}",
+                        scroll,
+                        previous_y
+                    );
+                    self.alignment_view
+                        .scroll(scroll.clone(), &self.state.alignments);
+                    log::debug!(
+                        "Scroll applied: scroll={:?} y_before={:?} y_after={:?}",
+                        scroll,
+                        previous_y,
+                        self.alignment_view.y,
+                    );
                 }
 
                 Message::Core(gv_core::message::Message::Zoom(zoom)) => {
                     let contig_length = self.state.contig_length(&self.alignment_view.focus)?;
-                    self.alignment_view
-                        .zoom(zoom, &self.layout.main_area, contig_length)?; // TODO
+                    let previous_zoom = self.alignment_view.zoom;
+                    log::debug!(
+                        "Handling zoom: zoom={:?} previous_zoom={} focus={:?}",
+                        zoom,
+                        previous_zoom,
+                        self.alignment_view.focus,
+                    );
+                    self.alignment_view.zoom(
+                        zoom.clone(),
+                        &self.layout.main_area,
+                        contig_length,
+                    )?; // TODO
+                    log::debug!(
+                        "Zoom applied: zoom={:?} previous_zoom={} new_zoom={} focus={:?}",
+                        zoom,
+                        previous_zoom,
+                        self.alignment_view.zoom,
+                        self.alignment_view.focus,
+                    );
                     self.load_data().await?
                 }
 
                 Message::Core(gv_core::message::Message::SetAlignmentOption(options)) => {
+                    log::debug!(
+                        "Setting alignment options: alignment_count={} options={:?}",
+                        self.state.alignments.len(),
+                        options,
+                    );
                     // TODO: introduce focus. Only apply option to the alignment in focus
                     for index in 0..self.state.alignments.len() {
                         self.state.set_alignment_options(
@@ -253,19 +340,31 @@ impl App {
                 }
 
                 Message::Core(gv_core::message::Message::Message(message)) => {
+                    log::trace!("Adding transient status message: bytes={}", message.len());
                     self.state.add_message(message);
                 }
 
                 Message::SwitchScene(scene) => {
+                    let previous_scene = self.scene.clone();
+                    log::debug!("Switching scene: from={:?} to={:?}", previous_scene, scene);
                     self.scene = scene;
                 }
                 Message::SwitchKeyRegister(register) => {
+                    let previous_register = self.registers.current.clone();
                     if register == KeyRegisterType::ContigList {
                         self.registers.contig_list_cursor = self.alignment_view.focus.contig_index
                     }
-                    self.registers.current = register
+                    self.registers.current = register;
+                    log::debug!(
+                        "Switching key register: from={:?} to={:?}",
+                        previous_register,
+                        self.registers.current,
+                    );
                 }
-                Message::ClearAllKeyRegisters => self.registers.clear(),
+                Message::ClearAllKeyRegisters => {
+                    log::debug!("Clearing all key registers");
+                    self.registers.clear();
+                }
             }
         }
 
@@ -278,56 +377,76 @@ impl App {
         // Alignment IO requires calculating mismatches with the reference sequence.
         //
         let region = self.alignment_view.region(&self.layout.main_area);
-        log::debug!("Loading data for region {region:?}");
+        log::debug!(
+            "Evaluating data loads: display_region={:?} zoom={} focus={:?}",
+            region,
+            self.alignment_view.zoom,
+            self.alignment_view.focus,
+        );
 
         if let Some(sequence_service) = self.repository.sequence_service.as_mut()
             && self.alignment_view.zoom <= AlignmentView::MAX_ZOOM_TO_DISPLAY_SEQUENCES
             && !self.state.sequence.has_complete_data(&region)
         {
-            log::debug!("Loading sequence data");
+            let cache_region = self.alignment_view.sequence_cache_region(region.clone());
+            log::trace!(
+                "Sequence cache miss; requesting data load: display_region={:?} cache_region={:?} zoom={}",
+                region,
+                cache_region,
+                self.alignment_view.zoom,
+            );
             self.state
-                .load_sequence_data(
-                    &self.alignment_view.sequence_cache_region(region.clone()),
-                    sequence_service,
-                )
+                .load_sequence_data(&cache_region, sequence_service)
                 .await?;
         }
 
-        for (index, alignment_repository) in self
-            .repository
-            .alignment_repositories
-            .iter_mut()
-            .enumerate()
-        {
-            if self.alignment_view.zoom <= AlignmentView::MAX_ZOOM_TO_DISPLAY_ALIGNMENTS
-                && self
-                    .state
-                    .alignments
-                    .get(index)
-                    .is_some_and(|alignment| !alignment.has_complete_data(&region))
+        if self.alignment_view.zoom <= AlignmentView::MAX_ZOOM_TO_DISPLAY_ALIGNMENTS {
+            for (index, alignment_repository) in self
+                .repository
+                .alignment_repositories
+                .iter_mut()
+                .enumerate()
             {
-                log::debug!("Loading alignment data for track {index}");
-                self.state
-                    .load_alignment_data(
+                if !self.state.alignments[index].has_complete_data(&region) {
+                    let cache_region = self.alignment_view.alignment_cache_region(region.clone());
+                    log::trace!(
+                        "Alignment cache miss; requesting data load: track={} display_region={:?} cache_region={:?} zoom={}",
                         index,
-                        &self.alignment_view.alignment_cache_region(region.clone()),
-                        alignment_repository,
-                    )
-                    .await?;
+                        region,
+                        cache_region,
+                        self.alignment_view.zoom,
+                    );
+                    self.state
+                        .load_alignment_data(index, &cache_region, alignment_repository)
+                        .await?;
+                } else {
+                    log::trace!(
+                        "Skipping alignment data load because cached data is complete: track={} display_region={:?}",
+                        index,
+                        region,
+                    );
+                }
             }
+        } else {
+            log::trace!(
+                "Skipping alignment data loads because zoom={} exceeds max_zoom={}",
+                self.alignment_view.zoom,
+                AlignmentView::MAX_ZOOM_TO_DISPLAY_ALIGNMENTS,
+            );
         }
 
         if let Some(track_service) = self.repository.track_service.as_mut()
             && !self.state.track.has_complete_data(&region)
         {
             // viewing_window.zoom <= Self::MAX_ZOOM_TO_DISPLAY_FEATURES is always true
-            log::debug!("Loading reference track data");
-
+            let cache_region = self.alignment_view.track_cache_region(region.clone());
+            log::trace!(
+                "Reference track cache miss; requesting data load: display_region={:?} cache_region={:?}",
+                region,
+                cache_region,
+            );
             self.state
-                .load_track_data(
-                    &self.alignment_view.track_cache_region(region.clone()),
-                    track_service,
-                )
+                .load_track_data(&cache_region, track_service)
                 .await?;
         }
 
@@ -341,7 +460,11 @@ impl App {
                 .copied()
                 .unwrap_or(false)
             {
-                log::debug!("Loading variant data for track {index}");
+                log::trace!(
+                    "Variant data not loaded; requesting data load: track={} display_region={:?}",
+                    index,
+                    region,
+                );
                 self.state
                     .load_variant_data(index, &region, variant_repository)
                     .await?;
@@ -350,7 +473,11 @@ impl App {
 
         for (index, bed_repository) in self.repository.bed_repositories.iter_mut().enumerate() {
             if !self.state.bed_loaded.get(index).copied().unwrap_or(false) {
-                log::debug!("Loading BED data for track {index}");
+                log::trace!(
+                    "BED data not loaded; requesting data load: track={} display_region={:?}",
+                    index,
+                    region,
+                );
                 self.state
                     .load_bed_data(index, &region, bed_repository)
                     .await?;
@@ -360,6 +487,10 @@ impl App {
         // Cytobands
         // TODO
         //
+        log::debug!(
+            "Finished evaluating data loads: display_region={:?}",
+            region
+        );
         Ok(())
     }
 

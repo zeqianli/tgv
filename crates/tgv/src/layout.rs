@@ -339,9 +339,17 @@ impl MainLayout {
     /// Update the area. If the area size changed, terminal refresh is needed.
     pub fn set_area(&mut self, area: Rect) -> bool {
         if area.width != self.main_area.width || area.height != self.main_area.height {
+            let previous_area = self.main_area;
             let alignment_heights = self.current_alignment_heights();
             self.main_area = area;
             self.recalculate_areas(&alignment_heights);
+            log::debug!(
+                "Layout area changed: previous_area={:?} new_area={:?} requested_alignment_heights={:?} resolved_alignment_heights={:?}",
+                previous_area,
+                self.main_area,
+                alignment_heights,
+                self.current_alignment_heights(),
+            );
             true
         } else {
             false
@@ -354,6 +362,7 @@ impl MainLayout {
         }
 
         let mut alignment_heights = self.current_alignment_heights();
+        let previous_alignment_heights = alignment_heights.clone();
 
         let minimum_height = if self.can_fit_alignment_minimums() {
             Self::ALIGNMENT_MIN_HEIGHT
@@ -369,6 +378,14 @@ impl MainLayout {
         };
 
         if actual_delta == 0 {
+            log::trace!(
+                "Alignment divider resize was clamped to zero: upper={} lower={} requested_delta_rows={} heights={:?} minimum_height={}",
+                upper,
+                lower,
+                delta_rows,
+                previous_alignment_heights,
+                minimum_height,
+            );
             return;
         }
 
@@ -383,6 +400,16 @@ impl MainLayout {
         }
 
         self.recalculate_areas(&alignment_heights);
+        log::debug!(
+            "Alignment divider resized: upper={} lower={} requested_delta_rows={} actual_delta_rows={} previous_alignment_heights={:?} requested_alignment_heights={:?} resolved_alignment_heights={:?}",
+            upper,
+            lower,
+            delta_rows,
+            actual_delta,
+            previous_alignment_heights,
+            alignment_heights,
+            self.current_alignment_heights(),
+        );
     }
 
     fn recalculate_areas(&mut self, alignment_heights: &[u16]) {

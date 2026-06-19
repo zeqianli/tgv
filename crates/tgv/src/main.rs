@@ -17,7 +17,9 @@ use tgv::{
 async fn main() -> Result<(), TGVError> {
     let cli = Cli::parse();
     let log_path = default_log_file_path();
-    let log_level = if cli.debug_enabled() {
+    let log_level = if cli.trace_enabled() {
+        log::LevelFilter::Trace
+    } else if cli.debug_enabled() {
         log::LevelFilter::Debug
     } else {
         log::LevelFilter::Info
@@ -83,9 +85,20 @@ async fn main() -> Result<(), TGVError> {
         }
         Settings::default()
     } else {
+        log::info!(
+            "Session file {} does not exist. Using defaults.",
+            session_path.display()
+        );
         Settings::default()
     };
     cli.apply_overrides(&mut settings)?;
+    log::info!(
+        "Settings are ready: session={} reference={} tracks={} test_mode={}",
+        session_path.display(),
+        settings.core.reference,
+        settings.core.file_paths.len(),
+        settings.test_mode,
+    );
 
     let mut terminal = ratatui::init();
 
@@ -115,15 +128,17 @@ async fn main() -> Result<(), TGVError> {
     }
 
     // Auto-save the active session on clean exit, and skip in test mode.
-    if !app.settings.test_mode
-        && app_result.is_ok()
-        && let Err(e) = SessionFile::try_from(&app).and_then(|s| s.write_to_path(&app.session_path))
-    {
-        log::warn!(
-            "Failed to save session {}: {e}.",
-            app.session_path.display()
-        );
-        eprintln!("Warning: failed to save session: {e}.");
+    if !app.settings.test_mode && app_result.is_ok() {
+        match SessionFile::try_from(&app).and_then(|s| s.write_to_path(&app.session_path)) {
+            Ok(()) => log::info!("Saved session on exit: path={}", app.session_path.display()),
+            Err(e) => {
+                log::warn!(
+                    "Failed to save session {}: {e}.",
+                    app.session_path.display()
+                );
+                eprintln!("Warning: failed to save session: {e}.");
+            }
+        }
     }
 
     app.close().await?;

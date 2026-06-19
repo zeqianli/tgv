@@ -11,7 +11,7 @@ use crate::{
 };
 
 use itertools::Itertools;
-use std::path::Path;
+use std::{path::Path, time::Instant};
 
 #[derive(Debug, Clone, Copy, Eq, PartialEq)]
 pub enum RepositoryFileIndex {
@@ -36,6 +36,13 @@ impl Repository {
     pub async fn new(
         settings: &Settings,
     ) -> Result<(Self, ContigHeader, Vec<RepositoryFileIndex>), TGVError> {
+        let started = Instant::now();
+        log::info!(
+            "Initializing repository resources: reference={} files={}",
+            settings.reference,
+            settings.file_paths.len(),
+        );
+
         let mut track_service = TrackServiceEnum::new(settings).await?;
         let mut sequence_service = SequenceRepositoryEnum::new(settings)?;
         let mut alignment_repositories = Vec::new();
@@ -240,6 +247,16 @@ impl Repository {
                 }
             }
         }
+
+        log::info!(
+            "Repository resources are ready: alignment_repositories={} variant_repositories={} bed_repositories={} file_order={:?} contigs={} elapsed_ms={}",
+            alignment_repositories.len(),
+            variant_repositories.len(),
+            bed_repositories.len(),
+            repository_file_indexes,
+            contig_header.contigs.len(),
+            started.elapsed().as_millis(),
+        );
 
         // PERF: async
         Ok((
