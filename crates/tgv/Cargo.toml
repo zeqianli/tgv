@@ -4,6 +4,8 @@ version = "0.2.0"
 edition = "2024"
 description = "Explore genomes in the terminal. Light, blazing fast 🚀, vim-motion."
 license = "MIT"
+repository = "https://github.com/zeqianli/tgv"
+homepage = "https://github.com/zeqianli/tgv"
 rust-version = "1.88"
 include = ["src/*", "!src/snapshots", "Cargo.toml", "./README.md"]
 
