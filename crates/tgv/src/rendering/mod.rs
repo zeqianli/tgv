@@ -28,11 +28,12 @@ pub use variants::render_variants;
 
 use crate::{
     layout::{AlignmentView, AreaType, MainLayout},
+    mouse::MouseRegister,
     register::{KeyRegisterType, Registers},
 };
 
 use gv_core::{error::TGVError, message::AlignmentDisplayOption, state::State};
-use ratatui::buffer::Buffer;
+use ratatui::{buffer::Buffer, layout::Rect, style::Style};
 
 /// Render all areas in the layout
 pub fn render_main(
@@ -41,6 +42,7 @@ pub fn render_main(
     registers: &Registers,
     layout: &MainLayout,
     alignment_view: &AlignmentView,
+    mouse_register: &MouseRegister,
     pallete: &Palette,
 ) -> Result<(), TGVError> {
     // Render each area based on its type
@@ -72,6 +74,7 @@ pub fn render_main(
                         )?;
 
                         render_paired_alignment(
+                            *index,
                             rect,
                             buf,
                             &mut state.alignments[*index],
@@ -82,6 +85,7 @@ pub fn render_main(
                         )?;
                     } else {
                         render_alignment(
+                            *index,
                             rect,
                             buf,
                             &mut state.alignments[*index],
@@ -92,6 +96,12 @@ pub fn render_main(
                     }
                 }
             }
+            AreaType::AlignmentDivider { .. } => render_alignment_divider(
+                rect,
+                buf,
+                pallete,
+                mouse_register.is_divider_highlighted(area_type),
+            ),
             AreaType::Sequence => {
                 if alignment_view.zoom <= AlignmentView::MAX_ZOOM_TO_DISPLAY_SEQUENCES {
                     render_sequence(rect, buf, state, alignment_view, pallete)?;
@@ -106,7 +116,13 @@ pub fn render_main(
                 }
             }
             AreaType::Error => {
-                render_status_bar(rect, buf, state, alignment_view)?;
+                render_status_bar(
+                    rect,
+                    buf,
+                    state,
+                    alignment_view,
+                    mouse_register.hovered_alignment,
+                )?;
             }
             AreaType::Variant(index) => {
                 if let Some(variants) = state.variants.get(*index) {
@@ -121,6 +137,18 @@ pub fn render_main(
         };
     }
     Ok(())
+}
+
+fn render_alignment_divider(area: &Rect, buf: &mut Buffer, palette: &Palette, highlighted: bool) {
+    let style = if highlighted {
+        Style::default().bg(palette.HIGHLIGHT_COLOR)
+    } else {
+        Style::default()
+    };
+
+    for y in area.top()..area.bottom() {
+        buf.set_string(area.x, y, "-".repeat(area.width as usize), style);
+    }
 }
 
 pub fn get_abbreviated_length_string(length: u64) -> String {

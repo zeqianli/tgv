@@ -6,6 +6,7 @@ use crate::sequence::Sequence;
 use crate::tracks::{UcscHost, schema::*};
 use reqwest::Client;
 use serde::Deserialize;
+use std::time::Instant;
 
 #[derive(Debug)]
 pub struct UCSCApiSequenceRepository {
@@ -73,11 +74,13 @@ impl UCSCApiSequenceRepository {
             accession
         );
         log::info!("HTTP request: method=GET url={url} context=UCSC sequence GenArk hub lookup");
+        let started = Instant::now();
         let response = self.client.get(&url).send().await?;
         log::info!(
-            "HTTP response: status={} url={} context=UCSC sequence GenArk hub lookup",
+            "HTTP response: status={} url={} context=UCSC sequence GenArk hub lookup elapsed_ms={}",
             response.status(),
-            url
+            url,
+            started.elapsed().as_millis()
         );
         let response = response.json::<UcscApiHubUrlResponse>().await?;
 
@@ -121,11 +124,13 @@ impl UCSCApiSequenceRepository {
             region.start(),
             region.end()
         );
+        let started = Instant::now();
         let response = self.client.get(&url).send().await?;
         log::info!(
-            "HTTP response: status={} url={} context=UCSC sequence query",
+            "HTTP response: status={} url={} context=UCSC sequence query elapsed_ms={}",
             response.status(),
-            url
+            url,
+            started.elapsed().as_millis()
         );
         let response: UcscResponse = response.json().await?;
         log::debug!(
@@ -177,11 +182,13 @@ impl UCSCApiSequenceRepository {
             query_url,
             self.reference
         );
+        let started = Instant::now();
         let response = self.client.get(&query_url).send().await?;
         log::info!(
-            "HTTP response: status={} url={} context=UCSC sequence chromosome list",
+            "HTTP response: status={} url={} context=UCSC sequence chromosome list elapsed_ms={}",
             response.status(),
-            query_url
+            query_url,
+            started.elapsed().as_millis()
         );
         let response = response.json::<UcscListChromosomeResponse>().await?;
         log::debug!(

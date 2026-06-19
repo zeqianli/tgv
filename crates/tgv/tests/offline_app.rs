@@ -58,10 +58,10 @@ async fn offline_sequence_navigates_and_zooms() {
 
     harness
         .handle_core(vec![
-            CoreMessage::Scroll(Scroll::Down(2)),
+            CoreMessage::Scroll(Scroll::Down { index: 0, n: 2 }),
             CoreMessage::Zoom(Zoom::Out(4)),
             CoreMessage::Move(Movement::Position(33121140)),
-            CoreMessage::Scroll(Scroll::Up(1)),
+            CoreMessage::Scroll(Scroll::Up { index: 0, n: 1 }),
             CoreMessage::Zoom(Zoom::In(2)),
         ])
         .await
@@ -73,7 +73,7 @@ async fn offline_sequence_navigates_and_zooms() {
     );
     assert_eq!(harness.app.alignment_view.focus.position, 33_121_140);
     assert_eq!(harness.app.alignment_view.zoom, initial_zoom * 2);
-    assert_eq!(harness.app.alignment_view.y, 1);
+    assert_eq!(harness.app.alignment_view.top(0), 1);
     assert!(harness.app.state.messages.is_empty());
 
     harness.close().await.unwrap();

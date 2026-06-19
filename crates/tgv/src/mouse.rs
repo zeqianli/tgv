@@ -12,6 +12,9 @@ pub struct MouseRegister {
     pub mouse_down_y: u16,
     pub mouse_down_area_type: AreaType,
     pub resizing: bool,
+    pub hovered_alignment: Option<usize>,
+    pub hovered_divider: Option<AreaType>,
+    pub active_divider: Option<AreaType>,
 
     // Track mouse dragging
     pub mouse_drag_x: u16,
@@ -27,6 +30,9 @@ impl Default for MouseRegister {
             mouse_down_y: 0,
             mouse_down_area_type: AreaType::Error,
             resizing: false,
+            hovered_alignment: None,
+            hovered_divider: None,
+            active_divider: None,
             mouse_drag_x: 0,
             mouse_drag_y: 0,
             //root: root.clone(),
@@ -38,15 +44,22 @@ impl MouseRegister {
     pub fn handle_mouse_event(
         &mut self,
         state: &State,
-        layout: &MainLayout,
+        layout: &mut MainLayout,
         alignment_view: &AlignmentView,
         event: event::MouseEvent,
     ) -> Result<Vec<Message>, TGVError> {
         let mut messages = Vec::new();
+        self.update_hovered_areas(layout, event.column, event.row);
+
         match event.kind {
             event::MouseEventKind::Down(_) => {
                 self.mouse_down_x = event.column;
                 self.mouse_down_y = event.row;
+                self.mouse_drag_x = event.column;
+                self.mouse_drag_y = event.row;
+                self.resizing = false;
+                self.active_divider = None;
+                self.mouse_down_area_type = AreaType::Error;
                 //self.root = state.layout.root.clone();
 
                 if let Some((area_type, area)) =
@@ -59,12 +72,29 @@ impl MouseRegister {
                     {
                         self.resizing = true;
                     }
-                    self.mouse_down_area_type = *area_type
+                    self.mouse_down_area_type = *area_type;
+                    if matches!(area_type, AreaType::AlignmentDivider { .. }) {
+                        self.resizing = true;
+                        self.active_divider = Some(*area_type);
+                        log::debug!(
+                            "Started alignment divider drag: divider={:?} column={} row={}",
+                            area_type,
+                            event.column,
+                            event.row,
+                        );
+                    }
                 }
             }
 
             event::MouseEventKind::Drag(_) => {
-                if self.resizing {
+                if let Some(AreaType::AlignmentDivider { upper, lower }) = self.active_divider {
+                    let delta_rows = event.row as i32 - self.mouse_drag_y as i32;
+                    if delta_rows != 0 {
+                        layout.resize_alignment_pair(upper, lower, delta_rows);
+                    }
+                    self.mouse_drag_x = event.column;
+                    self.mouse_drag_y = event.row;
+                } else if self.resizing {
                     if (event.row != self.mouse_down_y) || (event.column != self.mouse_down_x) {
                         // TODO: next release
                         // messages.push(StateMessage::ResizeTrack {
@@ -76,18 +106,18 @@ impl MouseRegister {
                     }
                 } else {
                     // move alignment
-                    match self.mouse_down_area_type {
-                        AreaType::Alignment(_) | AreaType::Coverage(_) => {
+                    match Self::alignment_index_for_area_type(&self.mouse_down_area_type) {
+                        Some(index) => {
                             if event.column < self.mouse_drag_x {
                                 messages.push(Movement::Right(1).into())
                             } else if event.column > self.mouse_drag_x {
                                 messages.push(Movement::Left(1).into())
                             }
 
-                            if event.row > self.mouse_down_y {
-                                messages.push(Scroll::Up(1).into())
-                            } else if event.row < self.mouse_down_y {
-                                messages.push(Scroll::Down(1).into())
+                            if event.row > self.mouse_drag_y {
+                                messages.push(Scroll::Up { index, n: 1 }.into())
+                            } else if event.row < self.mouse_drag_y {
+                                messages.push(Scroll::Down { index, n: 1 }.into())
                             }
                         }
                         _ => {}
@@ -99,7 +129,16 @@ impl MouseRegister {
             }
 
             event::MouseEventKind::Up(_) => {
+                if let Some(active_divider) = self.active_divider {
+                    log::debug!(
+                        "Finished alignment divider drag: divider={:?} column={} row={}",
+                        active_divider,
+                        event.column,
+                        event.row,
+                    );
+                }
                 self.resizing = false;
+                self.active_divider = None;
             }
 
             event::MouseEventKind::Moved => {
@@ -111,7 +150,7 @@ impl MouseRegister {
                         AreaType::Alignment(index) => {
                             if let (Some((left_coordinate, right_coordinate)), Some(y_coordinate)) = (
                                 &alignment_view.coordinates_of_onscreen_x(event.column, area),
-                                &alignment_view.coordinate_of_onscreen_y(event.row, area),
+                                &alignment_view.coordinate_of_onscreen_y(*index, event.row, area),
                             ) && let Some(alignment) = state.alignments.get(*index)
                                 && let Some(read) = alignment.read_overlapping(
                                     *left_coordinate,
@@ -205,17 +244,81 @@ impl MouseRegister {
                 }
             }
 
-            event::MouseEventKind::ScrollDown => messages.push(Scroll::Down(1).into()),
+            event::MouseEventKind::ScrollDown => {
+                if let Some(index) =
+                    Self::alignment_index_at_position(layout, event.column, event.row)
+                {
+                    log::debug!(
+                        "Mouse wheel generated vertical scroll: alignment_index={} direction=down column={} row={}",
+                        index,
+                        event.column,
+                        event.row,
+                    );
+                    messages.push(Scroll::Down { index, n: 1 }.into());
+                }
+            }
 
-            event::MouseEventKind::ScrollUp => messages.push(Scroll::Up(1).into()),
+            event::MouseEventKind::ScrollUp => {
+                if let Some(index) =
+                    Self::alignment_index_at_position(layout, event.column, event.row)
+                {
+                    log::debug!(
+                        "Mouse wheel generated vertical scroll: alignment_index={} direction=up column={} row={}",
+                        index,
+                        event.column,
+                        event.row,
+                    );
+                    messages.push(Scroll::Up { index, n: 1 }.into());
+                }
+            }
 
-            event::MouseEventKind::ScrollLeft => messages.push(Movement::Left(1).into()),
+            event::MouseEventKind::ScrollLeft => {
+                log::debug!(
+                    "Mouse wheel generated horizontal movement: direction=left column={} row={}",
+                    event.column,
+                    event.row,
+                );
+                messages.push(Movement::Left(1).into());
+            }
 
-            event::MouseEventKind::ScrollRight => messages.push(Movement::Right(1).into()),
+            event::MouseEventKind::ScrollRight => {
+                log::debug!(
+                    "Mouse wheel generated horizontal movement: direction=right column={} row={}",
+                    event.column,
+                    event.row,
+                );
+                messages.push(Movement::Right(1).into());
+            }
 
             _ => {}
         }
 
         Ok(messages)
+    }
+
+    pub fn is_divider_highlighted(&self, area_type: &AreaType) -> bool {
+        matches!(area_type, AreaType::AlignmentDivider { .. })
+            && (self.hovered_divider == Some(*area_type) || self.active_divider == Some(*area_type))
+    }
+
+    fn update_hovered_areas(&mut self, layout: &MainLayout, x: u16, y: u16) {
+        self.hovered_alignment = Self::alignment_index_at_position(layout, x, y);
+        self.hovered_divider = match layout.get_area_type_at_position(x, y) {
+            Some((area_type @ AreaType::AlignmentDivider { .. }, _area)) => Some(*area_type),
+            _ => None,
+        };
+    }
+
+    fn alignment_index_at_position(layout: &MainLayout, x: u16, y: u16) -> Option<usize> {
+        layout
+            .get_area_type_at_position(x, y)
+            .and_then(|(area_type, _area)| Self::alignment_index_for_area_type(area_type))
+    }
+
+    fn alignment_index_for_area_type(area_type: &AreaType) -> Option<usize> {
+        match area_type {
+            AreaType::Alignment(index) | AreaType::Coverage(index) => Some(*index),
+            _ => None,
+        }
     }
 }

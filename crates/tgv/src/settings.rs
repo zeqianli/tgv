@@ -94,6 +94,10 @@ pub struct Cli {
     #[arg(long)]
     debug: bool,
 
+    /// [For development only] Save trace logs in the log file.
+    #[arg(long)]
+    trace: bool,
+
     /// Choose the UCSC host. Defaults to auto when not specified.
     #[arg(long, value_enum)]
     host: Option<UcscHostCli>,
@@ -113,7 +117,11 @@ pub struct Cli {
 
 impl Cli {
     pub fn debug_enabled(&self) -> bool {
-        self.debug
+        self.debug || self.trace
+    }
+
+    pub fn trace_enabled(&self) -> bool {
+        self.trace
     }
 
     pub fn initial_movement(&self) -> Result<Vec<Message>, TGVError> {
@@ -197,7 +205,7 @@ impl Cli {
             settings.core.cache_dir = shellexpand::tilde(d).to_string();
         }
 
-        settings.debug = self.debug;
+        settings.debug = self.debug_enabled();
 
         // Validate: if no reference is provided, the initial messages cannot contain GoToGene.
         if !settings.core.reference.needs_track() {
@@ -398,6 +406,7 @@ impl TryFrom<Cli> for Settings {
 
         let cache_dir =
             shellexpand::tilde(cli.cache_dir.as_deref().unwrap_or("~/.tgv")).to_string();
+        let debug = cli.debug_enabled();
 
         Ok(Self {
             core: gv_core::settings::Settings {
@@ -410,7 +419,7 @@ impl TryFrom<Cli> for Settings {
             initial_state_messages,
 
             test_mode: false,
-            debug: cli.debug,
+            debug,
             palette: DARK_THEME,
             zoom: None,
         })
@@ -421,7 +430,6 @@ impl TryFrom<Cli> for Settings {
 mod tests {
     use super::*;
 
-    use crate::message::Message;
     use gv_core::reference::Reference;
     use gv_core::settings::{AlignmentPath, BamSource, FilePath};
     use rstest::rstest;
@@ -478,6 +486,13 @@ mod tests {
         file_paths: vec![FilePath::AlignmentPath(bam("input.bam"))],
         backend: BackendType::Ucsc,
         ..gv_core::settings::Settings::default()},
+        ..Settings::default()
+    }))]
+    #[case("tgv input.bam --trace", Ok(Settings {
+        core: gv_core::settings::Settings {
+        file_paths: vec![FilePath::AlignmentPath(bam("input.bam"))],
+        ..gv_core::settings::Settings::default()},
+        debug: true,
         ..Settings::default()
     }))]
     #[case("tgv input.bam -r chr1:12345", Ok(Settings {

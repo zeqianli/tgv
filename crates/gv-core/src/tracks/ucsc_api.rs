@@ -12,6 +12,7 @@ use crate::{
 };
 use async_trait::async_trait;
 use reqwest::Client;
+use std::time::Instant;
 
 // TODO: improved pattern:
 // Service doesn't save anything. No reference, no cache.
@@ -74,9 +75,7 @@ impl UcscApiTrackService {
         let query_url = match reference {
             Reference::Hg19 | Reference::Hg38 | Reference::UcscGenome(_) => format!(
                 "https://api.genome.ucsc.edu/getData/track?genome={}&track={}&chrom={}",
-                reference,
-                preferred_track,
-                contig_name
+                reference, preferred_track, contig_name
             ),
             Reference::UcscAccession(genome) => {
                 let hub_url = self.hub_url.clone().unwrap_or({
@@ -104,11 +103,13 @@ impl UcscApiTrackService {
             contig_name,
             contig_index
         );
+        let started = Instant::now();
         let response = self.client.get(&query_url).send().await?;
         log::info!(
-            "HTTP response: status={} url={} context=UCSC track data",
+            "HTTP response: status={} url={} context=UCSC track data elapsed_ms={}",
             response.status(),
-            query_url
+            query_url,
+            started.elapsed().as_millis()
         );
         let mut response: serde_json::Value = response.json().await?;
 
@@ -146,11 +147,13 @@ impl UcscApiTrackService {
             accession
         );
         log::info!("HTTP request: method=GET url={url} context=UCSC track GenArk hub lookup");
+        let started = Instant::now();
         let response = self.client.get(&url).send().await?;
         log::info!(
-            "HTTP response: status={} url={} context=UCSC track GenArk hub lookup",
+            "HTTP response: status={} url={} context=UCSC track GenArk hub lookup elapsed_ms={}",
             response.status(),
-            url
+            url,
+            started.elapsed().as_millis()
         );
         let response = response.json::<UcscApiHubUrlResponse>().await?;
 
@@ -197,11 +200,13 @@ impl TrackService for UcscApiTrackService {
             query_url,
             reference
         );
+        let started = Instant::now();
         let response = self.client.get(&query_url).send().await?;
         log::info!(
-            "HTTP response: status={} url={} context=UCSC track chromosome list",
+            "HTTP response: status={} url={} context=UCSC track chromosome list elapsed_ms={}",
             response.status(),
-            query_url
+            query_url,
+            started.elapsed().as_millis()
         );
         let response = response.json::<UcscListChromosomeResponse>().await?;
         log::debug!(
@@ -240,8 +245,7 @@ impl TrackService for UcscApiTrackService {
         let query_url = match reference {
             Reference::Hg19 | Reference::Hg38 | Reference::UcscGenome(_) => format!(
                 "https://api.genome.ucsc.edu/getData/track?genome={}&track=cytoBandIdeo&chrom={}",
-                reference,
-                contig_name
+                reference, contig_name
             ),
             Reference::UcscAccession(genome) => {
                 if self.hub_url.is_none() {
@@ -268,11 +272,13 @@ impl TrackService for UcscApiTrackService {
             contig_name,
             contig_index
         );
+        let started = Instant::now();
         let response = self.client.get(&query_url).send().await?;
         log::info!(
-            "HTTP response: status={} url={} context=UCSC cytoband track",
+            "HTTP response: status={} url={} context=UCSC cytoband track elapsed_ms={}",
             response.status(),
-            query_url
+            query_url,
+            started.elapsed().as_millis()
         );
         let response: UcscApiCytobandResponse = response.json().await.unwrap_or_default();
 
@@ -313,11 +319,13 @@ impl TrackService for UcscApiTrackService {
                     query_url,
                     reference
                 );
+                let started = Instant::now();
                 let response = reqwest::get(&query_url).await?;
                 log::info!(
-                    "HTTP response: status={} url={} context=UCSC track list",
+                    "HTTP response: status={} url={} context=UCSC track list elapsed_ms={}",
                     response.status(),
-                    query_url
+                    query_url,
+                    started.elapsed().as_millis()
                 );
                 let response = response.json::<serde_json::Value>().await?;
 

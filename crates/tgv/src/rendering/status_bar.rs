@@ -10,6 +10,7 @@ pub fn render_status_bar(
     buf: &mut Buffer,
     state: &State,
     alignment_view: &AlignmentView,
+    hovered_alignment: Option<usize>,
 ) -> Result<(), TGVError> {
     if area.width < 1 || area.height < 2 {
         return Ok(());
@@ -36,28 +37,34 @@ pub fn render_status_bar(
         alignment_view.focus.position
     );
 
-    let mut y_coordinate_string = if let Some(first_alignment) = state.alignments.first() {
-        let y = alignment_view.top() + 1; // Change to 1-base
-        let depth = first_alignment.depth(); // TODO: Fix after introducing focus
-        let percent = y * 100 / depth;
-        format!("{}% ({} / {})", percent, y, depth)
+    let alignment_index = (!state.alignments.is_empty()).then(|| hovered_alignment.unwrap_or(0));
+    let mut y_coordinate_string = if let Some(alignment_index) = alignment_index {
+        let alignment = &state.alignments[alignment_index];
+        let depth = alignment.depth();
+        if depth == 0 {
+            "0% (0 / 0)".to_string()
+        } else {
+            let y = usize::min(alignment_view.top(alignment_index), depth.saturating_sub(1)) + 1;
+            let percent = y * 100 / depth;
+            format!("{}% ({} / {})", percent, y, depth)
+        }
     } else {
-        "".to_string()
+        String::new()
     };
 
     // Alignment options
 
-    if let Some(alignment_options) = state.alignment_options.first()
-        && !alignment_options.is_empty()
-    {
-        let alignment_option_string = alignment_options
-            .iter()
-            .map(|option| format!("{}", option))
-            .join(",");
+    if let Some(alignment_index) = alignment_index {
+        let alignment_options = &state.alignment_options[alignment_index];
+        if !alignment_options.is_empty() {
+            let alignment_option_string = alignment_options
+                .iter()
+                .map(|option| format!("{}", option))
+                .join(",");
 
-        y_coordinate_string = y_coordinate_string + " (" + &alignment_option_string + ")";
+            y_coordinate_string = y_coordinate_string + " (" + &alignment_option_string + ")";
+        }
     }
-
     if area.height == 1 {
         let string = x_coordinate_string + "  " + &y_coordinate_string;
         buf.set_string(

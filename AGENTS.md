@@ -53,6 +53,12 @@
 - **Type states** encoded in generics when state transitions matter
 - **Non-exhaustive in stable crates**: The `nextest-metadata` crate has a stable API and public types there should be `#[non_exhaustive]` for forward compatibility. Internal crates like `nextest-runner` do not have stable APIs, so `#[non_exhaustive]` is not required (though error types may still use it).
 
+### Indexed state invariants
+
+- When parallel vectors or indexed state are expected to have matching shapes, initialize them to the correct length at construction or update boundaries, then access valid indexes directly with `[index]`.
+- Do not add lazy `ensure_*` helpers, `get(...).unwrap_or_default()`, or similar defaulting around every indexed access when the correct invariant is that the index is valid.
+- Use explicit optional lookups only when a missing value is a real domain case, not as a substitute for maintaining indexed state invariants.
+
 ### Error handling
 
 - Use `thiserror` for error types with `#[derive(Error)]`.
@@ -97,7 +103,8 @@ For doctests, use `cargo test --doc` (doctests are not supported by nextest).
 ### Test organization
 
 - Unit tests in the same file as the code they test.
-- Use `#[rstest]` and `#[case(...)]` paratermized tests when possible.
+- Use `#[rstest]` and `#[case(...)]` parameterized tests when possible, especially for related scenarios that share the same setup and assertions.
+- Do not add unit tests for rendering code unless explicitly asked.
 
 ## Dependencies
 

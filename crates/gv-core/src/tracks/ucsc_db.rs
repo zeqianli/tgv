@@ -11,9 +11,10 @@ use crate::{
     tracks::schema::*,
 };
 use async_trait::async_trait;
-use sqlx::{Column, MySqlPool, Row, mysql::MySqlPoolOptions};
+use sqlx::{MySqlPool, Row, mysql::MySqlPoolOptions};
 use std::collections::HashMap;
 use std::sync::Arc;
+use std::time::Instant;
 
 const UCSC_HGCENTRAL_URL: &str = "mysql://genome@genome-mysql.soe.ucsc.edu/hgcentral";
 
@@ -35,10 +36,17 @@ impl UcscDbTrackService {
             reference,
             ucsc_host.to_string()
         );
+        let started = Instant::now();
         let pool = MySqlPoolOptions::new()
             .max_connections(1)
             .connect(&mysql_url)
             .await?;
+        log::info!(
+            "Database connect result: database=ucsc-mysql context=reference={} host={} elapsed_ms={}",
+            reference,
+            ucsc_host.to_string(),
+            started.elapsed().as_millis()
+        );
 
         Ok(Self {
             pool: Arc::new(pool),
@@ -48,11 +56,9 @@ impl UcscDbTrackService {
 
     pub fn get_mysql_url(reference: &Reference, ucsc_host: &UcscHost) -> Result<String, TGVError> {
         match reference {
-            Reference::Hg19 | Reference::Hg38 | Reference::UcscGenome(_) => Ok(format!(
-                "mysql://genome@{}/{}",
-                ucsc_host.url(),
-                reference
-            )),
+            Reference::Hg19 | Reference::Hg38 | Reference::UcscGenome(_) => {
+                Ok(format!("mysql://genome@{}/{}", ucsc_host.url(), reference))
+            }
             _ => Err(TGVError::ValueError(format!(
                 "Unsupported reference: {}",
                 reference
@@ -65,10 +71,15 @@ impl UcscDbTrackService {
             "Database connect: database=ucsc-mysql connection={} context=list assemblies",
             UCSC_HGCENTRAL_URL
         );
+        let started = Instant::now();
         let connection = MySqlPoolOptions::new()
             .max_connections(5)
             .connect(UCSC_HGCENTRAL_URL)
             .await?;
+        log::info!(
+            "Database connect result: database=ucsc-mysql context=list assemblies elapsed_ms={}",
+            started.elapsed().as_millis()
+        );
 
         let rows = if let Some(n) = n {
             let sql = "SELECT name, organism FROM dbDb LIMIT ?";
@@ -77,17 +88,31 @@ impl UcscDbTrackService {
                 sql,
                 n
             );
-            sqlx::query(sql)
+            let started = Instant::now();
+            let rows = sqlx::query(sql)
                 .bind(n as i32)
                 .fetch_all(&connection)
-                .await?
+                .await?;
+            log::info!(
+                "Database query result: database=ucsc-mysql context=list assemblies rows={} elapsed_ms={}",
+                rows.len(),
+                started.elapsed().as_millis()
+            );
+            rows
         } else {
             let sql = "SELECT name, organism FROM dbDb";
             log::info!(
                 "Database query: database=ucsc-mysql sql=\"{}\" context=list assemblies",
                 sql
             );
-            sqlx::query(sql).fetch_all(&connection).await?
+            let started = Instant::now();
+            let rows = sqlx::query(sql).fetch_all(&connection).await?;
+            log::info!(
+                "Database query result: database=ucsc-mysql context=list assemblies rows={} elapsed_ms={}",
+                rows.len(),
+                started.elapsed().as_millis()
+            );
+            rows
         };
 
         let mut assemblies = Vec::new();
@@ -108,10 +133,15 @@ impl UcscDbTrackService {
             "Database connect: database=ucsc-mysql connection={} context=list accessions",
             UCSC_HGCENTRAL_URL
         );
+        let started = Instant::now();
         let connection = MySqlPoolOptions::new()
             .max_connections(5)
             .connect(UCSC_HGCENTRAL_URL)
             .await?;
+        log::info!(
+            "Database connect result: database=ucsc-mysql context=list accessions elapsed_ms={}",
+            started.elapsed().as_millis()
+        );
 
         let sql = "SELECT name, organism FROM dbDb ORDER BY organism, name LIMIT ? OFFSET ?";
         log::info!(
@@ -120,11 +150,17 @@ impl UcscDbTrackService {
             n,
             offset
         );
+        let started = Instant::now();
         let rows = sqlx::query(sql)
             .bind(n as i32)
             .bind(offset as i32)
             .fetch_all(&connection)
             .await?;
+        log::info!(
+            "Database query result: database=ucsc-mysql context=list accessions rows={} elapsed_ms={}",
+            rows.len(),
+            started.elapsed().as_millis()
+        );
 
         let mut assemblies = Vec::new();
         for row in rows {
@@ -163,7 +199,13 @@ impl UcscDbTrackService {
             "Database query: database=ucsc-mysql sql=\"{}\" context=get contig 2bit file lookup",
             sql
         );
+        let started = Instant::now();
         let rows_with_alias = sqlx::query(sql).fetch_all(&*self.pool).await?;
+        log::info!(
+            "Database query result: database=ucsc-mysql context=get contig 2bit file lookup rows={} elapsed_ms={}",
+            rows_with_alias.len(),
+            started.elapsed().as_millis()
+        );
 
         let mut filename_hashmap: HashMap<usize, Option<String>> = HashMap::new();
         for row in rows_with_alias {
@@ -213,10 +255,22 @@ impl TrackService for UcscDbTrackService {
             "Database query: database=ucsc-mysql sql=\"{}\" context=get all contigs with aliases",
             sql
         );
+        let started = Instant::now();
         let contigs: Vec<ContigRow> = match sqlx::query_as(sql).fetch_all(&*self.pool).await {
-            Ok(contigs) => contigs,
+            Ok(contigs) => {
+                log::info!(
+                    "Database query result: database=ucsc-mysql context=get all contigs with aliases rows={} elapsed_ms={}",
+                    contigs.len(),
+                    started.elapsed().as_millis()
+                );
+                contigs
+            }
             Err(error) => {
-                log::warn!("Falling back to contig query without aliases: {error}");
+                log::warn!(
+                    "Falling back to contig query without aliases: error={} elapsed_ms={}",
+                    error,
+                    started.elapsed().as_millis()
+                );
                 let fallback_sql = "SELECT
                     chromInfo.chrom as chrom,
                     chromInfo.size as size
@@ -227,7 +281,14 @@ impl TrackService for UcscDbTrackService {
                     "Database query: database=ucsc-mysql sql=\"{}\" context=get all contigs without aliases",
                     fallback_sql
                 );
-                sqlx::query_as(fallback_sql).fetch_all(&*self.pool).await?
+                let fallback_started = Instant::now();
+                let contigs = sqlx::query_as(fallback_sql).fetch_all(&*self.pool).await?;
+                log::info!(
+                    "Database query result: database=ucsc-mysql context=get all contigs without aliases rows={} elapsed_ms={}",
+                    contigs.len(),
+                    fallback_started.elapsed().as_millis()
+                );
+                contigs
             }
         };
 
@@ -266,10 +327,16 @@ impl TrackService for UcscDbTrackService {
             reference,
             contig_name
         );
+        let started = Instant::now();
         let cytoband_segment_rows: Vec<CytobandSegmentRow> = sqlx::query_as(sql)
             .bind(contig_name)
             .fetch_all(&*self.pool)
             .await?;
+        log::info!(
+            "Database query result: database=ucsc-mysql context=get cytoband rows={} elapsed_ms={}",
+            cytoband_segment_rows.len(),
+            started.elapsed().as_millis()
+        );
 
         if cytoband_segment_rows.is_empty() {
             return Ok(None);
@@ -302,7 +369,13 @@ impl TrackService for UcscDbTrackService {
             sql,
             reference
         );
+        let started = Instant::now();
         let gene_track_rows = sqlx::query(sql).fetch_all(&*self.pool).await?;
+        log::info!(
+            "Database query result: database=ucsc-mysql context=get preferred track rows={} elapsed_ms={}",
+            gene_track_rows.len(),
+            started.elapsed().as_millis()
+        );
 
         let available_gene_tracks: Vec<String> = gene_track_rows
             .into_iter()
@@ -347,12 +420,18 @@ impl TrackService for UcscDbTrackService {
             region.start(),
             region.end()
         );
+        let started = Instant::now();
         let gene_rows: Vec<UcscGeneRow> = sqlx::query_as(sql.as_str())
             .bind(contig_name)
             .bind(u64::try_from(region.end()).unwrap()) // end is 1-based inclusive, UCSC is 0-based exclusive
             .bind(u64::try_from(region.start().saturating_sub(1)).unwrap()) // start is 1-based inclusive, UCSC is 0-based inclusive
             .fetch_all(&*self.pool)
             .await?;
+        log::info!(
+            "Database query result: database=ucsc-mysql context=query overlapping genes rows={} elapsed_ms={}",
+            gene_rows.len(),
+            started.elapsed().as_millis()
+        );
 
         gene_rows
             .into_iter()
@@ -394,12 +473,18 @@ impl TrackService for UcscDbTrackService {
             contig_index,
             coord
         );
+        let started = Instant::now();
         let gene_row: Option<UcscGeneRow> = sqlx::query_as(sql.as_str())
             .bind(contig_name)
             .bind(u32::try_from(coord.saturating_sub(1)).unwrap()) // coord is 1-based inclusive, UCSC is 0-based inclusive
             .bind(u32::try_from(coord).unwrap()) // coord is 1-based inclusive, UCSC is 0-based exclusive
             .fetch_optional(&*self.pool)
             .await?;
+        log::info!(
+            "Database query result: database=ucsc-mysql context=query gene covering found={} elapsed_ms={}",
+            gene_row.is_some(),
+            started.elapsed().as_millis()
+        );
 
         gene_row.map(|row| row.to_gene(contig_header)).transpose()
     }
@@ -425,10 +510,16 @@ impl TrackService for UcscDbTrackService {
             track_name,
             gene_name
         );
+        let started = Instant::now();
         let gene_row: Option<UcscGeneRow> = sqlx::query_as(sql.as_str())
             .bind(gene_name)
             .fetch_optional(&*self.pool)
             .await?;
+        log::info!(
+            "Database query result: database=ucsc-mysql context=query gene by name found={} elapsed_ms={}",
+            gene_row.is_some(),
+            started.elapsed().as_millis()
+        );
 
         gene_row
             .ok_or(TGVError::IOError(format!(
@@ -481,12 +572,18 @@ impl TrackService for UcscDbTrackService {
             coord,
             k
         );
+        let started = Instant::now();
         let gene_rows: Vec<UcscGeneRow> = sqlx::query_as(sql.as_str())
             .bind(contig_name)
             .bind(u32::try_from(coord).unwrap()) // coord is 1-based inclusive, UCSC is 0-based exclusive
             .bind(u32::try_from(k + 1).unwrap())
             .fetch_all(&*self.pool)
             .await?;
+        log::info!(
+            "Database query result: database=ucsc-mysql context=query k genes after rows={} elapsed_ms={}",
+            gene_rows.len(),
+            started.elapsed().as_millis()
+        );
 
         Track::from_gene_rows(gene_rows, contig_index, contig_header)?
             .get_saturating_k_genes_after(coord, k)
@@ -535,12 +632,18 @@ impl TrackService for UcscDbTrackService {
             coord,
             k
         );
+        let started = Instant::now();
         let gene_rows: Vec<UcscGeneRow> = sqlx::query_as(sql.as_str())
             .bind(contig_name)
             .bind(u32::try_from(coord.saturating_sub(1)).unwrap()) // coord is 1-based inclusive, UCSC is 0-based inclusive
             .bind(u32::try_from(k + 1).unwrap())
             .fetch_all(&*self.pool)
             .await?;
+        log::info!(
+            "Database query result: database=ucsc-mysql context=query k genes before rows={} elapsed_ms={}",
+            gene_rows.len(),
+            started.elapsed().as_millis()
+        );
 
         Track::from_gene_rows(gene_rows, contig_index, contig_header)?
             .get_saturating_k_genes_before(coord, k)
@@ -590,12 +693,18 @@ impl TrackService for UcscDbTrackService {
             coord,
             k
         );
+        let started = Instant::now();
         let gene_rows: Vec<UcscGeneRow> = sqlx::query_as(sql.as_str())
             .bind(contig_name)
             .bind(u32::try_from(coord).unwrap()) // coord is 1-based inclusive, UCSC is 0-based exclusive
             .bind(u32::try_from(k + 1).unwrap())
             .fetch_all(&*self.pool)
             .await?;
+        log::info!(
+            "Database query result: database=ucsc-mysql context=query k exons after rows={} elapsed_ms={}",
+            gene_rows.len(),
+            started.elapsed().as_millis()
+        );
 
         Track::from_gene_rows(gene_rows, contig_index, contig_header)?
             .get_saturating_k_exons_after(coord, k)
@@ -643,12 +752,18 @@ impl TrackService for UcscDbTrackService {
             coord,
             k
         );
+        let started = Instant::now();
         let gene_rows: Vec<UcscGeneRow> = sqlx::query_as(sql.as_str())
             .bind(contig_name)
             .bind(u32::try_from(coord.saturating_sub(1)).unwrap()) // coord is 1-based inclusive, UCSC is 0-based inclusive
             .bind(u32::try_from(k + 1).unwrap())
             .fetch_all(&*self.pool)
             .await?;
+        log::info!(
+            "Database query result: database=ucsc-mysql context=query k exons before rows={} elapsed_ms={}",
+            gene_rows.len(),
+            started.elapsed().as_millis()
+        );
 
         Track::from_gene_rows(gene_rows, contig_index, contig_header)?
             .get_saturating_k_exons_before(coord, k)

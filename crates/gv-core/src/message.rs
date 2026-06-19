@@ -42,8 +42,16 @@ pub enum Zoom {
 
 #[derive(Debug, Clone, Eq, PartialEq, Display)]
 pub enum Scroll {
-    Up(usize),
-    Down(usize),
+    /// Scroll up by n for alignment track [index]
+    Up {
+        index: usize,
+        n: usize,
+    },
+    /// Scroll down by n for alignment track [index]
+    Down {
+        index: usize,
+        n: usize,
+    },
 
     Position(usize),
     Bottom,
