@@ -284,8 +284,6 @@ pub struct MainLayout {
     pub main_area: Rect,
 
     pub areas: Vec<(AreaType, Rect)>,
-
-    alignment_heights: Vec<u16>,
 }
 
 impl MainLayout {
@@ -331,24 +329,19 @@ impl MainLayout {
         tracks.push(AreaType::Console);
         tracks.push(AreaType::Error);
 
-        let alignment_count = tracks
-            .iter()
-            .filter(|track| matches!(track, AreaType::Alignment(_)))
-            .count();
-
         MainLayout {
             tracks,
             main_area: Rect::default(),
             areas: Vec::new(),
-            alignment_heights: vec![Self::ALIGNMENT_MIN_HEIGHT; alignment_count],
         }
     }
 
     /// Update the area. If the area size changed, terminal refresh is needed.
     pub fn set_area(&mut self, area: Rect) -> bool {
         if area.width != self.main_area.width || area.height != self.main_area.height {
+            let alignment_heights = self.current_alignment_heights();
             self.main_area = area;
-            self.recalculate_areas();
+            self.recalculate_areas(&alignment_heights);
             true
         } else {
             false
@@ -360,15 +353,15 @@ impl MainLayout {
             return;
         }
 
-        self.capture_current_alignment_heights();
+        let mut alignment_heights = self.current_alignment_heights();
 
         let minimum_height = if self.can_fit_alignment_minimums() {
             Self::ALIGNMENT_MIN_HEIGHT
         } else {
             0
         };
-        let upper_height = self.alignment_heights[upper];
-        let lower_height = self.alignment_heights[lower];
+        let upper_height = alignment_heights[upper];
+        let lower_height = alignment_heights[lower];
         let actual_delta = if delta_rows > 0 {
             delta_rows.min((lower_height.saturating_sub(minimum_height)) as i32)
         } else {
@@ -381,19 +374,19 @@ impl MainLayout {
 
         if actual_delta > 0 {
             let actual_delta = actual_delta as u16;
-            self.alignment_heights[upper] = upper_height.saturating_add(actual_delta);
-            self.alignment_heights[lower] = lower_height.saturating_sub(actual_delta);
+            alignment_heights[upper] = upper_height.saturating_add(actual_delta);
+            alignment_heights[lower] = lower_height.saturating_sub(actual_delta);
         } else {
             let actual_delta = (-actual_delta) as u16;
-            self.alignment_heights[upper] = upper_height.saturating_sub(actual_delta);
-            self.alignment_heights[lower] = lower_height.saturating_add(actual_delta);
+            alignment_heights[upper] = upper_height.saturating_sub(actual_delta);
+            alignment_heights[lower] = lower_height.saturating_add(actual_delta);
         }
 
-        self.recalculate_areas();
+        self.recalculate_areas(&alignment_heights);
     }
 
-    fn recalculate_areas(&mut self) {
-        let alignment_heights = self.resolved_alignment_heights();
+    fn recalculate_areas(&mut self, alignment_heights: &[u16]) {
+        let alignment_heights = self.resolved_alignment_heights(alignment_heights);
         let mut y = self.main_area.y;
         let mut remaining_height = self.main_area.height;
 
@@ -414,7 +407,7 @@ impl MainLayout {
             .collect();
     }
 
-    fn resolved_alignment_heights(&mut self) -> Vec<u16> {
+    fn resolved_alignment_heights(&self, alignment_heights: &[u16]) -> Vec<u16> {
         let alignment_count = self.alignment_count();
         if alignment_count == 0 {
             return Vec::new();
@@ -439,7 +432,7 @@ impl MainLayout {
             let remaining_alignments = alignment_count - index - 1;
             let reserved_height = remaining_alignments as u16 * Self::ALIGNMENT_MIN_HEIGHT;
             let maximum_height = remaining_height.saturating_sub(reserved_height);
-            let height = self.alignment_heights[index]
+            let height = alignment_heights[index]
                 .max(Self::ALIGNMENT_MIN_HEIGHT)
                 .min(maximum_height);
             heights.push(height);
@@ -461,17 +454,17 @@ impl MainLayout {
         heights
     }
 
-    fn capture_current_alignment_heights(&mut self) {
+    fn current_alignment_heights(&self) -> Vec<u16> {
         let alignment_count = self.alignment_count();
-        if alignment_count == 0 {
-            return;
-        }
+        let mut alignment_heights = vec![Self::ALIGNMENT_MIN_HEIGHT; alignment_count];
 
         for (area_type, area) in &self.areas {
             if let AreaType::Alignment(index) = area_type {
-                self.alignment_heights[*index] = area.height;
+                alignment_heights[*index] = area.height;
             }
         }
+
+        alignment_heights
     }
 
     fn can_fit_alignment_minimums(&self) -> bool {
