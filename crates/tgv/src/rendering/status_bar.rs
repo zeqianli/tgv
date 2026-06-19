@@ -37,8 +37,9 @@ pub fn render_status_bar(
         alignment_view.focus.position
     );
 
-    let alignment_index = hovered_alignment.unwrap_or_default();
-    let mut y_coordinate_string = if let Some(alignment) = state.alignments.get(alignment_index) {
+    let alignment_index = (!state.alignments.is_empty()).then(|| hovered_alignment.unwrap_or(0));
+    let mut y_coordinate_string = if let Some(alignment_index) = alignment_index {
+        let alignment = &state.alignments[alignment_index];
         let depth = alignment.depth();
         if depth == 0 {
             "0% (0 / 0)".to_string()
@@ -48,22 +49,22 @@ pub fn render_status_bar(
             format!("{}% ({} / {})", percent, y, depth)
         }
     } else {
-        "".to_string()
+        String::new()
     };
 
     // Alignment options
 
-    if let Some(alignment_options) = state.alignment_options.get(alignment_index)
-        && !alignment_options.is_empty()
-    {
-        let alignment_option_string = alignment_options
-            .iter()
-            .map(|option| format!("{}", option))
-            .join(",");
+    if let Some(alignment_index) = alignment_index {
+        let alignment_options = &state.alignment_options[alignment_index];
+        if !alignment_options.is_empty() {
+            let alignment_option_string = alignment_options
+                .iter()
+                .map(|option| format!("{}", option))
+                .join(",");
 
-        y_coordinate_string = y_coordinate_string + " (" + &alignment_option_string + ")";
+            y_coordinate_string = y_coordinate_string + " (" + &alignment_option_string + ")";
+        }
     }
-
     if area.height == 1 {
         let string = x_coordinate_string + "  " + &y_coordinate_string;
         buf.set_string(

@@ -60,7 +60,7 @@ impl App {
 
         let focus = state.default_focus(&mut repository).await?;
 
-        let mut alignment_view = AlignmentView::new(focus);
+        let mut alignment_view = AlignmentView::new(focus, state.alignments.len());
         if let Some(zoom) = settings.zoom {
             alignment_view.zoom = zoom;
         }

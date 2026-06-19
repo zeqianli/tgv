@@ -52,11 +52,11 @@ impl AlignmentView {
     pub const MAX_ZOOM_TO_DISPLAY_ALIGNMENTS: u64 = 32;
     pub const MAX_ZOOM_TO_DISPLAY_SEQUENCES: u64 = 2;
 
-    pub fn new(focus: Focus) -> Self {
+    pub fn new(focus: Focus, alignment_count: usize) -> Self {
         AlignmentView {
             focus,
             zoom: 1,
-            y: Vec::new(),
+            y: vec![0; alignment_count],
         }
     }
     const ALIGNMENT_CACHE_RATIO: u64 = 3;
@@ -89,26 +89,23 @@ impl AlignmentView {
     pub fn scroll(&mut self, scroll: Scroll, alignments: &[Alignment]) {
         match scroll {
             Scroll::Up { index, n } => {
-                if alignments.get(index).is_some() {
-                    self.ensure_y(index);
+                if !alignments.is_empty() {
                     self.y[index] = self.y[index].saturating_sub(n);
                 }
             }
             Scroll::Down { index, n } => {
-                if let Some(alignment) = alignments.get(index) {
-                    self.ensure_y(index);
-                    self.y[index] = usize::min(self.y[index].saturating_add(n), alignment.depth());
+                if !alignments.is_empty() {
+                    self.y[index] =
+                        usize::min(self.y[index].saturating_add(n), alignments[index].depth());
                 }
             }
             Scroll::Position(y) => {
                 if !alignments.is_empty() {
-                    self.ensure_y(alignments.len() - 1);
                     self.y.iter_mut().for_each(|alignment_y| *alignment_y = y);
                 }
             }
             Scroll::Bottom => {
                 if !alignments.is_empty() {
-                    self.ensure_y(alignments.len() - 1);
                     for (index, alignment) in alignments.iter().enumerate() {
                         self.y[index] = alignment.depth().saturating_sub(1);
                     }
@@ -167,7 +164,6 @@ impl AlignmentView {
     /// Set the top track # of the viewing window.
     /// 0-based.
     pub fn set_y(&mut self, index: usize, y: usize, depth: usize) {
-        self.ensure_y(index);
         self.y[index] = usize::min(y, depth.saturating_sub(1))
     }
 
@@ -181,7 +177,7 @@ impl AlignmentView {
     /// Top track # of the viewing window.
     /// 0-based, inclusive.
     pub fn top(&self, index: usize) -> usize {
-        self.y.get(index).copied().unwrap_or_default()
+        self.y[index]
     }
 
     /// Bottom track # of the viewing window.
@@ -279,12 +275,6 @@ impl AlignmentView {
             OnScreenCoordinate::OnScreen(y - self_top)
         }
     }
-
-    fn ensure_y(&mut self, index: usize) {
-        if self.y.len() <= index {
-            self.y.resize(index + 1, 0);
-        }
-    }
 }
 
 /// Main page layout
@@ -341,11 +331,16 @@ impl MainLayout {
         tracks.push(AreaType::Console);
         tracks.push(AreaType::Error);
 
+        let alignment_count = tracks
+            .iter()
+            .filter(|track| matches!(track, AreaType::Alignment(_)))
+            .count();
+
         MainLayout {
             tracks,
             main_area: Rect::default(),
             areas: Vec::new(),
-            alignment_heights: Vec::new(),
+            alignment_heights: vec![Self::ALIGNMENT_MIN_HEIGHT; alignment_count],
         }
     }
 
@@ -366,7 +361,6 @@ impl MainLayout {
         }
 
         self.capture_current_alignment_heights();
-        self.ensure_alignment_height(usize::max(upper, lower));
 
         let minimum_height = if self.can_fit_alignment_minimums() {
             Self::ALIGNMENT_MIN_HEIGHT
@@ -408,9 +402,7 @@ impl MainLayout {
             .iter()
             .map(|track| {
                 let desired_height = match track {
-                    AreaType::Alignment(index) => {
-                        alignment_heights.get(*index).copied().unwrap_or(0)
-                    }
+                    AreaType::Alignment(index) => alignment_heights[*index],
                     _ => track.desired_height().unwrap_or_default(),
                 };
                 let height = u16::min(desired_height, remaining_height);
@@ -428,7 +420,6 @@ impl MainLayout {
             return Vec::new();
         }
 
-        self.ensure_alignment_height(alignment_count - 1);
         let fixed_height = self.fixed_desired_height();
         let available_height = self.main_area.height.saturating_sub(fixed_height);
 
@@ -476,7 +467,6 @@ impl MainLayout {
             return;
         }
 
-        self.ensure_alignment_height(alignment_count - 1);
         for (area_type, area) in &self.areas {
             if let AreaType::Alignment(index) = area_type {
                 self.alignment_heights[*index] = area.height;
@@ -502,19 +492,8 @@ impl MainLayout {
     fn alignment_count(&self) -> usize {
         self.tracks
             .iter()
-            .filter_map(|area_type| match area_type {
-                AreaType::Alignment(index) => Some(*index + 1),
-                _ => None,
-            })
-            .max()
-            .unwrap_or_default()
-    }
-
-    fn ensure_alignment_height(&mut self, index: usize) {
-        if self.alignment_heights.len() <= index {
-            self.alignment_heights
-                .resize(index + 1, Self::ALIGNMENT_MIN_HEIGHT);
-        }
+            .filter(|track| matches!(track, AreaType::Alignment(_)))
+            .count()
     }
 
     pub fn get_area_type_at_position(&self, x: u16, y: u16) -> Option<&(AreaType, Rect)> {
@@ -722,7 +701,7 @@ mod tests {
     #[test]
     fn alignment_view_scrolls_only_the_requested_alignment() {
         let alignments = vec![alignment_with_depth(10), alignment_with_depth(10)];
-        let mut alignment_view = AlignmentView::new(Focus::default());
+        let mut alignment_view = AlignmentView::new(Focus::default(), alignments.len());
 
         alignment_view.scroll(Scroll::Down { index: 1, n: 3 }, &alignments);
         assert_eq!(alignment_view.top(0), 0);
