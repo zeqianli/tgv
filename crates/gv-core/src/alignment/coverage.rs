@@ -15,7 +15,7 @@ pub fn calculate_basewise_coverage(
     reference_sequence: &Sequence,
 ) -> Result<HashMap<u64, BaseCoverage>, TGVError> {
     let mut output: HashMap<u64, BaseCoverage> = HashMap::new();
-    if cigar.as_ref().is_empty() {
+    if cigar.as_ref().is_empty() || sequence.is_empty() {
         return Ok(output);
     }
 

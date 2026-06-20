@@ -502,7 +502,7 @@ pub fn calculate_rendering_contexts(
     reference_sequence: &Sequence,
 ) -> Result<(), TGVError> {
     rendering_context.clear();
-    if cigars.is_empty() {
+    if cigars.is_empty() || seq.is_empty() {
         return Ok(());
     }
 
