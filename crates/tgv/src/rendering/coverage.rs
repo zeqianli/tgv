@@ -30,12 +30,18 @@ pub fn render_coverage(
         return Ok(());
     }
 
-    let mut binned_coverage = calculate_binned_coverage(
-        alignment,
-        alignment_view.left(area),
-        alignment_view.right(area),
-        area.width as usize,
-    )?;
+    let plot_area = if area.height > MIN_AREA_HEIGHT {
+        Rect::new(area.x, area.y + 1, area.width, area.height - 1)
+    } else {
+        *area
+    };
+
+    let Some((left, right)) = displayed_coverage_bounds(alignment_view, &plot_area) else {
+        return Ok(());
+    };
+
+    let mut binned_coverage =
+        calculate_binned_coverage(alignment, left, right, plot_area.width as usize)?;
 
     let y_max: usize = round_up_max_coverage(
         (0..binned_coverage[0].len())
@@ -47,11 +53,21 @@ pub fn render_coverage(
         .add_data(binned_coverage.remove(0), palette.COVERAGE_ALT)
         .add_data(binned_coverage.remove(0), palette.COVERAGE_TOTAL)
         .max(y_max)
-        .render(*area, buf);
+        .render(plot_area, buf);
 
-    buf.set_string(area.x, area.y, format!("[0-{}]", y_max,), Style::default());
+    if area.height > MIN_AREA_HEIGHT {
+        buf.set_string(area.x, area.y, format!("[0-{}]", y_max,), Style::default());
+    }
 
     Ok(())
+}
+
+fn displayed_coverage_bounds(alignment_view: &AlignmentView, area: &Rect) -> Option<(u64, u64)> {
+    let (left, _) = alignment_view.coordinates_of_onscreen_x(area.left(), area)?;
+    let (_, right) =
+        alignment_view.coordinates_of_onscreen_x(area.right().checked_sub(1)?, area)?;
+
+    Some((left, right))
 }
 
 /// Round up the maximum coverage to two significant digits.
@@ -80,17 +96,18 @@ fn round_up_max_coverage(x: usize) -> usize {
 
 /// Get a linear space of n_bins between left and right.
 /// 1-based, inclusive.
-/// Returns a vector of n_bins + 1 elements.
+/// Returns a vector of n_bins elements.
 fn get_linear_space(left: u64, right: u64, n_bins: usize) -> Result<Vec<(u64, u64)>, TGVError> {
     if n_bins == 0 {
         return Err(TGVError::ValueError("n_bins is 0".to_string()));
     }
 
-    if right <= left {
+    if right < left {
         return Err(TGVError::ValueError("Right is less than left".to_string()));
     }
 
-    if n_bins as u64 > right - left {
+    let length = right - left + 1;
+    if n_bins as u64 > length {
         // FIXME: make this permissive? Don't wanna crash the app because of a rendering problem.
         // Could happen if the region is weird.
         return Err(TGVError::ValueError(format!(
@@ -99,22 +116,14 @@ fn get_linear_space(left: u64, right: u64, n_bins: usize) -> Result<Vec<(u64, u6
         )));
     }
 
-    let mut bins: Vec<(u64, u64)> = Vec::new();
-    let mut pivot = left as f64; // f32 here actually causes problem for genome coordinates
+    Ok((0..n_bins)
+        .map(|i| {
+            let bin_left = left + i as u64 * length / n_bins as u64;
+            let bin_right = left + (i as u64 + 1) * length / n_bins as u64 - 1;
 
-    let bin_width: f64 = (right - left) as f64 / n_bins as f64;
-
-    for i in 0..n_bins {
-        let bin_left = if i == 0 { left } else { pivot as u64 + 1 };
-
-        pivot += bin_width;
-
-        let bin_right = if i == n_bins - 1 { right } else { pivot as u64 };
-
-        bins.push((bin_left, bin_right));
-    }
-
-    Ok(bins)
+            (bin_left, bin_right)
+        })
+        .collect())
 }
 
 /// Calculate the binned coverage in [left_bound, right_bound].
@@ -366,10 +375,10 @@ mod tests {
 
     #[rstest]
     #[case(1, 5, 0, Err(TGVError::ValueError("n_bins is 0".to_string())))]
-    #[case(1, 5, 5, Err(TGVError::ValueError("n_bins is greater than the number of bases in the region".to_string())))]
-    #[case(5,5, 1, Err(TGVError::ValueError("n_bins is greater than the number of bases in the region".to_string())))]
+    #[case(1, 5, 5, Ok(vec![(1,1), (2,2), (3,3), (4,4), (5,5)]))]
+    #[case(5,5, 1, Ok(vec![(5,5)]))]
     #[case(5, 4, 1, Err(TGVError::ValueError("Right is less than left".to_string())))]
-    #[case(25398019, 25398025, 3, Ok(vec![(25398019, 25398021), (25398022, 25398023), (25398024, 25398025)]))] // large interger matters here. Using f32 in the function causes problem for large integers.
+    #[case(25398019, 25398025, 3, Ok(vec![(25398019, 25398020), (25398021, 25398022), (25398023, 25398025)]))]
     #[case(5,10, 1, Ok(vec![(5,10)]))]
     #[case(5, 10, 2, Ok(vec![(5,7), (8,10)]))]
     fn test_get_linear_space_specific_cases(
@@ -381,7 +390,7 @@ mod tests {
         let result = get_linear_space(left, right, n_bins);
         match (result, expected) {
             (Ok(result), Ok(expected)) => assert_eq!(result, expected),
-            (Err(e), Err(expected)) => {} // OK
+            (Err(_e), Err(_expected)) => {}
             _ => panic!("Unexpected test result"),
         }
     }
