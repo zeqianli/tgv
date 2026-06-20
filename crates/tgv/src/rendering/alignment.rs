@@ -15,6 +15,7 @@ use ratatui::{
     layout::{Position, Rect},
     style::Style,
 };
+use std::collections::HashMap;
 
 /// Render an alignment on the alignment area.
 pub fn render_alignment(
@@ -169,6 +170,23 @@ fn render_contexts(
         ),
     }
 
+    let mut best_base_modifications = HashMap::new();
+    for modifier in &context.modifiers {
+        if let RenderingContextModifier::BaseModification(coordinate, modification, probability) =
+            modifier
+        {
+            best_base_modifications
+                .entry(*coordinate)
+                .and_modify(|(best_modification, best_probability)| {
+                    if *probability > *best_probability {
+                        *best_modification = *modification;
+                        *best_probability = *probability;
+                    }
+                })
+                .or_insert((*modification, *probability));
+        }
+    }
+
     // ── Modifiers ─────────────────────────────────────────────────────────
     for modifier in context.modifiers.iter() {
         match modifier {
@@ -221,14 +239,19 @@ fn render_contexts(
                 }
             }
 
-            RenderingContextModifier::BaseModification(coordinate, modification, probability) => {
+            RenderingContextModifier::BaseModification(coordinate, _, _) => {
+                let Some((modification, probability)) = best_base_modifications.remove(coordinate)
+                else {
+                    continue;
+                };
+
                 if let OnScreenCoordinate::OnScreen(x) =
                     alignment_view.onscreen_x_coordinate(*coordinate, area)
                     && let Some(cell) =
                         buf.cell_mut(Position::new(area.x + x as u16, area.y + onscreen_y))
                 {
                     cell.set_style(
-                        Style::default().bg(pallete.modification_color(modification, *probability)),
+                        Style::default().bg(pallete.modification_color(&modification, probability)),
                     );
                 }
             }
