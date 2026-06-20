@@ -411,7 +411,7 @@ fn extract_base_modifications(
 
     let n_modifications = base_modifications
         .iter()
-        .map(|group| group.modifications().len())
+        .map(|group| group.positions().len())
         .sum();
 
     let mut ml_bytes = ml_bytes.unwrap_or(vec![255; base_modifications.len()]);
@@ -421,12 +421,26 @@ fn extract_base_modifications(
 
     Ok(base_modifications
         .iter()
-        .flat_map(|group| group.modifications().iter().zip(group.positions().iter()))
+        .filter_map(|group| {
+            // Explaination:
+            // Noodles' modification gorup can have multiple .modifications().
+            // For example,
+            // - C+m,...; -> modifications().len() == 1.
+            // - C+mh,...; -> modifications().len() == 2. (ambiguous modification)
+            // For now, we only take the first modification type.
+            group.modifications().get(0).map(|modification_type| {
+                group
+                    .positions()
+                    .iter()
+                    .map(|position| (*modification_type, *position))
+            })
+        })
+        .flatten()
         .zip(ml_bytes)
         .map(|(mod_pos, prob)| {
             (
-                get_reference_postion_from_seq_position(*mod_pos.1 as u64, alignment_start, cigars),
-                *mod_pos.0,
+                get_reference_postion_from_seq_position(mod_pos.1 as u64, alignment_start, cigars),
+                mod_pos.0,
                 prob,
             )
         })
@@ -693,7 +707,7 @@ pub fn calculate_rendering_contexts(
 
         for (pos, modification, prob) in base_modification_modifiers.into_iter() {
             for context in rendering_context.iter_mut() {
-                if (context.start..context.end).contains(&pos) {
+                if (context.start..=context.end).contains(&pos) {
                     context
                         .modifiers
                         .push(RenderingContextModifier::BaseModification(

@@ -1,7 +1,9 @@
 use gv_core::cytoband::Stain;
 use ratatui::style::{Color, palette::tailwind};
 
-use noodles::sam::record::data::field::value::base_modifications::group::*;
+use noodles::sam::record::data::field::value::base_modifications::group::{
+    Modification, modification,
+};
 // Background
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 #[allow(non_snake_case)]
@@ -125,8 +127,8 @@ impl Palette {
     /// probability (0-255 from the ML tag, where 255 = fully modified).
     pub fn modification_color(&self, modification: &Modification, probability: u8) -> Color {
         // FIXME: colors for other modifications
-        match modification {
-            _FIVE_METHYLCYTOSINE => {
+        match *modification {
+            modification::FIVE_METHYLCYTOSINE => {
                 if probability >= 179 {
                     self.MOD_5MC_HIGH
                 } else if probability >= 77 {
@@ -135,8 +137,8 @@ impl Palette {
                     self.MOD_5MC_LOW
                 }
             }
-            _FIVE_HYDROXYMETHYLCYTOSINE => self.MOD_5HMC,
-            _SIX_METHYLADENINE => self.MOD_6MA,
+            modification::FIVE_HYDROXYMETHYLCYTOSINE => self.MOD_5HMC,
+            modification::SIX_METHYLADENINE => self.MOD_6MA,
             _ => self.MOD_5MC_MED,
         }
     }
