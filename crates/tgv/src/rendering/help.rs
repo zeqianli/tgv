@@ -42,7 +42,6 @@ pub fn render_help(area: &Rect, buf: &mut Buffer) -> Result<(), TGVError> {
  |:_gene_|         Go to _gene_                         Example: :KRAS
  |filter base(_pos_) = _base_|   Filter by base         Example: :filter base(123)=A
  |:paired|                       View reads as pairs
- |:mod|                          Color bases by 5mC/5hmC modification probability (MM/ML tags)
  |:clear|                        Reset alignment display options
  ",
         env!("CARGO_PKG_VERSION")

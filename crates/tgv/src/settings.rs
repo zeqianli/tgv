@@ -90,13 +90,9 @@ pub struct Cli {
     #[arg(long, default_value_t = false)]
     online: bool,
 
-    /// [For development only] Display messages in the terminal.
+    /// [For development only] Save all log information in the log file.
     #[arg(long)]
     debug: bool,
-
-    /// [For development only] Save trace logs in the log file.
-    #[arg(long)]
-    trace: bool,
 
     /// Choose the UCSC host. Defaults to auto when not specified.
     #[arg(long, value_enum)]
@@ -117,11 +113,7 @@ pub struct Cli {
 
 impl Cli {
     pub fn debug_enabled(&self) -> bool {
-        self.debug || self.trace
-    }
-
-    pub fn trace_enabled(&self) -> bool {
-        self.trace
+        self.debug
     }
 
     pub fn initial_movement(&self) -> Result<Vec<Message>, TGVError> {
@@ -488,7 +480,7 @@ mod tests {
         ..gv_core::settings::Settings::default()},
         ..Settings::default()
     }))]
-    #[case("tgv input.bam --trace", Ok(Settings {
+    #[case("tgv input.bam --debug", Ok(Settings {
         core: gv_core::settings::Settings {
         file_paths: vec![FilePath::AlignmentPath(bam("input.bam"))],
         ..gv_core::settings::Settings::default()},

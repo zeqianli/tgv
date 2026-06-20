@@ -9,7 +9,7 @@ use noodles::sam::{
     alignment::{
         RecordBuf,
         record::{
-            Cigar as CigarTrait, Flags,
+            Flags,
             cigar::{Op, op::Kind},
             data::field::Tag,
         },
@@ -155,15 +155,16 @@ impl AlignedRead {
             .mapping_quality()
             .map(|quality| quality.get().to_string())
             .unwrap_or_else(|| ".".to_string());
+        let flags = u16::from(self.record.flags());
+        let cigar = cigar_to_string(self.record.cigar())?;
 
         Ok(format!(
-            "{}  Flags={:?}  Start={}  MAPQ={}  Cigar={:?}",
+            "{}  Flags={}  MAPQ={}  Cigar={}",
             //String::from_utf8_lossy(&self.record.sequence()[..]),
             read_name,
-            self.record.flags(),
-            self.start,
+            flags,
             mapping_quality,
-            self.record.cigar()
+            cigar
         ))
     }
 
@@ -352,6 +353,12 @@ impl AlignedRead {
     //
 }
 
+fn cigar_to_string(cigar: &sam::alignment::record_buf::Cigar) -> Result<String, TGVError> {
+    let mut buf = Vec::new();
+    sam::io::writer::record::write_cigar(&mut buf, cigar)?;
+    Ok(String::from_utf8(buf)?)
+}
+
 impl TryFrom<RecordBuf> for AlignedRead {
     type Error = TGVError;
     fn try_from(record: RecordBuf) -> Result<Self, TGVError> {
@@ -390,7 +397,7 @@ impl TryFrom<RecordBuf> for AlignedRead {
 }
 
 /// Parse base modification data from the MM and ML auxiliary tags of a SAM record.
-/// Returns an empty map if the record has no MM/ML tags or if parsing fails.
+/// Returns all mapped modifications in MM/ML order.
 fn extract_base_modifications(
     mm_string: String,
     ml_bytes: Option<Vec<u8>>,
@@ -409,60 +416,79 @@ fn extract_base_modifications(
     })?
     .into();
 
-    let n_modifications = base_modifications
-        .iter()
-        .map(|group| group.modifications().len())
-        .sum();
+    let mut ml_bytes = ml_bytes.unwrap_or_default().into_iter();
 
-    let mut ml_bytes = ml_bytes.unwrap_or(vec![255; base_modifications.len()]);
+    let mut mapped_modifications = Vec::new();
 
-    // If probability values are missing (should not happen by SAM specification), pad probabilities with 255 so that no modificaitons are hidden
-    ml_bytes.resize(n_modifications, 255);
+    for group in &base_modifications {
+        for position in group.positions() {
+            for modification in group.modifications() {
+                let probability = ml_bytes.next().unwrap_or(255);
+                let Some(reference_position) = get_reference_position_from_seq_position(
+                    *position as u64,
+                    alignment_start,
+                    cigars,
+                ) else {
+                    continue;
+                };
 
-    Ok(base_modifications
-        .iter()
-        .flat_map(|group| group.modifications().iter().zip(group.positions().iter()))
-        .zip(ml_bytes)
-        .map(|(mod_pos, prob)| {
-            (
-                get_reference_postion_from_seq_position(*mod_pos.1 as u64, alignment_start, cigars),
-                *mod_pos.0,
-                prob,
-            )
-        })
-        .collect_vec())
-}
-
-fn get_reference_postion_from_seq_position(pos: u64, alignment_start: u64, cigars: &[Op]) -> u64 {
-    let mut query_cursor = 0u64;
-    let mut reference_cursor = alignment_start;
-
-    for op in cigars {
-        if pos <= query_cursor {
-            return reference_cursor;
-        }
-        match op.kind() {
-            Kind::SoftClip | Kind::Insertion => {
-                query_cursor += op.len() as u64;
-            }
-            Kind::HardClip | Kind::Pad => {}
-            Kind::Deletion | Kind::Skip => {
-                reference_cursor += op.len() as u64;
-            }
-            Kind::Match | Kind::SequenceMatch | Kind::SequenceMismatch => {
-                let next_query_cursor = query_cursor + op.len() as u64;
-
-                if pos <= next_query_cursor {
-                    return pos - query_cursor + reference_cursor;
-                }
-                query_cursor = next_query_cursor;
-                reference_cursor += op.len() as u64;
+                mapped_modifications.push((reference_position, *modification, probability));
             }
         }
     }
 
-    // Should not happen
-    reference_cursor.saturating_sub(1)
+    Ok(mapped_modifications)
+}
+
+fn get_reference_position_from_seq_position(
+    pos: u64,
+    alignment_start: u64,
+    cigars: &[Op],
+) -> Option<u64> {
+    let mut query_cursor = 0u64;
+    let mut reference_cursor = alignment_start;
+
+    for (op_index, op) in cigars.iter().enumerate() {
+        let len = op.len() as u64;
+        match op.kind() {
+            Kind::SoftClip => {
+                let next_query_cursor = query_cursor + len;
+                if (query_cursor..next_query_cursor).contains(&pos) {
+                    let offset = pos - query_cursor;
+                    if op_index == 0 {
+                        return alignment_start
+                            .checked_sub(len)
+                            .map(|left_softclip_start| left_softclip_start + offset)
+                            .filter(|coordinate| *coordinate > 0);
+                    }
+                    return Some(reference_cursor + offset);
+                }
+                query_cursor = next_query_cursor;
+            }
+            Kind::Insertion => {
+                let next_query_cursor = query_cursor + len;
+                if (query_cursor..next_query_cursor).contains(&pos) {
+                    return None;
+                }
+                query_cursor = next_query_cursor;
+            }
+            Kind::HardClip | Kind::Pad => {}
+            Kind::Deletion | Kind::Skip => {
+                reference_cursor += len;
+            }
+            Kind::Match | Kind::SequenceMatch | Kind::SequenceMismatch => {
+                let next_query_cursor = query_cursor + len;
+
+                if (query_cursor..next_query_cursor).contains(&pos) {
+                    return Some(pos - query_cursor + reference_cursor);
+                }
+                query_cursor = next_query_cursor;
+                reference_cursor += len;
+            }
+        }
+    }
+
+    None
 }
 
 /// See: https://samtools.github.io/hts-specs/SAMv1.pdf
@@ -680,11 +706,20 @@ pub fn calculate_rendering_contexts(
         })
     }
 
+    const LEGACY_BASE_MODIFICATION_TAG: Tag = Tag::new(b'M', b'm');
+    const LEGACY_BASE_MODIFICATION_PROBABILITY_TAG: Tag = Tag::new(b'M', b'l');
+
     // Fetch MM tag (string, type Z).
-    if let Some(Value::String(s)) = data.get(&Tag::BASE_MODIFICATIONS) {
+    if let Some(Value::String(s)) = data
+        .get(&Tag::BASE_MODIFICATIONS)
+        .or_else(|| data.get(&LEGACY_BASE_MODIFICATION_TAG))
+    {
         let ml_string = String::from_utf8_lossy(s.as_ref()).into_owned();
 
-        let ml_bytes = match data.get(&Tag::BASE_MODIFICATION_PROBABILITIES) {
+        let ml_bytes = match data
+            .get(&Tag::BASE_MODIFICATION_PROBABILITIES)
+            .or_else(|| data.get(&LEGACY_BASE_MODIFICATION_PROBABILITY_TAG))
+        {
             Some(Value::Array(Array::UInt8(values))) => Some(values.clone()),
             _ => None,
         };
@@ -693,7 +728,7 @@ pub fn calculate_rendering_contexts(
 
         for (pos, modification, prob) in base_modification_modifiers.into_iter() {
             for context in rendering_context.iter_mut() {
-                if (context.start..context.end).contains(&pos) {
+                if (context.start..=context.end).contains(&pos) {
                     context
                         .modifiers
                         .push(RenderingContextModifier::BaseModification(
@@ -1056,18 +1091,175 @@ impl ReadPair {
 mod tests {
 
     use super::*;
-    // use noodles::bam::record::{Cigar, CigarString};
-    use noodles::bam;
     use noodles::sam::{
         self,
         alignment::{
-            io::Write,
-            record::cigar::{Op, op::Kind},
+            record::{
+                MappingQuality,
+                cigar::{Op, op::Kind},
+            },
+            record_buf::Cigar,
         },
+        record::data::field::value::base_modifications::group::modification,
     };
-    use std::io;
 
     use rstest::rstest;
+
+    #[test]
+    fn describe_shows_sam_style_flags_and_cigar_without_start() -> Result<(), TGVError> {
+        let cigar: Cigar = [Op::new(Kind::Match, 4), Op::new(Kind::SoftClip, 2)]
+            .into_iter()
+            .collect();
+
+        let record = sam::alignment::RecordBuf::builder()
+            .set_name("r0")
+            .set_flags(Flags::from(80))
+            .set_alignment_start(noodles::core::Position::try_from(3).unwrap())
+            .set_mapping_quality(MappingQuality::new(60).unwrap())
+            .set_cigar(cigar)
+            .build();
+
+        let read = AlignedRead::try_from(record)?;
+
+        assert_eq!(read.describe()?, "r0  Flags=80  MAPQ=60  Cigar=4M2S");
+
+        Ok(())
+    }
+
+    #[test]
+    fn extract_base_modifications_defaults_missing_probabilities_for_each_position() {
+        let cigars = vec![Op::new(Kind::Match, 3)];
+        let sequence = sam::alignment::record_buf::Sequence::from(b"CCC");
+
+        let modifications = extract_base_modifications(
+            "C+m,0,0,0;".to_string(),
+            None,
+            &Flags::default(),
+            &sequence,
+            &cigars,
+            10,
+        )
+        .unwrap();
+
+        assert_eq!(
+            modifications,
+            vec![
+                (10, modification::FIVE_METHYLCYTOSINE, 255),
+                (11, modification::FIVE_METHYLCYTOSINE, 255),
+                (12, modification::FIVE_METHYLCYTOSINE, 255),
+            ]
+        );
+    }
+
+    #[test]
+    fn extract_base_modifications_consumes_probability_for_each_position_and_modification() {
+        let cigars = vec![Op::new(Kind::Match, 2)];
+        let sequence = sam::alignment::record_buf::Sequence::from(b"CC");
+
+        let modifications = extract_base_modifications(
+            "C+mh,0,0;".to_string(),
+            Some(vec![10, 200, 180, 20]),
+            &Flags::default(),
+            &sequence,
+            &cigars,
+            10,
+        )
+        .unwrap();
+
+        assert_eq!(
+            modifications,
+            vec![
+                (10, modification::FIVE_METHYLCYTOSINE, 10),
+                (10, modification::FIVE_HYDROXYMETHYLCYTOSINE, 200),
+                (11, modification::FIVE_METHYLCYTOSINE, 180),
+                (11, modification::FIVE_HYDROXYMETHYLCYTOSINE, 20),
+            ]
+        );
+    }
+
+    #[test]
+    fn get_reference_position_from_seq_position_handles_cigar_boundaries() {
+        let cigars = vec![
+            Op::new(Kind::SoftClip, 2),
+            Op::new(Kind::Match, 2),
+            Op::new(Kind::Insertion, 1),
+            Op::new(Kind::Match, 2),
+            Op::new(Kind::SoftClip, 1),
+        ];
+
+        assert_eq!(
+            get_reference_position_from_seq_position(0, 10, &cigars),
+            Some(8)
+        );
+        assert_eq!(
+            get_reference_position_from_seq_position(2, 10, &cigars),
+            Some(10)
+        );
+        assert_eq!(
+            get_reference_position_from_seq_position(4, 10, &cigars),
+            None
+        );
+        assert_eq!(
+            get_reference_position_from_seq_position(5, 10, &cigars),
+            Some(12)
+        );
+        assert_eq!(
+            get_reference_position_from_seq_position(7, 10, &cigars),
+            Some(14)
+        );
+    }
+
+    #[test]
+    fn calculate_rendering_contexts_adds_base_modification_modifiers() {
+        let cigars = vec![Op::new(Kind::Match, 3)];
+        let mut data = Data::default();
+        data.insert(Tag::new(b'M', b'm'), Value::from("C+m,0,0,0;"));
+        data.insert(Tag::new(b'M', b'l'), Value::from(vec![255u8, 80, 20]));
+
+        let record_buf = sam::alignment::RecordBuf::builder()
+            .set_sequence(sam::alignment::record_buf::Sequence::from(b"CCC"))
+            .set_data(data)
+            .build();
+
+        let mut contexts = Vec::new();
+        calculate_rendering_contexts(
+            &mut contexts,
+            10,
+            &record_buf.flags(),
+            &cigars,
+            record_buf.sequence(),
+            record_buf.data(),
+            &Sequence::default(),
+        )
+        .unwrap();
+
+        assert_eq!(
+            contexts,
+            vec![RenderingContext {
+                start: 10,
+                end: 12,
+                kind: RenderingContextKind::Match,
+                modifiers: vec![
+                    RenderingContextModifier::Forward,
+                    RenderingContextModifier::BaseModification(
+                        10,
+                        modification::FIVE_METHYLCYTOSINE,
+                        255
+                    ),
+                    RenderingContextModifier::BaseModification(
+                        11,
+                        modification::FIVE_METHYLCYTOSINE,
+                        80
+                    ),
+                    RenderingContextModifier::BaseModification(
+                        12,
+                        modification::FIVE_METHYLCYTOSINE,
+                        20
+                    ),
+                ],
+            }]
+        );
+    }
 
     #[rstest]
     #[case(10, vec![(Kind::Match, 3)],  b"ATT", false,Sequence::default(), vec![RenderingContext{
@@ -1247,8 +1439,6 @@ mod tests {
         if is_reverse {
             flags = flags.union(Flags::from(0x10));
         }
-
-        let header = sam::Header::default();
 
         let record_buf = sam::alignment::RecordBuf::builder()
             .set_sequence(sam::alignment::record_buf::Sequence::from(seq))
