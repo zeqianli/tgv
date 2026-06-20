@@ -155,15 +155,16 @@ impl AlignedRead {
             .mapping_quality()
             .map(|quality| quality.get().to_string())
             .unwrap_or_else(|| ".".to_string());
+        let flags = u16::from(self.record.flags());
+        let cigar = cigar_to_string(self.record.cigar())?;
 
         Ok(format!(
-            "{}  Flags={:?}  Start={}  MAPQ={}  Cigar={:?}",
+            "{}  Flags={}  MAPQ={}  Cigar={}",
             //String::from_utf8_lossy(&self.record.sequence()[..]),
             read_name,
-            self.record.flags(),
-            self.start,
+            flags,
             mapping_quality,
-            self.record.cigar()
+            cigar
         ))
     }
 
@@ -350,6 +351,12 @@ impl AlignedRead {
     //     Self::from_bam_record(read_index, record, reference_sequence)
     // }
     //
+}
+
+fn cigar_to_string(cigar: &sam::alignment::record_buf::Cigar) -> Result<String, TGVError> {
+    let mut buf = Vec::new();
+    sam::io::writer::record::write_cigar(&mut buf, cigar)?;
+    Ok(String::from_utf8(buf)?)
 }
 
 impl TryFrom<RecordBuf> for AlignedRead {
@@ -1086,11 +1093,38 @@ mod tests {
     use super::*;
     use noodles::sam::{
         self,
-        alignment::record::cigar::{Op, op::Kind},
+        alignment::{
+            record::{
+                MappingQuality,
+                cigar::{Op, op::Kind},
+            },
+            record_buf::Cigar,
+        },
         record::data::field::value::base_modifications::group::modification,
     };
 
     use rstest::rstest;
+
+    #[test]
+    fn describe_shows_sam_style_flags_and_cigar_without_start() -> Result<(), TGVError> {
+        let cigar: Cigar = [Op::new(Kind::Match, 4), Op::new(Kind::SoftClip, 2)]
+            .into_iter()
+            .collect();
+
+        let record = sam::alignment::RecordBuf::builder()
+            .set_name("r0")
+            .set_flags(Flags::from(80))
+            .set_alignment_start(noodles::core::Position::try_from(3).unwrap())
+            .set_mapping_quality(MappingQuality::new(60).unwrap())
+            .set_cigar(cigar)
+            .build();
+
+        let read = AlignedRead::try_from(record)?;
+
+        assert_eq!(read.describe()?, "r0  Flags=80  MAPQ=60  Cigar=4M2S");
+
+        Ok(())
+    }
 
     #[test]
     fn extract_base_modifications_defaults_missing_probabilities_for_each_position() {
