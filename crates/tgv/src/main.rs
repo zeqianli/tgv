@@ -17,10 +17,8 @@ use tgv::{
 async fn main() -> Result<(), TGVError> {
     let cli = Cli::parse();
     let log_path = default_log_file_path();
-    let log_level = if cli.trace_enabled() {
+    let log_level = if cli.debug_enabled() {
         log::LevelFilter::Trace
-    } else if cli.debug_enabled() {
-        log::LevelFilter::Debug
     } else {
         log::LevelFilter::Info
     };
