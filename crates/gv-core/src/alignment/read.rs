@@ -476,7 +476,7 @@ pub fn calculate_rendering_contexts(
     reference_sequence: &Sequence,
 ) -> Result<(), TGVError> {
     rendering_context.clear();
-    if cigars.is_empty() {
+    if cigars.is_empty() || seq.is_empty() {
         return Ok(());
     }
 
@@ -1268,5 +1268,26 @@ mod tests {
         .unwrap();
 
         assert_eq!(contexts, expected_rendering_contexts)
+    }
+
+    #[test]
+    fn calculate_rendering_contexts_ignores_empty_sequence() -> Result<(), TGVError> {
+        let cigars = vec![Op::new(Kind::Match, 1)];
+        let record_buf = sam::alignment::RecordBuf::builder().build();
+        let mut contexts = Vec::new();
+
+        calculate_rendering_contexts(
+            &mut contexts,
+            1,
+            &record_buf.flags(),
+            &cigars,
+            &record_buf.sequence(),
+            &record_buf.data(),
+            &Sequence::default(),
+        )?;
+
+        assert!(contexts.is_empty());
+
+        Ok(())
     }
 }

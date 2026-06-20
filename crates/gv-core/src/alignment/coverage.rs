@@ -15,7 +15,7 @@ pub fn calculate_basewise_coverage(
     reference_sequence: &Sequence,
 ) -> Result<HashMap<u64, BaseCoverage>, TGVError> {
     let mut output: HashMap<u64, BaseCoverage> = HashMap::new();
-    if cigar.as_ref().is_empty() {
+    if cigar.as_ref().is_empty() || sequence.is_empty() {
         return Ok(output);
     }
 
@@ -209,3 +209,22 @@ pub static DEFAULT_COVERAGE: BaseCoverage = BaseCoverage {
     softclip: 0,
     reference_base: b'N',
 };
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use noodles::sam::alignment::record::cigar::{Op, op::Kind};
+
+    #[test]
+    fn calculate_basewise_coverage_ignores_empty_sequence() -> Result<(), TGVError> {
+        let cigar = [Op::new(Kind::Match, 1)].into_iter().collect();
+        let sequence = sam::alignment::record_buf::Sequence::default();
+        let reference_sequence = Sequence::default();
+
+        let coverage = calculate_basewise_coverage(1, &cigar, &sequence, &reference_sequence)?;
+
+        assert!(coverage.is_empty());
+
+        Ok(())
+    }
+}
