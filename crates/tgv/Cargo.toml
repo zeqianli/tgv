@@ -1,6 +1,6 @@
 [package]
 name = "tgv"
-version = "0.2.0"
+version = "0.3.0"
 edition = "2024"
 description = "Explore genomes in the terminal. Light, blazing fast 🚀, vim-motion."
 license = "MIT"

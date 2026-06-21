@@ -1114,7 +1114,7 @@ dependencies = [
 
 [[package]]
 name = "gv-core"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "async-compat",
  "async-trait",
@@ -3602,7 +3602,7 @@ dependencies = [
 
 [[package]]
 name = "tgv"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "cargo-insta",
  "clap",

@@ -35,7 +35,7 @@ url = "2.5.4"
 
 # local crates
 
-gv-core = { path = "crates/gv-core", version = "=0.2.0" }
+gv-core = { path = "crates/gv-core", version = "=0.3.0" }
 
 [profile.release] # as recommended in https://github.com/ratatui/ratatui-website/pull/931/files
 codegen-units = 1 # Allows compiler to perform better optimization.
