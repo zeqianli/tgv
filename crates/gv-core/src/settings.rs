@@ -21,7 +21,7 @@ pub enum BamSource {
     /// File on the local filesystem.
     Local,
 
-    /// File on AWS S3 (or any S3-compatible / HTTP remote accessed via opendal).
+    /// File on AWS S3 or S3-compatible object storage.
     S3,
 }
 

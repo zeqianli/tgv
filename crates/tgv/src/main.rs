@@ -36,9 +36,9 @@ async fn main() -> Result<(), TGVError> {
             downloader.download().await?;
             return Ok(());
         }
-        Some(Commands::List { more, all: _ }) => {
+        Some(Commands::List { all }) => {
             log::info!("Listing reference genomes");
-            if *more {
+            if *all {
                 let n = print_ucsc_assemblies().await?;
                 println!("{} UCSC assemblies", n);
                 println!("Browse a genome: tgv -g <genome> (e.g. tgv -g rn7)");

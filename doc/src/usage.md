@@ -3,11 +3,12 @@
 ## Supported formats
 
 - BAM (indexed and sorted). A `.bai` file is needed.
-  - Local, AWS, Google Cloud, or HTTP/HTTPS
-  - Local: place the `.bai` file in the same directory; or specify the index file with `-i`.
-  - `s3`: set credentials in environmental variables. See: <https://www.htslib.org/doc/htslib-s3-plugin.html>
-  - `gss`: Not tested. Please provide feedback if it works.
-  - Note that the custom `bai` path (`-i`) is not supported for remote use due to [rust-htslib](https://github.com/rust-bio/rust-htslib) API limitation.
+  - Local paths and `s3://` URLs are supported.
+  - The index path is inferred as `<bam>.bai`. There is no separate CLI option for a custom index path.
+  - For `s3://` BAMs, place the `.bai` object at the inferred path and configure S3 credentials in the environment.
+- VCF (`.vcf` and `.vcf.gz`) and BED (`.bed` and `.bed.gz`) files are supported as positional input files.
+- Custom FASTA and 2bit reference genomes are passed with `-g` / `--reference`, not as positional track files. FASTA references require a `.fai` index beside the FASTA file.
+- CRAM is not supported as a CLI input format. Configure CRAM tracks in a session file.
 
 ## Key bindings
 
@@ -33,6 +34,8 @@ Command mode
 | Command | Notes | Example |
 |---------|-------------|---------|
 | `:q` | Quit | |
+| `:w` | Save the active session | |
+| `:wq` | Save the active session and quit | |
 | `:h` | Help | |
 | `:_pos_` | Go to position on same contig | `:1000` |
 | `:_contig_:_pos_` | Go to position on specific contig | `:17:7572659` |

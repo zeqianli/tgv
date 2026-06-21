@@ -33,23 +33,19 @@ impl From<UcscHostCli> for UcscHost {
 
 #[derive(Subcommand, Clone, Debug)]
 pub enum Commands {
-    /// Download command
+    /// Download reference data.
     Download {
-        /// Name to download
+        /// Reference genome to download.
         reference: String,
 
-        /// Cache directory
+        /// Cache directory.
         #[arg(long = "cache-dir", default_value = "~/.tgv")]
         cache_dir: String,
     },
 
-    /// List reference genomes on UCSC.
+    /// List reference genomes.
     List {
-        /// List more reference genomes (UCSC common genomes (stored locally) and UCSC assemblies).
-        #[arg(long = "more")]
-        more: bool,
-
-        /// List all reference genomes (UCSC common genomes (stored locally), UCSC assemblies, and all UCSC accessions).
+        /// List all UCSC assemblies instead of the common genome names.
         #[arg(long = "all")]
         all: bool,
     },
@@ -58,11 +54,9 @@ pub enum Commands {
 #[derive(Parser, Clone)]
 #[command(author, version, about, long_about = None)]
 pub struct Cli {
-    /// Input files. Supported formats: .bam, .cram, .vcf, .vcf.gz, .bed, .bed.gz, .fa, .fasta.
-    /// CRAM files require a FASTA reference file (.fa or .fasta) to also be provided here;
-    /// its .fai index is inferred automatically. BAM/CRAM index files are inferred automatically
-    /// (.bam.bai, .cram.crai).
-    /// To set the viewer reference (separate from the CRAM decoding reference), use -g.
+    /// Input files. Supported track formats: .bam, .vcf, .vcf.gz, .bed, .bed.gz.
+    /// BAM index files are inferred automatically as .bam.bai.
+    /// To set the viewer reference, including a custom FASTA or 2bit file, use -g.
     #[arg(value_name = "files")]
     files: Vec<String>,
 
@@ -72,8 +66,8 @@ pub struct Cli {
     region: Option<String>,
 
     /// Reference genome. Defaults to hg38 when not specified and no session is loaded.
-    /// TGV supports all UCSC assemblies and accessions. See `tgv list` or `tgv list --more`.
-    /// Ignored when a FASTA file is provided as an input file.
+    /// TGV supports all UCSC assemblies and accessions. See `tgv list` or `tgv list --all`.
+    /// Custom FASTA and 2bit reference files are also supported.
     #[arg(short = 'g', long = "reference")]
     reference: Option<String>,
 
@@ -82,11 +76,11 @@ pub struct Cli {
     #[arg(long)]
     no_reference: bool,
 
-    /// If true, always use the local cache. Quit the application if local cache is not available.
+    /// Always use the local cache. Quit if the local cache is not available.
     #[arg(long, default_value_t = false)]
     offline: bool,
 
-    /// If true, always use the UCSC DB / API.
+    /// Always use the UCSC DB / API.
     #[arg(long, default_value_t = false)]
     online: bool,
 
@@ -230,8 +224,6 @@ impl Cli {
 ///
 /// Returns file paths in the same order as the CLI arguments.
 fn classify_and_build_tracks(files: &[String]) -> Result<Vec<FilePath>, TGVError> {
-    let mut fasta_path: Option<String> = None;
-
     for file in files {
         let lower = file.to_lowercase();
         if lower.ends_with(".fa")
@@ -239,31 +231,24 @@ fn classify_and_build_tracks(files: &[String]) -> Result<Vec<FilePath>, TGVError
             || lower.ends_with(".fa.gz")
             || lower.ends_with(".fasta.gz")
         {
-            if fasta_path.is_some() {
-                return Err(TGVError::CliError(
-                    "Only one FASTA reference file may be provided.".to_string(),
-                ));
-            }
-            fasta_path = Some(file.clone());
+            return Err(TGVError::CliError(
+                "FASTA reference files must be passed with -g/--reference, not as positional input files.".to_string(),
+            ));
+        } else if lower.ends_with(".cram") {
+            return Err(TGVError::CliError(
+                "CRAM format is not yet supported as a CLI input format.".to_string(),
+            ));
         } else if !(lower.ends_with(".bam")
-            || lower.ends_with(".cram")
             || lower.ends_with(".vcf")
             || lower.ends_with(".vcf.gz")
             || lower.ends_with(".bed")
             || lower.ends_with(".bed.gz"))
         {
             return Err(TGVError::CliError(format!(
-                "Unrecognized file format: {}. Supported formats: .bam, .cram, .vcf, .vcf.gz, .bed, .bed.gz, .fa, .fasta",
+                "Unrecognized file format: {}. Supported track formats: .bam, .vcf, .vcf.gz, .bed, .bed.gz. Use -g for custom FASTA or 2bit reference genomes.",
                 file
             )));
         }
-    }
-
-    // CRAM requires a FASTA.
-    if files.iter().any(|ap| ap.to_lowercase().ends_with(".cram")) && fasta_path.is_none() {
-        return Err(TGVError::CliError(
-            "CRAM files require a reference FASTA file (.fa or .fasta) as input.".to_string(),
-        ));
     }
 
     let mut file_paths = Vec::new();
@@ -280,23 +265,6 @@ fn classify_and_build_tracks(files: &[String]) -> Result<Vec<FilePath>, TGVError
                     BamSource::Local
                 },
             }));
-        } else if lower.ends_with(".cram") {
-            return Err(TGVError::CliError(
-                "CRAM format is not yet supported.".to_string(),
-            ));
-            // fasta_path is guaranteed Some here.
-            #[allow(unreachable_code)]
-            {
-                let fasta = fasta_path.clone().unwrap();
-                let crai = format!("{file}.crai");
-                let fai = format!("{}.fai", fasta);
-                file_paths.push(FilePath::AlignmentPath(AlignmentPath::Cram {
-                    path: file.clone(),
-                    crai,
-                    fasta,
-                    fai,
-                }));
-            }
         } else if lower.ends_with(".vcf") || lower.ends_with(".vcf.gz") {
             file_paths.push(FilePath::VariantPath(file.clone()));
         } else if lower.ends_with(".bed") || lower.ends_with(".bed.gz") {

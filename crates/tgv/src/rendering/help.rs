@@ -27,13 +27,13 @@ pub fn render_help(area: &Rect, buf: &mut Buffer) -> Result<(), TGVError> {
 
  |h / j / k / l|   Move left / down / up / right
  |y / p|           Move left / right faster
- |w / b / W / B|   Beginning of the next exon / last exon / next gene / last gene
- |e / ge / E / gE| End of the next exon / last exon / next gene / last gene
+ |w / b / W / B|   Beginning of the next exon / previous exon / next gene / previous gene
+ |e / ge / E / gE| End of the next exon / previous exon / next gene / previous gene
  |z / o|           Zoom in / out
  |{{ / }}|         Move up / down faster
 
  |<num><key>|      Repeat movements. Examples:
-     - 5h: Move right by 5 bases
+     - 5h: Move left by 5 bases
      - 11B: Move left by 11 genes
      - 16o: Zoom out by 16x
 

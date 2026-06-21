@@ -18,8 +18,8 @@
 # Browse the hg38 human genome (internet needed)
 tgv
 
-# Or your favorite genome (see `tgv list` or `tgv list --more`)
-tgv -g cat 
+# Or your favorite genome (see `tgv list` or `tgv list --all`)
+tgv -g cat
 ```
 
 - `:q`: Quit
@@ -50,9 +50,9 @@ Browse alignments:
 tgv sorted.bam
 
 # VCF and BED support
-tgv sorted.bam -v variants.vcf -b intervals.bed
+tgv sorted.bam variants.vcf intervals.bed
 
-# View a indexed remote BAM, starting at TP53, using the hg19 reference genome
+# View an indexed S3 BAM, starting at TP53, using the hg19 reference genome
 tgv s3://my-bucket/sorted.bam -r TP53 -g hg19
 
 # BAM file with no reference genome
