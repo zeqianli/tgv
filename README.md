@@ -46,8 +46,8 @@ tgv download hg38
 Browse alignments:
 
 ```bash
-# View BAM file aligned to the hg38 human reference genome
-tgv sorted.bam
+# View BAM file(s) aligned to the hg38 human reference genome
+tgv file1.sorted.bam file2.sorted.bam
 
 # VCF and BED support
 tgv sorted.bam variants.vcf intervals.bed

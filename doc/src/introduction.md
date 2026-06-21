@@ -10,4 +10,4 @@ Welcome to the tgv documentation.
 
 # Contributing
 
-Contribution is welcome! Join the [discord](https://discord.gg/rZkgjHqPR8) to discuss ideas.
+Contribution is welcome!
