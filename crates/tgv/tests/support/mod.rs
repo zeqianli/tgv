@@ -1,4 +1,5 @@
 use clap::Parser;
+use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use gv_core::{
     error::TGVError,
     message::{Message as CoreMessage, Movement},
@@ -62,6 +63,30 @@ impl AppHarness {
     pub async fn handle_core(&mut self, messages: Vec<CoreMessage>) -> Result<(), TGVError> {
         self.handle(messages.into_iter().map(Message::Core).collect())
             .await
+    }
+
+    pub async fn handle_key_codes(
+        &mut self,
+        key_codes: impl IntoIterator<Item = KeyCode>,
+    ) -> Result<(), TGVError> {
+        for key_code in key_codes {
+            let messages = self
+                .app
+                .registers
+                .handle_key_event(KeyEvent::new(key_code, KeyModifiers::NONE), &self.app.state)?;
+            self.app.handle(messages).await?;
+        }
+        self.self_correct()?;
+        self.render();
+        Ok(())
+    }
+
+    pub async fn handle_command(&mut self, command: &str) -> Result<(), TGVError> {
+        let mut key_codes = Vec::with_capacity(command.len() + 2);
+        key_codes.push(KeyCode::Char(':'));
+        key_codes.extend(command.chars().map(KeyCode::Char));
+        key_codes.push(KeyCode::Enter);
+        self.handle_key_codes(key_codes).await
     }
 
     pub async fn handle_movement(&mut self, movement: Movement) -> Result<(), TGVError> {

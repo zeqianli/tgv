@@ -863,3 +863,152 @@ impl State {
             })
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::alignment::AlignedRead;
+    use crate::contig_header::ContigHeader;
+    use noodles::sam::{
+        self,
+        alignment::{
+            record::{
+                Flags,
+                cigar::{Op, op::Kind},
+            },
+            record_buf::Cigar,
+        },
+    };
+
+    fn read(
+        name: &str,
+        start: u64,
+        cigar_ops: impl IntoIterator<Item = (Kind, usize)>,
+        sequence: &[u8],
+    ) -> AlignedRead {
+        let cigar: Cigar = cigar_ops
+            .into_iter()
+            .map(|(kind, len)| Op::new(kind, len))
+            .collect();
+
+        let record = sam::alignment::RecordBuf::builder()
+            .set_name(name)
+            .set_flags(Flags::default())
+            .set_alignment_start(noodles::core::Position::try_from(start as usize).unwrap())
+            .set_cigar(cigar)
+            .set_sequence(sam::alignment::record_buf::Sequence::from(sequence))
+            .build();
+
+        AlignedRead::try_from(record).unwrap()
+    }
+
+    fn test_sequence() -> Sequence {
+        Sequence {
+            start: 1,
+            sequence: vec![b'A'; 100],
+            contig_index: 0,
+        }
+    }
+
+    fn alignment_from_reads(reads: Vec<AlignedRead>, data_complete_bound: (u64, u64)) -> Alignment {
+        Alignment::from_aligned_reads(reads, 0, data_complete_bound, &test_sequence()).unwrap()
+    }
+
+    fn state_with_alignment(alignment: Alignment) -> State {
+        let mut state = State::new(
+            Reference::NoReference,
+            ContigHeader::new(Reference::NoReference),
+        )
+        .unwrap();
+        state.sequence = test_sequence();
+        state.add_alignment_track();
+        state.alignments[0] = alignment;
+        state
+    }
+
+    #[test]
+    fn set_alignment_options_resolves_base_sort_at_current_position() {
+        let alignment = alignment_from_reads(
+            vec![
+                read("c", 12, [(Kind::Match, 1)], b"C"),
+                read("a", 12, [(Kind::Match, 1)], b"A"),
+            ],
+            (1, 100),
+        );
+        let mut state = state_with_alignment(alignment);
+        let focus = Focus {
+            contig_index: 0,
+            position: 12,
+        };
+
+        state
+            .set_alignment_options(
+                0,
+                &focus,
+                vec![AlignmentDisplayOption::Sort(
+                    AlignmentSort::BaseAtCurrentPosition,
+                )],
+            )
+            .unwrap();
+
+        assert_eq!(
+            state.alignment_options[0],
+            vec![AlignmentDisplayOption::Sort(AlignmentSort::BaseAt(12))]
+        );
+        assert_eq!(state.alignments[0].ys, vec![1, 0]);
+    }
+
+    #[test]
+    fn set_alignment_options_treats_unloaded_base_sort_as_noop() {
+        let alignment = alignment_from_reads(
+            vec![
+                read("c", 12, [(Kind::Match, 1)], b"C"),
+                read("a", 12, [(Kind::Match, 1)], b"A"),
+            ],
+            (10, 20),
+        );
+        let original_ys = alignment.ys.clone();
+        let mut state = state_with_alignment(alignment);
+        let focus = Focus {
+            contig_index: 0,
+            position: 30,
+        };
+
+        state
+            .set_alignment_options(
+                0,
+                &focus,
+                vec![AlignmentDisplayOption::Sort(
+                    AlignmentSort::BaseAtCurrentPosition,
+                )],
+            )
+            .unwrap();
+
+        assert_eq!(
+            state.alignment_options[0],
+            vec![AlignmentDisplayOption::Sort(AlignmentSort::BaseAt(30))]
+        );
+        assert_eq!(state.alignments[0].ys, original_ys);
+    }
+
+    #[test]
+    fn set_alignment_options_still_propagates_unsupported_sort_errors() {
+        let alignment =
+            alignment_from_reads(vec![read("a", 12, [(Kind::Match, 1)], b"A")], (1, 100));
+        let mut state = state_with_alignment(alignment);
+        let focus = Focus {
+            contig_index: 0,
+            position: 12,
+        };
+
+        let error = state
+            .set_alignment_options(
+                0,
+                &focus,
+                vec![AlignmentDisplayOption::Sort(AlignmentSort::MappingQuality)],
+            )
+            .unwrap_err();
+
+        assert!(matches!(error, TGVError::ValueError(_)));
+    }
+}

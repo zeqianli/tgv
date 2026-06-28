@@ -1124,6 +1124,25 @@ mod tests {
 
     use rstest::rstest;
 
+    fn read_from_parts(
+        start: u64,
+        cigar_ops: impl IntoIterator<Item = (Kind, usize)>,
+        sequence: &[u8],
+    ) -> AlignedRead {
+        let cigar: Cigar = cigar_ops
+            .into_iter()
+            .map(|(kind, len)| Op::new(kind, len))
+            .collect();
+
+        let record = sam::alignment::RecordBuf::builder()
+            .set_alignment_start(noodles::core::Position::try_from(start as usize).unwrap())
+            .set_cigar(cigar)
+            .set_sequence(sam::alignment::record_buf::Sequence::from(sequence))
+            .build();
+
+        AlignedRead::try_from(record).unwrap()
+    }
+
     #[test]
     fn describe_shows_sam_style_flags_and_cigar_without_start() -> Result<(), TGVError> {
         let cigar: Cigar = [Op::new(Kind::Match, 4), Op::new(Kind::SoftClip, 2)]
@@ -1143,6 +1162,94 @@ mod tests {
         assert_eq!(read.describe()?, "r0  Flags=80  MAPQ=60  Cigar=4M2S");
 
         Ok(())
+    }
+
+    #[test]
+    fn base_at_returns_reference_aligned_bases_only() {
+        let read = read_from_parts(
+            10,
+            [
+                (Kind::SoftClip, 1),
+                (Kind::Match, 2),
+                (Kind::Insertion, 1),
+                (Kind::SequenceMatch, 1),
+                (Kind::SequenceMismatch, 1),
+                (Kind::Deletion, 1),
+                (Kind::Match, 1),
+                (Kind::SoftClip, 1),
+            ],
+            b"SATIGCR",
+        );
+
+        assert_eq!(read.base_at(9), None);
+        assert_eq!(read.base_at(10), Some(b'A'));
+        assert_eq!(read.base_at(11), Some(b'T'));
+        assert_eq!(read.base_at(12), Some(b'G'));
+        assert_eq!(read.base_at(13), Some(b'C'));
+        assert_eq!(read.base_at(14), None);
+        assert_eq!(read.base_at(15), Some(b'R'));
+        assert_eq!(read.base_at(16), None);
+    }
+
+    #[test]
+    fn is_deletion_at_detects_deletions_and_reference_skips() {
+        let read = read_from_parts(
+            10,
+            [
+                (Kind::Match, 2),
+                (Kind::Deletion, 2),
+                (Kind::Match, 1),
+                (Kind::Skip, 1),
+                (Kind::Match, 1),
+            ],
+            b"AAAA",
+        );
+
+        assert!(!read.is_deletion_at(9));
+        assert!(!read.is_deletion_at(10));
+        assert!(!read.is_deletion_at(11));
+        assert!(read.is_deletion_at(12));
+        assert!(read.is_deletion_at(13));
+        assert!(!read.is_deletion_at(14));
+        assert!(read.is_deletion_at(15));
+        assert!(!read.is_deletion_at(16));
+        assert!(!read.is_deletion_at(17));
+    }
+
+    #[test]
+    fn has_insertion_at_detects_insertion_anchors() {
+        let read = read_from_parts(
+            10,
+            [
+                (Kind::Match, 2),
+                (Kind::Insertion, 2),
+                (Kind::Match, 1),
+                (Kind::Insertion, 1),
+            ],
+            b"AAIIT",
+        );
+
+        assert!(!read.has_insertion_at(11));
+        assert!(read.has_insertion_at(12));
+        assert!(read.has_insertion_at(13));
+        assert!(!read.has_insertion_at(14));
+    }
+
+    #[test]
+    fn is_softclip_at_detects_leading_and_trailing_softclips() {
+        let read = read_from_parts(
+            10,
+            [(Kind::SoftClip, 2), (Kind::Match, 3), (Kind::SoftClip, 1)],
+            b"SSAATZ",
+        );
+
+        assert!(!read.is_softclip_at(7));
+        assert!(read.is_softclip_at(8));
+        assert!(read.is_softclip_at(9));
+        assert!(!read.is_softclip_at(10));
+        assert!(!read.is_softclip_at(12));
+        assert!(read.is_softclip_at(13));
+        assert!(!read.is_softclip_at(14));
     }
 
     #[test]

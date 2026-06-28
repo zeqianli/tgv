@@ -381,6 +381,20 @@ mod tests {
         }
     }
 
+    #[test]
+    fn test_parse_paired_sort_display_options() {
+        let (remaining, options) = parse_display_options("paired sort base").unwrap();
+
+        assert!(remaining.is_empty());
+        assert_eq!(
+            options,
+            vec![
+                AlignmentDisplayOption::ViewAsPairs,
+                AlignmentDisplayOption::Sort(AlignmentSort::BaseAtCurrentPosition),
+            ]
+        );
+    }
+
     #[rstest]
     #[case("q", Ok(vec![Message::Quit]))]
     #[case("w", Ok(vec![Message::SaveSession(None)]))]

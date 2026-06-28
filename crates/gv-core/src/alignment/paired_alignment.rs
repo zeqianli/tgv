@@ -341,3 +341,99 @@ fn pair_gap_at(read_1: &AlignedRead, read_2: &AlignedRead, position: u64) -> boo
 
     false
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use noodles::sam::{
+        self,
+        alignment::{
+            record::{
+                Flags,
+                cigar::{Op, op::Kind},
+            },
+            record_buf::Cigar,
+        },
+    };
+
+    fn read(
+        name: &str,
+        start: u64,
+        cigar_ops: impl IntoIterator<Item = (Kind, usize)>,
+        sequence: &[u8],
+    ) -> AlignedRead {
+        let cigar: Cigar = cigar_ops
+            .into_iter()
+            .map(|(kind, len)| Op::new(kind, len))
+            .collect();
+
+        let record = sam::alignment::RecordBuf::builder()
+            .set_name(name)
+            .set_flags(Flags::from(0x1))
+            .set_alignment_start(noodles::core::Position::try_from(start as usize).unwrap())
+            .set_cigar(cigar)
+            .set_sequence(sam::alignment::record_buf::Sequence::from(sequence))
+            .build();
+
+        AlignedRead::try_from(record).unwrap()
+    }
+
+    fn alignment_from_reads(reads: Vec<AlignedRead>) -> Alignment {
+        Alignment::from_aligned_reads(
+            reads,
+            0,
+            (1, 100),
+            &Sequence {
+                start: 1,
+                sequence: vec![b'A'; 100],
+                contig_index: 0,
+            },
+        )
+        .unwrap()
+    }
+
+    #[test]
+    fn paired_sort_uses_read_1_then_read_2_then_pair_gap() {
+        let alignment = alignment_from_reads(vec![
+            read("read-1-wins", 10, [(Kind::Match, 1)], b"T"),
+            read("read-1-wins", 10, [(Kind::Match, 1)], b"A"),
+            read("sorts-first", 10, [(Kind::Match, 1)], b"A"),
+            read("sorts-first", 10, [(Kind::Match, 1)], b"T"),
+            read("read-2-fallback", 20, [(Kind::Match, 1)], b"G"),
+            read("read-2-fallback", 10, [(Kind::Match, 1)], b"C"),
+            read("pair-gap", 5, [(Kind::Match, 1)], b"G"),
+            read("pair-gap", 15, [(Kind::Match, 1)], b"G"),
+        ]);
+        let mut paired_alignment = PairedAlignment::new(&alignment).unwrap();
+
+        paired_alignment
+            .sort(&alignment, AlignmentSort::BaseAt(10))
+            .unwrap();
+
+        assert_eq!(paired_alignment.ys, vec![1, 0, 2, 3]);
+        assert_eq!(
+            paired_alignment.ys_index,
+            vec![vec![1], vec![0], vec![2], vec![3]]
+        );
+    }
+
+    #[test]
+    fn paired_sort_visibility_follows_underlying_reads() {
+        let mut alignment = alignment_from_reads(vec![
+            read("hidden", 10, [(Kind::Match, 1)], b"A"),
+            read("hidden", 10, [(Kind::Match, 1)], b"A"),
+            read("visible", 10, [(Kind::Match, 1)], b"T"),
+            read("visible", 10, [(Kind::Match, 1)], b"T"),
+        ]);
+        alignment.show_read[0] = false;
+        alignment.show_read[1] = false;
+
+        let mut paired_alignment = PairedAlignment::new(&alignment).unwrap();
+        paired_alignment
+            .sort(&alignment, AlignmentSort::BaseAt(10))
+            .unwrap();
+
+        assert_eq!(paired_alignment.show_pair, vec![false, true]);
+        assert_eq!(paired_alignment.ys_index, vec![vec![1]]);
+    }
+}
