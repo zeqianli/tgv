@@ -1,9 +1,13 @@
 use crate::{
     alignment::{
-        alignment::{Alignment, RENDERING_CONTEXT_NOT_CALCULATED, find_track},
+        alignment::{
+            Alignment, BaseSortKey, RENDERING_CONTEXT_NOT_CALCULATED, SortableStackItem,
+            find_track, read_base_sort_key_at, stack_tracks_by_sort_key,
+        },
         read::{AlignedRead, ReadPair, RenderingContext, calculate_paired_context},
     },
     error::TGVError,
+    message::AlignmentSort,
     sequence::Sequence,
 };
 use std::collections::HashMap;
@@ -39,7 +43,10 @@ impl PairedAlignment {
         let mate_map = calculate_mate_map(&alignment.reads)?;
         let read_pairs = build_read_pairs(alignment, &mate_map)?;
         let n_pair = read_pairs.len();
-        let show_pair = vec![true; n_pair];
+        let show_pair = read_pairs
+            .iter()
+            .map(|read_pair| pair_has_visible_read(read_pair, &alignment.show_read))
+            .collect::<Vec<_>>();
         let ys = stack_tracks_for_pairs(&alignment.reads, &read_pairs, &show_pair);
 
         let mut paired_alignment = Self {
@@ -140,6 +147,40 @@ impl PairedAlignment {
         self.ys_index = ys_index;
 
         Ok(())
+    }
+
+    pub fn sort(&mut self, alignment: &Alignment, option: AlignmentSort) -> Result<(), TGVError> {
+        match option {
+            AlignmentSort::BaseAt(position) => self.sort_by_base_at(alignment, position),
+            option => Err(TGVError::ValueError(format!(
+                "Paired alignment sorting is not implemented yet for option {option}"
+            ))),
+        }
+    }
+
+    fn sort_by_base_at(&mut self, alignment: &Alignment, position: u64) -> Result<(), TGVError> {
+        alignment.ensure_position_has_complete_data(position)?;
+
+        self.show_pair = self
+            .read_pairs
+            .iter()
+            .map(|read_pair| pair_has_visible_read(read_pair, &alignment.show_read))
+            .collect::<Vec<_>>();
+
+        let items = self
+            .read_pairs
+            .iter()
+            .zip(self.show_pair.iter())
+            .map(|(read_pair, show_pair)| SortableStackItem {
+                show: *show_pair,
+                stacking_start: read_pair.stacking_start(&alignment.reads),
+                stacking_end: read_pair.stacking_end(&alignment.reads),
+                sort_key: pair_base_sort_key_at(read_pair, alignment, position),
+            })
+            .collect::<Vec<_>>();
+
+        self.ys = stack_tracks_by_sort_key(&items, 10);
+        self.build_y_index()
     }
 }
 
@@ -249,4 +290,54 @@ fn stack_tracks_for_pairs(
             }
         })
         .collect()
+}
+
+fn pair_has_visible_read(read_pair: &ReadPair, show_reads: &[bool]) -> bool {
+    show_reads[read_pair.read_1_index]
+        || read_pair
+            .read_2_index
+            .is_some_and(|read_2_index| show_reads[read_2_index])
+}
+
+fn pair_base_sort_key_at(
+    read_pair: &ReadPair,
+    alignment: &Alignment,
+    position: u64,
+) -> Option<BaseSortKey> {
+    if alignment.show_read[read_pair.read_1_index]
+        && let Some(sort_key) =
+            read_base_sort_key_at(&alignment.reads[read_pair.read_1_index], position)
+    {
+        return Some(sort_key);
+    }
+
+    if let Some(read_2_index) = read_pair.read_2_index {
+        if alignment.show_read[read_2_index]
+            && let Some(sort_key) = read_base_sort_key_at(&alignment.reads[read_2_index], position)
+        {
+            return Some(sort_key);
+        }
+
+        if pair_gap_at(
+            &alignment.reads[read_pair.read_1_index],
+            &alignment.reads[read_2_index],
+            position,
+        ) {
+            return Some(BaseSortKey::PairGap);
+        }
+    }
+
+    None
+}
+
+fn pair_gap_at(read_1: &AlignedRead, read_2: &AlignedRead, position: u64) -> bool {
+    if read_1.stacking_end() < read_2.stacking_start() {
+        return position > read_1.stacking_end() && position < read_2.stacking_start();
+    }
+
+    if read_2.stacking_end() < read_1.stacking_start() {
+        return position > read_2.stacking_end() && position < read_1.stacking_start();
+    }
+
+    false
 }

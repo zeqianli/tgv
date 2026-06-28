@@ -10,6 +10,39 @@ use std::collections::{BTreeMap, HashMap, hash_map::Entry};
 
 pub(super) const RENDERING_CONTEXT_NOT_CALCULATED: u64 = u64::MAX;
 
+#[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
+pub(super) enum BaseSortKey {
+    A,
+    T,
+    C,
+    G,
+    N,
+    OtherBase,
+    Deletion,
+    Insertion,
+    PairGap,
+}
+
+impl BaseSortKey {
+    fn from_base(base: u8) -> Self {
+        match base.to_ascii_uppercase() {
+            b'A' => Self::A,
+            b'T' => Self::T,
+            b'C' => Self::C,
+            b'G' => Self::G,
+            b'N' => Self::N,
+            _ => Self::OtherBase,
+        }
+    }
+}
+
+pub(super) struct SortableStackItem {
+    pub show: bool,
+    pub stacking_start: u64,
+    pub stacking_end: u64,
+    pub sort_key: Option<BaseSortKey>,
+}
+
 /// An alignment stack
 #[derive(Debug, Default)]
 pub struct Alignment {
@@ -56,6 +89,18 @@ impl Alignment {
         (region.contig_index() == self.contig_index)
             && (region.start() >= self.data_complete_left_bound)
             && (region.end() <= self.data_complete_right_bound)
+    }
+
+    pub(super) fn ensure_position_has_complete_data(&self, position: u64) -> Result<(), TGVError> {
+        if position < self.data_complete_left_bound || position > self.data_complete_right_bound {
+            return Err(TGVError::AlignmentSortPositionNotLoaded {
+                position,
+                loaded_left: self.data_complete_left_bound,
+                loaded_right: self.data_complete_right_bound,
+            });
+        }
+
+        Ok(())
     }
 
     /// Return the number of alignment tracks.
@@ -226,9 +271,33 @@ impl Alignment {
     }
 
     pub fn sort(&mut self, option: AlignmentSort) -> Result<(), TGVError> {
-        Err(TGVError::ValueError(format!(
-            "Alignment sorting is not implemented yet for option {option}"
-        )))
+        match option {
+            AlignmentSort::BaseAt(position) => self.sort_by_base_at(position),
+            option => Err(TGVError::ValueError(format!(
+                "Alignment sorting is not implemented yet for option {option}"
+            ))),
+        }
+    }
+
+    fn sort_by_base_at(&mut self, position: u64) -> Result<(), TGVError> {
+        self.ensure_position_has_complete_data(position)?;
+
+        let items = self
+            .reads
+            .iter()
+            .zip(self.show_read.iter())
+            .map(|(read, show_read)| SortableStackItem {
+                show: *show_read,
+                stacking_start: read.stacking_start(),
+                stacking_end: read.stacking_end(),
+                sort_key: read_base_sort_key_at(read, position),
+            })
+            .collect::<Vec<_>>();
+
+        self.ys = stack_tracks_by_sort_key(&items, 3);
+        self.build_y_index()?;
+
+        Ok(())
     }
 }
 
@@ -255,6 +324,65 @@ fn stack_tracks_for_reads(reads: &Vec<AlignedRead>, show_reads: &Vec<bool>) -> V
         .collect::<Vec<usize>>()
 }
 
+pub(super) fn read_base_sort_key_at(read: &AlignedRead, position: u64) -> Option<BaseSortKey> {
+    if let Some(base) = read.base_at(position) {
+        return Some(BaseSortKey::from_base(base));
+    }
+
+    if read.is_deletion_at(position) {
+        return Some(BaseSortKey::Deletion);
+    }
+
+    if read.has_insertion_at(position) {
+        return Some(BaseSortKey::Insertion);
+    }
+
+    None
+}
+
+pub(super) fn stack_tracks_by_sort_key(items: &[SortableStackItem], min_gap: u64) -> Vec<usize> {
+    let mut ys = vec![0; items.len()];
+    let mut sorted_item_indexes = items
+        .iter()
+        .enumerate()
+        .filter_map(|(index, item)| {
+            if !item.show {
+                return None;
+            }
+
+            Some((item.sort_key?, index))
+        })
+        .collect::<Vec<_>>();
+
+    sorted_item_indexes.sort_by_key(|(sort_key, index)| (*sort_key, *index));
+
+    let mut is_sorted_item = vec![false; items.len()];
+    let mut track_left_bounds = Vec::with_capacity(sorted_item_indexes.len());
+    let mut track_right_bounds = Vec::with_capacity(sorted_item_indexes.len());
+    for (y, (_sort_key, index)) in sorted_item_indexes.iter().enumerate() {
+        ys[*index] = y;
+        is_sorted_item[*index] = true;
+        track_left_bounds.push(items[*index].stacking_start);
+        track_right_bounds.push(items[*index].stacking_end);
+    }
+
+    for (index, item) in items.iter().enumerate() {
+        if !item.show || is_sorted_item[index] {
+            continue;
+        }
+
+        ys[index] = find_track(
+            item.stacking_start,
+            item.stacking_end,
+            &mut track_left_bounds,
+            &mut track_right_bounds,
+            min_gap,
+        );
+    }
+
+    ys
+}
+
 pub(super) fn find_track(
     start: u64,
     end: u64,
@@ -279,5 +407,5 @@ pub(super) fn find_track(
 
     track_left_bounds.push(start);
     track_right_bounds.push(end);
-    track_left_bounds.len()
+    track_left_bounds.len() - 1
 }

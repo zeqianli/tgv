@@ -9,7 +9,7 @@ use crate::{
     error::TGVError,
     feature::Gene,
     intervals::{Focus, GenomeInterval, Region},
-    message::{AlignmentDisplayOption, AlignmentFilter, Movement},
+    message::{AlignmentDisplayOption, AlignmentFilter, AlignmentSort, Movement},
     reference::Reference,
     //register::Registers,
     //rendering::{MainLayout, layout::resize_node},
@@ -436,31 +436,71 @@ impl State {
                     AlignmentDisplayOption::Filter(AlignmentFilter::BaseSoftclip(focus.position))
                 }
 
+                AlignmentDisplayOption::Sort(sort) => AlignmentDisplayOption::Sort(
+                    resolve_alignment_sort_current_position(sort, focus.position),
+                ),
+
                 option => option,
             })
             .collect_vec();
 
         self.alignment_options[index] = options.clone();
 
-        options.into_iter().try_for_each(|option| match option {
-            AlignmentDisplayOption::Filter(filter) => {
-                self.alignments[index].filter(filter, &self.sequence)
-            }
+        let view_as_pairs = options.contains(&AlignmentDisplayOption::ViewAsPairs);
+        let mut applied_sorts = Vec::new();
 
-            AlignmentDisplayOption::Sort(sort) => self.alignments[index].sort(sort), // TODO
+        options
+            .iter()
+            .cloned()
+            .try_for_each(|option| match option {
+                AlignmentDisplayOption::Filter(filter) => {
+                    self.alignments[index].filter(filter, &self.sequence)
+                }
 
-            AlignmentDisplayOption::ViewAsPairs => {
-                self.paired_alignments[index] =
-                    Some(PairedAlignment::new(&self.alignments[index])?);
-                Ok(())
+                AlignmentDisplayOption::Sort(sort) => {
+                    match self.alignments[index].sort(sort.clone()) {
+                        Ok(()) => applied_sorts.push(sort),
+                        Err(TGVError::AlignmentSortPositionNotLoaded { .. }) => {}
+                        Err(error) => return Err(error),
+                    }
+                    Ok(())
+                }
+
+                AlignmentDisplayOption::ViewAsPairs => Ok(()),
+            })?;
+
+        if view_as_pairs {
+            let mut paired_alignment = PairedAlignment::new(&self.alignments[index])?;
+            for sort in applied_sorts {
+                match paired_alignment.sort(&self.alignments[index], sort) {
+                    Ok(()) => {}
+                    Err(TGVError::AlignmentSortPositionNotLoaded { .. }) => {}
+                    Err(error) => return Err(error),
+                }
             }
-            _ => Ok(()),
-        })?;
+            self.paired_alignments[index] = Some(paired_alignment);
+        } else {
+            self.paired_alignments[index] = None;
+        }
 
         Ok(())
     }
 
     //Self::get_data_requirements(state, repository)
+}
+
+fn resolve_alignment_sort_current_position(sort: AlignmentSort, position: u64) -> AlignmentSort {
+    match sort {
+        AlignmentSort::BaseAtCurrentPosition => AlignmentSort::BaseAt(position),
+        AlignmentSort::Then(first, second) => AlignmentSort::Then(
+            Box::new(resolve_alignment_sort_current_position(*first, position)),
+            Box::new(resolve_alignment_sort_current_position(*second, position)),
+        ),
+        AlignmentSort::Reverse(sort) => AlignmentSort::Reverse(Box::new(
+            resolve_alignment_sort_current_position(*sort, position),
+        )),
+        sort => sort,
+    }
 }
 
 // Movement handling

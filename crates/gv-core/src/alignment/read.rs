@@ -306,6 +306,25 @@ impl AlignedRead {
         false
     }
 
+    /// Return whether an insertion is anchored at the coordinate.
+    pub fn has_insertion_at(&self, coordinate: u64) -> bool {
+        let mut reference_pivot = self.start;
+
+        for op in self.record.cigar().as_ref() {
+            let kind = op.kind();
+
+            if kind == Kind::Insertion && reference_pivot == coordinate {
+                return true;
+            }
+
+            if kind.consumes_reference() {
+                reference_pivot = reference_pivot.saturating_add(op.len() as u64);
+            }
+        }
+
+        false
+    }
+
     pub fn passes_filter(&self, filter: &AlignmentFilter) -> bool {
         match filter {
             AlignmentFilter::Default => true,

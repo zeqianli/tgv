@@ -96,7 +96,7 @@ fn parse_session_command(
 
 /// Highest level parser
 fn parse_display_options(input: &str) -> IResult<&str, Vec<AlignmentDisplayOption>> {
-    many0(alt((parse_filter, parse_sort))).parse(input)
+    many0(alt((parse_view_as_pair, parse_filter, parse_sort))).parse(input)
 }
 
 fn restore_default_options(input: &str) -> IResult<&str, bool> {
@@ -115,6 +115,12 @@ fn view_as_pair(input: &str) -> IResult<&str, bool> {
         delimited(multispace0, tag_no_case("paired"), multispace0).parse(input)?;
 
     Ok((input, (input.is_empty() && !parsed.is_empty())))
+}
+
+fn parse_view_as_pair(input: &str) -> IResult<&str, AlignmentDisplayOption> {
+    delimited(multispace0, tag_no_case("paired"), multispace0)
+        .parse(input)
+        .map(|(input, _)| (input, AlignmentDisplayOption::ViewAsPairs))
 }
 
 fn parse_optional_parenthesis(input: &str) -> IResult<&str, Option<Option<u64>>> {
