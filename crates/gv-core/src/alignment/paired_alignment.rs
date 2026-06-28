@@ -1,9 +1,13 @@
 use crate::{
     alignment::{
-        alignment::{Alignment, RENDERING_CONTEXT_NOT_CALCULATED, find_track},
+        alignment::{
+            Alignment, BaseSortKey, RENDERING_CONTEXT_NOT_CALCULATED, SortableStackItem,
+            find_track, read_base_sort_key_at, stack_tracks_by_sort_key,
+        },
         read::{AlignedRead, ReadPair, RenderingContext, calculate_paired_context},
     },
     error::TGVError,
+    message::AlignmentSort,
     sequence::Sequence,
 };
 use std::collections::HashMap;
@@ -39,7 +43,10 @@ impl PairedAlignment {
         let mate_map = calculate_mate_map(&alignment.reads)?;
         let read_pairs = build_read_pairs(alignment, &mate_map)?;
         let n_pair = read_pairs.len();
-        let show_pair = vec![true; n_pair];
+        let show_pair = read_pairs
+            .iter()
+            .map(|read_pair| pair_has_visible_read(read_pair, &alignment.show_read))
+            .collect::<Vec<_>>();
         let ys = stack_tracks_for_pairs(&alignment.reads, &read_pairs, &show_pair);
 
         let mut paired_alignment = Self {
@@ -140,6 +147,40 @@ impl PairedAlignment {
         self.ys_index = ys_index;
 
         Ok(())
+    }
+
+    pub fn sort(&mut self, alignment: &Alignment, option: AlignmentSort) -> Result<(), TGVError> {
+        match option {
+            AlignmentSort::BaseAt(position) => self.sort_by_base_at(alignment, position),
+            option => Err(TGVError::ValueError(format!(
+                "Paired alignment sorting is not implemented yet for option {option}"
+            ))),
+        }
+    }
+
+    fn sort_by_base_at(&mut self, alignment: &Alignment, position: u64) -> Result<(), TGVError> {
+        alignment.ensure_position_has_complete_data(position)?;
+
+        self.show_pair = self
+            .read_pairs
+            .iter()
+            .map(|read_pair| pair_has_visible_read(read_pair, &alignment.show_read))
+            .collect::<Vec<_>>();
+
+        let items = self
+            .read_pairs
+            .iter()
+            .zip(self.show_pair.iter())
+            .map(|(read_pair, show_pair)| SortableStackItem {
+                show: *show_pair,
+                stacking_start: read_pair.stacking_start(&alignment.reads),
+                stacking_end: read_pair.stacking_end(&alignment.reads),
+                sort_key: pair_base_sort_key_at(read_pair, alignment, position),
+            })
+            .collect::<Vec<_>>();
+
+        self.ys = stack_tracks_by_sort_key(&items, 10);
+        self.build_y_index()
     }
 }
 
@@ -249,4 +290,150 @@ fn stack_tracks_for_pairs(
             }
         })
         .collect()
+}
+
+fn pair_has_visible_read(read_pair: &ReadPair, show_reads: &[bool]) -> bool {
+    show_reads[read_pair.read_1_index]
+        || read_pair
+            .read_2_index
+            .is_some_and(|read_2_index| show_reads[read_2_index])
+}
+
+fn pair_base_sort_key_at(
+    read_pair: &ReadPair,
+    alignment: &Alignment,
+    position: u64,
+) -> Option<BaseSortKey> {
+    if alignment.show_read[read_pair.read_1_index]
+        && let Some(sort_key) =
+            read_base_sort_key_at(&alignment.reads[read_pair.read_1_index], position)
+    {
+        return Some(sort_key);
+    }
+
+    if let Some(read_2_index) = read_pair.read_2_index {
+        if alignment.show_read[read_2_index]
+            && let Some(sort_key) = read_base_sort_key_at(&alignment.reads[read_2_index], position)
+        {
+            return Some(sort_key);
+        }
+
+        if pair_gap_at(
+            &alignment.reads[read_pair.read_1_index],
+            &alignment.reads[read_2_index],
+            position,
+        ) {
+            return Some(BaseSortKey::PairGap);
+        }
+    }
+
+    None
+}
+
+fn pair_gap_at(read_1: &AlignedRead, read_2: &AlignedRead, position: u64) -> bool {
+    if read_1.stacking_end() < read_2.stacking_start() {
+        return position > read_1.stacking_end() && position < read_2.stacking_start();
+    }
+
+    if read_2.stacking_end() < read_1.stacking_start() {
+        return position > read_2.stacking_end() && position < read_1.stacking_start();
+    }
+
+    false
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use noodles::sam::{
+        self,
+        alignment::{
+            record::{
+                Flags,
+                cigar::{Op, op::Kind},
+            },
+            record_buf::Cigar,
+        },
+    };
+
+    fn read(
+        name: &str,
+        start: u64,
+        cigar_ops: impl IntoIterator<Item = (Kind, usize)>,
+        sequence: &[u8],
+    ) -> AlignedRead {
+        let cigar: Cigar = cigar_ops
+            .into_iter()
+            .map(|(kind, len)| Op::new(kind, len))
+            .collect();
+
+        let record = sam::alignment::RecordBuf::builder()
+            .set_name(name)
+            .set_flags(Flags::from(0x1))
+            .set_alignment_start(noodles::core::Position::try_from(start as usize).unwrap())
+            .set_cigar(cigar)
+            .set_sequence(sam::alignment::record_buf::Sequence::from(sequence))
+            .build();
+
+        AlignedRead::try_from(record).unwrap()
+    }
+
+    fn alignment_from_reads(reads: Vec<AlignedRead>) -> Alignment {
+        Alignment::from_aligned_reads(
+            reads,
+            0,
+            (1, 100),
+            &Sequence {
+                start: 1,
+                sequence: vec![b'A'; 100],
+                contig_index: 0,
+            },
+        )
+        .unwrap()
+    }
+
+    #[test]
+    fn paired_sort_uses_read_1_then_read_2_then_pair_gap() {
+        let alignment = alignment_from_reads(vec![
+            read("read-1-wins", 10, [(Kind::Match, 1)], b"T"),
+            read("read-1-wins", 10, [(Kind::Match, 1)], b"A"),
+            read("sorts-first", 10, [(Kind::Match, 1)], b"A"),
+            read("sorts-first", 10, [(Kind::Match, 1)], b"T"),
+            read("read-2-fallback", 20, [(Kind::Match, 1)], b"G"),
+            read("read-2-fallback", 10, [(Kind::Match, 1)], b"C"),
+            read("pair-gap", 5, [(Kind::Match, 1)], b"G"),
+            read("pair-gap", 15, [(Kind::Match, 1)], b"G"),
+        ]);
+        let mut paired_alignment = PairedAlignment::new(&alignment).unwrap();
+
+        paired_alignment
+            .sort(&alignment, AlignmentSort::BaseAt(10))
+            .unwrap();
+
+        assert_eq!(paired_alignment.ys, vec![1, 0, 2, 3]);
+        assert_eq!(
+            paired_alignment.ys_index,
+            vec![vec![1], vec![0], vec![2], vec![3]]
+        );
+    }
+
+    #[test]
+    fn paired_sort_visibility_follows_underlying_reads() {
+        let mut alignment = alignment_from_reads(vec![
+            read("hidden", 10, [(Kind::Match, 1)], b"A"),
+            read("hidden", 10, [(Kind::Match, 1)], b"A"),
+            read("visible", 10, [(Kind::Match, 1)], b"T"),
+            read("visible", 10, [(Kind::Match, 1)], b"T"),
+        ]);
+        alignment.show_read[0] = false;
+        alignment.show_read[1] = false;
+
+        let mut paired_alignment = PairedAlignment::new(&alignment).unwrap();
+        paired_alignment
+            .sort(&alignment, AlignmentSort::BaseAt(10))
+            .unwrap();
+
+        assert_eq!(paired_alignment.show_pair, vec![false, true]);
+        assert_eq!(paired_alignment.ys_index, vec![vec![1]]);
+    }
 }

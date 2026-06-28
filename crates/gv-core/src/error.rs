@@ -63,4 +63,13 @@ pub enum TGVError {
 
     #[error("Alignment Parse error")]
     AlignmentParseError(String),
+
+    #[error(
+        "Cannot sort alignment by base at position {position}: the loaded alignment region is {loaded_left}-{loaded_right}."
+    )]
+    AlignmentSortPositionNotLoaded {
+        position: u64,
+        loaded_left: u64,
+        loaded_right: u64,
+    },
 }

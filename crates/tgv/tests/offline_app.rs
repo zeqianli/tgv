@@ -1,6 +1,8 @@
 mod support;
 
-use gv_core::message::{Message as CoreMessage, Movement, Scroll, Zoom};
+use gv_core::message::{
+    AlignmentDisplayOption, AlignmentSort, Message as CoreMessage, Movement, Scroll, Zoom,
+};
 use rstest::rstest;
 use support::{AppHarness, test_data_path};
 use tempfile::TempDir;
@@ -107,6 +109,30 @@ async fn offline_sequence_updates_tracks_and_scenes() {
         harness.app.state.messages,
         vec!["scripted-note".to_string()]
     );
+
+    harness.close().await.unwrap();
+}
+
+#[tokio::test]
+async fn offline_sequence_handles_sorting_command() {
+    let args = offline_case_args(
+        Some("ncbi.sorted.bam"),
+        "-r chr22:33121120 --no-reference --offline",
+    );
+    let mut harness = AppHarness::from_args(&args).await.unwrap();
+    let sort_position = harness.app.alignment_view.focus.position;
+    let initial_messages = harness.app.state.messages.clone();
+
+    harness.handle_command("sort base").await.unwrap();
+
+    assert_eq!(
+        harness.app.state.alignment_options[0],
+        vec![AlignmentDisplayOption::Sort(AlignmentSort::BaseAt(
+            sort_position
+        ))]
+    );
+    assert_eq!(harness.app.state.messages, initial_messages);
+    assert!(harness.app.state.alignments[0].depth() > 0);
 
     harness.close().await.unwrap();
 }
