@@ -30,7 +30,7 @@ const TRACK_PREFERENCES: [&str; 5] = [
     "ncbiRefSeqCurated",
     "ncbiRefSeq",
     "ncbiGene",
-    "refGenes",
+    "refGene",
 ];
 
 /// Holds cache for track service queries.

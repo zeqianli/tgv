@@ -1,4 +1,5 @@
 use bigtools::{BBIReadError, BigBedReadOpenError};
+use std::path::PathBuf;
 use thiserror::Error;
 
 #[derive(Debug, Error)]
@@ -12,6 +13,38 @@ pub enum TGVError {
 
     #[error("SQLx error: {0}")]
     SqlxError(#[from] sqlx::Error),
+
+    #[error(
+        "The UCSC MariaDB download and HTTPS fallback failed. MariaDB: {mysql}. HTTPS: {https}."
+    )]
+    UcscDownloadFallbackError {
+        mysql: Box<TGVError>,
+        https: Box<TGVError>,
+    },
+
+    #[error("Failed to {operation} from {url}: {source}")]
+    UcscHttpRequestError {
+        operation: &'static str,
+        url: String,
+        #[source]
+        source: reqwest::Error,
+    },
+
+    #[error("Failed to read the UCSC HTTPS dump for table {table} from {url}: {source}")]
+    UcscTableReadError {
+        table: String,
+        url: String,
+        #[source]
+        source: std::io::Error,
+    },
+
+    #[error("Failed to {operation} {path}: {source}")]
+    FileOperationError {
+        operation: &'static str,
+        path: PathBuf,
+        #[source]
+        source: std::io::Error,
+    },
 
     #[error("JSON serialization error: {0}")]
     JsonSerializationError(#[from] serde_json::Error),
