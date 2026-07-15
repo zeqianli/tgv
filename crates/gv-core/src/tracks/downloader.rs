@@ -37,6 +37,14 @@ enum UCSCColumnType {
     String,
 }
 
+#[derive(Debug, PartialEq)]
+enum UCSCFieldValue {
+    Integer(Option<i64>),
+    Float(Option<f64>),
+    Blob(Option<Vec<u8>>),
+    String(Option<String>),
+}
+
 impl UCSCColumnType {
     fn to_sqlite_type(&self) -> &str {
         match self {
@@ -46,6 +54,82 @@ impl UCSCColumnType {
             UCSCColumnType::Blob => "BLOB",
             UCSCColumnType::String => "TEXT",
         }
+    }
+}
+
+fn validate_https_column_count(
+    field_count: usize,
+    expected_column_count: usize,
+    table_name: &str,
+    row_number: usize,
+) -> Result<(), TGVError> {
+    if field_count != expected_column_count {
+        return Err(TGVError::ParsingError(format!(
+            "The UCSC {table_name} dump has {field_count} columns on row {row_number}; expected {expected_column_count}."
+        )));
+    }
+    Ok(())
+}
+
+fn parse_https_field(
+    field: &[u8],
+    column_type: UCSCColumnType,
+    table_name: &str,
+    column_name: &str,
+    row_number: usize,
+) -> Result<UCSCFieldValue, TGVError> {
+    let is_null = field == b"\\N";
+    match column_type {
+        UCSCColumnType::UnsignedInt | UCSCColumnType::Int => Ok(UCSCFieldValue::Integer(
+            (!is_null)
+                .then(|| {
+                    std::str::from_utf8(field)
+                        .map_err(|error| {
+                            TGVError::ParsingError(format!(
+                                "The UCSC {table_name}.{column_name} value on row {row_number} is not UTF-8: {error}."
+                            ))
+                        })?
+                        .parse::<i64>()
+                        .map_err(|error| {
+                            TGVError::ParsingError(format!(
+                                "The UCSC {table_name}.{column_name} value on row {row_number} is not an integer: {error}."
+                            ))
+                        })
+                })
+                .transpose()?,
+        )),
+        UCSCColumnType::Float => Ok(UCSCFieldValue::Float(
+            (!is_null)
+                .then(|| {
+                    std::str::from_utf8(field)
+                        .map_err(|error| {
+                            TGVError::ParsingError(format!(
+                                "The UCSC {table_name}.{column_name} value on row {row_number} is not UTF-8: {error}."
+                            ))
+                        })?
+                        .parse::<f64>()
+                        .map_err(|error| {
+                            TGVError::ParsingError(format!(
+                                "The UCSC {table_name}.{column_name} value on row {row_number} is not a number: {error}."
+                            ))
+                        })
+                })
+                .transpose()?,
+        )),
+        UCSCColumnType::Blob => Ok(UCSCFieldValue::Blob((!is_null).then(|| field.to_vec()))),
+        UCSCColumnType::String => Ok(UCSCFieldValue::String(
+            (!is_null)
+                .then(|| {
+                    std::str::from_utf8(field)
+                        .map_err(|error| {
+                            TGVError::ParsingError(format!(
+                                "The UCSC {table_name}.{column_name} value on row {row_number} is not UTF-8: {error}."
+                            ))
+                        })
+                        .map(str::to_owned)
+                })
+                .transpose()?,
+        )),
     }
 }
 
@@ -364,77 +448,21 @@ impl UCSCDownloader {
             }
 
             let fields = line.split(|byte| *byte == b'\t').collect::<Vec<_>>();
-            if fields.len() != columns.len() {
-                return Err(TGVError::ParsingError(format!(
-                    "The UCSC {table_name} dump has {} columns on row {row_number}; expected {}.",
-                    fields.len(),
-                    columns.len()
-                )));
-            }
+            validate_https_column_count(fields.len(), columns.len(), table_name, row_number)?;
 
             let mut query = sqlx::query(&insert_sql);
             for ((column_name, column_type), field) in columns.iter().zip(fields) {
-                let is_null = field == b"\\N";
-                query = match column_type {
-                    UCSCColumnType::UnsignedInt | UCSCColumnType::Int => {
-                        let value = if is_null {
-                            None
-                        } else {
-                            Some(
-                                std::str::from_utf8(field)
-                                    .map_err(|error| {
-                                        TGVError::ParsingError(format!(
-                                            "The UCSC {table_name}.{column_name} value on row {row_number} is not UTF-8: {error}."
-                                        ))
-                                    })?
-                                    .parse::<i64>()
-                                    .map_err(|error| {
-                                        TGVError::ParsingError(format!(
-                                            "The UCSC {table_name}.{column_name} value on row {row_number} is not an integer: {error}."
-                                        ))
-                                    })?,
-                            )
-                        };
-                        query.bind(value)
-                    }
-                    UCSCColumnType::Float => {
-                        let value = if is_null {
-                            None
-                        } else {
-                            Some(
-                                std::str::from_utf8(field)
-                                    .map_err(|error| {
-                                        TGVError::ParsingError(format!(
-                                            "The UCSC {table_name}.{column_name} value on row {row_number} is not UTF-8: {error}."
-                                        ))
-                                    })?
-                                    .parse::<f64>()
-                                    .map_err(|error| {
-                                        TGVError::ParsingError(format!(
-                                            "The UCSC {table_name}.{column_name} value on row {row_number} is not a number: {error}."
-                                        ))
-                                    })?,
-                            )
-                        };
-                        query.bind(value)
-                    }
-                    UCSCColumnType::Blob => query.bind((!is_null).then(|| field.to_vec())),
-                    UCSCColumnType::String => {
-                        let value = if is_null {
-                            None
-                        } else {
-                            Some(
-                                std::str::from_utf8(field)
-                                    .map_err(|error| {
-                                        TGVError::ParsingError(format!(
-                                            "The UCSC {table_name}.{column_name} value on row {row_number} is not UTF-8: {error}."
-                                        ))
-                                    })?
-                                    .to_owned(),
-                            )
-                        };
-                        query.bind(value)
-                    }
+                query = match parse_https_field(
+                    field,
+                    *column_type,
+                    table_name,
+                    column_name,
+                    row_number,
+                )? {
+                    UCSCFieldValue::Integer(value) => query.bind(value),
+                    UCSCFieldValue::Float(value) => query.bind(value),
+                    UCSCFieldValue::Blob(value) => query.bind(value),
+                    UCSCFieldValue::String(value) => query.bind(value),
                 };
             }
             query.execute(&mut **transaction).await?;
@@ -1433,4 +1461,83 @@ fn get_preferred_track_name_from_vec(names: &Vec<String>) -> Result<Option<Strin
     }
 
     Ok(None)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use rstest::rstest;
+
+    #[rstest]
+    #[case(b"42", UCSCColumnType::UnsignedInt, UCSCFieldValue::Integer(Some(42)))]
+    #[case(
+        b"-42",
+        UCSCColumnType::Int,
+        UCSCFieldValue::Integer(Some(-42))
+    )]
+    #[case(b"3.5", UCSCColumnType::Float, UCSCFieldValue::Float(Some(3.5)))]
+    #[case(
+        b"data",
+        UCSCColumnType::Blob,
+        UCSCFieldValue::Blob(Some(b"data".to_vec()))
+    )]
+    #[case(
+        b"chr1",
+        UCSCColumnType::String,
+        UCSCFieldValue::String(Some("chr1".to_owned()))
+    )]
+    fn parses_valid_https_fields(
+        #[case] field: &[u8],
+        #[case] column_type: UCSCColumnType,
+        #[case] expected: UCSCFieldValue,
+    ) {
+        assert_eq!(
+            parse_https_field(field, column_type, "chromInfo", "chrom", 3).unwrap(),
+            expected
+        );
+    }
+
+    #[rstest]
+    #[case(b"\\N", UCSCColumnType::UnsignedInt, UCSCFieldValue::Integer(None))]
+    #[case(b"\\N", UCSCColumnType::Float, UCSCFieldValue::Float(None))]
+    #[case(b"\\N", UCSCColumnType::Blob, UCSCFieldValue::Blob(None))]
+    #[case(b"\\N", UCSCColumnType::String, UCSCFieldValue::String(None))]
+    fn parses_null_https_fields(
+        #[case] field: &[u8],
+        #[case] column_type: UCSCColumnType,
+        #[case] expected: UCSCFieldValue,
+    ) {
+        assert_eq!(
+            parse_https_field(field, column_type, "chromInfo", "chrom", 3).unwrap(),
+            expected
+        );
+    }
+
+    #[rstest]
+    #[case(b"\xff", UCSCColumnType::String, "is not UTF-8")]
+    #[case(b"not-a-number", UCSCColumnType::UnsignedInt, "is not an integer")]
+    #[case(b"not-a-number", UCSCColumnType::Float, "is not a number")]
+    fn rejects_invalid_https_fields(
+        #[case] field: &[u8],
+        #[case] column_type: UCSCColumnType,
+        #[case] expected_message: &str,
+    ) {
+        let error = parse_https_field(field, column_type, "chromInfo", "chrom", 3)
+            .unwrap_err()
+            .to_string();
+
+        assert!(error.contains(expected_message), "{error}");
+    }
+
+    #[test]
+    fn rejects_an_incorrect_https_column_count() {
+        let error = validate_https_column_count(2, 3, "chromInfo", 3)
+            .unwrap_err()
+            .to_string();
+
+        assert_eq!(
+            error,
+            "Parsing error: The UCSC chromInfo dump has 2 columns on row 3; expected 3."
+        );
+    }
 }
