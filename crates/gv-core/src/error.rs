@@ -38,7 +38,7 @@ pub enum TGVError {
         source: std::io::Error,
     },
 
-    #[error("Failed to {operation} {path}: {source}")]
+    #[error("Failed to {operation} {}: {source}", path.display())]
     FileOperationError {
         operation: &'static str,
         path: PathBuf,
