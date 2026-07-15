@@ -16,6 +16,8 @@ use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio_util::io::StreamReader;
 
 const UCSC_MARIADB_CONNECT_TIMEOUT: Duration = Duration::from_secs(5);
+const UCSC_HTTPS_CONNECT_TIMEOUT: Duration = Duration::from_secs(10);
+const UCSC_HTTPS_REQUEST_TIMEOUT: Duration = Duration::from_secs(30 * 60);
 
 /// Download data from UCSC mariaDB to a local sqlite file.
 pub struct UCSCDownloader {
@@ -178,7 +180,10 @@ impl UCSCDownloader {
 
     /// Import UCSC's compressed table dumps when direct MariaDB access is unavailable.
     async fn download_from_https(&self, sqlite_pool: &SqlitePool) -> Result<(), TGVError> {
-        let client = Client::new();
+        let client = Client::builder()
+            .connect_timeout(UCSC_HTTPS_CONNECT_TIMEOUT)
+            .timeout(UCSC_HTTPS_REQUEST_TIMEOUT)
+            .build()?;
         let database_url = format!(
             "https://hgdownload.soe.ucsc.edu/goldenPath/{}/database",
             self.reference
@@ -878,7 +883,10 @@ impl UCSCDownloader {
             return Ok(local_path);
         }
 
-        let client = Client::new();
+        let client = Client::builder()
+            .connect_timeout(UCSC_HTTPS_CONNECT_TIMEOUT)
+            .timeout(UCSC_HTTPS_REQUEST_TIMEOUT)
+            .build()?;
 
         println!("Downloading file: {}", local_path.display());
 
