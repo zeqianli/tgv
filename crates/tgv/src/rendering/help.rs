@@ -26,11 +26,11 @@ pub fn render_help(area: &Rect, buf: &mut Buffer) -> Result<(), TGVError> {
  |:ls / :contigs|                   Switch chromosomes
 
  |h / j / k / l|   Move left / down / up / right
- |y / p|           Move left / right faster
+ |H / J / K / L|   Move left / down / up / right faster
  |w / b / W / B|   Beginning of the next exon / previous exon / next gene / previous gene
  |e / ge / E / gE| End of the next exon / previous exon / next gene / previous gene
  |z / o|           Zoom in / out
- |{{ / }}|         Move up / down faster
+ |y / p / {{ / }}|   Legacy fast-movement aliases
 
  |<num><key>|      Repeat movements. Examples:
      - 5h: Move left by 5 bases

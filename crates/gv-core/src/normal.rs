@@ -112,6 +112,21 @@ fn parse_input(input: String) -> Result<Vec<Message>, TGVError> {
             n: n_movements * SMALL_VERTICAL_STEP,
         })]),
 
+        "H" => Ok(vec![Message::from(Movement::Left(
+            LARGE_HORIZONTAL_STEP * n_movements as u64,
+        ))]),
+        "L" => Ok(vec![Message::from(Movement::Right(
+            LARGE_HORIZONTAL_STEP * n_movements as u64,
+        ))]),
+        "J" => Ok(vec![Message::from(Scroll::Down {
+            index: 0,
+            n: LARGE_VERTICAL_STEP * n_movements,
+        })]),
+        "K" => Ok(vec![Message::from(Scroll::Up {
+            index: 0,
+            n: LARGE_VERTICAL_STEP * n_movements,
+        })]),
+
         "y" => Ok(vec![Message::from(Movement::Left(
             LARGE_HORIZONTAL_STEP * n_movements as u64,
         ))]),
