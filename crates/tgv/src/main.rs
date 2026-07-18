@@ -29,10 +29,15 @@ async fn main() -> Result<(), TGVError> {
         Some(Commands::Download {
             reference,
             cache_dir,
+            source,
         }) => {
             log::info!("Starting download for reference {reference}");
             let cache_dir = shellexpand::tilde(&cache_dir).to_string();
-            let downloader = UCSCDownloader::new(reference.parse::<Reference>()?, &cache_dir)?;
+            let downloader = UCSCDownloader::new(
+                reference.parse::<Reference>()?,
+                &cache_dir,
+                (*source).into(),
+            )?;
             downloader.download().await?;
             return Ok(());
         }

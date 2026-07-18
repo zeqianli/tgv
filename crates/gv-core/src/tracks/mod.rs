@@ -19,7 +19,7 @@ use chrono::Local;
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
 
-pub use downloader::UCSCDownloader;
+pub use downloader::{UCSCDownloadSource, UCSCDownloader};
 pub use local_db::LocalDbTrackService;
 pub use ucsc_api::UcscApiTrackService;
 pub use ucsc_db::UcscDbTrackService;

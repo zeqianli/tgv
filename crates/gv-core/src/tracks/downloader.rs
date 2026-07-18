@@ -25,6 +25,22 @@ pub struct UCSCDownloader {
 
     /// TGV main cache directory. Reference data are stored in cache_dir/reference_name/.
     cache_dir: String,
+
+    source: UCSCDownloadSource,
+}
+
+/// The source to use when downloading UCSC assembly data.
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub enum UCSCDownloadSource {
+    /// Try MariaDB first, then fall back to HTTPS when it fails.
+    #[default]
+    Automatic,
+
+    /// Only download from UCSC MariaDB.
+    MariaDbOnly,
+
+    /// Only download from UCSC HTTPS table dumps.
+    HttpsOnly,
 }
 
 /// UCSC column type. Used to map MySQL types to SQLite types.
@@ -134,13 +150,18 @@ fn parse_https_field(
 }
 
 impl UCSCDownloader {
-    pub fn new(reference: Reference, cache_dir: &str) -> Result<Self, TGVError> {
+    pub fn new(
+        reference: Reference,
+        cache_dir: &str,
+        source: UCSCDownloadSource,
+    ) -> Result<Self, TGVError> {
         let cache_dir = reference.cache_dir(cache_dir);
         std::fs::create_dir_all(Path::new(&cache_dir))
             .map_err(|e| TGVError::IOError(format!("Failed to create genome directory: {}", e)))?;
         Ok(Self {
             reference: reference.clone(),
             cache_dir,
+            source,
         })
     }
 
@@ -199,6 +220,19 @@ impl UCSCDownloader {
         reference: &Reference,
         sqlite_pool: &Pool<Sqlite>,
     ) -> Result<(), TGVError> {
+        if self.source == UCSCDownloadSource::MariaDbOnly {
+            self.download_from_mysql(reference, sqlite_pool, &UcscHost::Us)
+                .await?;
+            println!("Successfully downloaded track data for {reference}");
+            return Ok(());
+        }
+
+        if self.source == UCSCDownloadSource::HttpsOnly {
+            self.download_from_https(sqlite_pool).await?;
+            println!("Successfully downloaded track data for {reference}");
+            return Ok(());
+        }
+
         let mysql = match self
             .download_from_mysql(reference, sqlite_pool, &UcscHost::Us)
             .await

@@ -1,6 +1,9 @@
 mod support;
 
-use gv_core::{reference::Reference, tracks::UCSCDownloader};
+use gv_core::{
+    reference::Reference,
+    tracks::{UCSCDownloadSource, UCSCDownloader},
+};
 use rstest::rstest;
 use std::path::Path;
 use support::{AppHarness, test_data_path};
@@ -35,7 +38,8 @@ async fn online_download_integration_test(#[case] reference_str: &str) {
     let reference = reference_str.parse::<Reference>().unwrap();
     let temp_dir = TempDir::new().unwrap();
     let temp_dir_str = temp_dir.path().to_str().unwrap();
-    let downloader = UCSCDownloader::new(reference, temp_dir_str).unwrap();
+    let downloader =
+        UCSCDownloader::new(reference, temp_dir_str, UCSCDownloadSource::Automatic).unwrap();
 
     downloader.download().await.unwrap();
 
