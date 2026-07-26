@@ -1117,6 +1117,7 @@ name = "gv-core"
 version = "0.3.0"
 dependencies = [
  "async-compat",
+ "async-compression",
  "async-trait",
  "bigtools",
  "bytes",
@@ -1143,6 +1144,7 @@ dependencies = [
  "tempfile",
  "thiserror 2.0.18",
  "tokio",
+ "tokio-util",
  "twobit",
  "url",
 ]

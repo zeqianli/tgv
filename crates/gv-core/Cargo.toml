@@ -9,6 +9,7 @@ homepage = "https://github.com/zeqianli/tgv"
 
 [dependencies]
 async-compat.workspace = true
+async-compression.workspace = true
 async-trait.workspace = true
 bigtools.workspace = true
 bytes.workspace = true
@@ -29,7 +30,9 @@ shellexpand.workspace = true
 sqlx.workspace = true
 strum.workspace = true
 thiserror.workspace = true
+tempfile.workspace = true
 tokio.workspace = true
+tokio-util.workspace = true
 twobit.workspace = true
 url.workspace = true
 

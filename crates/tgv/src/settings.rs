@@ -8,7 +8,7 @@ use gv_core::error::TGVError;
 use gv_core::message::Movement;
 use gv_core::reference::Reference;
 use gv_core::settings::{AlignmentPath, BackendType, BamSource, FilePath};
-use gv_core::tracks::UcscHost;
+use gv_core::tracks::{UCSCDownloadSource, UcscHost};
 use std::path::PathBuf;
 
 #[derive(Debug, Clone, Eq, PartialEq, ValueEnum)]
@@ -31,6 +31,32 @@ impl From<UcscHostCli> for UcscHost {
     }
 }
 
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq, ValueEnum)]
+pub enum UCSCDownloadSourceCli {
+    /// Try UCSC MariaDB first, then fall back to HTTPS.
+    #[value(name = "auto")]
+    #[default]
+    Automatic,
+
+    /// Only download from UCSC MariaDB.
+    #[value(name = "db")]
+    MariaDbOnly,
+
+    /// Only download from UCSC HTTPS table dumps.
+    #[value(name = "https")]
+    HttpsOnly,
+}
+
+impl From<UCSCDownloadSourceCli> for UCSCDownloadSource {
+    fn from(value: UCSCDownloadSourceCli) -> Self {
+        match value {
+            UCSCDownloadSourceCli::Automatic => Self::Automatic,
+            UCSCDownloadSourceCli::MariaDbOnly => Self::MariaDbOnly,
+            UCSCDownloadSourceCli::HttpsOnly => Self::HttpsOnly,
+        }
+    }
+}
+
 #[derive(Subcommand, Clone, Debug)]
 pub enum Commands {
     /// Download reference data.
@@ -41,6 +67,10 @@ pub enum Commands {
         /// Cache directory.
         #[arg(long = "cache-dir", default_value = "~/.tgv")]
         cache_dir: String,
+
+        /// Select the UCSC download source.
+        #[arg(long, value_enum, default_value_t)]
+        source: UCSCDownloadSourceCli,
     },
 
     /// List reference genomes.
