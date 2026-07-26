@@ -16,7 +16,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Instant;
 
-const UCSC_HGCENTRAL_URL: &str = "mysql://genome@genome-mysql.soe.ucsc.edu/hgcentral";
+const UCSC_HGCENTRAL_URL: &str = "mysql://genome@genome-mysql.gi.ucsc.edu/hgcentral";
 
 #[derive(Debug)]
 pub struct UcscDbTrackService {

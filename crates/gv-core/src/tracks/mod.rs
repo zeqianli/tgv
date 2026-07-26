@@ -19,7 +19,7 @@ use chrono::Local;
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
 
-pub use downloader::UCSCDownloader;
+pub use downloader::{UCSCDownloadSource, UCSCDownloader};
 pub use local_db::LocalDbTrackService;
 pub use ucsc_api::UcscApiTrackService;
 pub use ucsc_db::UcscDbTrackService;
@@ -30,7 +30,7 @@ const TRACK_PREFERENCES: [&str; 5] = [
     "ncbiRefSeqCurated",
     "ncbiRefSeq",
     "ncbiGene",
-    "refGenes",
+    "refGene",
 ];
 
 /// Holds cache for track service queries.
@@ -581,7 +581,7 @@ impl std::string::ToString for UcscHost {
 impl UcscHost {
     pub fn url(&self) -> String {
         match self {
-            UcscHost::Us => "genome-mysql.soe.ucsc.edu".to_string(),
+            UcscHost::Us => "genome-mysql.gi.ucsc.edu".to_string(),
             UcscHost::Eu => "genome-euro-mysql.soe.ucsc.edu".to_string(),
         }
     }
