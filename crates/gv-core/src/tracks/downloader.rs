@@ -337,16 +337,35 @@ impl UCSCDownloader {
             ),
         ] {
             let url = format!("{database_url}/{table_name}.txt.gz");
-            let response = client
-                .get(&url)
-                .send()
-                .await
-                .and_then(Response::error_for_status)
-                .map_err(|source| TGVError::UcscHttpRequestError {
-                    operation: "download a UCSC table dump",
-                    url: url.clone(),
-                    source,
-                })?;
+            let response =
+                client
+                    .get(&url)
+                    .send()
+                    .await
+                    .map_err(|source| TGVError::UcscHttpRequestError {
+                        operation: "check for a UCSC table dump",
+                        url: url.clone(),
+                        source,
+                    })?;
+            if response.status() == StatusCode::NOT_FOUND
+                && matches!(table_name, "chromAlias" | "cytoBandIdeo")
+            {
+                Self::create_https_table(table_name, columns, &mut transaction).await?;
+                log::info!(
+                    "UCSC HTTPS table dump is unavailable; created an empty table: reference={} table={}",
+                    self.reference,
+                    table_name
+                );
+                continue;
+            }
+            let response =
+                response
+                    .error_for_status()
+                    .map_err(|source| TGVError::UcscHttpRequestError {
+                        operation: "download a UCSC table dump",
+                        url: url.clone(),
+                        source,
+                    })?;
             self.import_https_table(table_name, columns, &url, response, &mut transaction)
                 .await?;
         }
@@ -431,17 +450,7 @@ impl UCSCDownloader {
     ) -> Result<(), TGVError> {
         println!("Importing {table_name} over HTTPS...");
 
-        let column_definitions = columns
-            .iter()
-            .map(|(name, column_type)| format!("{name} {}", column_type.to_sqlite_type()))
-            .collect::<Vec<_>>()
-            .join(", ");
-        sqlx::query(&format!("DROP TABLE IF EXISTS {table_name}"))
-            .execute(&mut **transaction)
-            .await?;
-        sqlx::query(&format!("CREATE TABLE {table_name} ({column_definitions})"))
-            .execute(&mut **transaction)
-            .await?;
+        Self::create_https_table(table_name, columns, transaction).await?;
 
         let column_names = columns
             .iter()
@@ -508,6 +517,25 @@ impl UCSCDownloader {
             )));
         }
         println!("Imported {table_name} ({row_number} rows)");
+        Ok(())
+    }
+
+    async fn create_https_table(
+        table_name: &str,
+        columns: &[(&str, UCSCColumnType)],
+        transaction: &mut sqlx::Transaction<'_, Sqlite>,
+    ) -> Result<(), TGVError> {
+        let column_definitions = columns
+            .iter()
+            .map(|(name, column_type)| format!("{name} {}", column_type.to_sqlite_type()))
+            .collect::<Vec<_>>()
+            .join(", ");
+        sqlx::query(&format!("DROP TABLE IF EXISTS {table_name}"))
+            .execute(&mut **transaction)
+            .await?;
+        sqlx::query(&format!("CREATE TABLE {table_name} ({column_definitions})"))
+            .execute(&mut **transaction)
+            .await?;
         Ok(())
     }
 
