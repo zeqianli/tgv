@@ -1,24 +1,32 @@
-use crate::{
-    layout::{MainLayout, SidebarLabel},
-    rendering::Palette,
-};
+use crate::{layout::ResolvedMainLayout, rendering::Palette};
+use gv_core::repository::Repository;
 use ratatui::{
     buffer::Buffer,
+    layout::Rect,
     style::{Color, Style},
 };
 use unicode_width::{UnicodeWidthChar, UnicodeWidthStr};
 
 pub fn render_chrome(
     buf: &mut Buffer,
-    layout: &MainLayout,
+    layout: &ResolvedMainLayout,
+    repository: &Repository,
     palette: &Palette,
     sidebar_resizing: bool,
 ) {
     let sidebar_style = Style::default().bg(palette.background).fg(Color::Gray);
     if layout.sidebar_area.width > 0 {
         buf.set_style(layout.sidebar_area, sidebar_style);
-        for label in &layout.sidebar_labels {
-            render_sidebar_label(buf, label, sidebar_style);
+        for (repository_index, full_rect, source_rect, destination_rect) in &layout.file_rects {
+            let source_path = repository.source_path(*repository_index);
+            render_sidebar_label(
+                buf,
+                file_name(source_path),
+                *full_rect,
+                *source_rect,
+                *destination_rect,
+                sidebar_style,
+            );
         }
     }
 
@@ -33,38 +41,51 @@ pub fn render_chrome(
         }
     }
 
-    if let Some(metrics) = layout.scrollbar_metrics() {
+    if layout.scrollbar_area.width > 0 {
         let track_style = Style::default().fg(Color::DarkGray).bg(palette.background);
         let thumb_style = Style::default().fg(Color::Gray).bg(palette.background);
         for y in layout.scrollbar_area.top()..layout.scrollbar_area.bottom() {
             buf.set_string(layout.scrollbar_area.x, y, "│", track_style);
         }
-        let thumb_top = layout.scrollbar_area.y.saturating_add(metrics.thumb_start);
-        let thumb_bottom = thumb_top.saturating_add(metrics.thumb_length);
-        for y in thumb_top..thumb_bottom {
+        for y in layout.scrollbar_thumb_area.top()..layout.scrollbar_thumb_area.bottom() {
             buf.set_string(layout.scrollbar_area.x, y, "█", thumb_style);
         }
     }
 }
 
-fn render_sidebar_label(buf: &mut Buffer, label: &SidebarLabel, style: Style) {
-    if label.area.width == 0 || label.area.height == 0 || label.full_height == 0 {
+fn render_sidebar_label(
+    buf: &mut Buffer,
+    text: &str,
+    full_rect: Rect,
+    source_rect: Rect,
+    destination_rect: Rect,
+    style: Style,
+) {
+    if destination_rect.width == 0 || destination_rect.height == 0 || full_rect.height == 0 {
         return;
     }
 
-    let lines = filename_lines(&label.text, label.area.width, label.full_height);
-    for visible_row in 0..label.area.height {
-        let source_row = label.top_clip.saturating_add(visible_row) as usize;
+    let lines = filename_lines(text, full_rect.width, full_rect.height);
+    for visible_row in 0..destination_rect.height {
+        let source_row = source_rect.y.saturating_add(visible_row) as usize;
         if let Some(line) = lines.get(source_row) {
             buf.set_stringn(
-                label.area.x,
-                label.area.y.saturating_add(visible_row),
+                destination_rect.x,
+                destination_rect.y.saturating_add(visible_row),
                 line,
-                label.area.width as usize,
+                destination_rect.width as usize,
                 style,
             );
         }
     }
+}
+
+fn file_name(path: &str) -> &str {
+    path.trim_end_matches(['/', '\\'])
+        .rsplit(['/', '\\'])
+        .next()
+        .filter(|name| !name.is_empty())
+        .unwrap_or(path)
 }
 
 fn filename_lines(text: &str, width: u16, height: u16) -> Vec<String> {
@@ -191,5 +212,12 @@ mod tests {
     fn filenames_use_terminal_display_width() {
         assert_eq!(filename_lines("前後.bam", 4, 2), vec!["前後", ".bam"]);
         assert_eq!(filename_lines("前後.bam", 4, 1), vec!["前…m"]);
+    }
+
+    #[test]
+    fn input_file_names_hide_parent_paths() {
+        assert_eq!(file_name("/data/sample.bam"), "sample.bam");
+        assert_eq!(file_name(r"C:\data\sample.bam"), "sample.bam");
+        assert_eq!(file_name("s3://bucket/sample.bam"), "sample.bam");
     }
 }

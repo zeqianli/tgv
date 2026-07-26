@@ -4,10 +4,11 @@ use crossterm::event::KeyCode;
 use gv_core::message::{
     AlignmentDisplayOption, AlignmentSort, Message as CoreMessage, Movement, Scroll, Zoom,
 };
+use ratatui::layout::Rect;
 use rstest::rstest;
 use support::{AppHarness, test_data_path};
 use tempfile::TempDir;
-use tgv::{app::Scene, layout::AreaType, message::Message, session::SessionFile};
+use tgv::{app::Scene, layout::MainLayoutArea, message::Message, session::SessionFile};
 
 fn absolutize_fixture_args(args: &str) -> String {
     args.replace(
@@ -46,7 +47,15 @@ async fn offline_initialization_succeeds(#[case] args: &str) {
     let harness = AppHarness::from_args(&args).await.unwrap();
     assert!(!harness.locus().is_empty());
     if !args.contains(".bam") {
-        assert!(harness.app.layout.tracks.contains(&AreaType::Fill));
+        assert!(
+            harness
+                .app
+                .resolve_layout(Rect::new(0, 0, 80, 24))
+                .track_rects
+                .iter()
+                .map(|(area_type, _, _, _)| *area_type)
+                .any(|area_type| area_type == MainLayoutArea::Fill)
+        );
     }
     harness.close().await.unwrap();
 }
@@ -92,20 +101,22 @@ async fn offline_sequence_updates_tracks_and_scenes() {
         "-r chr22:33121120 tests/data/simple.vcf tests/data/simple.bed --no-reference --offline",
     );
     let mut harness = AppHarness::from_args(&args).await.unwrap();
-    let expanded_main_width = harness.app.layout.main_area.width;
+    let terminal_area = Rect::new(0, 0, 80, 24);
+    let expanded_main_width = harness.app.resolve_layout(terminal_area).main_area.width;
 
     harness
         .handle_key_codes([KeyCode::Char(' '), KeyCode::Char('e')])
         .await
         .unwrap();
-    assert!(!harness.app.layout.sidebar_expanded());
-    assert!(harness.app.layout.main_area.width > expanded_main_width);
+    let collapsed = harness.app.resolve_layout(terminal_area);
+    assert_eq!(collapsed.sidebar_area.width, 0);
+    assert!(collapsed.main_area.width > expanded_main_width);
 
     harness
         .handle_key_codes([KeyCode::Char(' '), KeyCode::Char('e')])
         .await
         .unwrap();
-    assert!(harness.app.layout.sidebar_expanded());
+    assert!(harness.app.resolve_layout(terminal_area).sidebar_area.width > 0);
 
     harness
         .handle(vec![

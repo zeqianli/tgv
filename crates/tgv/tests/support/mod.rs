@@ -4,7 +4,7 @@ use gv_core::{
     error::TGVError,
     message::{Message as CoreMessage, Movement},
 };
-use ratatui::{Terminal, backend::TestBackend};
+use ratatui::{Terminal, backend::TestBackend, layout::Rect};
 use tgv::{
     app::App,
     message::Message,
@@ -39,14 +39,13 @@ impl AppHarness {
     }
 
     async fn initialize(&mut self) -> Result<(), TGVError> {
-        self.terminal
-            .draw(|frame| {
-                let _ = self.app.layout.set_area(frame.area());
-            })
-            .expect("initial layout draw");
-
+        let terminal_size = self.terminal.size().expect("the terminal has a size");
+        let terminal_area = Rect::new(0, 0, terminal_size.width, terminal_size.height);
         self.app
-            .handle(self.app.settings.initial_state_messages.clone())
+            .handle(
+                self.app.settings.initial_state_messages.clone(),
+                terminal_area,
+            )
             .await?;
         self.self_correct()?;
         self.render();
@@ -54,7 +53,9 @@ impl AppHarness {
     }
 
     pub async fn handle(&mut self, messages: Vec<Message>) -> Result<(), TGVError> {
-        self.app.handle(messages).await?;
+        let terminal_size = self.terminal.size().expect("the terminal has a size");
+        let terminal_area = Rect::new(0, 0, terminal_size.width, terminal_size.height);
+        self.app.handle(messages, terminal_area).await?;
         self.self_correct()?;
         self.render();
         Ok(())
@@ -74,7 +75,9 @@ impl AppHarness {
                 .app
                 .registers
                 .handle_key_event(KeyEvent::new(key_code, KeyModifiers::NONE), &self.app.state)?;
-            self.app.handle(messages).await?;
+            let terminal_size = self.terminal.size().expect("the terminal has a size");
+            let terminal_area = Rect::new(0, 0, terminal_size.width, terminal_size.height);
+            self.app.handle(messages, terminal_area).await?;
         }
         self.self_correct()?;
         self.render();
@@ -114,9 +117,12 @@ impl AppHarness {
             .app
             .state
             .contig_length(&self.app.alignment_view.focus)?;
+        let terminal_size = self.terminal.size().expect("the terminal has a size");
+        let terminal_area = Rect::new(0, 0, terminal_size.width, terminal_size.height);
+        let resolved_layout = self.app.resolve_layout(terminal_area);
         self.app
             .alignment_view
-            .self_correct(&self.app.layout.main_area, contig_length);
+            .self_correct(&resolved_layout.main_area, contig_length);
         Ok(())
     }
 
@@ -124,7 +130,6 @@ impl AppHarness {
         self.terminal
             .draw(|frame| {
                 let buffer = frame.buffer_mut();
-                let _ = self.app.layout.set_area(buffer.area);
                 self.app.render(buffer).expect("render");
             })
             .expect("terminal render");

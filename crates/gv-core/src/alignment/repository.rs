@@ -243,6 +243,14 @@ impl AlignmentRepositoryEnum {
             )),
         }
     }
+
+    pub fn source_path(&self) -> &str {
+        match self {
+            Self::Bam(repository) => &repository.bam_path,
+            Self::RemoteBam(repository) => &repository.bam_path,
+            Self::Cram(repository) => &repository.cram_path,
+        }
+    }
 }
 
 impl AlignmentRepositoryEnum {
