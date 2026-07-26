@@ -30,7 +30,6 @@ pub fn render_help(area: &Rect, buf: &mut Buffer) -> Result<(), TGVError> {
  |w / b / W / B|   Beginning of the next exon / previous exon / next gene / previous gene
  |e / ge / E / gE| End of the next exon / previous exon / next gene / previous gene
  |z / o|           Zoom in / out
- |y / p / {{ / }}|   Legacy fast-movement aliases
 
  |<num><key>|      Repeat movements. Examples:
      - 5h: Move left by 5 bases

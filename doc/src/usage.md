@@ -20,13 +20,12 @@ Normal mode
 |---------|-------------|---------|
 | `:` | Enter command mode | |
 | `h/j/k/l` | Move left / down / up / right | |
-| `y/p` | Fast move left / right | |
+| `H/J/K/L` | Move left / down / up / right faster | |
 | `w/b` | Beginning of the next / previous exon |  |
 | `e/ge` | End of the next / previous exon | |
 | `W/B` | Beginning of the next / previous gene | |
 | `E/gE` | End of the next / previous gene | |
 | `z/o` | Zoom in / out | |
-| `{/}` | Fast move up / down | |
 | `_number_` + `_movement_` | Move by `_number_` steps | `20h`: left by 20 bases |
 
 Command mode
@@ -57,9 +56,7 @@ FILTER BASE(123)=C
 | Command | TGV | Vim | Notes |
 |-------|-----|--|--|
 | `h/l` | Horizontal movement | Character | |
-| `y/p` | Fast horizontal movement | NA | `y/p` do different things in Vim |
 | `w/b/e/ge` | Exon | word | |
 | `W/B/E/gE` | Gene | WORD | |
 | `j/k` | Alignment track | Line | |
 | `z/o` | Zoom | NA | `o` does a different thing in Vim |
-| `{/}` | Fast vertical movement | Paragraph | |

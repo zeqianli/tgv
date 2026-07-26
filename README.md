@@ -24,7 +24,7 @@ tgv -g cat
 
 - `:q`: Quit
 - `:wq`: Save the current session and quit.
-- `h/j/k/l/y/p`: Left / down / up / right / faster left / faster right
+- `h/j/k/l`: Left / down / up / right
 - `W/B/w/b`: Next gene / previous gene / next exon / previous exon
 - `z/o`: Zoom in / out
 - `:_gene_` / `:_chr_:_position_`: Go to gene: (e.g. `:TP53`) / chromosome position (e.g. `:1:2345`)
