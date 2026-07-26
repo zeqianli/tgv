@@ -26,7 +26,13 @@ Normal mode
 | `W/B` | Beginning of the next / previous gene | |
 | `E/gE` | End of the next / previous gene | |
 | `z/o` | Zoom in / out | |
+| `<Space>e` | Toggle the track filename sidebar | |
 | `_number_` + `_movement_` | Move by `_number_` steps | `20h`: left by 20 bases |
+
+The sidebar starts open and displays the filenames of BAM, CRAM, VCF, and BED
+tracks. Drag its divider to resize it. The right-side scrollbar is always
+visible; drag its thumb or click its track when the track canvas is taller than
+the terminal.
 
 Command mode
 

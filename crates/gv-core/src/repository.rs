@@ -13,29 +13,42 @@ use crate::{
 use itertools::Itertools;
 use std::{path::Path, time::Instant};
 
+/// Identifies a file-backed repository and its index within the corresponding collection.
 #[derive(Debug, Clone, Copy, Eq, PartialEq)]
 pub enum RepositoryFileIndex {
+    /// An alignment repository at the given index in [`Repository::alignment_repositories`].
     Alignment(usize),
+
+    /// A variant repository at the given index in [`Repository::variant_repositories`].
     Variant(usize),
+
+    /// A BED repository at the given index in [`Repository::bed_repositories`].
     Bed(usize),
 }
 
+/// Owns the initialized data sources used to load genomic data.
 pub struct Repository {
+    /// The file-backed repositories in input order.
+    pub file_indexes: Vec<RepositoryFileIndex>,
+
+    /// BAM and CRAM repositories
     pub alignment_repositories: Vec<AlignmentRepositoryEnum>,
 
+    /// VCF repositories
     pub variant_repositories: Vec<VariantRepository>,
 
+    /// BED repositories
     pub bed_repositories: Vec<BedRepository>,
 
+    /// Reference-annotation service
     pub track_service: Option<TrackServiceEnum>,
 
+    /// Reference-sequence service
     pub sequence_service: Option<SequenceRepositoryEnum>,
 }
 
 impl Repository {
-    pub async fn new(
-        settings: &Settings,
-    ) -> Result<(Self, ContigHeader, Vec<RepositoryFileIndex>), TGVError> {
+    pub async fn new(settings: &Settings) -> Result<(Self, ContigHeader), TGVError> {
         let started = Instant::now();
         log::info!(
             "Initializing repository resources: reference={} files={}",
@@ -219,7 +232,7 @@ impl Repository {
                             );
                         });
                 }
-                RepositoryFileIndex::Variant(index) => {
+                RepositoryFileIndex::Variant(_index) => {
                     // variant_repositories[*index]
                     //     .read_contigs()?
                     //     .into_iter()
@@ -232,7 +245,7 @@ impl Repository {
                     //         );
                     //     });
                 }
-                RepositoryFileIndex::Bed(index) => {
+                RepositoryFileIndex::Bed(_index) => {
                     // bed_repositories[*index]
                     //     .read_contigs()?
                     //     .into_iter()
@@ -261,6 +274,7 @@ impl Repository {
         // PERF: async
         Ok((
             Self {
+                file_indexes: repository_file_indexes,
                 alignment_repositories,
                 variant_repositories,
                 bed_repositories,
@@ -268,8 +282,17 @@ impl Repository {
                 sequence_service,
             },
             contig_header,
-            repository_file_indexes,
         ))
+    }
+
+    pub fn source_path(&self, file_index: RepositoryFileIndex) -> &str {
+        match file_index {
+            RepositoryFileIndex::Alignment(index) => {
+                self.alignment_repositories[index].source_path()
+            }
+            RepositoryFileIndex::Variant(index) => &self.variant_repositories[index].vcf_path,
+            RepositoryFileIndex::Bed(index) => &self.bed_repositories[index].bed_path,
+        }
     }
 
     pub fn track_service_checked(&mut self) -> Result<&mut TrackServiceEnum, TGVError> {

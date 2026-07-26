@@ -12,6 +12,8 @@ pub enum Message {
     SwitchKeyRegister(KeyRegisterType),
 
     ClearAllKeyRegisters,
+
+    ToggleSidebar,
 }
 
 impl Message {

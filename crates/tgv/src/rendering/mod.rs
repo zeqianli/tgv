@@ -9,6 +9,7 @@ mod cytoband;
 mod help;
 mod intervals;
 mod sequence;
+mod sidebar;
 mod status_bar;
 mod track;
 mod variants;
@@ -22,17 +23,20 @@ pub use coverage::render_coverage;
 pub use cytoband::render_cytobands;
 pub use help::render_help;
 pub use sequence::render_sequence;
+pub use sidebar::render_chrome;
 pub use status_bar::render_status_bar;
 pub use track::render_track;
 pub use variants::render_variants;
 
 use crate::{
-    layout::{AlignmentView, AreaType, MainLayout},
+    layout::{AlignmentView, MainLayoutArea, ResolvedMainLayout},
     mouse::MouseRegister,
     register::{KeyRegisterType, Registers},
 };
 
-use gv_core::{error::TGVError, message::AlignmentDisplayOption, state::State};
+use gv_core::{
+    error::TGVError, message::AlignmentDisplayOption, repository::Repository, state::State,
+};
 use ratatui::{buffer::Buffer, layout::Rect, style::Style};
 
 /// Render all areas in the layout
@@ -40,101 +44,163 @@ pub fn render_main(
     buf: &mut Buffer,
     state: &mut State,
     registers: &Registers,
-    layout: &MainLayout,
+    layout: &ResolvedMainLayout,
+    repository: &Repository,
     alignment_view: &AlignmentView,
     mouse_register: &MouseRegister,
     pallete: &Palette,
 ) -> Result<(), TGVError> {
-    // Render each area based on its type
-    for (area_type, rect) in layout.areas.iter() {
-        if rect.y >= buf.area.height || rect.x >= buf.area.width {
+    for (area_type, full_rect, source_rect, rect) in &layout.track_rects {
+        if rect.height == 0 || rect.width == 0 {
             continue;
         }
 
-        match area_type {
-            AreaType::Cytoband => render_cytobands(rect, buf, state, alignment_view, pallete)?,
-            AreaType::Coordinate => render_coordinates(rect, buf, alignment_view, state)?,
-            AreaType::Coverage(index) => {
-                if alignment_view.zoom <= AlignmentView::MAX_ZOOM_TO_DISPLAY_ALIGNMENTS
-                    && let Some(alignment) = state.alignments.get(*index)
-                {
-                    render_coverage(rect, buf, alignment, alignment_view, pallete)?;
-                }
-            }
-            AreaType::Alignment(index) => {
-                if alignment_view.zoom <= AlignmentView::MAX_ZOOM_TO_DISPLAY_ALIGNMENTS {
-                    if state.alignment_options[*index]
-                        .contains(&AlignmentDisplayOption::ViewAsPairs)
-                    {
-                        let paired_alignment = state.paired_alignments[*index].as_mut().ok_or(
-                            TGVError::StateError(
-                                format!("Paired alignment {index} not yet calculated at rendering")
-                                    .to_string(),
-                            ),
-                        )?;
-
-                        render_paired_alignment(
-                            *index,
-                            rect,
-                            buf,
-                            &mut state.alignments[*index],
-                            alignment_view,
-                            paired_alignment,
-                            &state.sequence,
-                            pallete,
-                        )?;
-                    } else {
-                        render_alignment(
-                            *index,
-                            rect,
-                            buf,
-                            &mut state.alignments[*index],
-                            alignment_view,
-                            &state.sequence,
-                            pallete,
-                        )?;
-                    }
-                }
-            }
-            AreaType::AlignmentDivider { .. } => render_alignment_divider(
+        if source_rect == full_rect {
+            render_area(
+                *area_type,
                 rect,
                 buf,
+                state,
+                registers,
+                alignment_view,
+                mouse_register,
                 pallete,
-                mouse_register.is_divider_highlighted(area_type),
-            ),
-            AreaType::Sequence => {
-                if alignment_view.zoom <= AlignmentView::MAX_ZOOM_TO_DISPLAY_SEQUENCES {
-                    render_sequence(rect, buf, state, alignment_view, pallete)?;
+            )?;
+            continue;
+        }
+
+        let mut track_buffer = Buffer::empty(*full_rect);
+        render_area(
+            *area_type,
+            full_rect,
+            &mut track_buffer,
+            state,
+            registers,
+            alignment_view,
+            mouse_register,
+            pallete,
+        )?;
+        for destination_y in 0..rect.height {
+            let source_y = source_rect.y.saturating_add(destination_y);
+            for x in 0..rect.width {
+                let source = track_buffer
+                    .cell((x, source_y))
+                    .expect("the source cell is within the track buffer")
+                    .clone();
+                buf.cell_mut((
+                    rect.x.saturating_add(x),
+                    rect.y.saturating_add(destination_y),
+                ))
+                .expect("the destination cell is within the terminal buffer")
+                .clone_from(&source);
+            }
+        }
+    }
+
+    render_chrome(
+        buf,
+        layout,
+        repository,
+        pallete,
+        mouse_register.sidebar_resizing,
+    );
+    Ok(())
+}
+
+#[allow(clippy::too_many_arguments)]
+fn render_area(
+    area_type: MainLayoutArea,
+    rect: &Rect,
+    buf: &mut Buffer,
+    state: &mut State,
+    registers: &Registers,
+    alignment_view: &AlignmentView,
+    mouse_register: &MouseRegister,
+    pallete: &Palette,
+) -> Result<(), TGVError> {
+    match area_type {
+        MainLayoutArea::Cytoband => render_cytobands(rect, buf, state, alignment_view, pallete)?,
+        MainLayoutArea::Coordinate => render_coordinates(rect, buf, alignment_view, state)?,
+        MainLayoutArea::Coverage(index) => {
+            if alignment_view.zoom <= AlignmentView::MAX_ZOOM_TO_DISPLAY_ALIGNMENTS
+                && let Some(alignment) = state.alignments.get(index)
+            {
+                render_coverage(rect, buf, alignment, alignment_view, pallete)?;
+            }
+        }
+        MainLayoutArea::Alignment(index) => {
+            if alignment_view.zoom <= AlignmentView::MAX_ZOOM_TO_DISPLAY_ALIGNMENTS {
+                if state.alignment_options[index].contains(&AlignmentDisplayOption::ViewAsPairs) {
+                    let paired_alignment =
+                        state.paired_alignments[index]
+                            .as_mut()
+                            .ok_or(TGVError::StateError(
+                                format!("Paired alignment {index} not yet calculated at rendering")
+                                    .to_string(),
+                            ))?;
+
+                    render_paired_alignment(
+                        index,
+                        rect,
+                        buf,
+                        &mut state.alignments[index],
+                        alignment_view,
+                        paired_alignment,
+                        &state.sequence,
+                        pallete,
+                    )?;
+                } else {
+                    render_alignment(
+                        index,
+                        rect,
+                        buf,
+                        &mut state.alignments[index],
+                        alignment_view,
+                        &state.sequence,
+                        pallete,
+                    )?;
                 }
             }
-            AreaType::GeneTrack => {
-                render_track(rect, buf, state, alignment_view, pallete)?;
+        }
+        MainLayoutArea::AlignmentDivider { .. } => render_alignment_divider(
+            rect,
+            buf,
+            pallete,
+            mouse_register.is_divider_highlighted(&area_type),
+        ),
+        MainLayoutArea::Sequence => {
+            if alignment_view.zoom <= AlignmentView::MAX_ZOOM_TO_DISPLAY_SEQUENCES {
+                render_sequence(rect, buf, state, alignment_view, pallete)?;
             }
-            AreaType::Console => {
-                if registers.current == KeyRegisterType::Command {
-                    render_console(rect, buf, registers)?;
-                }
+        }
+        MainLayoutArea::GeneTrack => {
+            render_track(rect, buf, state, alignment_view, pallete)?;
+        }
+        MainLayoutArea::Console => {
+            if registers.current == KeyRegisterType::Command {
+                render_console(rect, buf, registers)?;
             }
-            AreaType::Error => {
-                render_status_bar(
-                    rect,
-                    buf,
-                    state,
-                    alignment_view,
-                    mouse_register.hovered_alignment,
-                )?;
+        }
+        MainLayoutArea::Error => {
+            render_status_bar(
+                rect,
+                buf,
+                state,
+                alignment_view,
+                mouse_register.hovered_alignment,
+            )?;
+        }
+        MainLayoutArea::Variant(index) => {
+            if let Some(variants) = state.variants.get(index) {
+                render_variants(rect, buf, variants, alignment_view, pallete)?;
             }
-            AreaType::Variant(index) => {
-                if let Some(variants) = state.variants.get(*index) {
-                    render_variants(rect, buf, variants, alignment_view, pallete)?;
-                }
+        }
+        MainLayoutArea::Bed(index) => {
+            if let Some(bed_intervals) = state.bed_intervals.get(index) {
+                render_bed(rect, buf, bed_intervals, alignment_view, pallete)?;
             }
-            AreaType::Bed(index) => {
-                if let Some(bed_intervals) = state.bed_intervals.get(*index) {
-                    render_bed(rect, buf, bed_intervals, alignment_view, pallete)?;
-                }
-            }
-        };
+        }
+        MainLayoutArea::Fill => {}
     }
     Ok(())
 }
