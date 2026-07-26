@@ -5,6 +5,7 @@ use gv_core::{
     intervals::{Focus, GenomeInterval, Region},
     message::{Scroll, Zoom},
     repository::RepositoryFileIndex,
+    settings::{AlignmentPath, FilePath},
 };
 use ratatui::layout::Rect;
 
@@ -21,6 +22,7 @@ pub enum AreaType {
     Error,
     Variant(usize),
     Bed(usize),
+    Fill,
 }
 
 impl AreaType {
@@ -37,6 +39,7 @@ impl AreaType {
             AreaType::Error => Some(2),
             AreaType::Variant(_) => Some(1),
             AreaType::Bed(_) => Some(1),
+            AreaType::Fill => None,
         }
     }
 }
@@ -188,6 +191,10 @@ impl AlignmentView {
 
     /// Move the viewing window be within the contig range.
     pub fn self_correct(&mut self, area: &Rect, contig_length: Option<u64>) {
+        if area.width == 0 {
+            return;
+        }
+
         if let Some(contig_length) = contig_length {
             // 1. Zoom: cannot be large than contig_length / area.width
             self.zoom = u64::min(self.zoom, contig_length / area.width as u64);
@@ -277,18 +284,73 @@ impl AlignmentView {
     }
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct VisibleArea {
+    pub area_type: AreaType,
+    pub area: Rect,
+    pub top_clip: u16,
+    pub full_height: u16,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SidebarLabel {
+    pub text: String,
+    pub area: Rect,
+    pub top_clip: u16,
+    pub full_height: u16,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ScrollbarMetrics {
+    pub thumb_start: u16,
+    pub thumb_length: u16,
+    pub track_length: u16,
+}
+
+#[derive(Debug, Clone)]
+struct TrackLabel {
+    text: String,
+    first: AreaType,
+    last: AreaType,
+}
+
+#[derive(Debug, Clone, Copy)]
+struct ContentArea {
+    area_type: AreaType,
+    y: usize,
+    height: u16,
+}
+
 /// Main page layout
 pub struct MainLayout {
     pub tracks: Vec<AreaType>,
 
+    pub terminal_area: Rect,
+    pub sidebar_area: Rect,
+    pub sidebar_divider_area: Rect,
     pub main_area: Rect,
+    pub scrollbar_area: Rect,
 
-    pub areas: Vec<(AreaType, Rect)>,
+    pub areas: Vec<VisibleArea>,
+    pub sidebar_labels: Vec<SidebarLabel>,
+
+    sidebar_expanded: bool,
+    sidebar_width: u16,
+    content_areas: Vec<ContentArea>,
+    alignment_heights: Vec<u16>,
+    track_labels: Vec<TrackLabel>,
+    content_height: usize,
+    scroll_offset: usize,
 }
 
 impl MainLayout {
     const ALIGNMENT_MIN_HEIGHT: u16 = 1;
     const COVERAGE_HEIGHT: u16 = 6;
+    pub const SIDEBAR_DEFAULT_WIDTH: u16 = 20;
+    pub const SIDEBAR_MIN_WIDTH: u16 = 12;
+    const SIDEBAR_DIVIDER_WIDTH: u16 = 1;
+    const SCROLLBAR_WIDTH: u16 = 1;
+    const MAIN_MIN_WIDTH: u16 = 1;
 
     pub fn new(settings: &Settings, repository_file_indexes: &[RepositoryFileIndex]) -> Self {
         let mut tracks = vec![];
@@ -319,6 +381,10 @@ impl MainLayout {
             }
         }
 
+        if last_alignment_index.is_none() {
+            tracks.push(AreaType::Fill);
+        }
+
         if settings.core.reference.needs_sequence() {
             tracks.push(AreaType::Sequence);
         }
@@ -329,26 +395,79 @@ impl MainLayout {
         tracks.push(AreaType::Console);
         tracks.push(AreaType::Error);
 
+        let alignment_count = tracks
+            .iter()
+            .filter(|track| matches!(track, AreaType::Alignment(_)))
+            .count();
+        let mut alignment_index = 0;
+        let mut variant_index = 0;
+        let mut bed_index = 0;
+        let mut track_labels = Vec::new();
+        for file_path in &settings.core.file_paths {
+            match file_path {
+                FilePath::AlignmentPath(alignment_path) => {
+                    let path = match alignment_path {
+                        AlignmentPath::Bam { path, .. } | AlignmentPath::Cram { path, .. } => path,
+                    };
+                    track_labels.push(TrackLabel {
+                        text: file_name(path),
+                        first: AreaType::Coverage(alignment_index),
+                        last: AreaType::Alignment(alignment_index),
+                    });
+                    alignment_index += 1;
+                }
+                FilePath::VariantPath(path) => {
+                    track_labels.push(TrackLabel {
+                        text: file_name(path),
+                        first: AreaType::Variant(variant_index),
+                        last: AreaType::Variant(variant_index),
+                    });
+                    variant_index += 1;
+                }
+                FilePath::BedPath(path) => {
+                    track_labels.push(TrackLabel {
+                        text: file_name(path),
+                        first: AreaType::Bed(bed_index),
+                        last: AreaType::Bed(bed_index),
+                    });
+                    bed_index += 1;
+                }
+            }
+        }
+
         MainLayout {
             tracks,
+            terminal_area: Rect::default(),
+            sidebar_area: Rect::default(),
+            sidebar_divider_area: Rect::default(),
             main_area: Rect::default(),
+            scrollbar_area: Rect::default(),
             areas: Vec::new(),
+            sidebar_labels: Vec::new(),
+            sidebar_expanded: true,
+            sidebar_width: Self::SIDEBAR_DEFAULT_WIDTH,
+            content_areas: Vec::new(),
+            alignment_heights: vec![Self::ALIGNMENT_MIN_HEIGHT; alignment_count],
+            track_labels,
+            content_height: 0,
+            scroll_offset: 0,
         }
     }
 
     /// Update the area. If the area size changed, terminal refresh is needed.
     pub fn set_area(&mut self, area: Rect) -> bool {
-        if area.width != self.main_area.width || area.height != self.main_area.height {
+        if area != self.terminal_area {
             let previous_area = self.main_area;
-            let alignment_heights = self.current_alignment_heights();
-            self.main_area = area;
+            let alignment_heights = self.alignment_heights.clone();
+            self.terminal_area = area;
+            self.recalculate_root_areas();
             self.recalculate_areas(&alignment_heights);
             log::debug!(
                 "Layout area changed: previous_area={:?} new_area={:?} requested_alignment_heights={:?} resolved_alignment_heights={:?}",
                 previous_area,
                 self.main_area,
                 alignment_heights,
-                self.current_alignment_heights(),
+                self.alignment_heights,
             );
             true
         } else {
@@ -356,19 +475,52 @@ impl MainLayout {
         }
     }
 
+    pub fn sidebar_expanded(&self) -> bool {
+        self.sidebar_expanded
+    }
+
+    pub fn sidebar_width(&self) -> u16 {
+        self.sidebar_width
+    }
+
+    pub fn toggle_sidebar(&mut self) {
+        self.sidebar_expanded = !self.sidebar_expanded;
+        let alignment_heights = self.alignment_heights.clone();
+        self.recalculate_root_areas();
+        self.recalculate_areas(&alignment_heights);
+    }
+
+    pub fn resize_sidebar_to(&mut self, column: u16) {
+        if !self.sidebar_expanded {
+            return;
+        }
+
+        let desired_width = column
+            .saturating_sub(self.terminal_area.x)
+            .max(Self::SIDEBAR_MIN_WIDTH);
+        let maximum_width = self
+            .terminal_area
+            .width
+            .saturating_sub(
+                Self::SCROLLBAR_WIDTH + Self::MAIN_MIN_WIDTH + Self::SIDEBAR_DIVIDER_WIDTH,
+            )
+            .max(Self::SIDEBAR_MIN_WIDTH);
+        self.sidebar_width = desired_width.min(maximum_width);
+
+        let alignment_heights = self.alignment_heights.clone();
+        self.recalculate_root_areas();
+        self.recalculate_areas(&alignment_heights);
+    }
+
     pub fn resize_alignment_pair(&mut self, upper: usize, lower: usize, delta_rows: i32) {
         if delta_rows == 0 {
             return;
         }
 
-        let mut alignment_heights = self.current_alignment_heights();
+        let mut alignment_heights = self.alignment_heights.clone();
         let previous_alignment_heights = alignment_heights.clone();
 
-        let minimum_height = if self.can_fit_alignment_minimums() {
-            Self::ALIGNMENT_MIN_HEIGHT
-        } else {
-            0
-        };
+        let minimum_height = Self::ALIGNMENT_MIN_HEIGHT;
         let upper_height = alignment_heights[upper];
         let lower_height = alignment_heights[lower];
         let actual_delta = if delta_rows > 0 {
@@ -408,30 +560,85 @@ impl MainLayout {
             actual_delta,
             previous_alignment_heights,
             alignment_heights,
-            self.current_alignment_heights(),
+            self.alignment_heights,
+        );
+    }
+
+    fn recalculate_root_areas(&mut self) {
+        let scrollbar_width = self.terminal_area.width.min(Self::SCROLLBAR_WIDTH);
+        self.scrollbar_area = Rect::new(
+            self.terminal_area.right().saturating_sub(scrollbar_width),
+            self.terminal_area.y,
+            scrollbar_width,
+            self.terminal_area.height,
+        );
+
+        let width_before_scrollbar = self.terminal_area.width.saturating_sub(scrollbar_width);
+        let maximum_sidebar_width = width_before_scrollbar
+            .saturating_sub(Self::MAIN_MIN_WIDTH + Self::SIDEBAR_DIVIDER_WIDTH);
+        let effective_sidebar_width = if self.sidebar_expanded {
+            self.sidebar_width.min(maximum_sidebar_width)
+        } else {
+            0
+        };
+        let divider_width = u16::from(effective_sidebar_width > 0).min(Self::SIDEBAR_DIVIDER_WIDTH);
+
+        self.sidebar_area = Rect::new(
+            self.terminal_area.x,
+            self.terminal_area.y,
+            effective_sidebar_width,
+            self.terminal_area.height,
+        );
+        self.sidebar_divider_area = Rect::new(
+            self.sidebar_area.right(),
+            self.terminal_area.y,
+            divider_width,
+            self.terminal_area.height,
+        );
+        self.main_area = Rect::new(
+            self.sidebar_divider_area.right(),
+            self.terminal_area.y,
+            width_before_scrollbar
+                .saturating_sub(effective_sidebar_width)
+                .saturating_sub(divider_width),
+            self.terminal_area.height,
         );
     }
 
     fn recalculate_areas(&mut self, alignment_heights: &[u16]) {
         let alignment_heights = self.resolved_alignment_heights(alignment_heights);
-        let mut y = self.main_area.y;
-        let mut remaining_height = self.main_area.height;
+        self.alignment_heights = alignment_heights.clone();
 
-        self.areas = self
+        let fill_height = if self.alignment_count() == 0 {
+            self.main_area
+                .height
+                .saturating_sub(self.fixed_desired_height())
+        } else {
+            0
+        };
+
+        let mut y = 0usize;
+        self.content_areas = self
             .tracks
             .iter()
             .map(|track| {
-                let desired_height = match track {
+                let height = match track {
                     AreaType::Alignment(index) => alignment_heights[*index],
+                    AreaType::Fill => fill_height,
                     _ => track.desired_height().unwrap_or_default(),
                 };
-                let height = u16::min(desired_height, remaining_height);
-                let rect = Rect::new(self.main_area.x, y, self.main_area.width, height);
-                y = y.saturating_add(height);
-                remaining_height = remaining_height.saturating_sub(height);
-                (*track, rect)
+                let content_area = ContentArea {
+                    area_type: *track,
+                    y,
+                    height,
+                };
+                y = y.saturating_add(height as usize);
+                content_area
             })
             .collect();
+        self.content_height = y;
+        self.scroll_offset = self.scroll_offset.min(self.maximum_scroll_offset());
+        self.recalculate_visible_areas();
     }
 
     fn resolved_alignment_heights(&self, alignment_heights: &[u16]) -> Vec<u16> {
@@ -444,13 +651,7 @@ impl MainLayout {
         let available_height = self.main_area.height.saturating_sub(fixed_height);
 
         if available_height < alignment_count as u16 * Self::ALIGNMENT_MIN_HEIGHT {
-            return (0..alignment_count)
-                .scan(available_height, |remaining_height, _| {
-                    let height = u16::min(Self::ALIGNMENT_MIN_HEIGHT, *remaining_height);
-                    *remaining_height = remaining_height.saturating_sub(height);
-                    Some(height)
-                })
-                .collect();
+            return vec![Self::ALIGNMENT_MIN_HEIGHT; alignment_count];
         }
 
         let mut heights = Vec::with_capacity(alignment_count);
@@ -481,27 +682,6 @@ impl MainLayout {
         heights
     }
 
-    fn current_alignment_heights(&self) -> Vec<u16> {
-        let alignment_count = self.alignment_count();
-        let mut alignment_heights = vec![Self::ALIGNMENT_MIN_HEIGHT; alignment_count];
-
-        for (area_type, area) in &self.areas {
-            if let AreaType::Alignment(index) = area_type {
-                alignment_heights[*index] = area.height;
-            }
-        }
-
-        alignment_heights
-    }
-
-    fn can_fit_alignment_minimums(&self) -> bool {
-        let alignment_count = self.alignment_count() as u16;
-        self.main_area
-            .height
-            .saturating_sub(self.fixed_desired_height())
-            >= alignment_count.saturating_mul(Self::ALIGNMENT_MIN_HEIGHT)
-    }
-
     fn fixed_desired_height(&self) -> u16 {
         self.tracks
             .iter()
@@ -516,11 +696,175 @@ impl MainLayout {
             .count()
     }
 
-    pub fn get_area_type_at_position(&self, x: u16, y: u16) -> Option<&(AreaType, Rect)> {
-        self.areas.iter().find(|(_area_type, area)| {
+    fn recalculate_visible_areas(&mut self) {
+        let viewport_start = self.scroll_offset;
+        let viewport_end = viewport_start.saturating_add(self.main_area.height as usize);
+
+        self.areas = self
+            .content_areas
+            .iter()
+            .map(|content_area| {
+                let content_end = content_area.y.saturating_add(content_area.height as usize);
+                let visible_start = content_area.y.max(viewport_start);
+                let visible_end = content_end.min(viewport_end);
+                let visible_height = visible_end.saturating_sub(visible_start) as u16;
+                let screen_y = if visible_height == 0 {
+                    self.main_area.bottom()
+                } else {
+                    self.main_area.y + visible_start.saturating_sub(viewport_start) as u16
+                };
+
+                VisibleArea {
+                    area_type: content_area.area_type,
+                    area: Rect::new(
+                        self.main_area.x,
+                        screen_y,
+                        self.main_area.width,
+                        visible_height,
+                    ),
+                    top_clip: visible_start
+                        .saturating_sub(content_area.y)
+                        .min(content_area.height as usize) as u16,
+                    full_height: content_area.height,
+                }
+            })
+            .collect();
+
+        self.sidebar_labels = self
+            .track_labels
+            .iter()
+            .filter_map(|label| {
+                let first = self
+                    .content_areas
+                    .iter()
+                    .find(|area| area.area_type == label.first)?;
+                let last = self
+                    .content_areas
+                    .iter()
+                    .find(|area| area.area_type == label.last)?;
+                let label_start = first.y;
+                let label_end = last.y.saturating_add(last.height as usize);
+                let visible_start = label_start.max(viewport_start);
+                let visible_end = label_end.min(viewport_end);
+                let visible_height = visible_end.saturating_sub(visible_start) as u16;
+                (visible_height > 0).then(|| SidebarLabel {
+                    text: label.text.clone(),
+                    area: Rect::new(
+                        self.sidebar_area.x,
+                        self.main_area.y + visible_start.saturating_sub(viewport_start) as u16,
+                        self.sidebar_area.width,
+                        visible_height,
+                    ),
+                    top_clip: visible_start.saturating_sub(label_start) as u16,
+                    full_height: label_end.saturating_sub(label_start) as u16,
+                })
+            })
+            .collect();
+    }
+
+    pub fn maximum_scroll_offset(&self) -> usize {
+        self.content_height
+            .saturating_sub(self.main_area.height as usize)
+    }
+
+    pub fn scroll_offset(&self) -> usize {
+        self.scroll_offset
+    }
+
+    pub fn page_canvas_toward(&mut self, row: u16) {
+        let Some(metrics) = self.scrollbar_metrics() else {
+            return;
+        };
+        let relative_row = row.saturating_sub(self.scrollbar_area.y);
+        let thumb_end = metrics.thumb_start.saturating_add(metrics.thumb_length);
+        if relative_row < metrics.thumb_start {
+            self.scroll_offset = self
+                .scroll_offset
+                .saturating_sub(self.main_area.height as usize);
+        } else if relative_row >= thumb_end {
+            self.scroll_offset = self
+                .scroll_offset
+                .saturating_add(self.main_area.height as usize)
+                .min(self.maximum_scroll_offset());
+        }
+        self.recalculate_visible_areas();
+    }
+
+    pub fn drag_scrollbar_thumb(&mut self, row: u16, grab_offset: u16) {
+        let Some(metrics) = self.scrollbar_metrics() else {
+            return;
+        };
+        let travel = metrics.track_length.saturating_sub(metrics.thumb_length);
+        let maximum_offset = self.maximum_scroll_offset();
+        if travel == 0 || maximum_offset == 0 {
+            self.scroll_offset = 0;
+            self.recalculate_visible_areas();
+            return;
+        }
+
+        let target_start = row
+            .saturating_sub(self.scrollbar_area.y)
+            .saturating_sub(grab_offset)
+            .min(travel);
+        self.scroll_offset = (target_start as usize)
+            .saturating_mul(maximum_offset)
+            .saturating_add(travel as usize / 2)
+            / travel as usize;
+        self.recalculate_visible_areas();
+    }
+
+    pub fn scrollbar_metrics(&self) -> Option<ScrollbarMetrics> {
+        let track_length = self.scrollbar_area.height;
+        if self.scrollbar_area.width == 0 || track_length == 0 {
+            return None;
+        }
+
+        let viewport_length = self.main_area.height as usize;
+        let thumb_length = if self.content_height <= viewport_length || self.content_height == 0 {
+            track_length
+        } else {
+            ((track_length as usize).saturating_mul(viewport_length) / self.content_height)
+                .max(1)
+                .min(track_length as usize) as u16
+        };
+        let travel = track_length.saturating_sub(thumb_length);
+        let maximum_offset = self.maximum_scroll_offset();
+        let thumb_start = if maximum_offset == 0 {
+            0
+        } else {
+            (self.scroll_offset.saturating_mul(travel as usize) / maximum_offset) as u16
+        };
+
+        Some(ScrollbarMetrics {
+            thumb_start,
+            thumb_length,
+            track_length,
+        })
+    }
+
+    pub fn scrollbar_thumb_contains(&self, row: u16) -> Option<u16> {
+        let metrics = self.scrollbar_metrics()?;
+        let relative_row = row.checked_sub(self.scrollbar_area.y)?;
+        (relative_row >= metrics.thumb_start
+            && relative_row < metrics.thumb_start.saturating_add(metrics.thumb_length))
+        .then_some(relative_row - metrics.thumb_start)
+    }
+
+    pub fn get_area_type_at_position(&self, x: u16, y: u16) -> Option<&VisibleArea> {
+        self.areas.iter().find(|visible_area| {
+            let area = visible_area.area;
             x >= area.x && x < area.right() && y >= area.y && y < area.bottom()
         })
     }
+}
+
+fn file_name(path: &str) -> String {
+    path.trim_end_matches(['/', '\\'])
+        .rsplit(['/', '\\'])
+        .next()
+        .filter(|name| !name.is_empty())
+        .unwrap_or(path)
+        .to_string()
 }
 
 pub enum OnScreenCoordinate {
@@ -649,7 +993,9 @@ mod tests {
         layout
             .areas
             .iter()
-            .find_map(|(area_type, area)| (*area_type == expected_area_type).then_some(area.height))
+            .find_map(|visible_area| {
+                (visible_area.area_type == expected_area_type).then_some(visible_area.full_height)
+            })
             .expect("area exists")
     }
 
@@ -660,7 +1006,10 @@ mod tests {
     }
 
     #[rstest]
-    #[case(vec![], vec![AreaType::Console, AreaType::Error])]
+    #[case(
+        vec![],
+        vec![AreaType::Fill, AreaType::Console, AreaType::Error]
+    )]
     #[case(
         vec![RepositoryFileIndex::Alignment(0)],
         vec![
@@ -801,24 +1150,134 @@ mod tests {
     }
 
     #[test]
-    fn small_windows_allocate_layout_top_first() {
-        let layout = alignment_layout(3, 16);
+    fn small_windows_preserve_minimum_track_heights_in_an_overflow_canvas() {
+        let mut layout = alignment_layout(3, 16);
 
         assert_eq!(area_height(&layout, AreaType::Coverage(0)), 6);
-        assert_eq!(area_height(&layout, AreaType::Alignment(0)), 0);
+        assert_eq!(area_height(&layout, AreaType::Alignment(0)), 1);
         assert_eq!(
             area_height(&layout, AreaType::AlignmentDivider { upper: 0, lower: 1 }),
             1
         );
         assert_eq!(area_height(&layout, AreaType::Coverage(1)), 6);
-        assert_eq!(area_height(&layout, AreaType::Alignment(1)), 0);
+        assert_eq!(area_height(&layout, AreaType::Alignment(1)), 1);
         assert_eq!(
             area_height(&layout, AreaType::AlignmentDivider { upper: 1, lower: 2 }),
             1
         );
-        assert_eq!(area_height(&layout, AreaType::Coverage(2)), 2);
-        assert_eq!(area_height(&layout, AreaType::Alignment(2)), 0);
-        assert_eq!(area_height(&layout, AreaType::Console), 0);
-        assert_eq!(area_height(&layout, AreaType::Error), 0);
+        assert_eq!(area_height(&layout, AreaType::Coverage(2)), 6);
+        assert_eq!(area_height(&layout, AreaType::Alignment(2)), 1);
+        assert_eq!(area_height(&layout, AreaType::Console), 2);
+        assert_eq!(area_height(&layout, AreaType::Error), 2);
+        assert_eq!(layout.maximum_scroll_offset(), 11);
+
+        layout.page_canvas_toward(layout.scrollbar_area.bottom().saturating_sub(1));
+        assert_eq!(layout.scroll_offset(), 11);
+        layout.page_canvas_toward(layout.scrollbar_area.top());
+        assert_eq!(layout.scroll_offset(), 0);
+    }
+
+    #[test]
+    fn no_alignment_layout_uses_fill_to_anchor_reference_tracks() {
+        let mut settings = settings_without_reference();
+        settings.core.reference = Reference::BYOIndexedFasta("reference.fa".to_string());
+        let mut layout = MainLayout::new(
+            &settings,
+            &[RepositoryFileIndex::Variant(0), RepositoryFileIndex::Bed(0)],
+        );
+        layout.set_area(Rect::new(0, 0, 80, 24));
+
+        assert_eq!(area_height(&layout, AreaType::Fill), 15);
+        let sequence = layout
+            .areas
+            .iter()
+            .find(|area| area.area_type == AreaType::Sequence)
+            .expect("the sequence area exists");
+        assert_eq!(sequence.area.bottom(), 20);
+        assert_eq!(layout.maximum_scroll_offset(), 0);
+    }
+
+    #[test]
+    fn sidebar_toggles_and_restores_its_requested_width_after_a_resize() {
+        let mut layout = alignment_layout(1, 24);
+        assert!(layout.sidebar_expanded());
+        assert_eq!(layout.sidebar_area.width, MainLayout::SIDEBAR_DEFAULT_WIDTH);
+
+        layout.resize_sidebar_to(30);
+        assert_eq!(layout.sidebar_width(), 30);
+        assert_eq!(layout.sidebar_area.width, 30);
+
+        layout.set_area(Rect::new(0, 0, 10, 24));
+        assert_eq!(layout.sidebar_area.width, 7);
+        assert_eq!(layout.main_area.width, 1);
+        assert_eq!(layout.sidebar_width(), 30);
+
+        layout.set_area(Rect::new(0, 0, 80, 24));
+        assert_eq!(layout.sidebar_area.width, 30);
+        layout.toggle_sidebar();
+        assert!(!layout.sidebar_expanded());
+        assert_eq!(layout.sidebar_area.width, 0);
+        assert_eq!(layout.main_area.width, 79);
+    }
+
+    #[test]
+    fn scrollbar_drag_maps_the_thumb_to_the_canvas_ends() {
+        let mut layout = alignment_layout(3, 16);
+        let metrics = layout
+            .scrollbar_metrics()
+            .expect("the scrollbar is visible");
+        assert!(metrics.thumb_length < metrics.track_length);
+
+        let grab_offset = layout
+            .scrollbar_thumb_contains(layout.scrollbar_area.y)
+            .expect("the scrollbar thumb begins at the top");
+        layout.drag_scrollbar_thumb(
+            layout.scrollbar_area.bottom().saturating_sub(1),
+            grab_offset,
+        );
+        assert_eq!(layout.scroll_offset(), layout.maximum_scroll_offset());
+
+        layout.drag_scrollbar_thumb(layout.scrollbar_area.y, grab_offset);
+        assert_eq!(layout.scroll_offset(), 0);
+    }
+
+    #[test]
+    fn sidebar_labels_use_input_basenames_and_span_alignment_rows() {
+        use gv_core::settings::{BamSource, FilePath};
+
+        let mut settings = settings_without_reference();
+        settings.core.file_paths = vec![
+            FilePath::AlignmentPath(AlignmentPath::Bam {
+                path: "/data/samples/tumor.bam".to_string(),
+                index: "/data/samples/tumor.bam.bai".to_string(),
+                source: BamSource::Local,
+            }),
+            FilePath::VariantPath("s3://bucket/cohort.vcf.gz".to_string()),
+        ];
+        let mut layout = MainLayout::new(
+            &settings,
+            &[
+                RepositoryFileIndex::Alignment(0),
+                RepositoryFileIndex::Variant(0),
+            ],
+        );
+        layout.set_area(Rect::new(0, 0, 80, 24));
+
+        assert_eq!(layout.sidebar_labels.len(), 2);
+        assert_eq!(layout.sidebar_labels[0].text, "tumor.bam");
+        assert_eq!(
+            layout.sidebar_labels[0].full_height,
+            area_height(&layout, AreaType::Coverage(0))
+                + area_height(&layout, AreaType::Alignment(0))
+        );
+        assert_eq!(layout.sidebar_labels[1].text, "cohort.vcf.gz");
+    }
+
+    #[rstest]
+    #[case("/data/sample.bam", "sample.bam")]
+    #[case(r"C:\data\sample.bam", "sample.bam")]
+    #[case("s3://bucket/sample.bam", "sample.bam")]
+    fn input_file_names_hide_parent_paths(#[case] path: &str, #[case] expected: &str) {
+        assert_eq!(file_name(path), expected);
     }
 }

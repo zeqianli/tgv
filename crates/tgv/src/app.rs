@@ -365,6 +365,14 @@ impl App {
                     log::debug!("Clearing all key registers");
                     self.registers.clear();
                 }
+                Message::ToggleSidebar => {
+                    self.layout.toggle_sidebar();
+                    log::debug!(
+                        "Toggled the sidebar: expanded={} width={}",
+                        self.layout.sidebar_expanded(),
+                        self.layout.sidebar_width(),
+                    );
+                }
             }
         }
 
@@ -506,9 +514,9 @@ impl App {
                 &self.mouse_register,
                 &self.settings.palette,
             ),
-            Scene::Help => render_help(&self.layout.main_area, buf),
+            Scene::Help => render_help(&self.layout.terminal_area, buf),
             Scene::ContigList => render_contig_list(
-                &self.layout.main_area,
+                &self.layout.terminal_area,
                 buf,
                 &self.state,
                 &self.registers,

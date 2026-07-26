@@ -19,7 +19,7 @@ pub fn render_console(area: &Rect, buf: &mut Buffer, buffer: &Registers) -> Resu
         .chars()
         .nth(buffer.command_cursor)
         .unwrap_or(' ');
-    let cursor_char_position = area.x + 1 + buffer.command_cursor as u16;
+    let cursor_char_position = 1 + buffer.command_cursor as u16;
     let cursor_char_style = Style::default().bg(Color::Red);
 
     buf.set_stringn(

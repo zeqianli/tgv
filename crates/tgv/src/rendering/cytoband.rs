@@ -51,7 +51,7 @@ pub fn render_cytobands(
 
     if let Some(contig_length) = state.contig_length(&alignment_view.focus)? {
         buf.set_string(
-            area.width - CYTOBAND_TEXT_RIGHT_SPACING + 1,
+            area.x + area.width - CYTOBAND_TEXT_RIGHT_SPACING + 1,
             area.y,
             get_abbreviated_length_string(contig_length),
             Style::default(),

@@ -49,6 +49,29 @@ impl Registers {
     }
 }
 
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crossterm::event::KeyModifiers;
+
+    #[test]
+    fn space_e_toggles_the_sidebar_without_reaching_core_normal_mode() {
+        let mut registers = Registers::default();
+
+        let leader_messages = registers
+            .handle_normal(KeyEvent::new(KeyCode::Char(' '), KeyModifiers::NONE))
+            .expect("the leader key is accepted");
+        assert!(leader_messages.is_empty());
+        assert_eq!(registers.normal, " ");
+
+        let messages = registers
+            .handle_normal(KeyEvent::new(KeyCode::Char('e'), KeyModifiers::NONE))
+            .expect("the sidebar shortcut is accepted");
+        assert_eq!(messages, vec![Message::ToggleSidebar]);
+        assert!(registers.normal.is_empty());
+    }
+}
+
 impl Registers {
     fn handle_help(&mut self, key_event: KeyEvent) -> Result<Vec<Message>, TGVError> {
         match key_event.code {
@@ -181,6 +204,14 @@ impl Registers {
                 Message::ClearAllKeyRegisters,
                 Message::SwitchKeyRegister(KeyRegisterType::Command),
             ]),
+            KeyCode::Char(' ') if self.normal.is_empty() => {
+                self.normal.push(' ');
+                Ok(vec![])
+            }
+            KeyCode::Char('e') if self.normal == " " => {
+                self.normal.clear();
+                Ok(vec![Message::ToggleSidebar])
+            }
             KeyCode::Char(char) => Ok(update_by_char(&mut self.normal, char)?
                 .into_iter()
                 .map(|m| m.into())
