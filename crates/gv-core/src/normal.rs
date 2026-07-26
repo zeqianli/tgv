@@ -112,12 +112,20 @@ fn parse_input(input: String) -> Result<Vec<Message>, TGVError> {
             n: n_movements * SMALL_VERTICAL_STEP,
         })]),
 
-        "y" => Ok(vec![Message::from(Movement::Left(
+        "H" => Ok(vec![Message::from(Movement::Left(
             LARGE_HORIZONTAL_STEP * n_movements as u64,
         ))]),
-        "p" => Ok(vec![Message::from(Movement::Right(
+        "L" => Ok(vec![Message::from(Movement::Right(
             LARGE_HORIZONTAL_STEP * n_movements as u64,
         ))]),
+        "J" => Ok(vec![Message::from(Scroll::Down {
+            index: 0,
+            n: LARGE_VERTICAL_STEP * n_movements,
+        })]),
+        "K" => Ok(vec![Message::from(Scroll::Up {
+            index: 0,
+            n: LARGE_VERTICAL_STEP * n_movements,
+        })]),
 
         "z" => Ok(vec![Message::from(Zoom::In(
             ZOOM_STEP * n_movements as u64,
@@ -125,14 +133,6 @@ fn parse_input(input: String) -> Result<Vec<Message>, TGVError> {
         "o" => Ok(vec![Message::from(Zoom::Out(
             ZOOM_STEP * n_movements as u64,
         ))]),
-        "{" => Ok(vec![Message::from(Scroll::Up {
-            index: 0,
-            n: LARGE_VERTICAL_STEP * n_movements,
-        })]),
-        "}" => Ok(vec![Message::from(Scroll::Down {
-            index: 0,
-            n: LARGE_VERTICAL_STEP * n_movements,
-        })]),
         _ => Err(TGVError::RegisterError(format!(
             "Invalid normal mode input: {}",
             input
@@ -152,7 +152,7 @@ mod tests {
     #[case("g",'g', Ok(vec![Scroll::Position(0).into()]))]
     #[case("g",'G', Ok(vec![Scroll::Bottom.into()]))]
     #[case("",'1', Ok(vec![]))]
-    #[case("g",'1', Err(TGVError::RegisterError("Invalid input: g".to_string())))]
+    #[case("g",'1', Err(TGVError::RegisterError("Invalid normal mode input: g".to_string())))]
     #[case("", 'w', Ok(vec![Movement::NextExonsStart(1).into()]))]
     #[case("", 'b', Ok(vec![Movement::PreviousExonsStart(1).into()]))]
     #[case("", 'e', Ok(vec![Movement::NextExonsEnd(1).into()]))]
@@ -162,8 +162,6 @@ mod tests {
     #[case("", 'k', Ok(vec![Scroll::Up { index: 0, n: 1 }.into()]))]
     #[case("", 'z', Ok(vec![Zoom::In(2).into()]))]
     #[case("", 'o', Ok(vec![Zoom::Out(2).into()]))]
-    #[case("", '{', Ok(vec![Scroll::Up { index: 0, n: 30 }.into()]))]
-    #[case("", '}', Ok(vec![Scroll::Down { index: 0, n: 30 }.into()]))]
     #[case("g", 'e', Ok(vec![Movement::PreviousExonsEnd(1).into()]))]
     #[case("g", 'E', Ok(vec![Movement::PreviousGenesEnd(1).into()]))]
     #[case("3", 'w', Ok(vec![Movement::NextExonsStart(3).into()]))]
@@ -173,6 +171,10 @@ mod tests {
     #[case("g", 'x', Err(TGVError::RegisterError("Invalid normal mode input: gx".to_string())))]
     #[case("3", 'x', Err(TGVError::RegisterError("Invalid normal mode input: 3x".to_string())))]
     #[case("3g", 'x', Err(TGVError::RegisterError("Invalid normal mode input: 3gx".to_string())))]
+    #[case("", 'y', Err(TGVError::RegisterError("Invalid normal mode input: y".to_string())))]
+    #[case("", 'p', Err(TGVError::RegisterError("Invalid normal mode input: p".to_string())))]
+    #[case("", '{', Err(TGVError::RegisterError("Invalid normal mode input: {".to_string())))]
+    #[case("", '}', Err(TGVError::RegisterError("Invalid normal mode input: }".to_string())))]
     fn test_normal_mode_translate(
         #[case] existing_buffer: &str,
         #[case] key: char,
@@ -184,7 +186,9 @@ mod tests {
         let result = update_by_char(&mut buffer, key);
         match (&result, &expected) {
             (Ok(result), Ok(expected)) => assert_eq!(result, expected),
-            (Err(e), Err(expected)) => {} // OK
+            (Err(error), Err(expected_error)) => {
+                assert_eq!(error.to_string(), expected_error.to_string());
+            }
             _ => panic!(
                 "Test failed.  result: {:?}, expected: {:?}",
                 result, expected
