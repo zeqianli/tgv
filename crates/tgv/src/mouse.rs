@@ -106,21 +106,18 @@ impl MouseRegister {
                     }
                 } else {
                     // move alignment
-                    match Self::alignment_index_for_area_type(&self.mouse_down_area_type) {
-                        Some(index) => {
-                            if event.column < self.mouse_drag_x {
-                                messages.push(Movement::Right(1).into())
-                            } else if event.column > self.mouse_drag_x {
-                                messages.push(Movement::Left(1).into())
-                            }
-
-                            if event.row > self.mouse_drag_y {
-                                messages.push(Scroll::Up { index, n: 1 }.into())
-                            } else if event.row < self.mouse_drag_y {
-                                messages.push(Scroll::Down { index, n: 1 }.into())
-                            }
+                    if let Some(index) = Self::alignment_index_for_area_type(&self.mouse_down_area_type) {
+                        if event.column < self.mouse_drag_x {
+                            messages.push(Movement::Right(1).into())
+                        } else if event.column > self.mouse_drag_x {
+                            messages.push(Movement::Left(1).into())
                         }
-                        _ => {}
+
+                        if event.row > self.mouse_drag_y {
+                            messages.push(Scroll::Up { index, n: 1 }.into())
+                        } else if event.row < self.mouse_drag_y {
+                            messages.push(Scroll::Down { index, n: 1 }.into())
+                        }
                     }
 
                     self.mouse_drag_x = event.column;
