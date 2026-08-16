@@ -85,7 +85,7 @@ AI-assisted contribution is welcome but must be disclosed and human-reviewed. Se
 - [UCSC Genome Browser](https://genome.ucsc.edu/)
 - [rust-htslib](https://github.com/rust-bio/rust-htslib), [htslib](https://github.com/samtools/htslib), [noodles](https://github.com/zaeleus/noodles), [twobit](https://github.com/jbethune/rust-twobit), [bigtools](https://github.com/jackh726/bigtools)
 
-[![Star History Chart](https://api.star-history.com/svg?repos=zeqianli/tgv&type=Date)](https://www.star-history.com/#zeqianli/tgv&Date)
+[![Star History Chart](https://star-history.dera.page/svg?repos=zeqianli/tgv&type=Date)](https://star-history.dera.page/#zeqianli/tgv&Date)
 
 [Discord Badge]: https://img.shields.io/discord/1358313687399792662?label=discord&logo=discord&style=flat-square&color=1370D3&logoColor=1370D3
 [Discord Server]: https://discord.gg/rZkgjHqPR8
