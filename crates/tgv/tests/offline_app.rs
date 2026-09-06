@@ -8,7 +8,7 @@ use ratatui::layout::Rect;
 use rstest::rstest;
 use support::{AppHarness, test_data_path};
 use tempfile::TempDir;
-use tgv::{app::Scene, layout::MainLayoutArea, message::Message, session::SessionFile};
+use tgv::{app::Scene, layout::AreaType, message::Message, session::SessionFile};
 
 fn absolutize_fixture_args(args: &str) -> String {
     args.replace(
@@ -54,7 +54,7 @@ async fn offline_initialization_succeeds(#[case] args: &str) {
                 .track_rects
                 .iter()
                 .map(|(area_type, _, _, _)| *area_type)
-                .any(|area_type| area_type == MainLayoutArea::Fill)
+                .any(|area_type| area_type == AreaType::Fill)
         );
     }
     harness.close().await.unwrap();

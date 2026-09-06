@@ -106,7 +106,11 @@ impl App {
         self.handle(self.settings.initial_state_messages.clone(), terminal_area)
             .await?;
 
-        let resolved_layout = self.resolve_layout(terminal_area);
+        let resolved_layout = self.layout.resolve(
+            terminal_area,
+            &self.settings.core.reference,
+            &self.repository,
+        );
         self.alignment_view.self_correct(
             &resolved_layout.main_area,
             self.state.contig_length(&self.alignment_view.focus)?,
@@ -540,13 +544,5 @@ impl App {
                 &self.settings.palette,
             ),
         }
-    }
-
-    pub fn resolve_layout(&self, terminal_area: Rect) -> ResolvedMainLayout {
-        self.layout.resolve(
-            terminal_area,
-            &self.settings.core.reference,
-            &self.repository,
-        )
     }
 }

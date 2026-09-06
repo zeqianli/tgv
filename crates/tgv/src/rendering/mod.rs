@@ -29,7 +29,7 @@ pub use track::render_track;
 pub use variants::render_variants;
 
 use crate::{
-    layout::{AlignmentView, MainLayoutArea, ResolvedMainLayout},
+    layout::{AlignmentView, AreaType, ResolvedMainLayout},
     mouse::MouseRegister,
     register::{KeyRegisterType, Registers},
 };
@@ -109,7 +109,7 @@ pub fn render_main(
 
 #[allow(clippy::too_many_arguments)]
 fn render_area(
-    area_type: MainLayoutArea,
+    area_type: AreaType,
     rect: &Rect,
     buf: &mut Buffer,
     state: &mut State,
@@ -119,16 +119,16 @@ fn render_area(
     pallete: &Palette,
 ) -> Result<(), TGVError> {
     match area_type {
-        MainLayoutArea::Cytoband => render_cytobands(rect, buf, state, alignment_view, pallete)?,
-        MainLayoutArea::Coordinate => render_coordinates(rect, buf, alignment_view, state)?,
-        MainLayoutArea::Coverage(index) => {
+        AreaType::Cytoband => render_cytobands(rect, buf, state, alignment_view, pallete)?,
+        AreaType::Coordinate => render_coordinates(rect, buf, alignment_view, state)?,
+        AreaType::Coverage(index) => {
             if alignment_view.zoom <= AlignmentView::MAX_ZOOM_TO_DISPLAY_ALIGNMENTS
                 && let Some(alignment) = state.alignments.get(index)
             {
                 render_coverage(rect, buf, alignment, alignment_view, pallete)?;
             }
         }
-        MainLayoutArea::Alignment(index) => {
+        AreaType::Alignment(index) => {
             if alignment_view.zoom <= AlignmentView::MAX_ZOOM_TO_DISPLAY_ALIGNMENTS {
                 if state.alignment_options[index].contains(&AlignmentDisplayOption::ViewAsPairs) {
                     let paired_alignment =
@@ -162,26 +162,26 @@ fn render_area(
                 }
             }
         }
-        MainLayoutArea::AlignmentDivider { .. } => render_alignment_divider(
+        AreaType::AlignmentDivider { .. } => render_alignment_divider(
             rect,
             buf,
             pallete,
             mouse_register.is_divider_highlighted(&area_type),
         ),
-        MainLayoutArea::Sequence => {
+        AreaType::Sequence => {
             if alignment_view.zoom <= AlignmentView::MAX_ZOOM_TO_DISPLAY_SEQUENCES {
                 render_sequence(rect, buf, state, alignment_view, pallete)?;
             }
         }
-        MainLayoutArea::GeneTrack => {
+        AreaType::GeneTrack => {
             render_track(rect, buf, state, alignment_view, pallete)?;
         }
-        MainLayoutArea::Console => {
+        AreaType::Console => {
             if registers.current == KeyRegisterType::Command {
                 render_console(rect, buf, registers)?;
             }
         }
-        MainLayoutArea::Error => {
+        AreaType::Error => {
             render_status_bar(
                 rect,
                 buf,
@@ -190,17 +190,17 @@ fn render_area(
                 mouse_register.hovered_alignment,
             )?;
         }
-        MainLayoutArea::Variant(index) => {
+        AreaType::Variant(index) => {
             if let Some(variants) = state.variants.get(index) {
                 render_variants(rect, buf, variants, alignment_view, pallete)?;
             }
         }
-        MainLayoutArea::Bed(index) => {
+        AreaType::Bed(index) => {
             if let Some(bed_intervals) = state.bed_intervals.get(index) {
                 render_bed(rect, buf, bed_intervals, alignment_view, pallete)?;
             }
         }
-        MainLayoutArea::Fill => {}
+        AreaType::Fill => {}
     }
     Ok(())
 }

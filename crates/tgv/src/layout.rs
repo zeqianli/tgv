@@ -9,7 +9,7 @@ use gv_core::{
 use ratatui::layout::Rect;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum MainLayoutArea {
+pub enum AreaType {
     Cytoband,
     Coordinate,
     Coverage(usize),
@@ -24,9 +24,34 @@ pub enum MainLayoutArea {
     Fill,
 }
 
+impl AreaType {
+    fn default_height(&self) -> Option<u16> {
+        match self {
+            AreaType::Cytoband => Some(1),
+            AreaType::Coordinate => Some(1),
+            AreaType::Coverage(_) => Some(6),
+            AreaType::Alignment(_) => None,
+            AreaType::AlignmentDivider { .. } => Some(0),
+            AreaType::Sequence => Some(0),
+            AreaType::GeneTrack => Some(1),
+            AreaType::Console => Some(1),
+            AreaType::Error => Some(1),
+            AreaType::Variant(_) => Some(0),
+            AreaType::Bed(_) => Some(0),
+            AreaType::Fill => None,
+        }
+    }
+}
+
+/// States for alignment tracks in tgv.
 pub struct AlignmentView {
+    /// Genome coordinate focus. Shared across all tracks.
     pub focus: Focus,
+
+    /// Zoom level. Shared across all tracks.
     pub zoom: u64,
+
+    /// y coordinate for alignment tracks. Length matches the number of alignment tracks.
     pub y: Vec<usize>,
 }
 
@@ -264,12 +289,7 @@ impl AlignmentView {
     }
 }
 
-#[derive(Debug, Clone, Copy)]
-enum SidebarState {
-    Expanded { requested_width: u16 },
-    Collapsed { requested_width: u16 },
-}
-
+/// Resolved rendering areas given a MainLayout state and the full terminal area.
 pub struct ResolvedMainLayout {
     pub terminal_area: Rect,
     pub sidebar_area: Rect,
@@ -278,80 +298,45 @@ pub struct ResolvedMainLayout {
     pub scrollbar_area: Rect,
     pub scrollbar_thumb_area: Rect,
     /// Each entry contains the identity, full render rectangle, source rectangle, and destination rectangle.
-    pub track_rects: Vec<(MainLayoutArea, Rect, Rect, Rect)>,
+    pub track_rects: Vec<(AreaType, Rect, Rect, Rect)>,
     /// Each entry contains the repository identity, full label rectangle, source rectangle, and destination rectangle.
     pub file_rects: Vec<(RepositoryFileIndex, Rect, Rect, Rect)>,
 }
 
-/// Persistent interaction state for the main page layout.
+/// Persistent states for the app layout.
 pub struct MainLayout {
-    sidebar: SidebarState,
+    /// If width >0, display sidebar. Otherwise, hide sidebar.
+    sidebar_width: u16,
+
+    area_types: Vec<AreaType>,
+
     alignment_heights: Vec<u16>,
-    requested_scroll_offset: usize,
+
+    /// Scrollbar offet
+    scroll_offset: usize,
 }
 
 impl MainLayout {
     const ALIGNMENT_MIN_HEIGHT: u16 = 1;
-    const COVERAGE_HEIGHT: u16 = 6;
     pub const SIDEBAR_DEFAULT_WIDTH: u16 = 20;
-    pub const SIDEBAR_MIN_WIDTH: u16 = 12;
     const SIDEBAR_DIVIDER_WIDTH: u16 = 1;
     const SCROLLBAR_WIDTH: u16 = 1;
     const MAIN_MIN_WIDTH: u16 = 1;
 
-    fn desired_height(area: MainLayoutArea) -> Option<u16> {
-        match area {
-            MainLayoutArea::Cytoband => Some(2),
-            MainLayoutArea::Coordinate => Some(2),
-            MainLayoutArea::Coverage(_) => Some(Self::COVERAGE_HEIGHT),
-            MainLayoutArea::Alignment(_) => None,
-            MainLayoutArea::AlignmentDivider { .. } => Some(1),
-            MainLayoutArea::Sequence => Some(1),
-            MainLayoutArea::GeneTrack => Some(2),
-            MainLayoutArea::Console => Some(2),
-            MainLayoutArea::Error => Some(2),
-            MainLayoutArea::Variant(_) => Some(1),
-            MainLayoutArea::Bed(_) => Some(1),
-            MainLayoutArea::Fill => None,
-        }
-    }
-
     pub fn new(alignment_count: usize) -> Self {
         Self {
-            sidebar: SidebarState::Expanded {
-                requested_width: Self::SIDEBAR_DEFAULT_WIDTH,
-            },
+            sidebar_width: Self::SIDEBAR_DEFAULT_WIDTH,
             alignment_heights: vec![Self::ALIGNMENT_MIN_HEIGHT; alignment_count],
-            requested_scroll_offset: 0,
+            scroll_offset: 0,
         }
     }
 
-    pub fn toggle_sidebar(&mut self) {
-        self.sidebar = match self.sidebar {
-            SidebarState::Expanded { requested_width } => {
-                SidebarState::Collapsed { requested_width }
-            }
-            SidebarState::Collapsed { requested_width } => {
-                SidebarState::Expanded { requested_width }
-            }
-        };
-    }
-
-    pub fn resize_sidebar_to(&mut self, column: u16, terminal_area: Rect) {
-        let SidebarState::Expanded { requested_width } = &mut self.sidebar else {
-            return;
-        };
-
-        let desired_width = column
-            .saturating_sub(terminal_area.x)
-            .max(Self::SIDEBAR_MIN_WIDTH);
-        let maximum_width = terminal_area
-            .width
-            .saturating_sub(
-                Self::SCROLLBAR_WIDTH + Self::MAIN_MIN_WIDTH + Self::SIDEBAR_DIVIDER_WIDTH,
-            )
-            .max(Self::SIDEBAR_MIN_WIDTH);
-        *requested_width = desired_width.min(maximum_width);
+    pub fn resize_sidebar_to(&mut self, new_width: u16, terminal_width: u16) {
+        self.sidebar_width = new_width.min(
+            terminal_width
+                .saturating_sub(Self::SIDEBAR_DIVIDER_WIDTH)
+                .saturating_sub(Self::MAIN_MIN_WIDTH),
+        )
     }
 
     pub fn resize_alignment_pair(
@@ -367,7 +352,7 @@ impl MainLayout {
 
         let mut alignment_heights = vec![Self::ALIGNMENT_MIN_HEIGHT; self.alignment_heights.len()];
         for (area_type, full_rect, _, _) in &resolved.track_rects {
-            if let MainLayoutArea::Alignment(index) = area_type {
+            if let AreaType::Alignment(index) = area_type {
                 alignment_heights[*index] = full_rect.height;
             }
         }
@@ -421,11 +406,11 @@ impl MainLayout {
             return;
         }
         if row < resolved.scrollbar_thumb_area.top() {
-            self.requested_scroll_offset =
+            self.scroll_offset =
                 Self::scroll_offset(resolved).saturating_sub(resolved.main_area.height as usize);
         } else if row >= resolved.scrollbar_thumb_area.bottom() {
             let scroll_limit = Self::scroll_limit(resolved);
-            self.requested_scroll_offset = Self::scroll_offset(resolved)
+            self.scroll_offset = Self::scroll_offset(resolved)
                 .saturating_add(resolved.main_area.height as usize)
                 .min(scroll_limit);
         }
@@ -446,7 +431,7 @@ impl MainLayout {
             .saturating_sub(resolved.scrollbar_thumb_area.height);
         let scroll_limit = Self::scroll_limit(resolved);
         if travel == 0 || scroll_limit == 0 {
-            self.requested_scroll_offset = 0;
+            self.scroll_offset = 0;
             return;
         }
 
@@ -454,7 +439,7 @@ impl MainLayout {
             .saturating_sub(resolved.scrollbar_area.y)
             .saturating_sub(grab_offset)
             .min(travel);
-        self.requested_scroll_offset = (target_start as usize)
+        self.scroll_offset = (target_start as usize)
             .saturating_mul(scroll_limit)
             .saturating_add(travel as usize / 2)
             / travel as usize;
@@ -528,8 +513,8 @@ impl MainLayout {
             .iter()
             .map(|track| {
                 let height = match track {
-                    MainLayoutArea::Alignment(index) => alignment_heights[*index],
-                    MainLayoutArea::Fill => fill_height,
+                    AreaType::Alignment(index) => alignment_heights[*index],
+                    AreaType::Fill => fill_height,
                     _ => Self::desired_height(*track).unwrap_or_default(),
                 };
                 let content_area = (*track, y, height);
@@ -539,7 +524,7 @@ impl MainLayout {
             .collect::<Vec<_>>();
         let content_height = y;
         let maximum_scroll_offset = content_height.saturating_sub(main_area.height as usize);
-        let scroll_offset = self.requested_scroll_offset.min(maximum_scroll_offset);
+        let scroll_offset = self.scroll_offset.min(maximum_scroll_offset);
         let viewport_start = scroll_offset;
         let viewport_end = viewport_start.saturating_add(main_area.height as usize);
 
@@ -575,16 +560,14 @@ impl MainLayout {
             .iter()
             .filter_map(|repository_index| {
                 let (first_type, last_type) = match repository_index {
-                    RepositoryFileIndex::Alignment(index) => (
-                        MainLayoutArea::Coverage(*index),
-                        MainLayoutArea::Alignment(*index),
-                    ),
-                    RepositoryFileIndex::Variant(index) => (
-                        MainLayoutArea::Variant(*index),
-                        MainLayoutArea::Variant(*index),
-                    ),
+                    RepositoryFileIndex::Alignment(index) => {
+                        (AreaType::Coverage(*index), AreaType::Alignment(*index))
+                    }
+                    RepositoryFileIndex::Variant(index) => {
+                        (AreaType::Variant(*index), AreaType::Variant(*index))
+                    }
                     RepositoryFileIndex::Bed(index) => {
-                        (MainLayoutArea::Bed(*index), MainLayoutArea::Bed(*index))
+                        (AreaType::Bed(*index), AreaType::Bed(*index))
                     }
                 };
                 let first = content_areas
@@ -653,9 +636,7 @@ impl MainLayout {
             file_rects,
         }
     }
-}
 
-impl MainLayout {
     fn scroll_offset(resolved: &ResolvedMainLayout) -> usize {
         let mut content_y = 0usize;
         for (_, full_rect, source_rect, destination_rect) in &resolved.track_rects {
@@ -679,13 +660,13 @@ impl MainLayout {
     fn build_tracks(
         reference: &Reference,
         repository_file_indexes: &[RepositoryFileIndex],
-    ) -> Vec<MainLayoutArea> {
+    ) -> Vec<AreaType> {
         let mut tracks = Vec::new();
         if reference.needs_track() {
-            tracks.push(MainLayoutArea::Cytoband);
+            tracks.push(AreaType::Cytoband);
         }
         if reference.needs_sequence() || reference.needs_track() {
-            tracks.push(MainLayoutArea::Coordinate);
+            tracks.push(AreaType::Coordinate);
         }
 
         let mut last_alignment_index = None;
@@ -693,31 +674,31 @@ impl MainLayout {
             match repository_file_index {
                 RepositoryFileIndex::Alignment(index) => {
                     if let Some(upper) = last_alignment_index {
-                        tracks.push(MainLayoutArea::AlignmentDivider {
+                        tracks.push(AreaType::AlignmentDivider {
                             upper,
                             lower: *index,
                         });
                     }
-                    tracks.push(MainLayoutArea::Coverage(*index));
-                    tracks.push(MainLayoutArea::Alignment(*index));
+                    tracks.push(AreaType::Coverage(*index));
+                    tracks.push(AreaType::Alignment(*index));
                     last_alignment_index = Some(*index);
                 }
-                RepositoryFileIndex::Variant(index) => tracks.push(MainLayoutArea::Variant(*index)),
-                RepositoryFileIndex::Bed(index) => tracks.push(MainLayoutArea::Bed(*index)),
+                RepositoryFileIndex::Variant(index) => tracks.push(AreaType::Variant(*index)),
+                RepositoryFileIndex::Bed(index) => tracks.push(AreaType::Bed(*index)),
             }
         }
 
         if last_alignment_index.is_none() {
-            tracks.push(MainLayoutArea::Fill);
+            tracks.push(AreaType::Fill);
         }
         if reference.needs_sequence() {
-            tracks.push(MainLayoutArea::Sequence);
+            tracks.push(AreaType::Sequence);
         }
         if reference.needs_track() {
-            tracks.push(MainLayoutArea::GeneTrack);
+            tracks.push(AreaType::GeneTrack);
         }
-        tracks.push(MainLayoutArea::Console);
-        tracks.push(MainLayoutArea::Error);
+        tracks.push(AreaType::Console);
+        tracks.push(AreaType::Error);
         tracks
     }
 
@@ -872,7 +853,7 @@ pub fn linear_scale(
 
 #[cfg(test)]
 mod tests {
-    use super::MainLayoutArea as AreaType;
+    use super::AreaType;
     use super::*;
     use gv_core::reference::Reference;
     use rstest::rstest;

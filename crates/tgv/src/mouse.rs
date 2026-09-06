@@ -1,5 +1,5 @@
 use crate::{
-    layout::{AlignmentView, MainLayout, MainLayoutArea, ResolvedMainLayout},
+    layout::{AlignmentView, MainLayout, AreaType, ResolvedMainLayout},
     message::{Message, Movement, Scroll},
 };
 use crossterm::event;
@@ -11,11 +11,11 @@ pub struct MouseRegister {
     /// Resize event handling
     pub mouse_down_x: u16,
     pub mouse_down_y: u16,
-    pub mouse_down_area_type: MainLayoutArea,
+    pub mouse_down_area_type: AreaType,
     pub resizing: bool,
     pub hovered_alignment: Option<usize>,
-    pub hovered_divider: Option<MainLayoutArea>,
-    pub active_divider: Option<MainLayoutArea>,
+    pub hovered_divider: Option<AreaType>,
+    pub active_divider: Option<AreaType>,
     pub sidebar_resizing: bool,
     pub scrollbar_grab_offset: Option<u16>,
 
@@ -31,7 +31,7 @@ impl Default for MouseRegister {
         Self {
             mouse_down_x: 0,
             mouse_down_y: 0,
-            mouse_down_area_type: MainLayoutArea::Error,
+            mouse_down_area_type: AreaType::Error,
             resizing: false,
             hovered_alignment: None,
             hovered_divider: None,
@@ -67,7 +67,7 @@ impl MouseRegister {
                 self.active_divider = None;
                 self.sidebar_resizing = false;
                 self.scrollbar_grab_offset = None;
-                self.mouse_down_area_type = MainLayoutArea::Error;
+                self.mouse_down_area_type = AreaType::Error;
 
                 if button == event::MouseButton::Left
                     && resolved_layout
@@ -134,7 +134,7 @@ impl MouseRegister {
                     layout.drag_scrollbar_thumb(event.row, grab_offset, resolved_layout);
                     self.mouse_drag_x = event.column;
                     self.mouse_drag_y = event.row;
-                } else if let Some(MainLayoutArea::AlignmentDivider { upper, lower }) =
+                } else if let Some(AreaType::AlignmentDivider { upper, lower }) =
                     self.active_divider
                 {
                     let delta_rows = event.row as i32 - self.mouse_drag_y as i32;
@@ -199,7 +199,7 @@ impl MouseRegister {
                     let area_type = *area_type;
                     let area = *destination_rect;
                     match area_type {
-                        MainLayoutArea::Alignment(index) => {
+                        AreaType::Alignment(index) => {
                             let y_coordinate = alignment_view
                                 .top(index)
                                 .saturating_add(source_rect.y as usize)
@@ -219,7 +219,7 @@ impl MouseRegister {
                             }
                         }
 
-                        MainLayoutArea::Sequence => {
+                        AreaType::Sequence => {
                             if let Some((left_coordinate, right_coordinate)) =
                                 alignment_view.coordinates_of_onscreen_x(event.column, &area)
                             {
@@ -235,7 +235,7 @@ impl MouseRegister {
                             }
                         }
 
-                        MainLayoutArea::Coverage(index) => {
+                        AreaType::Coverage(index) => {
                             if let Some((left_coordinate, right_coordinate)) =
                                 alignment_view.coordinates_of_onscreen_x(event.column, &area)
                                 && let Some(alignment) = state.alignments.get(index)
@@ -259,7 +259,7 @@ impl MouseRegister {
                                 messages.push(Message::message(message));
                             }
                         }
-                        MainLayoutArea::Variant(index) => {
+                        AreaType::Variant(index) => {
                             if let Some((left_coordinate, right_coordinate)) =
                                 alignment_view.coordinates_of_onscreen_x(event.column, &area)
                                 && let Some(variants) = state.variants.get(index)
@@ -277,7 +277,7 @@ impl MouseRegister {
                             }
                         }
 
-                        MainLayoutArea::Bed(index) => {
+                        AreaType::Bed(index) => {
                             if let Some((left_coordinate, right_coordinate)) =
                                 alignment_view.coordinates_of_onscreen_x(event.column, &area)
                                 && let Some(bed_intervals) = state.bed_intervals.get(index)
@@ -349,7 +349,7 @@ impl MouseRegister {
         Ok(messages)
     }
 
-    pub fn is_divider_highlighted(&self, area_type: &MainLayoutArea) -> bool {
+    pub fn is_divider_highlighted(&self, area_type: &AreaType) -> bool {
         matches!(area_type, MainLayoutArea::AlignmentDivider { .. })
             && (self.hovered_divider == Some(*area_type) || self.active_divider == Some(*area_type))
     }
@@ -371,9 +371,9 @@ impl MouseRegister {
             .and_then(|(area_type, _, _, _)| Self::alignment_index_for_area_type(area_type))
     }
 
-    fn alignment_index_for_area_type(area_type: &MainLayoutArea) -> Option<usize> {
+    fn alignment_index_for_area_type(area_type: &AreaType) -> Option<usize> {
         match area_type {
-            MainLayoutArea::Alignment(index) | MainLayoutArea::Coverage(index) => Some(*index),
+            AreaType::Alignment(index) | AreaType::Coverage(index) => Some(*index),
             _ => None,
         }
     }
@@ -382,7 +382,7 @@ impl MouseRegister {
         layout: &ResolvedMainLayout,
         x: u16,
         y: u16,
-    ) -> Option<&(MainLayoutArea, Rect, Rect, Rect)> {
+    ) -> Option<&(AreaType, Rect, Rect, Rect)> {
         layout.track_rects.iter().find(|(_, _, _, destination)| {
             x >= destination.x
                 && x < destination.right()
@@ -395,7 +395,7 @@ impl MouseRegister {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::layout::MainLayoutArea as AreaType;
+    use crate::layout::AreaType as AreaType;
     use crossterm::event::{KeyModifiers, MouseButton, MouseEvent, MouseEventKind};
     use gv_core::{
         contig_header::ContigHeader,
