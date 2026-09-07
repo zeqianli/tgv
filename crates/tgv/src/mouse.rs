@@ -199,7 +199,7 @@ impl MouseRegister {
                                     &alignment_view.coordinates_of_onscreen_x(event.column, area),
                                     &alignment_view
                                         .coordinate_of_onscreen_y(*index, event.row, area),
-                                ) && let Some(aAlignmentlignment) = state.alignments.get(*index)
+                                ) && let Some(alignment) = state.alignments.get(*index)
                                     && let Some(read) = alignment.read_overlapping(
                                         *left_coordinate,
                                         *right_coordinate,
@@ -235,8 +235,9 @@ impl MouseRegister {
                                 {
                                     let total_coverage = (left_coordinate..=right_coordinate).fold(
                                         BaseCoverage::default(),
-                                        |accu, coordinate| {
-                                            accu.add(alignment.coverage_at(coordinate))
+                                        |mut accu, coordinate| {
+                                            accu.add(alignment.coverage_at(coordinate));
+                                            accu
                                         },
                                     );
 
@@ -368,6 +369,4 @@ impl MouseRegister {
 
         Ok((messages, hovering_area_type))
     }
-
-  
 }
