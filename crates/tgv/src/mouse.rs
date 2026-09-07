@@ -1,5 +1,5 @@
 use crate::{
-    layout::{AlignmentView, AreaType, MainLayout},
+    layout::{AlignmentView, AreaType, HoveringAreaType, MainLayout, ResolvedMainLayout},
     message::{Message, Movement, Scroll},
 };
 use crossterm::event;
@@ -11,10 +11,13 @@ pub struct MouseRegister {
     pub mouse_down_x: u16,
     pub mouse_down_y: u16,
     pub mouse_down_area_type: AreaType,
-    pub resizing: bool,
-    pub hovered_alignment: Option<usize>,
-    pub hovered_divider: Option<AreaType>,
-    pub active_divider: Option<AreaType>,
+
+    /// Whether doing  track resizing
+    /// (track index 1, optional track index 2 (can happen whe resizing the last track))
+    pub track_resizing: Option<(usize, Option<usize>)>,
+    //pub hovered_alignment: Option<usize>,
+    //pub hovered_divider: Option<AreaType>,
+    //pub active_divider: Option<AreaType>,
 
     // Track mouse dragging
     pub mouse_drag_x: u16,
@@ -29,10 +32,10 @@ impl Default for MouseRegister {
             mouse_down_x: 0,
             mouse_down_y: 0,
             mouse_down_area_type: AreaType::Error,
-            resizing: false,
-            hovered_alignment: None,
-            hovered_divider: None,
-            active_divider: None,
+            track_resizing: None,
+            //hovered_alignment: None,
+            //hovered_divider: None,
+            // active_divider: None,
             mouse_drag_x: 0,
             mouse_drag_y: 0,
             //root: root.clone(),
@@ -44,12 +47,14 @@ impl MouseRegister {
     pub fn handle_mouse_event(
         &mut self,
         state: &State,
-        layout: &mut MainLayout,
+        layout_state: &mut MainLayout,
+        layout: &ResolvedMainLayout,
         alignment_view: &AlignmentView,
         event: event::MouseEvent,
     ) -> Result<Vec<Message>, TGVError> {
         let mut messages = Vec::new();
-        self.update_hovered_areas(layout, event.column, event.row);
+        let hovering_area_type = layout.get_area_type_at_position(event.column, event.row);
+        //self.update_hovered_areas(layout, event.column, event.row);
 
         match event.kind {
             event::MouseEventKind::Down(_) => {
@@ -57,32 +62,53 @@ impl MouseRegister {
                 self.mouse_down_y = event.row;
                 self.mouse_drag_x = event.column;
                 self.mouse_drag_y = event.row;
-                self.resizing = false;
-                self.active_divider = None;
-                self.mouse_down_area_type = AreaType::Error;
-                //self.root = state.layout.root.clone();
 
-                if let Some((area_type, area)) =
-                    layout.get_area_type_at_position(event.column, event.row)
-                {
-                    if event.column == area.left()
-                        || event.column + 1 == area.right()
-                        || event.row == area.top()
-                        || event.row + 1 == area.bottom()
-                    {
-                        self.resizing = true;
+                match hovering_area_type {
+                    HoveringAreaType::Track(track_index) => {
+                        let (area_type, rect) = layout.areas[track_index];
+                        //self.resizing = true;
+                        //self.active_divider = Some(*area_type);
+                        match area_type {
+                            AreaType::AlignmentDivider => {
+                                // Resize alignments: find the alignment
+
+                                let i1 = layout.areas.iter().enumerate().find_map(
+                                    |(i, (area, rect))| {
+                                        if i < track_index && matches!(area, AreaType::Alignment(_))
+                                        {
+                                            Some(i)
+                                        } else {
+                                            None
+                                        }
+                                    },
+                                );
+
+                                let i2 =
+                                    layout.areas.iter().enumerate().skip(track_index).find_map(
+                                        |(i, (area, rect))| {
+                                            if i > track_index
+                                                && matches!(area, AreaType::Alignment(_))
+                                            {
+                                                Some(i)
+                                            } else {
+                                                None
+                                            }
+                                        },
+                                    );
+                                if let Some(i1) = i1 {
+                                    self.track_resizing = Some((i1, i2.clone()));
+                                    log::debug!(
+                                        "Started alignment divider drag: divider={:?} column={} row={}",
+                                        (i1, i2),
+                                        event.column,
+                                        event.row,
+                                    );
+                                }
+                            }
+                            _ => {}
+                        }
                     }
-                    self.mouse_down_area_type = *area_type;
-                    if matches!(area_type, AreaType::AlignmentDivider { .. }) {
-                        self.resizing = true;
-                        self.active_divider = Some(*area_type);
-                        log::debug!(
-                            "Started alignment divider drag: divider={:?} column={} row={}",
-                            area_type,
-                            event.column,
-                            event.row,
-                        );
-                    }
+                    _ => {}
                 }
             }
 
@@ -106,7 +132,9 @@ impl MouseRegister {
                     }
                 } else {
                     // move alignment
-                    if let Some(index) = Self::alignment_index_for_area_type(&self.mouse_down_area_type) {
+                    if let Some(index) =
+                        Self::alignment_index_for_area_type(&self.mouse_down_area_type)
+                    {
                         if event.column < self.mouse_drag_x {
                             messages.push(Movement::Right(1).into())
                         } else if event.column > self.mouse_drag_x {
@@ -126,16 +154,15 @@ impl MouseRegister {
             }
 
             event::MouseEventKind::Up(_) => {
-                if let Some(active_divider) = self.active_divider {
+                if let Some((i1, i2)) = self.track_resizing {
                     log::debug!(
                         "Finished alignment divider drag: divider={:?} column={} row={}",
-                        active_divider,
+                        (i1, i2),
                         event.column,
                         event.row,
                     );
                 }
-                self.resizing = false;
-                self.active_divider = None;
+                self.track_resizing = None;
             }
 
             event::MouseEventKind::Moved => {
@@ -298,24 +325,30 @@ impl MouseRegister {
             && (self.hovered_divider == Some(*area_type) || self.active_divider == Some(*area_type))
     }
 
-    fn update_hovered_areas(&mut self, layout: &MainLayout, x: u16, y: u16) {
-        self.hovered_alignment = Self::alignment_index_at_position(layout, x, y);
-        self.hovered_divider = match layout.get_area_type_at_position(x, y) {
-            Some((area_type @ AreaType::AlignmentDivider { .. }, _area)) => Some(*area_type),
-            _ => None,
-        };
-    }
+    // fn update_hovered_areas(
+    //     &mut self,
+    //     layout_state: &MainLayout,
+    //     layout: &ResolvedMainLayout,
+    //     x: u16,
+    //     y: u16,
+    // ) {
+    //     self.hovered_alignment = Self::alignment_index_at_position(layout, x, y);
+    //     self.hovered_divider = match layout.get_area_type_at_position(x, y) {
+    //         Some((area_type @ AreaType::AlignmentDivider { .. }, _area)) => Some(*area_type),
+    //         _ => None,
+    //     };
+    // }
 
-    fn alignment_index_at_position(layout: &MainLayout, x: u16, y: u16) -> Option<usize> {
-        layout
-            .get_area_type_at_position(x, y)
-            .and_then(|(area_type, _area)| Self::alignment_index_for_area_type(area_type))
-    }
+    // fn alignment_index_at_position(layout: &MainLayout, x: u16, y: u16) -> Option<usize> {
+    //     layout
+    //         .get_area_type_at_position(x, y)
+    //         .and_then(|(area_type, _area)| Self::alignment_index_for_area_type(area_type))
+    // }
 
-    fn alignment_index_for_area_type(area_type: &AreaType) -> Option<usize> {
-        match area_type {
-            AreaType::Alignment(index) | AreaType::Coverage(index) => Some(*index),
-            _ => None,
-        }
-    }
+    // fn alignment_index_for_area_type(area_type: &AreaType) -> Option<usize> {
+    //     match area_type {
+    //         AreaType::Alignment(index) | AreaType::Coverage(index) => Some(*index),
+    //         _ => None,
+    //     }
+    // }
 }

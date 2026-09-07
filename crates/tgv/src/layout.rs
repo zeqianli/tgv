@@ -1,3 +1,5 @@
+use std::matches;
+
 use crate::settings::Settings;
 use gv_core::{
     alignment::Alignment,
@@ -6,6 +8,7 @@ use gv_core::{
     message::{Scroll, Zoom},
     repository::RepositoryFileIndex,
 };
+use itertools::Itertools;
 use ratatui::layout::Rect;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -14,13 +17,14 @@ pub enum AreaType {
     Coordinate,
     Coverage(usize),
     Alignment(usize),
-    AlignmentDivider { upper: usize, lower: usize },
+    AlignmentDivider,
     Sequence,
     GeneTrack,
     Console,
     Error,
     Variant(usize),
     Bed(usize),
+    Fill,
 }
 
 impl AreaType {
@@ -28,15 +32,16 @@ impl AreaType {
         match self {
             AreaType::Cytoband => Some(2),
             AreaType::Coordinate => Some(2),
-            AreaType::Coverage(_) => Some(MainLayout::COVERAGE_HEIGHT),
+            AreaType::Coverage(_) => Some(6),
             AreaType::Alignment(_) => None,
-            AreaType::AlignmentDivider { .. } => Some(1),
+            AreaType::AlignmentDivider => Some(1),
             AreaType::Sequence => Some(1),
             AreaType::GeneTrack => Some(2),
             AreaType::Console => Some(2),
             AreaType::Error => Some(2),
             AreaType::Variant(_) => Some(1),
             AreaType::Bed(_) => Some(1),
+            AreaType::Fill => None,
         }
     }
 }
@@ -277,18 +282,20 @@ impl AlignmentView {
     }
 }
 
-/// Main page layout
+/// Main page layout states
 pub struct MainLayout {
+    /// Track area types. Length matches number of tracks to display.
     pub tracks: Vec<AreaType>,
 
-    pub main_area: Rect,
+    /// Track heights. Changes at track resizing.
+    pub track_heights: Vec<Option<u16>>,
 
-    pub areas: Vec<(AreaType, Rect)>,
+    /// Sidebar width (showing file paths). If 0, hide sidebar.
+    pub sidebar_width: u16,
 }
 
 impl MainLayout {
     const ALIGNMENT_MIN_HEIGHT: u16 = 1;
-    const COVERAGE_HEIGHT: u16 = 6;
 
     pub fn new(settings: &Settings, repository_file_indexes: &[RepositoryFileIndex]) -> Self {
         let mut tracks = vec![];
@@ -328,201 +335,139 @@ impl MainLayout {
 
         tracks.push(AreaType::Console);
         tracks.push(AreaType::Error);
+        let track_heights = tracks
+            .iter()
+            .map(|area_type| area_type.desired_height())
+            .collect_vec();
 
         MainLayout {
             tracks,
-            main_area: Rect::default(),
-            areas: Vec::new(),
+            track_heights,
+            sidebar_width: 0, //main_area: Rect::default(),
+                              //areas: Vec::new(),
         }
     }
 
-    /// Update the area. If the area size changed, terminal refresh is needed.
-    pub fn set_area(&mut self, area: Rect) -> bool {
-        if area.width != self.main_area.width || area.height != self.main_area.height {
-            let previous_area = self.main_area;
-            let alignment_heights = self.current_alignment_heights();
-            self.main_area = area;
-            self.recalculate_areas(&alignment_heights);
-            log::debug!(
-                "Layout area changed: previous_area={:?} new_area={:?} requested_alignment_heights={:?} resolved_alignment_heights={:?}",
-                previous_area,
-                self.main_area,
-                alignment_heights,
-                self.current_alignment_heights(),
-            );
-            true
-        } else {
-            false
-        }
-    }
+    /// Resolve implicit track heights (e.g. alignment tracks, Fill) and
+    /// calculate the actual display heights given the main terminal height.
+    fn calculate_track_heights(&self, main_height: u16) -> Vec<(AreaType, u16)> {
+        let fixed_tracks_total_height = self.track_heights.iter().filter_map(|x| x.as_ref()).sum();
 
-    pub fn resize_alignment_pair(&mut self, upper: usize, lower: usize, delta_rows: i32) {
-        if delta_rows == 0 {
-            return;
-        }
-
-        let mut alignment_heights = self.current_alignment_heights();
-        let previous_alignment_heights = alignment_heights.clone();
-
-        let minimum_height = if self.can_fit_alignment_minimums() {
-            Self::ALIGNMENT_MIN_HEIGHT
-        } else {
-            0
-        };
-        let upper_height = alignment_heights[upper];
-        let lower_height = alignment_heights[lower];
-        let actual_delta = if delta_rows > 0 {
-            delta_rows.min((lower_height.saturating_sub(minimum_height)) as i32)
-        } else {
-            delta_rows.max(-((upper_height.saturating_sub(minimum_height)) as i32))
-        };
-
-        if actual_delta == 0 {
-            log::trace!(
-                "Alignment divider resize was clamped to zero: upper={} lower={} requested_delta_rows={} heights={:?} minimum_height={}",
-                upper,
-                lower,
-                delta_rows,
-                previous_alignment_heights,
-                minimum_height,
-            );
-            return;
-        }
-
-        if actual_delta > 0 {
-            let actual_delta = actual_delta as u16;
-            alignment_heights[upper] = upper_height.saturating_add(actual_delta);
-            alignment_heights[lower] = lower_height.saturating_sub(actual_delta);
-        } else {
-            let actual_delta = (-actual_delta) as u16;
-            alignment_heights[upper] = upper_height.saturating_sub(actual_delta);
-            alignment_heights[lower] = lower_height.saturating_add(actual_delta);
-        }
-
-        self.recalculate_areas(&alignment_heights);
-        log::debug!(
-            "Alignment divider resized: upper={} lower={} requested_delta_rows={} actual_delta_rows={} previous_alignment_heights={:?} requested_alignment_heights={:?} resolved_alignment_heights={:?}",
-            upper,
-            lower,
-            delta_rows,
-            actual_delta,
-            previous_alignment_heights,
-            alignment_heights,
-            self.current_alignment_heights(),
-        );
-    }
-
-    fn recalculate_areas(&mut self, alignment_heights: &[u16]) {
-        let alignment_heights = self.resolved_alignment_heights(alignment_heights);
-        let mut y = self.main_area.y;
-        let mut remaining_height = self.main_area.height;
-
-        self.areas = self
+        // Count how many unresovled alignment and unresolved fill there are.
+        let n_unresolved_alignment = self
             .tracks
             .iter()
-            .map(|track| {
-                let desired_height = match track {
-                    AreaType::Alignment(index) => alignment_heights[*index],
-                    _ => track.desired_height().unwrap_or_default(),
-                };
-                let height = u16::min(desired_height, remaining_height);
-                let rect = Rect::new(self.main_area.x, y, self.main_area.width, height);
-                y = y.saturating_add(height);
-                remaining_height = remaining_height.saturating_sub(height);
-                (*track, rect)
-            })
-            .collect();
-    }
+            .zip(self.track_heights.iter())
+            .filter(|(area, height)| matches!(area, AreaType::Alignment(_)) && height.is_none())
+            .count();
 
-    fn resolved_alignment_heights(&self, alignment_heights: &[u16]) -> Vec<u16> {
-        let alignment_count = self.alignment_count();
-        if alignment_count == 0 {
-            return Vec::new();
-        }
+        if n_unresolved_alignment > 0 {
+            let unresovled_alignment_height = u16::max(
+                Self::ALIGNMENT_MIN_HEIGHT,
+                main_height.saturating_sub(fixed_tracks_total_height)
+                    / (n_unresolved_alignment as u16),
+            );
+            self.tracks
+                .iter()
+                .zip(self.track_heights.iter())
+                .map(|(area, height)| (area.clone(), height.unwrap_or(unresovled_alignment_height)))
+                .collect_vec()
+        } else {
+            let fill_height = main_height.saturating_sub(fixed_tracks_total_height);
 
-        let fixed_height = self.fixed_desired_height();
-        let available_height = self.main_area.height.saturating_sub(fixed_height);
-
-        if available_height < alignment_count as u16 * Self::ALIGNMENT_MIN_HEIGHT {
-            return (0..alignment_count)
-                .scan(available_height, |remaining_height, _| {
-                    let height = u16::min(Self::ALIGNMENT_MIN_HEIGHT, *remaining_height);
-                    *remaining_height = remaining_height.saturating_sub(height);
-                    Some(height)
+            self.tracks
+                .iter()
+                .zip(self.track_heights.iter())
+                .map(|(area, height)| {
+                    (area.clone(), height.unwrap_or(fill_height)) // Only Fill can have None here
                 })
-                .collect();
+                .collect_vec()
         }
+    }
 
-        let mut heights = Vec::with_capacity(alignment_count);
-        let mut remaining_height = available_height;
-        for index in 0..alignment_count {
-            let remaining_alignments = alignment_count - index - 1;
-            let reserved_height = remaining_alignments as u16 * Self::ALIGNMENT_MIN_HEIGHT;
-            let maximum_height = remaining_height.saturating_sub(reserved_height);
-            let height = alignment_heights[index]
-                .max(Self::ALIGNMENT_MIN_HEIGHT)
-                .min(maximum_height);
-            heights.push(height);
-            remaining_height = remaining_height.saturating_sub(height);
+    /// Resolve the main layout
+    pub fn resovle_main_layout(&self, main_area: Rect) -> ResolvedMainLayout {
+        let track_heights = self.calculate_track_heights(main_area.height);
+        let track_heights_accu = track_heights
+            .into_iter()
+            .scan((AreaType::Fill, 0u16), |(_, y), (area, height)| {
+                let old_height = y.clone();
+                *y = *y + height;
+                Some((area.clone(), old_height, height))
+            })
+            .collect_vec();
+
+        // Show sidebar
+        let track_x = self.sidebar_width;
+        let track_width = main_area.width - self.sidebar_width;
+        ResolvedMainLayout {
+            main_area: main_area.clone(),
+            areas: track_heights_accu
+                .iter()
+                .map(|(area, y, height)| {
+                    (area.clone(), Rect::new(track_x, *y, track_width, *height))
+                })
+                .collect_vec(),
+            sidebar_width: self.sidebar_width,
+            sidebar_areas: track_heights_accu
+                .iter()
+                .map(|(_area, y, height)| Rect::new(0, *y, self.sidebar_width, *height))
+                .collect_vec(),
         }
-
-        if remaining_height > 0 {
-            let shared_extra_height = remaining_height / alignment_count as u16;
-            let mut extra_remainder = remaining_height % alignment_count as u16;
-            for height in &mut heights {
-                *height = height.saturating_add(shared_extra_height);
-                if extra_remainder > 0 {
-                    *height = height.saturating_add(1);
-                    extra_remainder -= 1;
-                }
-            }
-        }
-
-        heights
-    }
-
-    fn current_alignment_heights(&self) -> Vec<u16> {
-        let alignment_count = self.alignment_count();
-        let mut alignment_heights = vec![Self::ALIGNMENT_MIN_HEIGHT; alignment_count];
-
-        for (area_type, area) in &self.areas {
-            if let AreaType::Alignment(index) = area_type {
-                alignment_heights[*index] = area.height;
-            }
-        }
-
-        alignment_heights
-    }
-
-    fn can_fit_alignment_minimums(&self) -> bool {
-        let alignment_count = self.alignment_count() as u16;
-        self.main_area
-            .height
-            .saturating_sub(self.fixed_desired_height())
-            >= alignment_count.saturating_mul(Self::ALIGNMENT_MIN_HEIGHT)
-    }
-
-    fn fixed_desired_height(&self) -> u16 {
-        self.tracks
-            .iter()
-            .filter_map(AreaType::desired_height)
-            .fold(0, u16::saturating_add)
-    }
-
-    fn alignment_count(&self) -> usize {
-        self.tracks
-            .iter()
-            .filter(|track| matches!(track, AreaType::Alignment(_)))
-            .count()
-    }
-
-    pub fn get_area_type_at_position(&self, x: u16, y: u16) -> Option<&(AreaType, Rect)> {
-        self.areas.iter().find(|(_area_type, area)| {
-            x >= area.x && x < area.right() && y >= area.y && y < area.bottom()
-        })
     }
 }
 
+/// Resolved Rects
+#[derive(Default, Clone, Debug)]
+pub struct ResolvedMainLayout {
+    /// Terminal area
+    pub main_area: Rect,
+
+    /// Track areas. Lengths match number of tracks to display.
+    pub areas: Vec<(AreaType, Rect)>,
+
+    /// Whether to show sidebar
+    pub sidebar_width: u16,
+
+    /// Side bar areas displaying file names
+    pub sidebar_areas: Vec<Rect>,
+}
+
+pub enum HoveringAreaType {
+    Sidebar(usize),
+    Track(usize),
+    None,
+}
+
+impl ResolvedMainLayout {
+    pub fn get_area_type_at_position(&self, x: u16, y: u16) -> HoveringAreaType {
+        if x < self.sidebar_width {
+            self.sidebar_areas
+                .iter()
+                .enumerate()
+                .find_map(|(index, area)| {
+                    if (y >= area.y && y < area.bottom()) {
+                        Some(HoveringAreaType::Sidebar(index))
+                    } else {
+                        None
+                    }
+                })
+                .unwrap_or(HoveringAreaType::None)
+        } else {
+            self.areas
+                .iter()
+                .enumerate()
+                .find_map(|(index, (_, area))| {
+                    if (y >= area.y && y < area.bottom()) {
+                        Some(HoveringAreaType::Sidebar(index))
+                    } else {
+                        None
+                    }
+                })
+                .unwrap_or(HoveringAreaType::None)
+        }
+    }
+}
 pub enum OnScreenCoordinate {
     /// Coordinate on left side of the screen.
     /// The last pixel is 1.
