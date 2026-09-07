@@ -240,23 +240,25 @@ impl MouseRegister {
                                             accu
                                         },
                                     );
+                                    let a: String = format!(
+                                        "{}: {}",
+                                        left_coordinate,
+                                        total_coverage.describe()
+                                    );
+                                    let b: String = format!(
+                                        "{} - {}: {}",
+                                        left_coordinate,
+                                        right_coordinate,
+                                        total_coverage.describe()
+                                    );
 
-                                    let message: String = if left_coordinate == right_coordinate {
-                                        format!(
-                                            "{}: {}",
-                                            left_coordinate,
-                                            total_coverage.describe()
-                                        )
-                                    } else {
-                                        format!(
-                                            "{} - {}: {}",
-                                            left_coordinate,
-                                            right_coordinate,
-                                            total_coverage.describe()
-                                        )
-                                    };
-
-                                    messages.push(Message::message(message));
+                                    messages.push(Message::message(
+                                        if left_coordinate == right_coordinate {
+                                            a
+                                        } else {
+                                            b
+                                        },
+                                    ));
                                 }
                             }
                             AreaType::Variant(index) => {

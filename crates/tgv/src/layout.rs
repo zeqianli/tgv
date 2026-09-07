@@ -312,10 +312,7 @@ impl MainLayout {
             match repository_file_index {
                 RepositoryFileIndex::Alignment(index) => {
                     if let Some(upper) = last_alignment_index {
-                        tracks.push(AreaType::AlignmentDivider {
-                            upper,
-                            lower: *index,
-                        });
+                        tracks.push(AreaType::AlignmentDivider);
                     }
                     tracks.push(AreaType::Coverage(*index));
                     tracks.push(AreaType::Alignment(*index));
