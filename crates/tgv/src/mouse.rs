@@ -185,134 +185,165 @@ impl MouseRegister {
 
             event::MouseEventKind::Moved => {
                 // Display read information
-                if let Some((area_type, area)) =
-                    layout.get_area_type_at_position(event.column, event.row)
-                {
-                    match area_type {
-                        AreaType::Alignment(index) => {
-                            if let (Some((left_coordinate, right_coordinate)), Some(y_coordinate)) = (
-                                &alignment_view.coordinates_of_onscreen_x(event.column, area),
-                                &alignment_view.coordinate_of_onscreen_y(*index, event.row, area),
-                            ) && let Some(alignment) = state.alignments.get(*index)
-                                && let Some(read) = alignment.read_overlapping(
-                                    *left_coordinate,
-                                    *right_coordinate,
-                                    *y_coordinate,
-                                )
-                            {
-                                messages.push(Message::Core(gv_core::message::Message::Message(
-                                    read.describe()?,
-                                )))
-                            }
-                        }
+                match hovering_area_type {
+                    HoveringAreaType::Track(track_index) => {
+                        let area = &layout.areas[track_index].1;
+                        let area_type = &layout.areas[track_index].0;
 
-                        AreaType::Sequence => {
-                            if let Some((left_coordinate, right_coordinate)) =
-                                alignment_view.coordinates_of_onscreen_x(event.column, area)
-                            {
-                                let description: String = (left_coordinate..=right_coordinate)
-                                    .filter_map(|coordinate| {
-                                        state.sequence.base_at(coordinate).map(|base_u8| {
-                                            format!("{}: {}", coordinate, base_u8 as char)
-                                        })
-                                    })
-                                    .join(", ");
-
-                                messages.push(Message::message(description));
-                            }
-                        }
-
-                        AreaType::Coverage(index) => {
-                            if let Some((left_coordinate, right_coordinate)) =
-                                alignment_view.coordinates_of_onscreen_x(event.column, area)
-                                && let Some(alignment) = state.alignments.get(*index)
-                            {
-                                let mut total_coverage: BaseCoverage = BaseCoverage::default();
-                                (left_coordinate..=right_coordinate).for_each(|coordinate| {
-                                    total_coverage.add(alignment.coverage_at(coordinate))
-                                });
-
-                                let message = if left_coordinate == right_coordinate {
-                                    format!("{}: {}", left_coordinate, total_coverage.describe())
-                                } else {
-                                    format!(
-                                        "{} - {}: {}",
-                                        left_coordinate,
-                                        right_coordinate,
-                                        total_coverage.describe()
+                        match area_type {
+                            AreaType::Alignment(index) => {
+                                if let (
+                                    Some((left_coordinate, right_coordinate)),
+                                    Some(y_coordinate),
+                                ) = (
+                                    &alignment_view.coordinates_of_onscreen_x(event.column, area),
+                                    &alignment_view
+                                        .coordinate_of_onscreen_y(*index, event.row, area),
+                                ) && let Some(aAlignmentlignment) = state.alignments.get(*index)
+                                    && let Some(read) = alignment.read_overlapping(
+                                        *left_coordinate,
+                                        *right_coordinate,
+                                        *y_coordinate,
                                     )
-                                };
+                                {
+                                    messages.push(Message::Core(
+                                        gv_core::message::Message::Message(read.describe()?),
+                                    ));
+                                }
+                            }
 
-                                messages.push(Message::message(message));
+                            AreaType::Sequence => {
+                                if let Some((left_coordinate, right_coordinate)) =
+                                    alignment_view.coordinates_of_onscreen_x(event.column, &area)
+                                {
+                                    let description: String = (left_coordinate..=right_coordinate)
+                                        .filter_map(|coordinate| {
+                                            state.sequence.base_at(coordinate).map(|base_u8| {
+                                                format!("{}: {}", coordinate, base_u8 as char)
+                                            })
+                                        })
+                                        .join(", ");
+
+                                    messages.push(Message::message(description));
+                                }
                             }
+
+                            AreaType::Coverage(index) => {
+                                if let Some((left_coordinate, right_coordinate)) =
+                                    alignment_view.coordinates_of_onscreen_x(event.column, &area)
+                                    && let Some(alignment) = state.alignments.get(*index)
+                                {
+                                    let total_coverage = (left_coordinate..=right_coordinate).fold(
+                                        BaseCoverage::default(),
+                                        |accu, coordinate| {
+                                            accu.add(alignment.coverage_at(coordinate))
+                                        },
+                                    );
+
+                                    let message: String = if left_coordinate == right_coordinate {
+                                        format!(
+                                            "{}: {}",
+                                            left_coordinate,
+                                            total_coverage.describe()
+                                        )
+                                    } else {
+                                        format!(
+                                            "{} - {}: {}",
+                                            left_coordinate,
+                                            right_coordinate,
+                                            total_coverage.describe()
+                                        )
+                                    };
+
+                                    messages.push(Message::message(message));
+                                }
+                            }
+                            AreaType::Variant(index) => {
+                                if let Some((left_coordinate, right_coordinate)) =
+                                    alignment_view.coordinates_of_onscreen_x(event.column, area)
+                                    && let Some(variants) = state.variants.get(*index)
+                                {
+                                    variants
+                                        .overlapping(
+                                            alignment_view.focus.contig_index,
+                                            left_coordinate,
+                                            right_coordinate,
+                                        )?
+                                        .into_iter()
+                                        .for_each(|variant| {
+                                            messages.push(Message::message(variant.describe()));
+                                        });
+                                }
+                            }
+
+                            AreaType::Bed(index) => {
+                                if let Some((left_coordinate, right_coordinate)) =
+                                    alignment_view.coordinates_of_onscreen_x(event.column, area)
+                                    && let Some(bed_intervals) = state.bed_intervals.get(*index)
+                                {
+                                    bed_intervals
+                                        .overlapping(
+                                            alignment_view.focus.contig_index,
+                                            left_coordinate,
+                                            right_coordinate,
+                                        )?
+                                        .into_iter()
+                                        .for_each(|bed_interval| {
+                                            messages
+                                                .push(Message::message(bed_interval.describe()));
+                                        });
+                                }
+                            }
+                            _ => {}
                         }
-                        AreaType::Variant(index) => {
-                            if let Some((left_coordinate, right_coordinate)) =
-                                alignment_view.coordinates_of_onscreen_x(event.column, area)
-                                && let Some(variants) = state.variants.get(*index)
-                            {
-                                variants
-                                    .overlapping(
-                                        alignment_view.focus.contig_index,
-                                        left_coordinate,
-                                        right_coordinate,
-                                    )?
-                                    .into_iter()
-                                    .for_each(|variant| {
-                                        messages.push(Message::message(variant.describe()));
-                                    });
-                            }
+                    }
+                    HoveringAreaType::Sidebar(track_index) => {}
+                    _ => {}
+                }
+            }
+
+            event::MouseEventKind::ScrollDown => match hovering_area_type {
+                HoveringAreaType::Track(track_index) => {
+                    let area = &layout.areas[track_index].1;
+                    let area_type = &layout.areas[track_index].0;
+
+                    match *area_type {
+                        AreaType::Alignment(index) => {
+                            log::debug!(
+                                "Mouse wheel generated vertical scroll: alignment_index={} direction=down column={} row={}",
+                                index,
+                                event.column,
+                                event.row,
+                            );
+                            messages.push(Scroll::Down { index, n: 1 }.into());
                         }
 
-                        AreaType::Bed(index) => {
-                            if let Some((left_coordinate, right_coordinate)) =
-                                alignment_view.coordinates_of_onscreen_x(event.column, area)
-                                && let Some(bed_intervals) = state.bed_intervals.get(*index)
-                            {
-                                bed_intervals
-                                    .overlapping(
-                                        alignment_view.focus.contig_index,
-                                        left_coordinate,
-                                        right_coordinate,
-                                    )?
-                                    .into_iter()
-                                    .for_each(|bed_interval| {
-                                        messages.push(Message::message(bed_interval.describe()));
-                                    });
-                            }
+                        _ => {}
+                    }
+                }
+                _ => {}
+            },
+
+            event::MouseEventKind::ScrollUp => match hovering_area_type {
+                HoveringAreaType::Track(track_index) => {
+                    let area = &layout.areas[track_index].1;
+                    let area_type = &layout.areas[track_index].0;
+
+                    match *area_type {
+                        AreaType::Alignment(index) => {
+                            log::debug!(
+                                "Mouse wheel generated vertical scroll: alignment_index={} direction=up column={} row={}",
+                                index,
+                                event.column,
+                                event.row,
+                            );
+                            messages.push(Scroll::Up { index, n: 1 }.into());
                         }
                         _ => {}
                     }
                 }
-            }
-
-            event::MouseEventKind::ScrollDown => {
-                if let Some(index) =
-                    Self::alignment_index_at_position(layout, event.column, event.row)
-                {
-                    log::debug!(
-                        "Mouse wheel generated vertical scroll: alignment_index={} direction=down column={} row={}",
-                        index,
-                        event.column,
-                        event.row,
-                    );
-                    messages.push(Scroll::Down { index, n: 1 }.into());
-                }
-            }
-
-            event::MouseEventKind::ScrollUp => {
-                if let Some(index) =
-                    Self::alignment_index_at_position(layout, event.column, event.row)
-                {
-                    log::debug!(
-                        "Mouse wheel generated vertical scroll: alignment_index={} direction=up column={} row={}",
-                        index,
-                        event.column,
-                        event.row,
-                    );
-                    messages.push(Scroll::Up { index, n: 1 }.into());
-                }
-            }
+                _ => {}
+            },
 
             event::MouseEventKind::ScrollLeft => {
                 log::debug!(
@@ -335,11 +366,8 @@ impl MouseRegister {
             _ => {}
         }
 
-        Ok(messages)
+        Ok((messages, hovering_area_type))
     }
 
-    pub fn is_divider_highlighted(&self, area_type: &AreaType) -> bool {
-        matches!(area_type, AreaType::AlignmentDivider { .. })
-            && (self.hovered_divider == Some(*area_type) || self.active_divider == Some(*area_type))
-    }
+  
 }
