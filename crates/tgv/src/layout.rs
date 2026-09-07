@@ -433,6 +433,7 @@ pub struct ResolvedMainLayout {
     pub sidebar_areas: Vec<Rect>,
 }
 
+#[derive(Clone, Debug)]
 pub enum HoveringAreaType {
     Sidebar(usize),
     Track(usize),

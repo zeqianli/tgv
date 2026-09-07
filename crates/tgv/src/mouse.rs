@@ -1,27 +1,30 @@
 use crate::{
     layout::{AlignmentView, AreaType, HoveringAreaType, MainLayout, ResolvedMainLayout},
-    message::{Message, Movement, Scroll},
+    message::{Message, Movement, Scroll, UpdateLayoutMessage},
 };
 use crossterm::event;
 use gv_core::{alignment::BaseCoverage, error::TGVError, state::State};
 use itertools::Itertools;
 
 pub struct MouseRegister {
-    /// Resize event handling
+    /// x at the mouse down event
     pub mouse_down_x: u16,
+    /// y at the mouse down event
     pub mouse_down_y: u16,
-    pub mouse_down_area_type: AreaType,
+    /// Track mouse dragging
+    pub mouse_drag_x: u16,
+    /// Track mouse dragging
+    pub mouse_drag_y: u16,
 
-    /// Whether doing  track resizing
+    pub mouse_down_area_type: HoveringAreaType,
+
+    /// Whether doing track resizing
     /// (track index 1, optional track index 2 (can happen whe resizing the last track))
     pub track_resizing: Option<(usize, Option<usize>)>,
     //pub hovered_alignment: Option<usize>,
     //pub hovered_divider: Option<AreaType>,
     //pub active_divider: Option<AreaType>,
 
-    // Track mouse dragging
-    pub mouse_drag_x: u16,
-    pub mouse_drag_y: u16,
     // root layout at mousedown.
     //pub root: LayoutNode,
 }
@@ -31,7 +34,7 @@ impl Default for MouseRegister {
         Self {
             mouse_down_x: 0,
             mouse_down_y: 0,
-            mouse_down_area_type: AreaType::Error,
+            mouse_down_area_type: HoveringAreaType::None,
             track_resizing: None,
             //hovered_alignment: None,
             //hovered_divider: None,
@@ -44,6 +47,7 @@ impl Default for MouseRegister {
 }
 
 impl MouseRegister {
+    /// Translate a mouse event into a message.
     pub fn handle_mouse_event(
         &mut self,
         state: &State,
@@ -51,7 +55,7 @@ impl MouseRegister {
         layout: &ResolvedMainLayout,
         alignment_view: &AlignmentView,
         event: event::MouseEvent,
-    ) -> Result<Vec<Message>, TGVError> {
+    ) -> Result<(Vec<Message>, HoveringAreaType), TGVError> {
         let mut messages = Vec::new();
         let hovering_area_type = layout.get_area_type_at_position(event.column, event.row);
         //self.update_hovered_areas(layout, event.column, event.row);
@@ -62,6 +66,7 @@ impl MouseRegister {
                 self.mouse_down_y = event.row;
                 self.mouse_drag_x = event.column;
                 self.mouse_drag_y = event.row;
+                self.mouse_down_area_type = hovering_area_type.clone();
 
                 match hovering_area_type {
                     HoveringAreaType::Track(track_index) => {
@@ -113,43 +118,56 @@ impl MouseRegister {
             }
 
             event::MouseEventKind::Drag(_) => {
-                if let Some(AreaType::AlignmentDivider { upper, lower }) = self.active_divider {
-                    let delta_rows = event.row as i32 - self.mouse_drag_y as i32;
-                    if delta_rows != 0 {
-                        layout.resize_alignment_pair(upper, lower, delta_rows);
+                if let Some((i1, i2)) = self.track_resizing
+                    && event.row != self.mouse_drag_y
+                {
+                    // Resizing alignment tracks
+                    messages.push(Message::UpdateLayout(UpdateLayoutMessage::ResizeTracks(
+                        i1,
+                        Some(layout.areas[i1].1.height + event.row - self.mouse_down_y),
+                    )));
+                    if let Some(i2) = i2 {
+                        messages.push(Message::UpdateLayout(UpdateLayoutMessage::ResizeTracks(
+                            i2,
+                            Some(layout.areas[i2].1.height + event.row - self.mouse_down_y),
+                        )));
                     }
+
                     self.mouse_drag_x = event.column;
                     self.mouse_drag_y = event.row;
-                } else if self.resizing {
-                    if (event.row != self.mouse_down_y) || (event.column != self.mouse_down_x) {
-                        // TODO: next release
-                        // messages.push(StateMessage::ResizeTrack {
-                        //     mouse_down_x: self.mouse_down_x,
-                        //     mouse_down_y: self.mouse_down_y,
-                        //     mouse_released_x: event.column,
-                        //     mouse_released_y: event.row,
-                        // });
-                    }
                 } else {
-                    // move alignment
-                    if let Some(index) =
-                        Self::alignment_index_for_area_type(&self.mouse_down_area_type)
-                    {
-                        if event.column < self.mouse_drag_x {
-                            messages.push(Movement::Right(1).into())
-                        } else if event.column > self.mouse_drag_x {
-                            messages.push(Movement::Left(1).into())
-                        }
+                    match self.mouse_down_area_type {
+                        HoveringAreaType::Track(track_index) => {
+                            // move alignment
+                            match layout.areas[track_index].0 {
+                                AreaType::Alignment(index) => {
+                                    if event.column < self.mouse_drag_x {
+                                        messages.push(Movement::Right(1).into())
+                                    } else if event.column > self.mouse_drag_x {
+                                        messages.push(Movement::Left(1).into())
+                                    }
 
-                        if event.row > self.mouse_drag_y {
-                            messages.push(Scroll::Up { index, n: 1 }.into())
-                        } else if event.row < self.mouse_drag_y {
-                            messages.push(Scroll::Down { index, n: 1 }.into())
+                                    if event.row > self.mouse_drag_y {
+                                        messages.push(Scroll::Up { index, n: 1 }.into())
+                                    } else if event.row < self.mouse_drag_y {
+                                        messages.push(Scroll::Down { index, n: 1 }.into())
+                                    }
+                                }
+                                AreaType::Bed(_) | AreaType::Coverage(_) | AreaType::Bed(_) => {
+                                    if event.column < self.mouse_drag_x {
+                                        messages.push(Movement::Right(1).into())
+                                    } else if event.column > self.mouse_drag_x {
+                                        messages.push(Movement::Left(1).into())
+                                    }
+                                }
+                                _ => {}
+                            };
+
+                            self.mouse_drag_x = event.column;
+                            self.mouse_drag_y = event.row;
                         }
+                        _ => {}
                     }
-
-                    self.mouse_drag_x = event.column;
-                    self.mouse_drag_y = event.row;
                 }
             }
 
@@ -324,31 +342,4 @@ impl MouseRegister {
         matches!(area_type, AreaType::AlignmentDivider { .. })
             && (self.hovered_divider == Some(*area_type) || self.active_divider == Some(*area_type))
     }
-
-    // fn update_hovered_areas(
-    //     &mut self,
-    //     layout_state: &MainLayout,
-    //     layout: &ResolvedMainLayout,
-    //     x: u16,
-    //     y: u16,
-    // ) {
-    //     self.hovered_alignment = Self::alignment_index_at_position(layout, x, y);
-    //     self.hovered_divider = match layout.get_area_type_at_position(x, y) {
-    //         Some((area_type @ AreaType::AlignmentDivider { .. }, _area)) => Some(*area_type),
-    //         _ => None,
-    //     };
-    // }
-
-    // fn alignment_index_at_position(layout: &MainLayout, x: u16, y: u16) -> Option<usize> {
-    //     layout
-    //         .get_area_type_at_position(x, y)
-    //         .and_then(|(area_type, _area)| Self::alignment_index_for_area_type(area_type))
-    // }
-
-    // fn alignment_index_for_area_type(area_type: &AreaType) -> Option<usize> {
-    //     match area_type {
-    //         AreaType::Alignment(index) | AreaType::Coverage(index) => Some(*index),
-    //         _ => None,
-    //     }
-    // }
 }

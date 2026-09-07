@@ -11,7 +11,16 @@ pub enum Message {
 
     SwitchKeyRegister(KeyRegisterType),
 
+    UpdateLayout(UpdateLayoutMessage),
+
     ClearAllKeyRegisters,
+}
+
+/// UX layout update messages
+#[derive(Debug, Clone, Eq, PartialEq, Display)]
+pub enum UpdateLayoutMessage {
+    /// (i_track, new_heights)
+    ResizeTracks(usize, Option<u16>),
 }
 
 impl Message {
