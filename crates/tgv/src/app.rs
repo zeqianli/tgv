@@ -43,6 +43,7 @@ pub struct App {
 }
 
 /// After event handling, which areas needs re-rendering.
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum RenderEvent {
     Area(AreaType),
     Sidebar,
@@ -134,14 +135,16 @@ impl App {
             // Render
             // FIXME: improve rendering performance. Not all sections need to be re-rendered at every loop.
             //
-            let mut refresh_terminal = false;
+            //let mut refresh_terminal = false;
             let mut render_result = Ok(());
 
             if !render_events.is_empty() {
                 terminal
                     .draw(|frame| {
                         let buffer = frame.buffer_mut();
-                        refresh_terminal = self.resolved_layout.terminal_area != buffer.area;
+                        if self.resolved_layout.terminal_area != buffer.area {
+                            render_events.push(RenderEvent::All);
+                        }
                         self.resolved_layout = self.layout.resolve(buffer.area);
                         render_result = self.render(buffer, &render_events);
                     })
@@ -198,9 +201,9 @@ impl App {
             );
 
             // Clear terminal for the next loop if needed
-            if refresh_terminal {
-                terminal.clear()?;
-            }
+            // if refresh_terminal {
+            //     terminal.clear()?;
+            // }
         }
         log::info!("The app event loop exited");
         Ok(())

@@ -9,9 +9,12 @@ mod cytoband;
 mod help;
 mod intervals;
 mod sequence;
+mod sidebar;
 mod status_bar;
 mod track;
 mod variants;
+use std::collections::BTreeSet;
+
 pub use alignment::{render_alignment, render_paired_alignment};
 pub use bed::render_bed;
 pub use colors::{DARK_THEME, Palette};
@@ -51,80 +54,53 @@ pub fn render_main(
     pallete: &Palette,
     render_events: &Vec<RenderEvent>,
 ) -> Result<(), TGVError> {
-    let sidebar_style = Style::default().fg(Color::Gray);
-    if layout.sidebar_width > 0 {
-        let separator_style = Style::default().fg(Color::DarkGray);
-        for area in &layout.sidebar_section_dividers {
-            buf.set_stringn(
-                area.x,
-                area.y,
-                "_".repeat(area.width as usize),
-                area.width as usize,
-                separator_style,
-            );
-        }
-        for (area, label) in &layout.sidebar_labels {
-            let lines = wrap_sidebar_label(label, area.width);
-            let visible_lines = lines.len().min(area.height as usize);
-            let first_row = area.y + (area.height as usize - visible_lines) as u16 / 2;
-            for (offset, line) in lines.iter().take(visible_lines).enumerate() {
-                buf.set_stringn(
-                    area.x,
-                    first_row + offset as u16,
-                    line,
-                    area.width as usize,
-                    sidebar_style,
-                );
-            }
-        }
-        for (index, (area_type, _)) in layout.areas.iter().enumerate() {
-            let area = layout.sidebar_areas[index];
-            if area.width == 0 || area.height == 0 {
-                continue;
-            }
-            match area_type {
-                AreaType::Cytoband => {
-                    buf.set_stringn(
-                        area.x,
-                        area.y,
-                        state.reference.to_string(),
-                        area.width as usize,
-                        sidebar_style,
-                    );
+    // Expand render events
+    let mut render_areas = Vec::new();
+    let mut render_side_bar = false;
+
+    // TODO: This chunk of code is is really bad.
+    for event in render_events.iter() {
+        match event {
+            RenderEvent::All => {
+                render_side_bar = true;
+                for (area_type, _rect) in layout.areas.iter() {
+                    if !render_areas.contains(area_type) {
+                        render_areas.push(area_type.clone());
+                    }
                 }
-                AreaType::Coordinate => {
-                    buf.set_stringn(
-                        area.x,
-                        area.y,
-                        format!(
-                            "{}:{}",
-                            state.contig_name(&alignment_view.focus)?,
-                            alignment_view.focus.position
-                        ),
-                        area.width as usize,
-                        sidebar_style,
-                    );
+            }
+
+            RenderEvent::AllTracks => {
+                for (area_type, _rect) in layout.areas.iter() {
+                    if !render_areas.contains(area_type) {
+                        render_areas.push(area_type.clone());
+                    }
                 }
-                _ => {}
+            }
+
+            RenderEvent::Sidebar => {
+                render_side_bar = true;
+            }
+
+            RenderEvent::Area(area_type) => {
+                if !render_areas.contains(area_type) {
+                    render_areas.push(area_type.clone());
+                }
             }
         }
-        for (area, index) in &layout.sidebar_alignment_depths {
-            buf.set_stringn(
-                area.x,
-                area.y,
-                status_bar::alignment_depth_description(state, alignment_view, *index),
-                area.width as usize,
-                sidebar_style,
-            );
-        }
-        let divider_style = if mouse_register.is_sidebar_divider_highlighted() {
-            Style::default().fg(pallete.HIGHLIGHT_COLOR)
-        } else {
-            sidebar_style
-        };
-        for y in layout.sidebar_divider_area.top()..layout.sidebar_divider_area.bottom() {
-            buf.set_string(layout.sidebar_divider_area.x, y, "│", divider_style);
-        }
+    }
+
+    if render_side_bar {
+        sidebar::render_sidebar(
+            buf,
+            state,
+            registers,
+            layout,
+            alignment_view,
+            mouse_register,
+            pallete,
+            render_events,
+        )?;
     }
 
     // Render each area based on its type
@@ -134,6 +110,11 @@ pub fn render_main(
             || rect.y >= buf.area.bottom()
             || rect.x >= buf.area.right()
         {
+            continue;
+        }
+
+        // FIXME: this is bad code
+        if !render_areas.contains(area_type) {
             continue;
         }
 

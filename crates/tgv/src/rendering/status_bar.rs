@@ -28,25 +28,3 @@ pub fn render_status_bar(area: &Rect, buf: &mut Buffer, state: &State) {
         }
     }
 }
-
-pub(crate) fn alignment_depth_description(
-    state: &State,
-    alignment_view: &AlignmentView,
-    index: usize,
-) -> String {
-    let depth = state.alignments[index].depth();
-    let mut description = if depth == 0 {
-        "0% (0 / 0)".to_string()
-    } else {
-        let y = usize::min(alignment_view.top(index), depth.saturating_sub(1)) + 1;
-        format!("{}% ({} / {})", y as u128 * 100 / depth as u128, y, depth)
-    };
-    if !state.alignment_options[index].is_empty() {
-        let options = state.alignment_options[index]
-            .iter()
-            .map(|option| format!("{option}"))
-            .join(",");
-        description.push_str(&format!(" ({options})"));
-    }
-    description
-}
