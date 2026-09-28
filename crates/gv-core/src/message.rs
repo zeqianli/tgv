@@ -53,8 +53,24 @@ pub enum Scroll {
         n: usize,
     },
 
-    Position(usize),
-    Bottom,
+    Position {
+        index: usize,
+        position: usize,
+    },
+    Bottom {
+        index: usize,
+    },
+}
+
+impl Scroll {
+    pub fn index(&self) -> usize {
+        match self {
+            Self::Up { index, .. } => *index,
+            Self::Down { index, .. } => *index,
+            Self::Position { index, .. } => *index,
+            Self::Bottom { index, .. } => *index,
+        }
+    }
 }
 
 // TODO: indicate which movement requires resetting y to 0

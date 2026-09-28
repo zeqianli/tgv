@@ -139,16 +139,14 @@ impl AlignmentView {
                         usize::min(self.y[index].saturating_add(n), alignments[index].depth());
                 }
             }
-            Scroll::Position(y) => {
+            Scroll::Position { index, position } => {
                 if !alignments.is_empty() {
-                    self.y.iter_mut().for_each(|alignment_y| *alignment_y = y);
+                    self.y[index] = position;
                 }
             }
-            Scroll::Bottom => {
+            Scroll::Bottom { index } => {
                 if !alignments.is_empty() {
-                    for (index, alignment) in alignments.iter().enumerate() {
-                        self.y[index] = alignment.depth().saturating_sub(1);
-                    }
+                    self.y[index] = alignments[index].depth().saturating_sub(1);
                 }
             }
         }

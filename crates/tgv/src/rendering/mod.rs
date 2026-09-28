@@ -27,6 +27,7 @@ pub use track::render_track;
 pub use variants::render_variants;
 
 use crate::{
+    app::RenderEvent,
     layout::{AlignmentView, AreaType, ResolvedMainLayout, wrap_sidebar_label},
     mouse::MouseRegister,
     register::{KeyRegisterType, Registers},
@@ -48,6 +49,7 @@ pub fn render_main(
     alignment_view: &AlignmentView,
     mouse_register: &MouseRegister,
     pallete: &Palette,
+    render_events: &Vec<RenderEvent>,
 ) -> Result<(), TGVError> {
     let sidebar_style = Style::default().fg(Color::Gray);
     if layout.sidebar_width > 0 {

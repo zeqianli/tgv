@@ -4,7 +4,11 @@ use crossterm::event::{self, Event, KeyEventKind};
 use ratatui::{Terminal, buffer::Buffer, layout::Rect, prelude::Backend};
 
 use crate::{
-    layout::{AlignmentView, MainLayout, ResolvedMainLayout},
+    layout::{
+        AlignmentView,
+        AreaType::{self, Console},
+        MainLayout, ResolvedMainLayout,
+    },
     message::{Message, UpdateLayoutMessage},
     mouse::MouseRegister,
     register::{KeyRegisterType, Registers},
@@ -36,6 +40,18 @@ pub struct App {
     pub alignment_view: AlignmentView,
 
     pub scene: Scene,
+}
+
+/// After event handling, which areas needs re-rendering.
+pub enum RenderEvent {
+    Area(AreaType),
+    Sidebar,
+
+    /// All track areas.
+    AllTracks,
+
+    /// All track areas and the sidebar
+    All,
 }
 
 impl App {
@@ -112,6 +128,8 @@ impl App {
             self.state.contig_length(&self.alignment_view.focus)?,
         );
 
+        let mut render_events: Vec<RenderEvent> = vec![RenderEvent::All];
+
         while !self.exit {
             // Render
             // FIXME: improve rendering performance. Not all sections need to be re-rendered at every loop.
@@ -119,60 +137,60 @@ impl App {
             let mut refresh_terminal = false;
             let mut render_result = Ok(());
 
-            terminal
-                .draw(|frame| {
-                    let buffer = frame.buffer_mut();
-                    refresh_terminal = self.resolved_layout.terminal_area != buffer.area;
-                    self.resolved_layout = self.layout.resolve(buffer.area);
-                    render_result = self.render(buffer);
-                })
-                .map_err(|e| TGVError::IOError(format!("Failed to draw the terminal: {e}")))?;
-            render_result?;
+            if !render_events.is_empty() {
+                terminal
+                    .draw(|frame| {
+                        let buffer = frame.buffer_mut();
+                        refresh_terminal = self.resolved_layout.terminal_area != buffer.area;
+                        self.resolved_layout = self.layout.resolve(buffer.area);
+                        render_result = self.render(buffer, &render_events);
+                    })
+                    .map_err(|e| TGVError::IOError(format!("Failed to draw the terminal: {e}")))?;
+                render_result?;
+            }
+            render_events.clear();
 
             if self.settings.test_mode {
                 break;
             }
 
-            // handle events
-            match {
-                match event::read() {
-                    Ok(Event::Key(key_event)) if key_event.kind == KeyEventKind::Press => {
-                        let state_messages =
-                            self.registers.handle_key_event(key_event, &self.state)?;
-                        self.handle(state_messages).await // TODO: this should not error out?
-                    }
-
-                    Ok(Event::Mouse(mouse_event)) => {
-                        let state_messages = self.mouse_register.handle_mouse_event(
-                            &self.state,
-                            &self.resolved_layout,
-                            &self.alignment_view,
-                            mouse_event,
-                        )?;
-
-                        self.handle(state_messages).await // TODO: this should not error out?
-                    }
-
-                    Ok(Event::Resize(width, height)) => {
-                        log::debug!("Terminal resized to {width}x{height}");
-                        self.resolved_layout = self.layout.resolve(Rect::new(0, 0, width, height));
-                        self.alignment_view.self_correct(
-                            &self.resolved_layout.main_area,
-                            self.state.contig_length(&self.alignment_view.focus)?,
-                        );
-                        self.load_data().await?;
-                        Ok(())
-                    }
-
-                    _ => Ok(()),
+            // handle events and decide what the renderer should do in the next loop
+            render_events = match event::read() {
+                Ok(Event::Key(key_event)) if key_event.kind == KeyEventKind::Press => {
+                    let state_messages = self.registers.handle_key_event(key_event, &self.state)?;
+                    self.handle(state_messages).await // TODO: this should not error out?
                 }
-            } {
-                Ok(_) => {}
-                Err(e) => {
-                    log::warn!("Error while handling event: {e}");
-                    self.state.add_message(format!("{e}"));
+
+                Ok(Event::Mouse(mouse_event)) => {
+                    let state_messages = self.mouse_register.handle_mouse_event(
+                        &self.state,
+                        &self.resolved_layout,
+                        &self.alignment_view,
+                        mouse_event,
+                    )?;
+
+                    self.handle(state_messages).await // TODO: this should not error out?
                 }
+
+                Ok(Event::Resize(width, height)) => {
+                    log::debug!("Terminal resized to {width}x{height}");
+                    self.resolved_layout = self.layout.resolve(Rect::new(0, 0, width, height));
+                    self.alignment_view.self_correct(
+                        &self.resolved_layout.main_area,
+                        self.state.contig_length(&self.alignment_view.focus)?,
+                    );
+                    self.load_data().await?;
+                    Ok(vec![RenderEvent::All])
+                }
+
+                _ => Ok(Vec::new()),
             }
+            .unwrap_or_else(|e| {
+                log::warn!("Error while handling event: {e}");
+                self.state.add_message(format!("{e}"));
+                let events = vec![RenderEvent::Area(AreaType::Error)];
+                events
+            });
 
             self.alignment_view.self_correct(
                 &self.resolved_layout.main_area,
@@ -200,8 +218,11 @@ impl App {
     }
 
     /// Handle messages after initialization. This blocks any error messages instead of propagating them.
-    pub async fn handle(&mut self, messages: Vec<Message>) -> Result<(), TGVError> {
+    /// Returns a list of render evnet, indicating which areas in the layout needs re-rendering.
+    pub async fn handle(&mut self, messages: Vec<Message>) -> Result<Vec<RenderEvent>, TGVError> {
         self.state.messages.clear();
+
+        let mut render_events = Vec::new();
 
         for message in messages {
             match message {
@@ -230,7 +251,8 @@ impl App {
                         focus,
                     );
                     self.alignment_view.focus = focus;
-                    self.load_data().await?
+                    self.load_data().await?;
+                    render_events.push(RenderEvent::AllTracks);
                 }
 
                 Message::Core(gv_core::message::Message::Quit) => {
@@ -302,6 +324,7 @@ impl App {
                         previous_y,
                         self.alignment_view.y,
                     );
+                    render_events.push(RenderEvent::Area(AreaType::Alignment(scroll.index())))
                 }
 
                 Message::Core(gv_core::message::Message::Zoom(zoom)) => {
@@ -325,7 +348,8 @@ impl App {
                         self.alignment_view.zoom,
                         self.alignment_view.focus,
                     );
-                    self.load_data().await?
+                    self.load_data().await?;
+                    render_events.push(RenderEvent::AllTracks)
                 }
 
                 Message::Core(gv_core::message::Message::SetAlignmentOption(options)) => {
@@ -342,17 +366,21 @@ impl App {
                             options.clone(),
                         )?;
                     }
+
+                    render_events.push(RenderEvent::AllTracks)
                 }
 
                 Message::Core(gv_core::message::Message::Message(message)) => {
                     log::trace!("Adding transient status message: bytes={}", message.len());
                     self.state.add_message(message);
+                    render_events.push(RenderEvent::Area(AreaType::Error))
                 }
 
                 Message::SwitchScene(scene) => {
                     let previous_scene = self.scene.clone();
                     log::debug!("Switching scene: from={:?} to={:?}", previous_scene, scene);
                     self.scene = scene;
+                    render_events.push(RenderEvent::All)
                 }
                 Message::SwitchKeyRegister(register) => {
                     let previous_register = self.registers.current.clone();
@@ -365,6 +393,7 @@ impl App {
                         previous_register,
                         self.registers.current,
                     );
+                    render_events.push(RenderEvent::Area(AreaType::Console))
                 }
                 Message::UpdateLayout(update) => {
                     let previous_width = self.resolved_layout.main_area.width;
@@ -392,15 +421,19 @@ impl App {
                         );
                         self.load_data().await?;
                     }
+                    render_events.push(RenderEvent::All)
                 }
                 Message::ClearAllKeyRegisters => {
                     log::debug!("Clearing all key registers");
                     self.registers.clear();
+                    render_events.push(RenderEvent::Area(AreaType::Console))
                 }
             }
         }
 
-        Ok(())
+        // TODO: reduce this list
+
+        Ok(render_events)
     }
 
     async fn load_data(&mut self) -> Result<(), TGVError> {
@@ -529,7 +562,11 @@ impl App {
         Ok(())
     }
 
-    pub fn render(&mut self, buf: &mut Buffer) -> Result<(), TGVError> {
+    pub fn render(
+        &mut self,
+        buf: &mut Buffer,
+        render_events: &Vec<RenderEvent>,
+    ) -> Result<(), TGVError> {
         use crate::rendering::{render_contig_list, render_help, render_main};
         match &self.scene {
             Scene::Main => render_main(
@@ -540,6 +577,7 @@ impl App {
                 &self.alignment_view,
                 &self.mouse_register,
                 &self.settings.palette,
+                render_events,
             ),
             Scene::Help => render_help(&self.resolved_layout.terminal_area, buf),
             Scene::ContigList => render_contig_list(

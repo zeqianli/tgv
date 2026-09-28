@@ -85,8 +85,12 @@ fn parse_input(input: String) -> Result<Vec<Message>, TGVError> {
     match suffix.as_str() {
         "ge" => Ok(vec![Message::from(Movement::PreviousExonsEnd(n_movements))]),
         "gE" => Ok(vec![Message::from(Movement::PreviousGenesEnd(n_movements))]),
-        "gg" => Ok(vec![Message::from(Scroll::Position(0))]),
-        "gG" => Ok(vec![Message::from(Scroll::Bottom)]),
+        "gg" => Ok(vec![Message::from(Scroll::Position {
+            // FIXME: this is now a bug. It's  always modifiing the first alignment.
+            index: 0,
+            position: 0,
+        })]),
+        "gG" => Ok(vec![Message::from(Scroll::Bottom { index: 0 })]),
         "w" => Ok(vec![Message::from(Movement::NextExonsStart(n_movements))]),
         "b" => Ok(vec![Message::from(Movement::PreviousExonsStart(
             n_movements,
@@ -149,8 +153,8 @@ mod tests {
 
     #[rstest]
     #[case("",'g', Ok(vec![]))]
-    #[case("g",'g', Ok(vec![Scroll::Position(0).into()]))]
-    #[case("g",'G', Ok(vec![Scroll::Bottom.into()]))]
+    #[case("g",'g', Ok(vec![Scroll::Position{index: 0, position:0}.into()]))]
+    #[case("g",'G', Ok(vec![Scroll::Bottom{index:0}.into()]))]
     #[case("",'1', Ok(vec![]))]
     #[case("g",'1', Err(TGVError::RegisterError("Invalid normal mode input: g".to_string())))]
     #[case("", 'w', Ok(vec![Movement::NextExonsStart(1).into()]))]
