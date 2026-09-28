@@ -15,9 +15,7 @@ use ratatui::{
     style::Style,
 };
 
-const CYTOBAND_TEXT_MIN_LEFT_SPACING: u16 = 12;
 const CYTOBAND_TEXT_RIGHT_SPACING: u16 = 7;
-const MIN_AREA_WIDTH: u16 = CYTOBAND_TEXT_MIN_LEFT_SPACING + CYTOBAND_TEXT_RIGHT_SPACING + 1;
 const MIN_AREA_HEIGHT: u16 = 2;
 pub fn render_cytobands(
     area: &Rect,
@@ -26,7 +24,7 @@ pub fn render_cytobands(
     alignment_view: &AlignmentView,
     pallete: &Palette,
 ) -> Result<(), TGVError> {
-    if area.width <= MIN_AREA_WIDTH {
+    if area.width <= CYTOBAND_TEXT_RIGHT_SPACING + 1 {
         return Ok(());
     }
 
@@ -34,24 +32,17 @@ pub fn render_cytobands(
         return Ok(());
     }
 
-    // Left label: chromosome name
-    let reference_description = state.reference.to_string();
-    let contig_description = state.contig_name(&alignment_view.focus)?;
+    let cytoband_left_spacing = 0;
 
-    let cytoband_left_spacing = u16::max(
-        CYTOBAND_TEXT_MIN_LEFT_SPACING,
-        reference_description.len() as u16 + 1,
-    );
-
-    // Left labels
-    buf.set_string(area.x, area.y, reference_description, Style::default());
-    buf.set_string(area.x, area.y + 1, contig_description, Style::default());
+    if cytoband_left_spacing >= area.width.saturating_sub(CYTOBAND_TEXT_RIGHT_SPACING) {
+        return Ok(());
+    }
 
     // Right labels
 
     if let Some(contig_length) = state.contig_length(&alignment_view.focus)? {
         buf.set_string(
-            area.width - CYTOBAND_TEXT_RIGHT_SPACING + 1,
+            area.x + area.width - CYTOBAND_TEXT_RIGHT_SPACING + 1,
             area.y,
             get_abbreviated_length_string(contig_length),
             Style::default(),

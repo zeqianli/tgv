@@ -41,7 +41,7 @@ impl AppHarness {
     async fn initialize(&mut self) -> Result<(), TGVError> {
         self.terminal
             .draw(|frame| {
-                let _ = self.app.layout.set_area(frame.area());
+                self.app.resolved_layout = self.app.layout.resolve(frame.area());
             })
             .expect("initial layout draw");
 
@@ -116,7 +116,7 @@ impl AppHarness {
             .contig_length(&self.app.alignment_view.focus)?;
         self.app
             .alignment_view
-            .self_correct(&self.app.layout.main_area, contig_length);
+            .self_correct(&self.app.resolved_layout.main_area, contig_length);
         Ok(())
     }
 
@@ -124,7 +124,7 @@ impl AppHarness {
         self.terminal
             .draw(|frame| {
                 let buffer = frame.buffer_mut();
-                let _ = self.app.layout.set_area(buffer.area);
+                self.app.resolved_layout = self.app.layout.resolve(buffer.area);
                 self.app.render(buffer).expect("render");
             })
             .expect("terminal render");

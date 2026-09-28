@@ -19,7 +19,7 @@ pub fn render_console(area: &Rect, buf: &mut Buffer, buffer: &Registers) -> Resu
         .chars()
         .nth(buffer.command_cursor)
         .unwrap_or(' ');
-    let cursor_char_position = area.x + 1 + buffer.command_cursor as u16;
+    let cursor_char_position = 1usize.saturating_add(buffer.command_cursor);
     let cursor_char_style = Style::default().bg(Color::Red);
 
     buf.set_stringn(
@@ -29,12 +29,14 @@ pub fn render_console(area: &Rect, buf: &mut Buffer, buffer: &Registers) -> Resu
         area.width as usize,
         Style::default(),
     );
-    buf.set_stringn(
-        area.x + cursor_char_position,
-        area.y,
-        cursor_char.to_string(),
-        area.width as usize - cursor_char_position as usize,
-        cursor_char_style,
-    );
+    if cursor_char_position < area.width as usize {
+        buf.set_stringn(
+            area.x + cursor_char_position as u16,
+            area.y,
+            cursor_char.to_string(),
+            1,
+            cursor_char_style,
+        );
+    }
     Ok(())
 }

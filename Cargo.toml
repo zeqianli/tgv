@@ -34,6 +34,7 @@ tempfile = "3"
 tokio = { version = "1", features = ["full"] }
 tokio-util = { version = "0.7", features = ["io"] }
 twobit = "0"
+unicode-width = "0.2"
 url = "2.5.4"
 
 # local crates

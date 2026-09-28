@@ -26,7 +26,15 @@ Normal mode
 | `W/B` | Beginning of the next / previous gene | |
 | `E/gE` | End of the next / previous gene | |
 | `z/o` | Zoom in / out | |
+| `s` | Toggle the sidebar | |
 | `_number_` + `_movement_` | Move by `_number_` steps | `20h`: left by 20 bases |
+
+The sidebar starts open and shows the reference, current position, filenames,
+and alignment depths alongside their tracks. Drag its vertical divider to
+change its width. Drag a line between alignment tracks to resize the adjacent
+alignments. Filenames wrap within their track sections, which are separated by
+underscore lines. When the sidebar is hidden, its labels and alignment depths
+are hidden too. The command and message rows remain in the main track column.
 
 Command mode
 
