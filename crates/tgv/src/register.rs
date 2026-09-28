@@ -1,6 +1,6 @@
 use crate::{
     app::Scene,
-    message::{Message, Movement},
+    message::{Message, Movement, UpdateLayoutMessage},
 };
 use crossterm::event::{KeyCode, KeyEvent};
 use gv_core::normal::update_by_char;
@@ -177,6 +177,9 @@ impl Registers {
 
     fn handle_normal(&mut self, key_event: KeyEvent) -> Result<Vec<Message>, TGVError> {
         match key_event.code {
+            KeyCode::Char('s') if self.normal.is_empty() => Ok(vec![Message::UpdateLayout(
+                UpdateLayoutMessage::ToggleSidebar,
+            )]),
             KeyCode::Char(':') => Ok(vec![
                 Message::ClearAllKeyRegisters,
                 Message::SwitchKeyRegister(KeyRegisterType::Command),

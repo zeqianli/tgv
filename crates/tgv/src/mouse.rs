@@ -1,321 +1,233 @@
 use crate::{
-    layout::{AlignmentView, AreaType, MainLayout},
-    message::{Message, Movement, Scroll},
+    layout::{AlignmentView, AreaType, HoveringAreaType, ResolvedMainLayout},
+    message::{Message, Movement, Scroll, UpdateLayoutMessage},
 };
-use crossterm::event;
+use crossterm::event::{MouseButton, MouseEvent, MouseEventKind};
 use gv_core::{alignment::BaseCoverage, error::TGVError, state::State};
 use itertools::Itertools;
 
+/// Mouse interaction state for the currently displayed layout.
+#[derive(Default)]
 pub struct MouseRegister {
-    /// Resize event handling
-    pub mouse_down_x: u16,
-    pub mouse_down_y: u16,
-    pub mouse_down_area_type: AreaType,
-    pub resizing: bool,
+    mouse_down_area: Option<AreaType>,
+    last_x: u16,
+    last_y: u16,
+    active_divider: Option<(usize, usize)>,
+    sidebar_resizing: bool,
     pub hovered_alignment: Option<usize>,
-    pub hovered_divider: Option<AreaType>,
-    pub active_divider: Option<AreaType>,
-
-    // Track mouse dragging
-    pub mouse_drag_x: u16,
-    pub mouse_drag_y: u16,
-    // root layout at mousedown.
-    //pub root: LayoutNode,
-}
-
-impl Default for MouseRegister {
-    fn default() -> Self {
-        Self {
-            mouse_down_x: 0,
-            mouse_down_y: 0,
-            mouse_down_area_type: AreaType::Error,
-            resizing: false,
-            hovered_alignment: None,
-            hovered_divider: None,
-            active_divider: None,
-            mouse_drag_x: 0,
-            mouse_drag_y: 0,
-            //root: root.clone(),
-        }
-    }
+    pub hovered_divider: Option<(usize, usize)>,
 }
 
 impl MouseRegister {
+    pub fn is_divider_highlighted(&self, area_type: &AreaType) -> bool {
+        match area_type {
+            AreaType::AlignmentDivider { upper, lower } => {
+                let pair = Some((*upper, *lower));
+                self.hovered_divider == pair || self.active_divider == pair
+            }
+            _ => false,
+        }
+    }
+
+    pub fn is_sidebar_divider_highlighted(&self) -> bool {
+        self.sidebar_resizing
+    }
+
+    /// Translate a mouse event into app messages using the last rendered layout.
     pub fn handle_mouse_event(
         &mut self,
         state: &State,
-        layout: &mut MainLayout,
+        layout: &ResolvedMainLayout,
         alignment_view: &AlignmentView,
-        event: event::MouseEvent,
+        event: MouseEvent,
     ) -> Result<Vec<Message>, TGVError> {
         let mut messages = Vec::new();
-        self.update_hovered_areas(layout, event.column, event.row);
+        let hovered = layout.get_area_type_at_position(event.column, event.row);
+        self.hovered_alignment = match hovered {
+            HoveringAreaType::Track(track_index) => match layout.areas[track_index].0 {
+                AreaType::Alignment(index) | AreaType::Coverage(index) => Some(index),
+                _ => None,
+            },
+            _ => None,
+        };
+        self.hovered_divider = match hovered {
+            HoveringAreaType::Track(track_index) => match layout.areas[track_index].0 {
+                AreaType::AlignmentDivider { upper, lower } => Some((upper, lower)),
+                _ => None,
+            },
+            _ => None,
+        };
 
         match event.kind {
-            event::MouseEventKind::Down(_) => {
-                self.mouse_down_x = event.column;
-                self.mouse_down_y = event.row;
-                self.mouse_drag_x = event.column;
-                self.mouse_drag_y = event.row;
-                self.resizing = false;
+            MouseEventKind::Down(MouseButton::Left) => {
+                self.last_x = event.column;
+                self.last_y = event.row;
+                self.mouse_down_area = None;
                 self.active_divider = None;
-                self.mouse_down_area_type = AreaType::Error;
-                //self.root = state.layout.root.clone();
-
-                if let Some((area_type, area)) =
-                    layout.get_area_type_at_position(event.column, event.row)
-                {
-                    if event.column == area.left()
-                        || event.column + 1 == area.right()
-                        || event.row == area.top()
-                        || event.row + 1 == area.bottom()
-                    {
-                        self.resizing = true;
-                    }
-                    self.mouse_down_area_type = *area_type;
-                    if matches!(area_type, AreaType::AlignmentDivider { .. }) {
-                        self.resizing = true;
-                        self.active_divider = Some(*area_type);
-                        log::debug!(
-                            "Started alignment divider drag: divider={:?} column={} row={}",
-                            area_type,
-                            event.column,
-                            event.row,
-                        );
+                self.sidebar_resizing = matches!(hovered, HoveringAreaType::SidebarDivider);
+                if let HoveringAreaType::Track(track_index) = hovered {
+                    let area = layout.areas[track_index].0;
+                    self.mouse_down_area = Some(area);
+                    if let AreaType::AlignmentDivider { upper, lower } = area {
+                        self.active_divider = Some((upper, lower));
                     }
                 }
             }
-
-            event::MouseEventKind::Drag(_) => {
-                if let Some(AreaType::AlignmentDivider { upper, lower }) = self.active_divider {
-                    let delta_rows = event.row as i32 - self.mouse_drag_y as i32;
-                    if delta_rows != 0 {
-                        layout.resize_alignment_pair(upper, lower, delta_rows);
-                    }
-                    self.mouse_drag_x = event.column;
-                    self.mouse_drag_y = event.row;
-                } else if self.resizing {
-                    if (event.row != self.mouse_down_y) || (event.column != self.mouse_down_x) {
-                        // TODO: next release
-                        // messages.push(StateMessage::ResizeTrack {
-                        //     mouse_down_x: self.mouse_down_x,
-                        //     mouse_down_y: self.mouse_down_y,
-                        //     mouse_released_x: event.column,
-                        //     mouse_released_y: event.row,
-                        // });
-                    }
-                } else {
-                    // move alignment
-                    if let Some(index) = Self::alignment_index_for_area_type(&self.mouse_down_area_type) {
-                        if event.column < self.mouse_drag_x {
-                            messages.push(Movement::Right(1).into())
-                        } else if event.column > self.mouse_drag_x {
-                            messages.push(Movement::Left(1).into())
-                        }
-
-                        if event.row > self.mouse_drag_y {
-                            messages.push(Scroll::Up { index, n: 1 }.into())
-                        } else if event.row < self.mouse_drag_y {
-                            messages.push(Scroll::Down { index, n: 1 }.into())
-                        }
-                    }
-
-                    self.mouse_drag_x = event.column;
-                    self.mouse_drag_y = event.row;
-                }
-            }
-
-            event::MouseEventKind::Up(_) => {
-                if let Some(active_divider) = self.active_divider {
-                    log::debug!(
-                        "Finished alignment divider drag: divider={:?} column={} row={}",
-                        active_divider,
+            MouseEventKind::Drag(MouseButton::Left) => {
+                if self.sidebar_resizing {
+                    messages.push(Message::UpdateLayout(UpdateLayoutMessage::SetSidebarWidth(
                         event.column,
-                        event.row,
-                    );
+                    )));
+                } else if let Some((upper, lower)) = self.active_divider {
+                    let delta_rows = event.row as i32 - self.last_y as i32;
+                    if delta_rows != 0 {
+                        messages.push(Message::UpdateLayout(
+                            UpdateLayoutMessage::ResizeAlignmentPair {
+                                upper,
+                                lower,
+                                delta_rows,
+                            },
+                        ));
+                    }
+                } else if let Some(area) = self.mouse_down_area {
+                    match area {
+                        AreaType::Alignment(index) | AreaType::Coverage(index) => {
+                            if event.column < self.last_x {
+                                messages.push(Movement::Right(1).into());
+                            } else if event.column > self.last_x {
+                                messages.push(Movement::Left(1).into());
+                            }
+                            if event.row > self.last_y {
+                                messages.push(Scroll::Up { index, n: 1 }.into());
+                            } else if event.row < self.last_y {
+                                messages.push(Scroll::Down { index, n: 1 }.into());
+                            }
+                        }
+                        AreaType::Bed(_) | AreaType::Variant(_) => {
+                            if event.column < self.last_x {
+                                messages.push(Movement::Right(1).into());
+                            } else if event.column > self.last_x {
+                                messages.push(Movement::Left(1).into());
+                            }
+                        }
+                        _ => {}
+                    }
                 }
-                self.resizing = false;
-                self.active_divider = None;
+                self.last_x = event.column;
+                self.last_y = event.row;
             }
-
-            event::MouseEventKind::Moved => {
-                // Display read information
-                if let Some((area_type, area)) =
-                    layout.get_area_type_at_position(event.column, event.row)
-                {
+            MouseEventKind::Up(MouseButton::Left) => {
+                self.mouse_down_area = None;
+                self.active_divider = None;
+                self.sidebar_resizing = false;
+            }
+            MouseEventKind::Moved => {
+                if let HoveringAreaType::Track(track_index) = hovered {
+                    let (area_type, area) = &layout.areas[track_index];
                     match area_type {
                         AreaType::Alignment(index) => {
                             if let (Some((left_coordinate, right_coordinate)), Some(y_coordinate)) = (
-                                &alignment_view.coordinates_of_onscreen_x(event.column, area),
-                                &alignment_view.coordinate_of_onscreen_y(*index, event.row, area),
+                                alignment_view.coordinates_of_onscreen_x(event.column, area),
+                                alignment_view.coordinate_of_onscreen_y(*index, event.row, area),
                             ) && let Some(alignment) = state.alignments.get(*index)
                                 && let Some(read) = alignment.read_overlapping(
-                                    *left_coordinate,
-                                    *right_coordinate,
-                                    *y_coordinate,
+                                    left_coordinate,
+                                    right_coordinate,
+                                    y_coordinate,
                                 )
                             {
-                                messages.push(Message::Core(gv_core::message::Message::Message(
-                                    read.describe()?,
-                                )))
+                                messages.push(Message::message(read.describe()?));
                             }
                         }
-
                         AreaType::Sequence => {
-                            if let Some((left_coordinate, right_coordinate)) =
+                            if let Some((left, right)) =
                                 alignment_view.coordinates_of_onscreen_x(event.column, area)
                             {
-                                let description: String = (left_coordinate..=right_coordinate)
+                                let description = (left..=right)
                                     .filter_map(|coordinate| {
-                                        state.sequence.base_at(coordinate).map(|base_u8| {
-                                            format!("{}: {}", coordinate, base_u8 as char)
-                                        })
+                                        state
+                                            .sequence
+                                            .base_at(coordinate)
+                                            .map(|base| format!("{}: {}", coordinate, base as char))
                                     })
                                     .join(", ");
-
                                 messages.push(Message::message(description));
                             }
                         }
-
                         AreaType::Coverage(index) => {
-                            if let Some((left_coordinate, right_coordinate)) =
+                            if let Some((left, right)) =
                                 alignment_view.coordinates_of_onscreen_x(event.column, area)
                                 && let Some(alignment) = state.alignments.get(*index)
                             {
-                                let mut total_coverage: BaseCoverage = BaseCoverage::default();
-                                (left_coordinate..=right_coordinate).for_each(|coordinate| {
-                                    total_coverage.add(alignment.coverage_at(coordinate))
-                                });
-
-                                let message = if left_coordinate == right_coordinate {
-                                    format!("{}: {}", left_coordinate, total_coverage.describe())
+                                let mut coverage = BaseCoverage::default();
+                                for coordinate in left..=right {
+                                    coverage.add(alignment.coverage_at(coordinate));
+                                }
+                                let description = if left == right {
+                                    format!("{}: {}", left, coverage.describe())
                                 } else {
-                                    format!(
-                                        "{} - {}: {}",
-                                        left_coordinate,
-                                        right_coordinate,
-                                        total_coverage.describe()
-                                    )
+                                    format!("{} - {}: {}", left, right, coverage.describe())
                                 };
-
-                                messages.push(Message::message(message));
+                                messages.push(Message::message(description));
                             }
                         }
                         AreaType::Variant(index) => {
-                            if let Some((left_coordinate, right_coordinate)) =
+                            if let Some((left, right)) =
                                 alignment_view.coordinates_of_onscreen_x(event.column, area)
                                 && let Some(variants) = state.variants.get(*index)
                             {
-                                variants
-                                    .overlapping(
-                                        alignment_view.focus.contig_index,
-                                        left_coordinate,
-                                        right_coordinate,
-                                    )?
-                                    .into_iter()
-                                    .for_each(|variant| {
-                                        messages.push(Message::message(variant.describe()));
-                                    });
+                                for variant in variants.overlapping(
+                                    alignment_view.focus.contig_index,
+                                    left,
+                                    right,
+                                )? {
+                                    messages.push(Message::message(variant.describe()));
+                                }
                             }
                         }
-
                         AreaType::Bed(index) => {
-                            if let Some((left_coordinate, right_coordinate)) =
+                            if let Some((left, right)) =
                                 alignment_view.coordinates_of_onscreen_x(event.column, area)
-                                && let Some(bed_intervals) = state.bed_intervals.get(*index)
+                                && let Some(intervals) = state.bed_intervals.get(*index)
                             {
-                                bed_intervals
-                                    .overlapping(
-                                        alignment_view.focus.contig_index,
-                                        left_coordinate,
-                                        right_coordinate,
-                                    )?
-                                    .into_iter()
-                                    .for_each(|bed_interval| {
-                                        messages.push(Message::message(bed_interval.describe()));
-                                    });
+                                for interval in intervals.overlapping(
+                                    alignment_view.focus.contig_index,
+                                    left,
+                                    right,
+                                )? {
+                                    messages.push(Message::message(interval.describe()));
+                                }
                             }
                         }
                         _ => {}
                     }
                 }
             }
-
-            event::MouseEventKind::ScrollDown => {
-                if let Some(index) =
-                    Self::alignment_index_at_position(layout, event.column, event.row)
-                {
-                    log::debug!(
-                        "Mouse wheel generated vertical scroll: alignment_index={} direction=down column={} row={}",
-                        index,
-                        event.column,
-                        event.row,
-                    );
-                    messages.push(Scroll::Down { index, n: 1 }.into());
+            MouseEventKind::ScrollDown | MouseEventKind::ScrollUp => {
+                if let HoveringAreaType::Track(track_index) = hovered {
+                    let area = layout.areas[track_index].0;
+                    if let AreaType::Alignment(index) | AreaType::Coverage(index) = area {
+                        let scroll = if matches!(event.kind, MouseEventKind::ScrollDown) {
+                            Scroll::Down { index, n: 1 }
+                        } else {
+                            Scroll::Up { index, n: 1 }
+                        };
+                        messages.push(scroll.into());
+                    }
                 }
             }
-
-            event::MouseEventKind::ScrollUp => {
-                if let Some(index) =
-                    Self::alignment_index_at_position(layout, event.column, event.row)
-                {
-                    log::debug!(
-                        "Mouse wheel generated vertical scroll: alignment_index={} direction=up column={} row={}",
-                        index,
-                        event.column,
-                        event.row,
-                    );
-                    messages.push(Scroll::Up { index, n: 1 }.into());
+            MouseEventKind::ScrollLeft | MouseEventKind::ScrollRight => {
+                if matches!(hovered, HoveringAreaType::Track(_)) {
+                    let movement = if matches!(event.kind, MouseEventKind::ScrollLeft) {
+                        Movement::Left(1)
+                    } else {
+                        Movement::Right(1)
+                    };
+                    messages.push(movement.into());
                 }
             }
-
-            event::MouseEventKind::ScrollLeft => {
-                log::debug!(
-                    "Mouse wheel generated horizontal movement: direction=left column={} row={}",
-                    event.column,
-                    event.row,
-                );
-                messages.push(Movement::Left(1).into());
-            }
-
-            event::MouseEventKind::ScrollRight => {
-                log::debug!(
-                    "Mouse wheel generated horizontal movement: direction=right column={} row={}",
-                    event.column,
-                    event.row,
-                );
-                messages.push(Movement::Right(1).into());
-            }
-
             _ => {}
         }
-
         Ok(messages)
-    }
-
-    pub fn is_divider_highlighted(&self, area_type: &AreaType) -> bool {
-        matches!(area_type, AreaType::AlignmentDivider { .. })
-            && (self.hovered_divider == Some(*area_type) || self.active_divider == Some(*area_type))
-    }
-
-    fn update_hovered_areas(&mut self, layout: &MainLayout, x: u16, y: u16) {
-        self.hovered_alignment = Self::alignment_index_at_position(layout, x, y);
-        self.hovered_divider = match layout.get_area_type_at_position(x, y) {
-            Some((area_type @ AreaType::AlignmentDivider { .. }, _area)) => Some(*area_type),
-            _ => None,
-        };
-    }
-
-    fn alignment_index_at_position(layout: &MainLayout, x: u16, y: u16) -> Option<usize> {
-        layout
-            .get_area_type_at_position(x, y)
-            .and_then(|(area_type, _area)| Self::alignment_index_for_area_type(area_type))
-    }
-
-    fn alignment_index_for_area_type(area_type: &AreaType) -> Option<usize> {
-        match area_type {
-            AreaType::Alignment(index) | AreaType::Coverage(index) => Some(*index),
-            _ => None,
-        }
     }
 }

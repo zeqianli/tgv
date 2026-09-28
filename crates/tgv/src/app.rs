@@ -1,11 +1,11 @@
 /// The main app object
 ///
 use crossterm::event::{self, Event, KeyEventKind};
-use ratatui::{Terminal, buffer::Buffer, prelude::Backend};
+use ratatui::{Terminal, buffer::Buffer, layout::Rect, prelude::Backend};
 
 use crate::{
-    layout::{AlignmentView, MainLayout},
-    message::Message,
+    layout::{AlignmentView, MainLayout, ResolvedMainLayout},
+    message::{Message, UpdateLayoutMessage},
     mouse::MouseRegister,
     register::{KeyRegisterType, Registers},
     session::SessionFile,
@@ -26,6 +26,7 @@ pub struct App {
     pub session_path: PathBuf,
 
     pub layout: MainLayout,
+    pub resolved_layout: ResolvedMainLayout,
     pub state: State,
     pub settings: Settings,
     pub repository: Repository,
@@ -81,6 +82,7 @@ impl App {
             exit: false,
             session_path,
             layout: MainLayout::new(&settings, &repository_file_indexes),
+            resolved_layout: ResolvedMainLayout::default(),
             alignment_view,
             state,
             settings: settings.clone(),
@@ -98,7 +100,7 @@ impl App {
         log::info!("Starting the app event loop");
         terminal
             .draw(|frame| {
-                let _ = self.layout.set_area(frame.area());
+                self.resolved_layout = self.layout.resolve(frame.area());
             })
             .map_err(|e| TGVError::IOError(format!("Failed to draw the terminal: {e}")))?;
 
@@ -106,7 +108,7 @@ impl App {
             .await?;
 
         self.alignment_view.self_correct(
-            &self.layout.main_area,
+            &self.resolved_layout.main_area,
             self.state.contig_length(&self.alignment_view.focus)?,
         );
 
@@ -120,7 +122,8 @@ impl App {
             terminal
                 .draw(|frame| {
                     let buffer = frame.buffer_mut();
-                    refresh_terminal = self.layout.set_area(buffer.area);
+                    refresh_terminal = self.resolved_layout.terminal_area != buffer.area;
+                    self.resolved_layout = self.layout.resolve(buffer.area);
                     render_result = self.render(buffer);
                 })
                 .map_err(|e| TGVError::IOError(format!("Failed to draw the terminal: {e}")))?;
@@ -142,7 +145,7 @@ impl App {
                     Ok(Event::Mouse(mouse_event)) => {
                         let state_messages = self.mouse_register.handle_mouse_event(
                             &self.state,
-                            &mut self.layout,
+                            &self.resolved_layout,
                             &self.alignment_view,
                             mouse_event,
                         )?;
@@ -150,12 +153,14 @@ impl App {
                         self.handle(state_messages).await // TODO: this should not error out?
                     }
 
-                    Ok(Event::Resize(_width, _height)) => {
-                        log::debug!("Terminal resized to {_width}x{_height}");
+                    Ok(Event::Resize(width, height)) => {
+                        log::debug!("Terminal resized to {width}x{height}");
+                        self.resolved_layout = self.layout.resolve(Rect::new(0, 0, width, height));
                         self.alignment_view.self_correct(
-                            &self.layout.main_area,
+                            &self.resolved_layout.main_area,
                             self.state.contig_length(&self.alignment_view.focus)?,
                         );
+                        self.load_data().await?;
                         Ok(())
                     }
 
@@ -170,7 +175,7 @@ impl App {
             }
 
             self.alignment_view.self_correct(
-                &self.layout.main_area,
+                &self.resolved_layout.main_area,
                 self.state.contig_length(&self.alignment_view.focus)?,
             );
 
@@ -310,7 +315,7 @@ impl App {
                     );
                     self.alignment_view.zoom(
                         zoom.clone(),
-                        &self.layout.main_area,
+                        &self.resolved_layout.main_area,
                         contig_length,
                     )?; // TODO
                     log::debug!(
@@ -361,6 +366,33 @@ impl App {
                         self.registers.current,
                     );
                 }
+                Message::UpdateLayout(update) => {
+                    let previous_width = self.resolved_layout.main_area.width;
+                    match update {
+                        UpdateLayoutMessage::ToggleSidebar => self.layout.toggle_sidebar(),
+                        UpdateLayoutMessage::SetSidebarWidth(column) => self
+                            .layout
+                            .resize_sidebar_to(column, self.resolved_layout.terminal_area),
+                        UpdateLayoutMessage::ResizeAlignmentPair {
+                            upper,
+                            lower,
+                            delta_rows,
+                        } => self.layout.resize_alignment_pair(
+                            upper,
+                            lower,
+                            delta_rows,
+                            &self.resolved_layout,
+                        ),
+                    }
+                    self.resolved_layout = self.layout.resolve(self.resolved_layout.terminal_area);
+                    if self.resolved_layout.main_area.width != previous_width {
+                        self.alignment_view.self_correct(
+                            &self.resolved_layout.main_area,
+                            self.state.contig_length(&self.alignment_view.focus)?,
+                        );
+                        self.load_data().await?;
+                    }
+                }
                 Message::ClearAllKeyRegisters => {
                     log::debug!("Clearing all key registers");
                     self.registers.clear();
@@ -372,11 +404,14 @@ impl App {
     }
 
     async fn load_data(&mut self) -> Result<(), TGVError> {
+        if self.resolved_layout.main_area.width == 0 {
+            return Ok(());
+        }
         // TODO: return whether data were loaded?
         // It's important to load sequence first!
         // Alignment IO requires calculating mismatches with the reference sequence.
         //
-        let region = self.alignment_view.region(&self.layout.main_area);
+        let region = self.alignment_view.region(&self.resolved_layout.main_area);
         log::debug!(
             "Evaluating data loads: display_region={:?} zoom={} focus={:?}",
             region,
@@ -501,14 +536,14 @@ impl App {
                 buf,
                 &mut self.state,
                 &self.registers,
-                &self.layout,
+                &self.resolved_layout,
                 &self.alignment_view,
                 &self.mouse_register,
                 &self.settings.palette,
             ),
-            Scene::Help => render_help(&self.layout.main_area, buf),
+            Scene::Help => render_help(&self.resolved_layout.terminal_area, buf),
             Scene::ContigList => render_contig_list(
-                &self.layout.main_area,
+                &self.resolved_layout.terminal_area,
                 buf,
                 &self.state,
                 &self.registers,

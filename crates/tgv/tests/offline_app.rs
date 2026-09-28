@@ -1,12 +1,17 @@
 mod support;
 
+use crossterm::event::{KeyCode, KeyModifiers, MouseButton, MouseEvent, MouseEventKind};
 use gv_core::message::{
     AlignmentDisplayOption, AlignmentSort, Message as CoreMessage, Movement, Scroll, Zoom,
 };
 use rstest::rstest;
 use support::{AppHarness, test_data_path};
 use tempfile::TempDir;
-use tgv::{app::Scene, message::Message, session::SessionFile};
+use tgv::{
+    app::Scene,
+    message::{Message, UpdateLayoutMessage},
+    session::SessionFile,
+};
 
 fn absolutize_fixture_args(args: &str) -> String {
     args.replace(
@@ -88,6 +93,153 @@ async fn offline_sequence_updates_tracks_and_scenes() {
         "-r chr22:33121120 tests/data/simple.vcf tests/data/simple.bed --no-reference --offline",
     );
     let mut harness = AppHarness::from_args(&args).await.unwrap();
+
+    assert_eq!(harness.app.resolved_layout.sidebar_width, 18);
+    assert_eq!(
+        harness
+            .app
+            .resolved_layout
+            .sidebar_labels
+            .iter()
+            .map(|(_, label)| label.as_str())
+            .collect::<Vec<_>>(),
+        vec!["ncbi.sorted.bam", "simple.vcf", "simple.bed"],
+    );
+    let label_area = harness.app.resolved_layout.sidebar_labels[0].0;
+    let initial_buffer = harness.terminal_backend().buffer();
+    let rendered_label = (0..label_area.height)
+        .flat_map(|row| {
+            (0..label_area.width).map(move |column| {
+                initial_buffer
+                    .cell((label_area.x + column, label_area.y + row))
+                    .unwrap()
+                    .symbol()
+            })
+        })
+        .collect::<String>();
+    assert!(rendered_label.contains("ncbi.sorted.bam"));
+    let coordinate_index = harness
+        .app
+        .resolved_layout
+        .areas
+        .iter()
+        .position(|(area, _)| matches!(area, tgv::layout::AreaType::Coordinate))
+        .unwrap();
+    let coordinate_area = harness.app.resolved_layout.sidebar_areas[coordinate_index];
+    let coordinate_text = (0..coordinate_area.width)
+        .map(|column| {
+            initial_buffer
+                .cell((coordinate_area.x + column, coordinate_area.y))
+                .unwrap()
+                .symbol()
+        })
+        .collect::<String>();
+    assert!(coordinate_text.starts_with("chr22:33121120"));
+    let depth_area = harness.app.resolved_layout.sidebar_alignment_depths[0].0;
+    let depth_text = (0..depth_area.width)
+        .map(|column| {
+            initial_buffer
+                .cell((depth_area.x + column, depth_area.y))
+                .unwrap()
+                .symbol()
+        })
+        .collect::<String>();
+    assert!(depth_text.contains('%'));
+    harness
+        .handle_key_codes([KeyCode::Char('s')])
+        .await
+        .unwrap();
+    assert_eq!(harness.app.resolved_layout.sidebar_width, 0);
+    let collapsed_buffer = harness.terminal_backend().buffer();
+    let collapsed_text = collapsed_buffer
+        .content()
+        .iter()
+        .map(|cell| cell.symbol())
+        .collect::<String>();
+    assert!(!collapsed_text.contains("chr22:33121120"));
+    assert!(!collapsed_text.contains(depth_text.trim()));
+    harness
+        .handle_key_codes([KeyCode::Char('s')])
+        .await
+        .unwrap();
+    assert_eq!(harness.app.resolved_layout.sidebar_width, 18);
+    let down = MouseEvent {
+        kind: MouseEventKind::Down(MouseButton::Left),
+        column: 18,
+        row: 0,
+        modifiers: KeyModifiers::NONE,
+    };
+    harness
+        .app
+        .mouse_register
+        .handle_mouse_event(
+            &harness.app.state,
+            &harness.app.resolved_layout,
+            &harness.app.alignment_view,
+            down,
+        )
+        .unwrap();
+    let drag = MouseEvent {
+        kind: MouseEventKind::Drag(MouseButton::Left),
+        column: 24,
+        ..down
+    };
+    let messages = harness
+        .app
+        .mouse_register
+        .handle_mouse_event(
+            &harness.app.state,
+            &harness.app.resolved_layout,
+            &harness.app.alignment_view,
+            drag,
+        )
+        .unwrap();
+    harness.handle(messages).await.unwrap();
+    assert_eq!(harness.app.resolved_layout.sidebar_width, 24);
+    harness
+        .handle_key_codes([KeyCode::Char('s')])
+        .await
+        .unwrap();
+    harness
+        .handle_key_codes([KeyCode::Char('s')])
+        .await
+        .unwrap();
+    assert_eq!(harness.app.resolved_layout.sidebar_width, 24);
+    harness
+        .handle(vec![Message::UpdateLayout(
+            UpdateLayoutMessage::SetSidebarWidth(6),
+        )])
+        .await
+        .unwrap();
+    let vcf_area = harness.app.resolved_layout.sidebar_labels[1].0;
+    let sidebar_buffer = harness.terminal_backend().buffer();
+    let first_vcf_line = (0..vcf_area.width)
+        .map(|column| {
+            sidebar_buffer
+                .cell((vcf_area.x + column, vcf_area.y))
+                .unwrap()
+                .symbol()
+        })
+        .collect::<String>();
+    let second_vcf_line = (0..vcf_area.width)
+        .map(|column| {
+            sidebar_buffer
+                .cell((vcf_area.x + column, vcf_area.y + 1))
+                .unwrap()
+                .symbol()
+        })
+        .collect::<String>();
+    assert_eq!(first_vcf_line, "simple");
+    assert!(second_vcf_line.starts_with(".vcf"));
+    assert_eq!(
+        sidebar_buffer
+            .cell((vcf_area.x, vcf_area.y - 1))
+            .unwrap()
+            .symbol(),
+        "_"
+    );
+    let bed_area = harness.app.resolved_layout.sidebar_labels[2].0;
+    assert!(bed_area.height >= 2);
 
     harness
         .handle(vec![

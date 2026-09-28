@@ -11,7 +11,21 @@ pub enum Message {
 
     SwitchKeyRegister(KeyRegisterType),
 
+    UpdateLayout(UpdateLayoutMessage),
+
     ClearAllKeyRegisters,
+}
+
+/// UX layout update messages
+#[derive(Debug, Clone, Eq, PartialEq, Display)]
+pub enum UpdateLayoutMessage {
+    ToggleSidebar,
+    SetSidebarWidth(u16),
+    ResizeAlignmentPair {
+        upper: usize,
+        lower: usize,
+        delta_rows: i32,
+    },
 }
 
 impl Message {
