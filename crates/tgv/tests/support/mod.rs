@@ -6,7 +6,7 @@ use gv_core::{
 };
 use ratatui::{Terminal, backend::TestBackend};
 use tgv::{
-    app::App,
+    app::{App, RenderEvent},
     message::Message,
     session::SessionFile,
     settings::{Cli, Settings},
@@ -49,14 +49,14 @@ impl AppHarness {
             .handle(self.app.settings.initial_state_messages.clone())
             .await?;
         self.self_correct()?;
-        self.render();
+        self.render(&vec![RenderEvent::All]);
         Ok(())
     }
 
     pub async fn handle(&mut self, messages: Vec<Message>) -> Result<(), TGVError> {
-        self.app.handle(messages).await?;
+        let render_events = self.app.handle(messages).await?;
         self.self_correct()?;
-        self.render();
+        self.render(&render_events);
         Ok(())
     }
 
@@ -69,15 +69,16 @@ impl AppHarness {
         &mut self,
         key_codes: impl IntoIterator<Item = KeyCode>,
     ) -> Result<(), TGVError> {
+        let mut render_events = Vec::new();
         for key_code in key_codes {
             let messages = self
                 .app
                 .registers
                 .handle_key_event(KeyEvent::new(key_code, KeyModifiers::NONE), &self.app.state)?;
-            self.app.handle(messages).await?;
+            render_events.extend(self.app.handle(messages).await?);
         }
         self.self_correct()?;
-        self.render();
+        self.render(&render_events);
         Ok(())
     }
 
@@ -120,12 +121,12 @@ impl AppHarness {
         Ok(())
     }
 
-    fn render(&mut self) {
+    fn render(&mut self, render_events: &Vec<RenderEvent>) {
         self.terminal
             .draw(|frame| {
                 let buffer = frame.buffer_mut();
                 self.app.resolved_layout = self.app.layout.resolve(buffer.area);
-                self.app.render(buffer).expect("render");
+                self.app.render(buffer, render_events).expect("render");
             })
             .expect("terminal render");
     }

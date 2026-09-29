@@ -40,6 +40,7 @@ pub struct App {
     pub alignment_view: AlignmentView,
 
     pub scene: Scene,
+    render_buffer: Buffer,
 }
 
 /// After event handling, which areas needs re-rendering.
@@ -107,6 +108,7 @@ impl App {
             registers: Registers::default(),
             mouse_register: MouseRegister::default(),
             scene: Scene::Main,
+            render_buffer: Buffer::empty(Rect::default()),
         })
     }
 }
@@ -132,20 +134,12 @@ impl App {
         let mut render_events: Vec<RenderEvent> = vec![RenderEvent::All];
 
         while !self.exit {
-            // Render
-            // FIXME: improve rendering performance. Not all sections need to be re-rendered at every loop.
-            //
-            //let mut refresh_terminal = false;
             let mut render_result = Ok(());
 
             if !render_events.is_empty() {
                 terminal
                     .draw(|frame| {
                         let buffer = frame.buffer_mut();
-                        if self.resolved_layout.terminal_area != buffer.area {
-                            render_events.push(RenderEvent::All);
-                        }
-                        self.resolved_layout = self.layout.resolve(buffer.area);
                         render_result = self.render(buffer, &render_events);
                     })
                     .map_err(|e| TGVError::IOError(format!("Failed to draw the terminal: {e}")))?;
@@ -164,7 +158,7 @@ impl App {
                     self.handle(state_messages).await // TODO: this should not error out?
                 }
 
-                Ok(Event::Mouse(mouse_event)) => {
+                Ok(Event::Mouse(mouse_event)) if self.scene == Scene::Main => {
                     let state_messages = self.mouse_register.handle_mouse_event(
                         &self.state,
                         &self.resolved_layout,
@@ -199,11 +193,6 @@ impl App {
                 &self.resolved_layout.main_area,
                 self.state.contig_length(&self.alignment_view.focus)?,
             );
-
-            // Clear terminal for the next loop if needed
-            // if refresh_terminal {
-            //     terminal.clear()?;
-            // }
         }
         log::info!("The app event loop exited");
         Ok(())
@@ -223,9 +212,11 @@ impl App {
     /// Handle messages after initialization. This blocks any error messages instead of propagating them.
     /// Returns a list of render evnet, indicating which areas in the layout needs re-rendering.
     pub async fn handle(&mut self, messages: Vec<Message>) -> Result<Vec<RenderEvent>, TGVError> {
-        self.state.messages.clear();
-
         let mut render_events = Vec::new();
+        if !self.state.messages.is_empty() {
+            self.state.messages.clear();
+            render_events.push(RenderEvent::Area(AreaType::Error));
+        }
 
         for message in messages {
             match message {
@@ -379,11 +370,24 @@ impl App {
                     render_events.push(RenderEvent::Area(AreaType::Error))
                 }
 
+                Message::SelectContig(index) => {
+                    if self.scene == Scene::ContigList
+                        && index < self.state.contig_header.contigs.len()
+                        && index != self.registers.contig_list_cursor
+                    {
+                        self.registers.contig_list_cursor = index;
+                        render_events.push(RenderEvent::All);
+                    }
+                }
                 Message::SwitchScene(scene) => {
                     let previous_scene = self.scene.clone();
                     log::debug!("Switching scene: from={:?} to={:?}", previous_scene, scene);
                     self.scene = scene;
+                    self.mouse_register = MouseRegister::default();
                     render_events.push(RenderEvent::All)
+                }
+                Message::CommandChanged => {
+                    render_events.push(RenderEvent::Area(AreaType::Console));
                 }
                 Message::SwitchKeyRegister(register) => {
                     let previous_register = self.registers.current.clone();
@@ -571,9 +575,20 @@ impl App {
         render_events: &Vec<RenderEvent>,
     ) -> Result<(), TGVError> {
         use crate::rendering::{render_contig_list, render_help, render_main};
+        let full_render = vec![RenderEvent::All];
+        let render_events = if self.render_buffer.area != buf.area {
+            self.render_buffer.resize(buf.area);
+            &full_render
+        } else {
+            render_events
+        };
+        self.resolved_layout = self.layout.resolve(buf.area);
+        if render_events.contains(&RenderEvent::All) || self.scene != Scene::Main {
+            self.render_buffer.reset();
+        }
         match &self.scene {
             Scene::Main => render_main(
-                buf,
+                &mut self.render_buffer,
                 &mut self.state,
                 &self.registers,
                 &self.resolved_layout,
@@ -582,14 +597,19 @@ impl App {
                 &self.settings.palette,
                 render_events,
             ),
-            Scene::Help => render_help(&self.resolved_layout.terminal_area, buf),
+            Scene::Help => {
+                render_help(&self.resolved_layout.terminal_area, &mut self.render_buffer)
+            }
             Scene::ContigList => render_contig_list(
                 &self.resolved_layout.terminal_area,
-                buf,
+                &mut self.render_buffer,
                 &self.state,
                 &self.registers,
                 &self.settings.palette,
             ),
-        }
+        }?;
+        // Ratatui expects a complete frame even when only some areas change.
+        buf.clone_from(&self.render_buffer);
+        Ok(())
     }
 }

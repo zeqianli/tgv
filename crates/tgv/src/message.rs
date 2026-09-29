@@ -9,6 +9,10 @@ pub enum Message {
 
     SwitchScene(Scene),
 
+    SelectContig(usize),
+
+    CommandChanged,
+
     SwitchKeyRegister(KeyRegisterType),
 
     UpdateLayout(UpdateLayoutMessage),

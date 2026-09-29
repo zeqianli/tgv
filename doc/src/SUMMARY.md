@@ -6,3 +6,4 @@
 - [Usage](./usage.md)
 - [Session files](./session.md)
 - [HTTPS download fallback](./design/https-download-fallback.md)
+- [Persistent rendering buffer](./design/rendering.md)
