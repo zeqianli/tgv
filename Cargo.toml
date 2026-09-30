@@ -8,6 +8,7 @@ resolver = "3"
 async-compat = "0"
 async-compression = { version = "0.4", features = ["gzip", "tokio"] }
 async-trait = "0"
+axum = "0.8"
 bigtools = "0"
 bytes = "1"
 chrono = { version = "0", features = ["clock"] }

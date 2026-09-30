@@ -59,6 +59,12 @@ impl From<UCSCDownloadSourceCli> for UCSCDownloadSource {
 
 #[derive(Subcommand, Clone, Debug)]
 pub enum Commands {
+    /// Serve regional genome evidence over local HTTP.
+    Serve {
+        /// Local listening port. Use 0 to allocate an available port.
+        #[arg(long, default_value_t = 8765)]
+        port: u16,
+    },
     /// Download reference data.
     Download {
         /// Reference genome to download.
@@ -253,7 +259,7 @@ impl Cli {
 /// Classify input files and build the track paths.
 ///
 /// Returns file paths in the same order as the CLI arguments.
-fn classify_and_build_tracks(files: &[String]) -> Result<Vec<FilePath>, TGVError> {
+pub(crate) fn classify_and_build_tracks(files: &[String]) -> Result<Vec<FilePath>, TGVError> {
     for file in files {
         let lower = file.to_lowercase();
         if lower.ends_with(".fa")
