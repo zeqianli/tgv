@@ -3,17 +3,9 @@ use axum::{
     http::StatusCode,
     response::{IntoResponse, Response},
 };
-use clap::builder::ArgPredicate;
 use gv_core::error::TGVError;
-use serde::{Deserialize, Serialize};
 use serde_json::json;
 use thiserror::Error;
-
-#[derive(Clone, Copy, Debug, Deserialize, Serialize, PartialEq, Eq)]
-pub(super) struct Revision(pub u64);
-
-#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
-pub(super) struct TrackId(pub String);
 
 #[derive(Debug, Error)]
 #[error("{message}")]

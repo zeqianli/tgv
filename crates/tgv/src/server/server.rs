@@ -1,13 +1,14 @@
 //! The loaded server state, dataset replacement, regional inspection, and rendering.
 
-use super::{Command, Reply, error::*, request::*};
+use super::{Command, Reply, error::*, schema::*};
 use crate::{
     app::RenderEvent,
     layout::{AlignmentView, AreaType, MainLayout},
     mouse::MouseRegister,
     register::Registers,
     rendering::render_main,
-    settings::{Settings, classify_and_build_tracks},
+    settings::Settings,
+    track_registry::{TrackId, TrackRegistry},
 };
 use crossterm::style::{
     Attribute, ResetColor, SetAttribute, SetBackgroundColor, SetForegroundColor,
@@ -20,10 +21,9 @@ use gv_core::{
     settings::FilePath,
     state::State,
 };
-use noodles::vcf::variant::record::AlternateBases;
 use ratatui::{buffer::Buffer, layout::Rect, style::Modifier};
-use serde_json::{Value, json};
-use std::{fmt::Write, ptr::replace};
+use serde_json::json;
+use std::{fmt::Write, sync::Arc};
 use tokio::sync::{mpsc, oneshot};
 use unicode_width::UnicodeWidthStr;
 
@@ -31,64 +31,92 @@ pub(super) struct Server {
     pub(super) settings: Settings,
     pub(super) state: State,
     pub(super) repository: Repository,
-    pub(super) file_indexes: Vec<RepositoryFileIndex>,
-    //pub(super) description: DatasetDescription,
+    pub(super) tracks: Arc<TrackRegistry>,
 }
 
 impl Server {
     pub(super) async fn run(
-        // mut self,
         settings: Settings,
         mut receiver: mpsc::Receiver<(Command, oneshot::Sender<Reply>)>,
     ) -> Result<(), gv_core::error::TGVError> {
-        let mut server = Server::new(settings).await?;
+        let mut server: Option<Self> = None;
         while let Some((command, reply)) = receiver.recv().await {
             if reply.is_closed() {
                 continue;
             }
             let result = match command {
-                Command::Describe => super::as_json(&server.description()),
-
-                Command::Replace(request) => server.replace(request).await,
-                Command::Inspect(request) => server.inspect(request).await,
+                Command::Describe => match server.as_ref() {
+                    Some(server) => super::as_json(&server.description()),
+                    None => Ok(json!({"loaded": false})),
+                },
+                Command::Replace(request) => Self::replace(&mut server, &settings, request).await,
+                Command::Inspect(request) => match server.as_mut() {
+                    Some(server) => server.inspect(request).await,
+                    None => Err(ApiError::conflict(
+                        "no_dataset",
+                        "Load a dataset before inspecting.",
+                    )),
+                },
+                Command::Draw(request) => match server.as_mut() {
+                    Some(server) => server.draw(request).await,
+                    None => Err(ApiError::conflict(
+                        "no_dataset",
+                        "Load a dataset before drawing.",
+                    )),
+                },
             };
             let _ = reply.send(result);
         }
 
-        server.repository.close().await?;
+        if let Some(mut server) = server {
+            server.repository.close().await?;
+        }
 
         Ok(())
     }
 
-    fn description(&self) -> String {
-        "TODO".to_string()
+    fn description(&self) -> DatasetDescription {
+        DatasetDescription {
+            reference: (self.settings.core.reference != Reference::NoReference)
+                .then(|| self.settings.core.reference.to_string()),
+            tracks: self
+                .tracks
+                .entries
+                .iter()
+                .map(|entry| TrackDescription {
+                    id: entry.id,
+                    r#type: match entry.repository_index {
+                        RepositoryFileIndex::Alignment(_) => "alignment",
+                        RepositoryFileIndex::Variant(_) => "variant",
+                        RepositoryFileIndex::Bed(_) => "bed",
+                    },
+                    source: self.repository.file_path(entry.repository_index).to_owned(),
+                })
+                .collect(),
+        }
     }
 
-    async fn replace(&mut self, request: DatasetRequest) -> Reply {
-        let new_settings = request.update_settings(&self.settings)?;
-
-        self.repository.close().await?;
-        let replacement = Self::new(new_settings).await?;
-
+    async fn replace(
+        current: &mut Option<Self>,
+        defaults: &Settings,
+        request: DatasetRequest,
+    ) -> Reply {
+        let prior_settings = current.as_ref().map_or(defaults, |server| &server.settings);
+        let new_settings = request.update_settings(prior_settings)?;
+        let replacement = Self::new(new_settings)
+            .await
+            .map_err(|error| ApiError::invalid("files", error))?;
         let result = super::as_json(&replacement.description())?;
-
-        self.settings = replacement.settings;
-        self.state = replacement.state;
-        self.repository = replacement.repository;
-        self.file_indexes = replacement.file_indexes;
-
+        if let Some(mut old) = current.replace(replacement) {
+            if let Err(error) = old.repository.close().await {
+                log::warn!("Failed to close the replaced dataset: {error}");
+            }
+        }
         Ok(result)
     }
 
-    pub(super) async fn new(
-        settings: Settings,
-        // request: DatasetRequest,
-    ) -> Result<Self, TGVError> {
-        // let reference = match &settings.core.reference {
-        //     Reference::NoReference => None,
-        //     reference => Some(reference.to_string()),
-        // };
-        let (mut repository, contigs, file_indexes) = Repository::new(&settings.core).await?;
+    pub(super) async fn new(settings: Settings) -> Result<Self, TGVError> {
+        let (repository, contigs, file_indexes) = Repository::new(&settings.core).await?;
         let mut state = State::new(settings.core.reference.clone(), contigs)?;
         for file in &settings.core.file_paths {
             match file {
@@ -97,46 +125,19 @@ impl Server {
                 FilePath::BedPath(_) => state.add_bed_track(),
             }
         }
-        let focus = state.default_focus(&mut repository).await?;
-        // let tracks = file_indexes
-        //     .iter()
-        //     .zip(request.files)
-        //     .enumerate()
-        //     .map(|(i, (index, source))| TrackDescription {
-        //         id: TrackId(format!("t{i}")),
-        //         r#type: match index {
-        //             RepositoryFileIndex::Alignment(_) => "alignment",
-        //             RepositoryFileIndex::Variant(_) => "variant",
-        //             RepositoryFileIndex::Bed(_) => "bed",
-        //         },
-        //         source,
-        //     })
-        //     .collect();
-        let mut server = Self {
+        let tracks = Arc::new(TrackRegistry::new(&file_indexes));
+        Ok(Self {
             state,
             repository,
-            file_indexes,
-            settings, // description: DatasetDescription {
-                      //     revision,
-                      //     reference,
-                      //     tracks,
-                      // },
-        };
-        // VCF and BED readers are lazy; validate them before committing a replacement.
-
-        // if let Err(error) = result {
-        //     if let Err(close_error) = server.repository.close().await {
-        //         log::warn!("Failed to close a rejected dataset: {close_error}");
-        //     }
-        //     return Err(ApiError::invalid("files", error));
-        // }
-        Ok(server)
+            tracks,
+            settings,
+        })
     }
 
     async fn load_region(
         &mut self,
         region: &Region,
-        indexes: &[RepositoryFileIndex],
+        track_ids: &[TrackId],
     ) -> Result<(), gv_core::error::TGVError> {
         if let Some(sequence) = self.repository.sequence_service.as_mut() {
             self.state.load_sequence_data(region, sequence).await?;
@@ -144,8 +145,8 @@ impl Server {
         if let Some(genes) = self.repository.track_service.as_mut() {
             self.state.load_track_data(region, genes).await?;
         }
-        for &index in indexes {
-            match index {
+        for &id in track_ids {
+            match self.tracks.get(id).repository_index {
                 RepositoryFileIndex::Alignment(i) => {
                     self.state
                         .load_alignment_data(
@@ -171,6 +172,30 @@ impl Server {
         Ok(())
     }
 
+    fn selected_tracks(&self, tracks: Option<&[TrackId]>) -> Result<Vec<TrackId>, ApiError> {
+        if let Some(tracks) = tracks {
+            if tracks.is_empty()
+                || tracks
+                    .iter()
+                    .enumerate()
+                    .any(|(i, id)| tracks[..i].contains(id) || *id >= self.tracks.entries.len())
+            {
+                return Err(ApiError::invalid(
+                    "tracks",
+                    "Select distinct track IDs from the current dataset.",
+                ));
+            }
+        }
+
+        Ok(self
+            .tracks
+            .entries
+            .iter()
+            .filter(|entry| tracks.is_none_or(|ids| ids.contains(&entry.id)))
+            .map(|entry| entry.id)
+            .collect())
+    }
+
     pub(super) async fn inspect(&mut self, request: InspectRequest) -> Reply {
         let Interval { contig, start, end } = request.region;
         if start == 0 || end < start || end - start >= 100_000 || end > (usize::MAX / 16) as u64 {
@@ -179,19 +204,8 @@ impl Server {
                 "Use a positive 1-based inclusive interval of at most 100000 bases within the platform coordinate range.",
             ));
         }
-        if let Some(render) = &request.render {
-            if !(40..=500).contains(&render.width) || !(10..=500).contains(&render.height) {
-                return Err(ApiError::invalid(
-                    "render",
-                    "The width must be 40–500 and the height must be 10–500.",
-                ));
-            }
-        }
-        let contig_index = self
-            .state
-            .contig_header
-            .try_get_index_by_str(&contig)
-            .map_err(|error| ApiError::invalid("region.contig", error))?;
+        let contig_index = self.state.contig_header.try_get_index_by_str(&contig)?;
+
         let header = &self.state.contig_header.contigs[contig_index];
         if header.length.is_some_and(|length| end > length) {
             return Err(ApiError::invalid(
@@ -204,36 +218,7 @@ impl Server {
             start,
             end,
         };
-        if let Some(tracks) = &request.tracks {
-            if tracks.is_empty()
-                || tracks.iter().enumerate().any(|(i, id)| {
-                    tracks[..i].contains(id)
-                        || !self.description.tracks.iter().any(|track| track.id == *id)
-                })
-            {
-                return Err(ApiError::invalid(
-                    "tracks",
-                    "Select distinct track IDs from the current dataset.",
-                ));
-            }
-        }
-        let selected: Vec<_> = self
-            .description
-            .tracks
-            .iter()
-            .enumerate()
-            .filter(|(_, track)| {
-                request
-                    .tracks
-                    .as_ref()
-                    .is_none_or(|ids| ids.contains(&track.id))
-            })
-            .map(|(index, _)| index)
-            .collect();
-        let indexes: Vec<_> = selected
-            .iter()
-            .map(|&index| self.file_indexes[index])
-            .collect();
+        let selected = self.selected_tracks(request.tracks.as_deref())?;
         let query = Region {
             focus: Focus {
                 contig_index,
@@ -242,15 +227,14 @@ impl Server {
             half_width: (end - start).div_ceil(2),
         };
         self.state.messages.clear();
-        self.load_region(&query, &indexes)
+        self.load_region(&query, &selected)
             .await
             .map_err(|error| ApiError::invalid("region", error))?;
 
         let mut tracks = Vec::new();
         let mut coverage = Vec::new();
-        for (&file_index, &index) in selected.iter().zip(&indexes) {
-            let id = &self.description.tracks[file_index].id;
-            let summary = match index {
+        for &id in &selected {
+            let summary = match self.tracks.get(id).repository_index {
                 RepositoryFileIndex::Alignment(index) => {
                     let alignment = &self.state.alignments[index];
                     let count = alignment
@@ -258,26 +242,40 @@ impl Server {
                         .iter()
                         .filter(|read| read.start <= end && read.end >= start)
                         .count();
-                    let positions: Vec<_> = (start..=end).map(|position| {
-                        let c = alignment.coverage_at(position);
-                        json!({"position": position, "A": c.A, "C": c.C, "G": c.G, "T": c.T, "N": c.N, "total": c.total, "softclip": c.softclip})
-                    }).collect();
-                    coverage.push(json!({"track_id": id, "positions": positions}));
-                    json!({"track_id": id, "type": "alignment", "overlapping_records": count})
+                    let positions = (start..=end)
+                        .map(|position| {
+                            PositionCoverage::from((position, alignment.coverage_at(position)))
+                        })
+                        .collect();
+                    coverage.push(TrackCoverage {
+                        track_id: id,
+                        positions,
+                    });
+                    TrackSummary::Alignment {
+                        track_id: id,
+                        overlapping_records: count,
+                    }
                 }
                 RepositoryFileIndex::Variant(index) => {
                     let mut records = self.state.variants[index]
                         .overlapping(contig_index, start, end)
                         .map_err(ApiError::internal)?;
                     records.sort_by_key(|record| (record.start(), record.end(), record.index));
-                    let items = records.iter().take(1000).map(|record| {
-                        let alternate = record.record.alternate_bases().iter()
-                            .map(|allele| allele.map(str::to_owned))
-                            .collect::<Result<Vec<_>, _>>()
-                            .map_err(|error| ApiError::invalid("files", error))?;
-                        Ok(json!({"start": record.start(), "end": record.end(), "reference": record.record.reference_bases(), "alternate": alternate}))
-                    }).collect::<Result<Vec<Value>, ApiError>>()?;
-                    json!({"track_id": id, "type": "variant", "overlapping_records": records.len(), "truncated": records.len() > items.len(), "items": items})
+                    let items = records
+                        .iter()
+                        .take(1000)
+                        .copied()
+                        .map(|record| {
+                            VariantRecord::try_from(record)
+                                .map_err(|error| ApiError::invalid("files", error))
+                        })
+                        .collect::<Result<Vec<_>, ApiError>>()?;
+                    TrackSummary::Variant {
+                        track_id: id,
+                        overlapping_records: records.len(),
+                        truncated: records.len() > items.len(),
+                        items,
+                    }
                 }
                 RepositoryFileIndex::Bed(index) => {
                     let mut records = self.state.bed_intervals[index]
@@ -287,9 +285,15 @@ impl Server {
                     let items: Vec<_> = records
                         .iter()
                         .take(1000)
-                        .map(|record| json!({"start": record.start(), "end": record.end()}))
+                        .copied()
+                        .map(BedRecord::from)
                         .collect();
-                    json!({"track_id": id, "type": "bed", "overlapping_records": records.len(), "truncated": records.len() > items.len(), "items": items})
+                    TrackSummary::Bed {
+                        track_id: id,
+                        overlapping_records: records.len(),
+                        truncated: records.len() > items.len(),
+                        items,
+                    }
                 }
             };
             tracks.push(summary);
@@ -302,93 +306,209 @@ impl Server {
             .filter(|gene| gene.overlaps(contig_index, start, end))
             .collect();
         genes.sort_by(|a, b| (a.start(), a.end(), &a.id).cmp(&(b.start(), b.end(), &b.id)));
-        let gene_items: Vec<_> = genes.iter().take(1000).map(|gene| json!({"id": gene.id, "name": gene.name, "start": gene.start(), "end": gene.end(), "strand": gene.strand.to_string()})).collect();
-        let summary = json!({"tracks": tracks, "genes": {"available": self.repository.track_service.is_some(), "overlapping_records": genes.len(), "truncated": genes.len() > gene_items.len(), "items": gene_items}});
+        let gene_items: Vec<_> = genes
+            .iter()
+            .take(1000)
+            .copied()
+            .map(GeneRecord::from)
+            .collect();
+        let summary = InspectSummary {
+            tracks,
+            genes: GeneSummary {
+                available: self.repository.track_service.is_some(),
+                overlapping_records: genes.len(),
+                truncated: genes.len() > gene_items.len(),
+                items: gene_items,
+            },
+        };
         let mut warnings = Vec::new();
         if self.repository.sequence_service.is_none() {
-            warnings.push(json!({"code": "reference_unavailable", "message": "The dataset has no reference sequence."}));
+            warnings.push(ResponseWarning::ReferenceUnavailable {
+                message: "The dataset has no reference sequence.".to_owned(),
+            });
         }
         if self.repository.track_service.is_none() {
-            warnings.push(json!({"code": "genes_unavailable", "message": "The dataset has no gene annotation service."}));
+            warnings.push(ResponseWarning::GenesUnavailable {
+                message: "The dataset has no gene annotation service.".to_owned(),
+            });
         }
-        let render = if let Some(render) = request.render {
-            let mut settings = self.settings.clone();
-            settings.core.file_paths = selected
-                .iter()
-                .map(|&index| self.settings.core.file_paths[index].clone())
-                .collect();
-            let layout = MainLayout::new(&settings, &indexes);
-            let resolved_layout = layout.resolve(Rect::new(0, 0, render.width, render.height));
-            let width = u64::from(resolved_layout.main_area.width);
-            if width == 0 {
-                return Err(ApiError::invalid(
-                    "render.width",
-                    "The layout leaves no space for tracks.",
-                ));
-            }
-            let mut alignment_view =
-                AlignmentView::new(query.focus.clone(), self.state.alignments.len());
-            alignment_view.zoom = (end - start + 1).div_ceil(width).max(1);
-            alignment_view.self_correct(
-                &resolved_layout.main_area,
-                self.state
-                    .contig_length(&query.focus)
-                    .map_err(ApiError::internal)?,
-            );
-            let displayed = alignment_view.region(&resolved_layout.main_area);
-            // Summaries are captured first, so display padding cannot affect their counts.
-            self.load_region(&displayed, &indexes)
+        super::as_json(&InspectResponse {
+            region,
+            summary,
+            coverage: CoverageSummary {
+                method: CoverageMethod::ViewerCurrent,
+                tracks: coverage,
+            },
+            warnings,
+        })
+    }
+
+    pub(super) async fn draw(&mut self, request: DrawRequest) -> Reply {
+        let DrawRequest {
+            center: DrawCenter { contig, position },
+            zoom,
+            half_width,
+            tracks,
+            format,
+            width,
+            height,
+        } = request;
+        if position == 0
+            || half_width > 49_999
+            || position
+                .checked_add(half_width)
+                .is_none_or(|end| end > (usize::MAX / 16) as u64)
+        {
+            return Err(ApiError::invalid(
+                "center",
+                "Use a positive 1-based center and a half-width of at most 49999 bases within the platform coordinate range.",
+            ));
+        }
+        if zoom == 0 {
+            return Err(ApiError::invalid("zoom", "The zoom must be positive."));
+        }
+        if !(40..=500).contains(&width) || !(10..=500).contains(&height) {
+            return Err(ApiError::invalid(
+                "draw",
+                "The width must be 40–500 and the height must be 10–500.",
+            ));
+        }
+        let contig_index = self
+            .state
+            .contig_header
+            .try_get_index_by_str(&contig)
+            .map_err(|error| ApiError::invalid("center.contig", error))?;
+        let header = &self.state.contig_header.contigs[contig_index];
+        if header.length.is_some_and(|length| position > length) {
+            return Err(ApiError::invalid(
+                "center.position",
+                "The center is beyond the contig.",
+            ));
+        }
+        let contig = header.name.clone();
+        let selected = self.selected_tracks(tracks.as_deref())?;
+        let query = Region {
+            focus: Focus {
+                contig_index,
+                position,
+            },
+            half_width,
+        };
+        let layout = MainLayout::new(&self.settings, Arc::clone(&self.tracks), &selected);
+        let resolved_layout = layout.resolve(Rect::new(0, 0, width, height), &self.repository);
+        let main_width = u64::from(resolved_layout.main_area.width);
+        if main_width == 0 {
+            return Err(ApiError::invalid(
+                "width",
+                "The layout leaves no space for tracks.",
+            ));
+        }
+        if main_width
+            .checked_mul(zoom)
+            .is_none_or(|span| span > 100_000)
+        {
+            return Err(ApiError::invalid(
+                "zoom",
+                "The displayed span must be at most 100000 bases; reduce the zoom or width.",
+            ));
+        }
+        let mut alignment_view =
+            AlignmentView::new(query.focus.clone(), self.state.alignments.len());
+        alignment_view.zoom = zoom;
+        alignment_view.self_correct(
+            &resolved_layout.main_area,
+            self.state
+                .contig_length(&query.focus)
+                .map_err(ApiError::internal)?,
+        );
+        let displayed = alignment_view.region(&resolved_layout.main_area);
+        self.state.messages.clear();
+        self.load_region(&query, &selected)
+            .await
+            .map_err(|error| ApiError::invalid("region", error))?;
+        if displayed != query {
+            self.load_region(&displayed, &selected)
                 .await
                 .map_err(|error| ApiError::invalid("region", error))?;
-            let mut buffer = Buffer::empty(resolved_layout.terminal_area);
-            render_main(
-                &mut buffer,
-                &mut self.state,
-                &Registers::default(),
-                &resolved_layout,
-                &alignment_view,
-                &MouseRegister::default(),
-                &self.settings.palette,
-                &vec![RenderEvent::All],
-            )
-            .map_err(ApiError::internal)?;
-            for (&file_index, &index) in selected.iter().zip(&indexes) {
-                let area_type = match index {
-                    RepositoryFileIndex::Alignment(i) => AreaType::Alignment(i),
-                    RepositoryFileIndex::Variant(i) => AreaType::Variant(i),
-                    RepositoryFileIndex::Bed(i) => AreaType::Bed(i),
-                };
-                let area = resolved_layout
-                    .areas
-                    .iter()
-                    .find(|(kind, _)| *kind == area_type)
-                    .map(|(_, area)| area);
-                let hidden = area.is_none_or(|area| area.height == 0);
-                let clipped = match index {
-                    RepositoryFileIndex::Alignment(i) => {
-                        area.is_some_and(|area| {
-                            self.state.alignments[i].depth() > usize::from(area.height)
-                        }) || alignment_view.zoom > AlignmentView::MAX_ZOOM_TO_DISPLAY_ALIGNMENTS
-                    }
-                    _ => false,
-                };
-                if hidden || clipped {
-                    warnings.push(json!({"code": "render_limited", "track_id": self.description.tracks[file_index].id, "message": "The visualization omits this track or some read rows; structured results are independent of the display."}));
-                }
-            }
-            if alignment_view.zoom > 1 {
-                warnings.push(json!({"code": "render_binned", "message": "Each column spans multiple bases; zoom in for individual bases."}));
-            }
-            Some(
-                json!({"format": render.format, "width": render.width, "height": render.height, "region": {"contig": region.contig, "start": displayed.start(), "end": displayed.end()}, "text": Self::export_buffer(&buffer, render.format), "legend": "The existing TGV palette and symbols are used. Base letters identify bases; arrows indicate orientation; coverage occupies a separate track. Read rows may be clipped. Unicode drawing characters are preserved."}),
-            )
-        } else {
-            None
-        };
-        Ok(
-            json!({"dataset_revision": self.description.revision, "region": region, "summary": summary, "coverage": {"method": "viewer_current", "tracks": coverage}, "render": render, "warnings": warnings}),
+        }
+        let mut buffer = Buffer::empty(resolved_layout.terminal_area);
+        render_main(
+            &mut buffer,
+            &mut self.state,
+            &Registers::default(),
+            &resolved_layout,
+            &alignment_view,
+            &MouseRegister::default(),
+            &self.settings.palette,
+            &vec![RenderEvent::All],
         )
+        .map_err(ApiError::internal)?;
+        let mut warnings = Vec::new();
+        if self.repository.sequence_service.is_none() {
+            warnings.push(ResponseWarning::ReferenceUnavailable {
+                message: "The dataset has no reference sequence.".to_owned(),
+            });
+        }
+        if self.repository.track_service.is_none() {
+            warnings.push(ResponseWarning::GenesUnavailable {
+                message: "The dataset has no gene annotation service.".to_owned(),
+            });
+        }
+        for &id in &selected {
+            let index = self.tracks.get(id).repository_index;
+            let area_type = match index {
+                RepositoryFileIndex::Alignment(_) => AreaType::Alignment(id),
+                RepositoryFileIndex::Variant(_) => AreaType::Variant(id),
+                RepositoryFileIndex::Bed(_) => AreaType::Bed(id),
+            };
+            let area = resolved_layout
+                .areas
+                .iter()
+                .find(|(kind, _)| *kind == area_type)
+                .map(|(_, area)| area);
+            let hidden = area.is_none_or(|area| area.height == 0);
+            let clipped = match index {
+                RepositoryFileIndex::Alignment(i) => {
+                    area.is_some_and(|area| {
+                        self.state.alignments[i].depth() > usize::from(area.height)
+                    }) || alignment_view.zoom > AlignmentView::MAX_ZOOM_TO_DISPLAY_ALIGNMENTS
+                }
+                _ => false,
+            };
+            if hidden || clipped {
+                warnings.push(ResponseWarning::RenderLimited {
+                    track_id: id,
+                    message: "The visualization omits this track or some read rows; structured results are independent of the display.".to_owned(),
+                });
+            }
+        }
+        if alignment_view.zoom > 1 {
+            warnings.push(ResponseWarning::RenderBinned {
+                message: "Each column spans multiple bases; zoom in for individual bases."
+                    .to_owned(),
+            });
+        }
+        super::as_json(&DrawResponse {
+            center: DrawCenter {
+                contig: contig.clone(),
+                position: alignment_view.focus.position,
+            },
+            zoom: alignment_view.zoom,
+            half_width,
+            format,
+            width,
+            height,
+            region: Interval {
+                contig,
+                start: displayed.start(),
+                end: displayed.end(),
+            },
+            text: Self::export_buffer(&buffer, format),
+            legend: "The existing TGV palette and symbols are used. Base letters identify bases; arrows indicate orientation; coverage occupies a separate track. Read rows may be clipped. Unicode drawing characters are preserved.".to_owned(),
+            warnings,
+        })
     }
+
     fn export_buffer(buffer: &Buffer, format: RenderFormat) -> String {
         let mut output = String::new();
         for y in buffer.area.top()..buffer.area.bottom() {

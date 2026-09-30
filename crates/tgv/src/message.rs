@@ -1,4 +1,4 @@
-use crate::{app::Scene, register::KeyRegisterType};
+use crate::{app::Scene, register::KeyRegisterType, track_registry::TrackId};
 pub use gv_core::message::{Movement, Scroll};
 use strum::Display;
 
@@ -22,8 +22,8 @@ pub enum UpdateLayoutMessage {
     ToggleSidebar,
     SetSidebarWidth(u16),
     ResizeAlignmentPair {
-        upper: usize,
-        lower: usize,
+        upper: TrackId,
+        lower: TrackId,
         delta_rows: i32,
     },
 }

@@ -1,10 +1,10 @@
 //! Local HTTP access to one dataset, serialized through a single server owner.
 
 mod error;
-mod request;
+mod schema;
 mod server;
 
-use self::{error::*, request::*, server::Server};
+use self::{error::*, schema::*, server::Server};
 use crate::settings::{Cli, Settings};
 use axum::{
     Json, Router,
@@ -21,6 +21,7 @@ enum Command {
     Describe,
     Replace(DatasetRequest),
     Inspect(InspectRequest),
+    Draw(DrawRequest),
 }
 
 type Reply = Result<Value, ApiError>;
@@ -45,6 +46,7 @@ pub async fn serve(cli: &Cli, port: u16) -> Result<(), TGVError> {
         )
         .route("/v1/dataset", get(describe).put(replace))
         .route("/v1/inspect", post(inspect))
+        .route("/v1/draw", post(draw))
         .fallback(|| async { ApiError::not_found() })
         .method_not_allowed_fallback(|| async { ApiError::method_not_allowed() })
         .layer(DefaultBodyLimit::max(1024 * 1024))
@@ -115,6 +117,13 @@ async fn inspect(
     request: Result<Json<InspectRequest>, JsonRejection>,
 ) -> Result<Json<Value>, ApiError> {
     dispatch(sender, Command::Inspect(request.map_err(json_error)?.0)).await
+}
+
+async fn draw(
+    State(sender): State<Sender>,
+    request: Result<Json<DrawRequest>, JsonRejection>,
+) -> Result<Json<Value>, ApiError> {
+    dispatch(sender, Command::Draw(request.map_err(json_error)?.0)).await
 }
 
 fn json_error(error: JsonRejection) -> ApiError {

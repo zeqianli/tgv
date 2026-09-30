@@ -33,6 +33,14 @@ pub struct Repository {
 }
 
 impl Repository {
+    pub fn file_path(&self, index: RepositoryFileIndex) -> &str {
+        match index {
+            RepositoryFileIndex::Alignment(index) => self.alignment_repositories[index].path(),
+            RepositoryFileIndex::Variant(index) => &self.variant_repositories[index].vcf_path,
+            RepositoryFileIndex::Bed(index) => &self.bed_repositories[index].bed_path,
+        }
+    }
+
     pub async fn new(
         settings: &Settings,
     ) -> Result<(Self, ContigHeader, Vec<RepositoryFileIndex>), TGVError> {

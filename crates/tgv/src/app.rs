@@ -14,9 +14,15 @@ use crate::{
     register::{KeyRegisterType, Registers},
     session::SessionFile,
     settings::Settings,
+    track_registry::TrackRegistry,
 };
-use gv_core::{error::TGVError, repository::Repository, settings::FilePath, state::State};
-use std::{path::PathBuf, time::Instant};
+use gv_core::{
+    error::TGVError,
+    repository::{Repository, RepositoryFileIndex},
+    settings::FilePath,
+    state::State,
+};
+use std::{path::PathBuf, sync::Arc, time::Instant};
 
 #[derive(Debug, Clone, Eq, PartialEq)]
 pub enum Scene {
@@ -31,6 +37,7 @@ pub struct App {
 
     pub layout: MainLayout,
     pub resolved_layout: ResolvedMainLayout,
+    pub tracks: Arc<TrackRegistry>,
     pub state: State,
     pub settings: Settings,
     pub repository: Repository,
@@ -95,11 +102,19 @@ impl App {
             app_init_started.elapsed().as_millis(),
         );
 
+        let tracks = Arc::new(TrackRegistry::new(&repository_file_indexes));
+        let track_ids = tracks
+            .entries
+            .iter()
+            .map(|entry| entry.id)
+            .collect::<Vec<_>>();
+        let layout = MainLayout::new(&settings, Arc::clone(&tracks), &track_ids);
         Ok(Self {
             exit: false,
             session_path,
-            layout: MainLayout::new(&settings, &repository_file_indexes),
+            layout,
             resolved_layout: ResolvedMainLayout::default(),
+            tracks,
             alignment_view,
             state,
             settings: settings.clone(),
@@ -117,7 +132,7 @@ impl App {
         log::info!("Starting the app event loop");
         terminal
             .draw(|frame| {
-                self.resolved_layout = self.layout.resolve(frame.area());
+                self.resolved_layout = self.layout.resolve(frame.area(), &self.repository);
             })
             .map_err(|e| TGVError::IOError(format!("Failed to draw the terminal: {e}")))?;
 
@@ -145,7 +160,7 @@ impl App {
                         if self.resolved_layout.terminal_area != buffer.area {
                             render_events.push(RenderEvent::All);
                         }
-                        self.resolved_layout = self.layout.resolve(buffer.area);
+                        self.resolved_layout = self.layout.resolve(buffer.area, &self.repository);
                         render_result = self.render(buffer, &render_events);
                     })
                     .map_err(|e| TGVError::IOError(format!("Failed to draw the terminal: {e}")))?;
@@ -177,7 +192,9 @@ impl App {
 
                 Ok(Event::Resize(width, height)) => {
                     log::debug!("Terminal resized to {width}x{height}");
-                    self.resolved_layout = self.layout.resolve(Rect::new(0, 0, width, height));
+                    self.resolved_layout = self
+                        .layout
+                        .resolve(Rect::new(0, 0, width, height), &self.repository);
                     self.alignment_view.self_correct(
                         &self.resolved_layout.main_area,
                         self.state.contig_length(&self.alignment_view.focus)?,
@@ -327,7 +344,9 @@ impl App {
                         previous_y,
                         self.alignment_view.y,
                     );
-                    render_events.push(RenderEvent::Area(AreaType::Alignment(scroll.index())))
+                    render_events.push(RenderEvent::Area(AreaType::Alignment(
+                        self.tracks.alignment_id(scroll.index()),
+                    )))
                 }
 
                 Message::Core(gv_core::message::Message::Zoom(zoom)) => {
@@ -416,7 +435,9 @@ impl App {
                             &self.resolved_layout,
                         ),
                     }
-                    self.resolved_layout = self.layout.resolve(self.resolved_layout.terminal_area);
+                    self.resolved_layout = self
+                        .layout
+                        .resolve(self.resolved_layout.terminal_area, &self.repository);
                     if self.resolved_layout.main_area.width != previous_width {
                         self.alignment_view.self_correct(
                             &self.resolved_layout.main_area,
@@ -472,12 +493,10 @@ impl App {
         }
 
         if self.alignment_view.zoom <= AlignmentView::MAX_ZOOM_TO_DISPLAY_ALIGNMENTS {
-            for (index, alignment_repository) in self
-                .repository
-                .alignment_repositories
-                .iter_mut()
-                .enumerate()
-            {
+            for entry in &self.tracks.entries {
+                let RepositoryFileIndex::Alignment(index) = entry.repository_index else {
+                    continue;
+                };
                 if !self.state.alignments[index].has_complete_data(&region) {
                     let cache_region = self.alignment_view.alignment_cache_region(region.clone());
                     log::trace!(
@@ -488,7 +507,11 @@ impl App {
                         self.alignment_view.zoom,
                     );
                     self.state
-                        .load_alignment_data(index, &cache_region, alignment_repository)
+                        .load_alignment_data(
+                            index,
+                            &cache_region,
+                            &mut self.repository.alignment_repositories[index],
+                        )
                         .await?;
                 } else {
                     log::trace!(
@@ -521,37 +544,34 @@ impl App {
                 .await?;
         }
 
-        for (index, variant_repository) in
-            self.repository.variant_repositories.iter_mut().enumerate()
-        {
-            if !self
-                .state
-                .variant_loaded
-                .get(index)
-                .copied()
-                .unwrap_or(false)
-            {
-                log::trace!(
-                    "Variant data not loaded; requesting data load: track={} display_region={:?}",
-                    index,
-                    region,
-                );
-                self.state
-                    .load_variant_data(index, &region, variant_repository)
-                    .await?;
-            }
-        }
-
-        for (index, bed_repository) in self.repository.bed_repositories.iter_mut().enumerate() {
-            if !self.state.bed_loaded.get(index).copied().unwrap_or(false) {
-                log::trace!(
-                    "BED data not loaded; requesting data load: track={} display_region={:?}",
-                    index,
-                    region,
-                );
-                self.state
-                    .load_bed_data(index, &region, bed_repository)
-                    .await?;
+        for entry in &self.tracks.entries {
+            let id = entry.id;
+            match entry.repository_index {
+                RepositoryFileIndex::Variant(index) if !self.state.variant_loaded[index] => {
+                    log::trace!(
+                        "Variant data not loaded; requesting data load: track={} display_region={:?}",
+                        id,
+                        region,
+                    );
+                    self.state
+                        .load_variant_data(
+                            index,
+                            &region,
+                            &mut self.repository.variant_repositories[index],
+                        )
+                        .await?;
+                }
+                RepositoryFileIndex::Bed(index) if !self.state.bed_loaded[index] => {
+                    log::trace!(
+                        "BED data not loaded; requesting data load: track={} display_region={:?}",
+                        id,
+                        region,
+                    );
+                    self.state
+                        .load_bed_data(index, &region, &mut self.repository.bed_repositories[index])
+                        .await?;
+                }
+                _ => {}
             }
         }
 

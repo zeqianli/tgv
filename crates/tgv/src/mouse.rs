@@ -1,6 +1,7 @@
 use crate::{
     layout::{AlignmentView, AreaType, HoveringAreaType, ResolvedMainLayout},
     message::{Message, Movement, Scroll, UpdateLayoutMessage},
+    track_registry::TrackId,
 };
 use crossterm::event::{MouseButton, MouseEvent, MouseEventKind};
 use gv_core::{alignment::BaseCoverage, error::TGVError, state::State};
@@ -12,10 +13,10 @@ pub struct MouseRegister {
     mouse_down_area: Option<AreaType>,
     last_x: u16,
     last_y: u16,
-    active_divider: Option<(usize, usize)>,
+    active_divider: Option<(TrackId, TrackId)>,
     sidebar_resizing: bool,
-    pub hovered_alignment: Option<usize>,
-    pub hovered_divider: Option<(usize, usize)>,
+    pub hovered_alignment: Option<TrackId>,
+    pub hovered_divider: Option<(TrackId, TrackId)>,
 }
 
 impl MouseRegister {
@@ -45,7 +46,7 @@ impl MouseRegister {
         let hovered = layout.get_area_type_at_position(event.column, event.row);
         self.hovered_alignment = match hovered {
             HoveringAreaType::Track(track_index) => match layout.areas[track_index].0 {
-                AreaType::Alignment(index) | AreaType::Coverage(index) => Some(index),
+                AreaType::Alignment(id) | AreaType::Coverage(id) => Some(id),
                 _ => None,
             },
             _ => None,
@@ -91,15 +92,17 @@ impl MouseRegister {
                     }
                 } else if let Some(area) = self.mouse_down_area {
                     match area {
-                        AreaType::Alignment(index) | AreaType::Coverage(index) => {
+                        AreaType::Alignment(id) | AreaType::Coverage(id) => {
                             if event.column < self.last_x {
                                 messages.push(Movement::Right(1).into());
                             } else if event.column > self.last_x {
                                 messages.push(Movement::Left(1).into());
                             }
                             if event.row > self.last_y {
+                                let index = layout.track_registry.alignment_index(id)?;
                                 messages.push(Scroll::Up { index, n: 1 }.into());
                             } else if event.row < self.last_y {
+                                let index = layout.track_registry.alignment_index(id)?;
                                 messages.push(Scroll::Down { index, n: 1 }.into());
                             }
                         }
@@ -125,11 +128,12 @@ impl MouseRegister {
                 if let HoveringAreaType::Track(track_index) = hovered {
                     let (area_type, area) = &layout.areas[track_index];
                     match area_type {
-                        AreaType::Alignment(index) => {
+                        AreaType::Alignment(id) => {
+                            let index = layout.track_registry.alignment_index(*id)?;
                             if let (Some((left_coordinate, right_coordinate)), Some(y_coordinate)) = (
                                 alignment_view.coordinates_of_onscreen_x(event.column, area),
-                                alignment_view.coordinate_of_onscreen_y(*index, event.row, area),
-                            ) && let Some(alignment) = state.alignments.get(*index)
+                                alignment_view.coordinate_of_onscreen_y(index, event.row, area),
+                            ) && let Some(alignment) = state.alignments.get(index)
                                 && let Some(read) = alignment.read_overlapping(
                                     left_coordinate,
                                     right_coordinate,
@@ -154,10 +158,11 @@ impl MouseRegister {
                                 messages.push(Message::message(description));
                             }
                         }
-                        AreaType::Coverage(index) => {
+                        AreaType::Coverage(id) => {
+                            let index = layout.track_registry.alignment_index(*id)?;
                             if let Some((left, right)) =
                                 alignment_view.coordinates_of_onscreen_x(event.column, area)
-                                && let Some(alignment) = state.alignments.get(*index)
+                                && let Some(alignment) = state.alignments.get(index)
                             {
                                 let mut coverage = BaseCoverage::default();
                                 for coordinate in left..=right {
@@ -171,10 +176,11 @@ impl MouseRegister {
                                 messages.push(Message::message(description));
                             }
                         }
-                        AreaType::Variant(index) => {
+                        AreaType::Variant(id) => {
+                            let index = layout.track_registry.variant_index(*id)?;
                             if let Some((left, right)) =
                                 alignment_view.coordinates_of_onscreen_x(event.column, area)
-                                && let Some(variants) = state.variants.get(*index)
+                                && let Some(variants) = state.variants.get(index)
                             {
                                 for variant in variants.overlapping(
                                     alignment_view.focus.contig_index,
@@ -185,10 +191,11 @@ impl MouseRegister {
                                 }
                             }
                         }
-                        AreaType::Bed(index) => {
+                        AreaType::Bed(id) => {
+                            let index = layout.track_registry.bed_index(*id)?;
                             if let Some((left, right)) =
                                 alignment_view.coordinates_of_onscreen_x(event.column, area)
-                                && let Some(intervals) = state.bed_intervals.get(*index)
+                                && let Some(intervals) = state.bed_intervals.get(index)
                             {
                                 for interval in intervals.overlapping(
                                     alignment_view.focus.contig_index,
@@ -206,7 +213,8 @@ impl MouseRegister {
             MouseEventKind::ScrollDown | MouseEventKind::ScrollUp => {
                 if let HoveringAreaType::Track(track_index) = hovered {
                     let area = layout.areas[track_index].0;
-                    if let AreaType::Alignment(index) | AreaType::Coverage(index) = area {
+                    if let AreaType::Alignment(id) | AreaType::Coverage(id) = area {
+                        let index = layout.track_registry.alignment_index(id)?;
                         let scroll = if matches!(event.kind, MouseEventKind::ScrollDown) {
                             Scroll::Down { index, n: 1 }
                         } else {

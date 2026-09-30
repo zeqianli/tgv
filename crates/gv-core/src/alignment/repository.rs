@@ -217,6 +217,14 @@ pub enum AlignmentRepositoryEnum {
 }
 
 impl AlignmentRepositoryEnum {
+    pub fn path(&self) -> &str {
+        match self {
+            Self::Bam(inner) => &inner.bam_path,
+            Self::RemoteBam(inner) => &inner.bam_path,
+            Self::Cram(inner) => &inner.cram_path,
+        }
+    }
+
     pub async fn new(alignment_path: &AlignmentPath) -> Result<Self, TGVError> {
         match alignment_path {
             AlignmentPath::Bam {
