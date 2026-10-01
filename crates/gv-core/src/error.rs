@@ -53,17 +53,6 @@ pub enum TGVError {
     #[error("File IO error: {0}")]
     FileIOError(#[from] std::io::Error),
 
-    #[error("Failed to bind the MCP server to 127.0.0.1:{port}: {source}")]
-    #[diagnostic(
-        code(tgv::server::bind),
-        help("Choose a different port with `tgv serve --port <PORT>`.")
-    )]
-    ServerBindError {
-        port: u16,
-        #[source]
-        source: std::io::Error,
-    },
-
     #[error("{message}")]
     McpInvalidInput {
         field: &'static str,

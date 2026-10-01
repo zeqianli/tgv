@@ -1,12 +1,12 @@
 # Local MCP server
 
-Start a local server without a dataset:
+Configure an MCP client to start `tgv serve` as a stdio server. For example, with Codex:
 
 ```sh
-tgv serve --port 8765
+codex mcp add tgv -- tgv serve
 ```
 
-Connect an MCP client using the Streamable HTTP endpoint `http://127.0.0.1:8765/mcp`. The server binds to `127.0.0.1`; port `0` selects an available port and prints its address. An occupied port stops startup with an error. Global options precede the subcommand, for example `tgv --offline serve`. File paths passed to tools refer to the server's filesystem. The server holds one dataset shared by all connected clients.
+The client launches TGV and communicates through standard input and output. No port, URL, or separate background process is needed. Each server process starts without a dataset and owns one dataset for its client connection. Global options precede the subcommand, for example `tgv --offline serve`. File paths passed to tools refer to the computer running TGV. Standard output is reserved for MCP messages; diagnostics go to the log file or standard error.
 
 ## Load and describe a dataset
 
@@ -42,6 +42,6 @@ Use `"format":"text"` for plain output or `"format":"ansi"` for terminal colors.
 
 ## Bounds and errors
 
-MCP requests are limited to 1 MiB and inspected intervals to 100,000 bases. Draw canvas dimensions must each be 10–500 cells, and the resolved track area must have nonzero width. These bounds do not impose a read-depth or memory limit, so high-depth regions can still be expensive.
+Inspected intervals are limited to 100,000 bases. Draw canvas dimensions must each be 10–500 cells, and the resolved track area must have nonzero width. These bounds do not impose a read-depth or memory limit, so high-depth regions can still be expensive.
 
-Validation and dataset failures are MCP tool errors with `isError: true`, a readable message, and structured `{"error":{"code":"...","message":"...","field":null}}` data. Malformed MCP requests and arguments receive protocol errors. Ctrl-C or a Unix termination signal stops the listener and closes repositories after outstanding work finishes.
+Validation and dataset failures are MCP tool errors with `isError: true`, a readable message, and structured `{"error":{"code":"...","message":"...","field":null}}` data. Malformed MCP requests and arguments receive protocol errors. Closing standard input stops the server and closes its repository after outstanding work finishes. A termination signal stops the process immediately.

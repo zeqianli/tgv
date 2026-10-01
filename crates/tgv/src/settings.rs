@@ -58,12 +58,8 @@ impl From<UCSCDownloadSourceCli> for UCSCDownloadSource {
 
 #[derive(Subcommand, Clone, Debug)]
 pub enum Commands {
-    /// Serve regional genome evidence through MCP on the local network interface.
-    Serve {
-        /// Local listening port. Use 0 to allocate an available port.
-        #[arg(long, default_value_t = 8765)]
-        port: u16,
-    },
+    /// Serve regional genome evidence through MCP over standard input and output.
+    Serve,
     /// Download reference data.
     Download {
         /// Reference genome to download.

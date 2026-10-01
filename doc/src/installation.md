@@ -74,5 +74,5 @@ Similarly, MacOS would raise a warning here. See the solution above.
 git clone https://github.com/zeqianli/tgv.git
 cd tgv
 
-cargo install --path .
+cargo install --path crates/tgv --locked
 ```

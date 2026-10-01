@@ -1,25 +1,22 @@
-//! Local MCP access to one dataset, serialized through a single server owner.
+//! Local stdio MCP access to one dataset, serialized through a single owner.
 
 mod dataset_state;
 mod schema;
 
 use self::{dataset_state::DatasetState, schema::*};
 use crate::settings::{Cli, Settings};
-use axum::Router;
 use gv_core::prelude::*;
 use rmcp::{
-    ServerHandler,
+    ServerHandler, ServiceExt,
     handler::server::wrapper::Parameters,
     model::{CallToolResult, ContentBlock},
+    service::QuitReason,
     tool, tool_handler, tool_router,
-    transport::streamable_http_server::{
-        StreamableHttpServerConfig, StreamableHttpService, session::local::LocalSessionManager,
-    },
+    transport::stdio,
 };
 use serde::Serialize;
 use serde_json::{Value, json};
 use tokio::sync::{mpsc, oneshot};
-use tokio_util::sync::CancellationToken;
 
 enum Command {
     Describe,
@@ -93,8 +90,8 @@ impl McpHandler {
 )]
 impl ServerHandler for McpHandler {}
 
-/// Serve MCP without initializing a terminal or reading a saved session.
-pub async fn serve(cli: &Cli, port: u16) -> Result<(), TGVError> {
+/// Serve MCP over stdin and stdout without initializing a terminal or reading a saved session.
+pub async fn serve(cli: &Cli) -> Result<(), TGVError> {
     let mut settings = Settings::default();
     cli.apply_overrides(&mut settings)?;
     if !settings.core.file_paths.is_empty() || cli.session.is_some() {
@@ -103,74 +100,41 @@ pub async fn serve(cli: &Cli, port: u16) -> Result<(), TGVError> {
         ));
     }
 
-    let listener = tokio::net::TcpListener::bind((std::net::Ipv4Addr::LOCALHOST, port))
-        .await
-        .map_err(|source| TGVError::ServerBindError { port, source })?;
     let (sender, receiver) = mpsc::channel::<(Command, oneshot::Sender<Reply>)>(16);
-    let shutdown_sender = sender.clone();
-    let cancellation = CancellationToken::new();
-    let config = StreamableHttpServerConfig::default()
-        .with_cancellation_token(cancellation.child_token())
-        .with_json_response(true)
-        .with_max_request_body_bytes(1024 * 1024)
-        .with_allowed_origins(["http://localhost:*", "http://127.0.0.1:*"]);
-    let service = StreamableHttpService::new(
-        move || {
-            Ok(McpHandler {
-                sender: sender.clone(),
-            })
-        },
-        LocalSessionManager::default().into(),
-        config,
-    );
-    let router = Router::new().nest_service("/mcp", service);
-    println!("TGV serves MCP at http://{}/mcp", listener.local_addr()?);
+    let running = (McpHandler {
+        sender: sender.clone(),
+    })
+    .serve(stdio())
+    .await
+    .map_err(|error| {
+        TGVError::StateError(format!("The MCP service fails to initialize: {error}"))
+    })?;
 
-    // Synchronous readers and coverage work must not block the HTTP accept loop.
+    // Synchronous readers and coverage work must not block MCP message handling.
     // Construct the dataset state inside this thread because repository types need not be Send.
     let runtime = tokio::runtime::Handle::current();
     let worker = tokio::task::spawn_blocking(move || {
         runtime.block_on(DatasetState::run(settings, receiver))
     });
-    let shutdown_token = cancellation.clone();
-    let http_result = axum::serve(listener, router)
-        .with_graceful_shutdown(async move {
-            shutdown().await;
-            shutdown_token.cancel();
-        })
-        .await;
-    cancellation.cancel();
+
+    let reason = running.waiting().await;
+    let service_result = match reason {
+        Ok(QuitReason::Closed | QuitReason::Cancelled) => Ok(()),
+        Ok(QuitReason::JoinError(error)) | Err(error) => Err(TGVError::StateError(format!(
+            "The MCP service fails: {error}"
+        ))),
+        Ok(other) => Err(TGVError::StateError(format!(
+            "The MCP service stops unexpectedly: {other:?}"
+        ))),
+    };
+
     let (reply, _) = oneshot::channel();
-    let _ = shutdown_sender.send((Command::Shutdown, reply)).await;
+    let _ = sender.send((Command::Shutdown, reply)).await;
     let worker_result = worker
         .await
         .map_err(|error| TGVError::StateError(format!("The dataset worker fails: {error}")))?;
-    http_result?;
+    service_result?;
     worker_result
-}
-
-async fn shutdown() {
-    #[cfg(unix)]
-    {
-        match tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate()) {
-            Ok(mut terminate) => {
-                tokio::select! {
-                    result = tokio::signal::ctrl_c() => { if let Err(error) = result { log::error!("Failed to listen for Ctrl-C: {error}"); } },
-                    _ = terminate.recv() => {},
-                }
-            }
-            Err(error) => {
-                log::error!("Failed to listen for termination: {error}");
-                if let Err(error) = tokio::signal::ctrl_c().await {
-                    log::error!("Failed to listen for Ctrl-C: {error}");
-                }
-            }
-        }
-    }
-    #[cfg(not(unix))]
-    if let Err(error) = tokio::signal::ctrl_c().await {
-        log::error!("Failed to listen for Ctrl-C: {error}");
-    }
 }
 
 fn tool_result(result: Reply) -> CallToolResult {

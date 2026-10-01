@@ -25,8 +25,8 @@ async fn main() -> Result<(), TGVError> {
     log::info!("Logging to {}", log_path.display());
 
     match &cli.command {
-        Some(Commands::Serve { port }) => {
-            return tgv::server::serve(&cli, *port).await;
+        Some(Commands::Serve) => {
+            return tgv::server::serve(&cli).await;
         }
         Some(Commands::Download {
             reference,
