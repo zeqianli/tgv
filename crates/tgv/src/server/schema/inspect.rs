@@ -1,6 +1,6 @@
 //! HTTP request and response types, independent of session serialization.
 
-use crate::{server::error::ApiError, track_registry::TrackId};
+use crate::track_registry::TrackId;
 use gv_core::{
     alignment::{Alignment, BaseCoverage},
     bed::{BedInterval, BedTrack},
@@ -39,8 +39,7 @@ impl InspectInterval {
 pub(in crate::server) struct InspectResponse {
     pub region: InspectInterval,
     pub summary: InspectSummary,
-    pub coverage: CoverageSummary,
-    pub warnings: Vec<ResponseWarning>,
+    pub warnings: Vec<InspectWarning>,
 }
 
 /// Groups per-track and gene summaries for an inspected interval.
@@ -57,6 +56,7 @@ pub(in crate::server) enum TrackSummary {
     Alignment {
         track_id: TrackId,
         overlapping_records: usize,
+        coverage: CoverageSummary,
     },
     Variant {
         track_id: TrackId,
@@ -73,30 +73,27 @@ pub(in crate::server) enum TrackSummary {
 }
 
 impl TrackSummary {
-    /// Summarizes overlapping reads and returns coverage for each requested position.
+    /// Summarizes overlapping reads and their per-position coverage.
     pub fn from_alignment(
         track_id: TrackId,
         alignment: &Alignment,
+        contig_index: usize,
         region: &InspectInterval,
-    ) -> (Self, TrackCoverage) {
+    ) -> Self {
         let overlapping_records = alignment
-            .reads
-            .iter()
-            .filter(|read| read.start <= region.end && read.end >= region.start)
+            .overlapping_reads(contig_index, region.start, region.end)
             .count();
         let positions = (region.start..=region.end)
             .map(|position| PositionCoverage::from((position, alignment.coverage_at(position))))
             .collect();
-        (
-            Self::Alignment {
-                track_id,
-                overlapping_records,
-            },
-            TrackCoverage {
-                track_id,
+        Self::Alignment {
+            track_id,
+            overlapping_records,
+            coverage: CoverageSummary {
+                method: CoverageMethod::ViewerCurrent,
                 positions,
             },
-        )
+        }
     }
 
     /// Summarizes overlapping variants and includes up to the response item limit.
@@ -105,19 +102,15 @@ impl TrackSummary {
         variants: &VariantTrack,
         contig_index: usize,
         region: &InspectInterval,
-    ) -> Result<Self, ApiError> {
-        let mut records = variants
-            .overlapping(contig_index, region.start, region.end)
-            .map_err(ApiError::internal)?;
+    ) -> Result<Self, TGVError> {
+        let mut records = variants.overlapping(contig_index, region.start, region.end)?;
         records.sort_by_key(|record| (record.start(), record.end(), record.index));
         let items = records
             .iter()
             .take(MAX_SUMMARY_ITEMS)
             .copied()
-            .map(|record| {
-                VariantRecord::try_from(record).map_err(|error| ApiError::invalid("files", error))
-            })
-            .collect::<Result<Vec<_>, ApiError>>()?;
+            .map(VariantRecord::try_from)
+            .collect::<Result<Vec<_>, TGVError>>()?;
         Ok(Self::Variant {
             track_id,
             overlapping_records: records.len(),
@@ -132,10 +125,8 @@ impl TrackSummary {
         intervals: &BedTrack,
         contig_index: usize,
         region: &InspectInterval,
-    ) -> Result<Self, ApiError> {
-        let mut records = intervals
-            .overlapping(contig_index, region.start, region.end)
-            .map_err(ApiError::internal)?;
+    ) -> Result<Self, TGVError> {
+        let mut records = intervals.overlapping(contig_index, region.start, region.end)?;
         records.sort_by_key(|record| (record.start(), record.end(), record.index));
         let items: Vec<_> = records
             .iter()
@@ -162,7 +153,7 @@ pub(in crate::server) struct VariantRecord {
 }
 
 impl TryFrom<&Variant> for VariantRecord {
-    type Error = std::io::Error;
+    type Error = TGVError;
 
     /// Extracts variant coordinates and alleles from a VCF record.
     fn try_from(variant: &Variant) -> Result<Self, Self::Error> {
@@ -259,11 +250,11 @@ impl From<&Gene> for GeneRecord {
     }
 }
 
-/// Groups per-position coverage for the selected alignment tracks.
+/// Reports per-position coverage for one alignment track.
 #[derive(Serialize)]
 pub(in crate::server) struct CoverageSummary {
     pub method: CoverageMethod,
-    pub tracks: Vec<TrackCoverage>,
+    pub positions: Vec<PositionCoverage>,
 }
 
 /// Identifies the calculation used for reported coverage.
@@ -271,13 +262,6 @@ pub(in crate::server) struct CoverageSummary {
 #[serde(rename_all = "snake_case")]
 pub(in crate::server) enum CoverageMethod {
     ViewerCurrent,
-}
-
-/// Reports coverage positions for one alignment track.
-#[derive(Serialize)]
-pub(in crate::server) struct TrackCoverage {
-    pub track_id: TrackId,
-    pub positions: Vec<PositionCoverage>,
 }
 
 /// Reports base counts and soft clips at one genomic position.
@@ -314,12 +298,10 @@ impl From<(u64, &BaseCoverage)> for PositionCoverage {
     }
 }
 
-/// Reports unavailable data or limitations of a rendered view.
+/// Reports unavailable data in an inspection response.
 #[derive(Serialize)]
 #[serde(tag = "code", rename_all = "snake_case")]
-pub(in crate::server) enum ResponseWarning {
+pub(in crate::server) enum InspectWarning {
     ReferenceUnavailable { message: String },
     GenesUnavailable { message: String },
-    RenderLimited { track_id: TrackId, message: String },
-    RenderBinned { message: String },
 }

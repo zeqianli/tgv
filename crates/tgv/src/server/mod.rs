@@ -33,7 +33,7 @@ pub async fn serve(cli: &Cli, port: u16) -> Result<(), TGVError> {
     cli.apply_overrides(&mut settings)?;
     if !settings.core.file_paths.is_empty() || cli.session.is_some() {
         return Err(TGVError::CliError(
-            "Use PUT /v1/dataset to load files when serving.".into(),
+            "Use PUT /v4/dataset to load files when serving.".into(),
         ));
     }
 
@@ -41,12 +41,12 @@ pub async fn serve(cli: &Cli, port: u16) -> Result<(), TGVError> {
     let (sender, receiver) = mpsc::channel::<(Command, oneshot::Sender<Reply>)>(16);
     let router = Router::new()
         .route(
-            "/v1/health",
+            "/v4/health",
             get(|| async { Json(json!({"status": "ok"})) }),
         )
-        .route("/v1/dataset", get(describe).put(replace))
-        .route("/v1/inspect", post(inspect))
-        .route("/v1/draw", post(draw))
+        .route("/v4/dataset", get(describe).put(replace))
+        .route("/v4/inspect", post(inspect))
+        .route("/v4/draw", post(draw))
         .fallback(|| async { ApiError::not_found() })
         .method_not_allowed_fallback(|| async { ApiError::method_not_allowed() })
         .layer(DefaultBodyLimit::max(1024 * 1024))

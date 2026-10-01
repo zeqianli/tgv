@@ -94,12 +94,18 @@ impl AlignmentView {
     pub const MAX_ZOOM_TO_DISPLAY_SEQUENCES: u64 = 2;
 
     pub fn new(focus: Focus, alignment_count: usize) -> Self {
-        AlignmentView {
+        Self::new_with_zoom(focus, 1, alignment_count)
+    }
+
+    /// Creates an alignment view with an explicit initial zoom.
+    pub fn new_with_zoom(focus: Focus, zoom: u64, alignment_count: usize) -> Self {
+        Self {
             focus,
-            zoom: 1,
+            zoom,
             y: vec![0; alignment_count],
         }
     }
+
     const ALIGNMENT_CACHE_RATIO: u64 = 3;
 
     pub fn alignment_cache_region(&self, region: Region) -> Region {
