@@ -1,19 +1,19 @@
-//! HTTP types for rendering a genomic viewport as text or ANSI output.
+//! MCP types for rendering a genomic viewport as text or ANSI output.
 
 use super::inspect::InspectWarning;
-use crate::server::error::ApiError;
 use crate::track_registry::TrackId;
 use crossterm::style::{
     Attribute, ResetColor, SetAttribute, SetBackgroundColor, SetForegroundColor,
 };
 use gv_core::prelude::*;
 use ratatui::{buffer::Buffer, style::Modifier};
+use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use std::fmt::Write;
 use unicode_width::UnicodeWidthStr;
 
 /// Names the 1-based center position of a drawn viewport.
-#[derive(Deserialize, Serialize)]
+#[derive(Deserialize, Serialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub(in crate::server) struct DrawCenter {
     pub contig: String,
@@ -21,7 +21,7 @@ pub(in crate::server) struct DrawCenter {
 }
 
 /// Selects the viewport, tracks, canvas size, and output format to draw.
-#[derive(Deserialize)]
+#[derive(Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub(in crate::server) struct DrawRequest {
     pub center: DrawCenter,
@@ -40,17 +40,20 @@ impl DrawRequest {
     pub const MAX_CANVAS_HEIGHT: u16 = 500;
 
     /// Converts the requested center and half-width into a validated core region.
-    pub fn try_to_region(&self, contigs: &ContigHeader) -> Result<Region, ApiError> {
+    pub fn try_to_region(&self, contigs: &ContigHeader) -> Result<Region, TGVError> {
         if self.zoom == 0 {
-            return Err(ApiError::invalid("zoom", "The zoom must be positive."));
+            return Err(TGVError::McpInvalidInput {
+                field: "zoom",
+                message: "The zoom must be positive.".to_owned(),
+            });
         }
         if !(Self::MIN_CANVAS_WIDTH..=Self::MAX_CANVAS_WIDTH).contains(&self.canvas_width)
             || !(Self::MIN_CANVAS_HEIGHT..=Self::MAX_CANVAS_HEIGHT).contains(&self.canvas_height)
         {
-            return Err(ApiError::invalid(
-                "draw",
-                "The canvas width and height must each be 10–500.",
-            ));
+            return Err(TGVError::McpInvalidInput {
+                field: "draw",
+                message: "The canvas width and height must each be 10–500.".to_owned(),
+            });
         }
         if self.center.position == 0
             || self.half_width > 49_999
@@ -60,22 +63,25 @@ impl DrawRequest {
                 .checked_add(self.half_width)
                 .is_none_or(|end| end > (usize::MAX / 16) as u64)
         {
-            return Err(ApiError::invalid(
-                "center",
-                "Use a positive 1-based center and a half-width of at most 49999 bases within the platform coordinate range.",
-            ));
+            return Err(TGVError::McpInvalidInput {
+                field: "center",
+                message: "Use a positive 1-based center and a half-width of at most 49999 bases within the platform coordinate range.".to_owned(),
+            });
         }
         let contig_index = contigs
             .try_get_index_by_str(&self.center.contig)
-            .map_err(|error| ApiError::invalid("center.contig", error))?;
+            .map_err(|error| TGVError::McpInvalidInput {
+                field: "center.contig",
+                message: error.to_string(),
+            })?;
         if contigs.contigs[contig_index]
             .length
             .is_some_and(|length| self.center.position > length)
         {
-            return Err(ApiError::invalid(
-                "center.position",
-                "The center is beyond the contig.",
-            ));
+            return Err(TGVError::McpInvalidInput {
+                field: "center.position",
+                message: "The center is beyond the contig.".to_owned(),
+            });
         }
         Ok(Region {
             focus: Focus {
@@ -88,7 +94,7 @@ impl DrawRequest {
 }
 
 /// Chooses plain text or ANSI-colored terminal output.
-#[derive(Clone, Copy, Default, Deserialize, Serialize, PartialEq, Eq)]
+#[derive(Clone, Copy, Default, Deserialize, Serialize, JsonSchema, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 pub(in crate::server) enum RenderFormat {
     #[default]
@@ -136,7 +142,7 @@ impl From<InspectWarning> for DrawWarning {
 }
 
 impl DrawResponse {
-    /// Builds the HTTP response from a rendered terminal buffer and its viewport.
+    /// Builds the MCP response from a rendered terminal buffer and its viewport.
     pub fn from_buffer(
         contig: String,
         displayed: &Region,

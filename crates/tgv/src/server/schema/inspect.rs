@@ -1,4 +1,4 @@
-//! HTTP request and response types, independent of session serialization.
+//! MCP inspection request and response types, independent of session serialization.
 
 use crate::track_registry::TrackId;
 use gv_core::{
@@ -9,12 +9,13 @@ use gv_core::{
     variant::{Variant, VariantTrack},
 };
 use noodles::vcf::variant::record::AlternateBases;
+use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
 const MAX_SUMMARY_ITEMS: usize = 1000;
 
 /// Identifies an inclusive, 1-based interval for inspection.
-#[derive(Deserialize, Serialize)]
+#[derive(Deserialize, Serialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub(in crate::server) struct InspectInterval {
     pub contig: String,
@@ -23,7 +24,7 @@ pub(in crate::server) struct InspectInterval {
 }
 
 /// Requests structured results for an explicit interval and optional tracks.
-#[derive(Deserialize)]
+#[derive(Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub(in crate::server) struct InspectRequest {
     pub region: InspectInterval,

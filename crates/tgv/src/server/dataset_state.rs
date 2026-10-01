@@ -1,6 +1,6 @@
-//! The loaded server state, dataset replacement, regional inspection, and rendering.
+//! The loaded dataset state, dataset replacement, regional inspection, and rendering.
 
-use super::{Command, Reply, error::*, schema::*};
+use super::{Command, Reply, schema::*};
 use crate::{
     app::RenderEvent,
     layout::{AlignmentView, AreaType, MainLayout, ResolvedMainLayout},
@@ -16,51 +16,50 @@ use serde_json::json;
 use std::sync::Arc;
 use tokio::sync::{mpsc, oneshot};
 
-/// Owns the loaded dataset and the mutable state used by HTTP requests.
-pub(super) struct Server {
+/// Owns the loaded dataset and the mutable state used by MCP tools.
+pub(super) struct DatasetState {
     pub(super) settings: Settings,
     pub(super) state: State,
     pub(super) repository: Repository,
     pub(super) tracks: Arc<TrackRegistry>,
 }
 
-impl Server {
+impl DatasetState {
     /// Processes commands sequentially and closes the dataset when the worker exits.
     pub(super) async fn run(
         settings: Settings,
         mut receiver: mpsc::Receiver<(Command, oneshot::Sender<Reply>)>,
-    ) -> Result<(), gv_core::error::TGVError> {
-        let mut server: Option<Self> = None;
+    ) -> Result<(), TGVError> {
+        let mut dataset: Option<Self> = None;
         while let Some((command, reply)) = receiver.recv().await {
-            if reply.is_closed() {
+            if reply.is_closed() && !matches!(&command, Command::Shutdown) {
                 continue;
             }
             let result = match command {
-                Command::Describe => match server.as_ref() {
-                    Some(server) => super::as_json(&server.description()),
+                Command::Shutdown => break,
+                Command::Describe => match dataset.as_ref() {
+                    Some(dataset) => super::as_json(&dataset.description()),
                     None => Ok(json!({"loaded": false})),
                 },
-                Command::Replace(request) => Self::replace(&mut server, &settings, request).await,
-                Command::Inspect(request) => match server.as_mut() {
-                    Some(server) => server.inspect(request).await,
-                    None => Err(ApiError::conflict(
-                        "no_dataset",
-                        "Load a dataset before inspecting.",
-                    )),
+                Command::Replace(request) => Self::replace(&mut dataset, &settings, request).await,
+                Command::Inspect(request) => match dataset.as_mut() {
+                    Some(dataset) => dataset.inspect(request).await,
+                    None => Err(TGVError::McpNoDataset {
+                        operation: "inspecting",
+                    }),
                 },
-                Command::Draw(request) => match server.as_mut() {
-                    Some(server) => server.draw(request).await,
-                    None => Err(ApiError::conflict(
-                        "no_dataset",
-                        "Load a dataset before drawing.",
-                    )),
+                Command::Draw(request) => match dataset.as_mut() {
+                    Some(dataset) => dataset.draw(request).await,
+                    None => Err(TGVError::McpNoDataset {
+                        operation: "drawing",
+                    }),
                 },
             };
             let _ = reply.send(result);
         }
 
-        if let Some(mut server) = server {
-            server.repository.close().await?;
+        if let Some(mut dataset) = dataset {
+            dataset.repository.close().await?;
         }
 
         Ok(())
@@ -89,11 +88,17 @@ impl Server {
         defaults: &Settings,
         request: DatasetRequest,
     ) -> Reply {
-        let prior_settings = current.as_ref().map_or(defaults, |server| &server.settings);
+        let prior_settings = current
+            .as_ref()
+            .map_or(defaults, |dataset| &dataset.settings);
         let new_settings = request.update_settings(prior_settings)?;
-        let replacement = Self::new(new_settings)
-            .await
-            .map_err(|error| ApiError::invalid("files", error))?;
+        let replacement =
+            Self::new(new_settings)
+                .await
+                .map_err(|error| TGVError::McpInvalidInput {
+                    field: "files",
+                    message: error.to_string(),
+                })?;
         let result = super::as_json(&replacement.description())?;
         if let Some(mut old) = current.replace(replacement) {
             if let Err(error) = old.repository.close().await {
@@ -163,7 +168,7 @@ impl Server {
     }
 
     /// Validates requested track IDs and returns them in dataset order.
-    fn selected_tracks(&self, tracks: Option<&[TrackId]>) -> Result<Vec<TrackId>, ApiError> {
+    fn selected_tracks(&self, tracks: Option<&[TrackId]>) -> Result<Vec<TrackId>, TGVError> {
         if let Some(tracks) = tracks {
             if tracks.is_empty()
                 || tracks
@@ -171,10 +176,10 @@ impl Server {
                     .enumerate()
                     .any(|(i, id)| tracks[..i].contains(id) || *id >= self.tracks.entries.len())
             {
-                return Err(ApiError::invalid(
-                    "tracks",
-                    "Select distinct track IDs from the current dataset.",
-                ));
+                return Err(TGVError::McpInvalidInput {
+                    field: "tracks",
+                    message: "Select distinct track IDs from the current dataset.".to_owned(),
+                });
             }
         }
 
@@ -335,19 +340,21 @@ impl Server {
         );
         let main_width = u64::from(resolved_layout.main_area.width);
         if main_width == 0 {
-            return Err(ApiError::invalid(
-                "canvas_width",
-                "The layout leaves no space for tracks.",
-            ));
+            return Err(TGVError::McpInvalidInput {
+                field: "canvas_width",
+                message: "The layout leaves no space for tracks.".to_owned(),
+            });
         }
         if main_width
             .checked_mul(request.zoom)
             .is_none_or(|span| span > 100_000)
         {
-            return Err(ApiError::invalid(
-                "zoom",
-                "The displayed span must be at most 100000 bases; reduce the zoom or width.",
-            ));
+            return Err(TGVError::McpInvalidInput {
+                field: "zoom",
+                message:
+                    "The displayed span must be at most 100000 bases; reduce the zoom or width."
+                        .to_owned(),
+            });
         }
 
         let mut alignment_view = AlignmentView::new_with_zoom(
@@ -361,10 +368,11 @@ impl Server {
         );
         let displayed = alignment_view.region(&resolved_layout.main_area);
         if displayed.end() > (usize::MAX / 16) as u64 {
-            return Err(ApiError::invalid(
-                "center.position",
-                "The displayed viewport extends beyond the platform coordinate range.",
-            ));
+            return Err(TGVError::McpInvalidInput {
+                field: "center.position",
+                message: "The displayed viewport extends beyond the platform coordinate range."
+                    .to_owned(),
+            });
         }
 
         self.load_region(&query, &selected).await?;

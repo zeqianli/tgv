@@ -1,18 +1,17 @@
-//! HTTP request and response types, independent of session serialization.
+//! MCP dataset request and response types, independent of session serialization.
 
-use crate::{
-    server::error::ApiError,
-    settings::{Settings, classify_and_build_tracks},
-};
+use crate::settings::{Settings, classify_and_build_tracks};
 use gv_core::prelude::*;
+use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
 /// Replaces the current dataset with a reference and a list of data files.
-#[derive(Deserialize)]
+#[derive(Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub(in crate::server) struct DatasetRequest {
     // A required nullable value distinguishes an omitted reference from no reference.
+    #[schemars(extend("type" = ["string", "null"]))]
     pub reference: serde_json::Value,
     pub files: Vec<String>,
 }
@@ -22,28 +21,36 @@ impl DatasetRequest {
     pub(in crate::server) fn update_settings(
         &self,
         settings: &Settings,
-    ) -> Result<Settings, ApiError> {
+    ) -> Result<Settings, TGVError> {
         let mut settings = settings.clone();
         settings.core.reference = match &self.reference {
             Value::Null => Reference::NoReference,
-            Value::String(reference) => reference
-                .parse()
-                .map_err(|error: gv_core::error::TGVError| ApiError::invalid("reference", error))?,
+            Value::String(reference) => {
+                reference
+                    .parse()
+                    .map_err(|error: TGVError| TGVError::McpInvalidInput {
+                        field: "reference",
+                        message: error.to_string(),
+                    })?
+            }
             _ => {
-                return Err(ApiError::invalid(
-                    "reference",
-                    "The reference must be a string or null.",
-                ));
+                return Err(TGVError::McpInvalidInput {
+                    field: "reference",
+                    message: "The reference must be a string or null.".to_owned(),
+                });
             }
         };
         if self.files.is_empty() && settings.core.reference == Reference::NoReference {
-            return Err(ApiError::invalid(
-                "files",
-                "Provide a reference or at least one file.",
-            ));
+            return Err(TGVError::McpInvalidInput {
+                field: "files",
+                message: "Provide a reference or at least one file.".to_owned(),
+            });
         }
-        settings.core.file_paths = classify_and_build_tracks(&self.files)
-            .map_err(|error| ApiError::invalid("files", error))?;
+        settings.core.file_paths =
+            classify_and_build_tracks(&self.files).map_err(|error| TGVError::McpInvalidInput {
+                field: "files",
+                message: error.to_string(),
+            })?;
         Ok(settings)
     }
 }

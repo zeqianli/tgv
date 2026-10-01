@@ -6,4 +6,4 @@ The TUI track registry owns the mapping from these IDs to the existing kind-spec
 
 The registry is built once with the layout and shared with the app and resolved layout. Its entries follow the loaded file order, while `MainLayout.tracks` records the panel display order. This first step does not support dynamic track removal or reordering; either operation would need an explicit policy for maintaining IDs and indexed state.
 
-The HTTP server uses the same registry and numeric IDs. A selected drawing retains each ID from the current dataset, and a dataset replacement creates a fresh registry with IDs starting at zero.
+The MCP server uses the same registry and numeric IDs. A selected drawing retains each ID from the current dataset, and a dataset replacement creates a fresh registry with IDs starting at zero.

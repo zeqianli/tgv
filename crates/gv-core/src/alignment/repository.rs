@@ -7,7 +7,7 @@ use crate::{
     settings::{AlignmentPath, BamSource},
 };
 
-use async_compat::{Compat, CompatExt};
+use async_compat::CompatExt;
 use futures::TryStreamExt;
 use itertools::Itertools;
 use noodles::cram::{self as cram};
@@ -17,7 +17,7 @@ use noodles::{
     bam::{self, bai},
     sam::alignment::RecordBuf,
 };
-use opendal::{FuturesAsyncReader, Operator, services};
+use opendal::{Operator, services};
 use std::fs;
 use std::path::Path;
 use std::time::Instant;
@@ -30,8 +30,6 @@ pub struct BamRepository {
     index: bai::Index,
 
     header: Header,
-
-    reader: bam::r#async::io::Reader<noodles::bgzf::r#async::io::Reader<File>>,
 }
 
 impl BamRepository {
@@ -58,7 +56,6 @@ impl BamRepository {
 
             index,
             header,
-            reader,
         })
     }
 }
@@ -124,8 +121,8 @@ pub struct RemoteBamRepository {
 
     header: Header,
 
-    reader:
-        bam::r#async::io::Reader<noodles::bgzf::r#async::io::Reader<Compat<FuturesAsyncReader>>>,
+    operator: Operator,
+    key: String,
 }
 
 impl RemoteBamRepository {
@@ -167,7 +164,8 @@ impl RemoteBamRepository {
             index,
 
             header,
-            reader,
+            operator,
+            key: name.to_owned(),
         })
     }
 
@@ -300,8 +298,11 @@ impl AlignmentRepositoryEnum {
                 let mut records = Vec::new();
                 match self {
                     AlignmentRepositoryEnum::Bam(inner) => {
-                        let mut query = inner
-                            .reader
+                        // Reopen the reader because repeated queries at the same BGZF offset
+                        // can otherwise reuse a completed seek and return no records.
+                        let file = File::open(&inner.bam_path).await?;
+                        let mut reader = bam::r#async::io::Reader::new(file);
+                        let mut query = reader
                             .query(&inner.header, &inner.index, &region)?
                             .records();
 
@@ -318,8 +319,14 @@ impl AlignmentRepositoryEnum {
                             inner.bai_path,
                             region
                         );
-                        let mut query = inner
-                            .reader
+                        let stream = inner
+                            .operator
+                            .reader(&inner.key)
+                            .await?
+                            .into_futures_async_read(..)
+                            .await?;
+                        let mut reader = bam::r#async::io::Reader::new(stream.compat());
+                        let mut query = reader
                             .query(&inner.header, &inner.index, &region)?
                             .records();
 
