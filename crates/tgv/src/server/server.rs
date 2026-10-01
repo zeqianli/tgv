@@ -13,13 +13,7 @@ use crate::{
 use crossterm::style::{
     Attribute, ResetColor, SetAttribute, SetBackgroundColor, SetForegroundColor,
 };
-use gv_core::{
-    error::TGVError,
-    intervals::{Focus, GenomeInterval, Region},
-    repository::{Repository, RepositoryFileIndex},
-    settings::FilePath,
-    state::State,
-};
+use gv_core::prelude::*;
 use ratatui::{buffer::Buffer, layout::Rect, style::Modifier};
 use serde_json::json;
 use std::{fmt::Write, sync::Arc};
@@ -201,43 +195,8 @@ impl Server {
     pub(super) async fn inspect(&mut self, request: InspectRequest) -> Reply {
         let InspectInterval { contig, start, end } = request.region;
 
-        // if start == 0 || end < start {
-        //     return Err(ApiError::invalid(
-        //         "region",
-        //         "Use a positive 1-based inclusive interval with an end at or after the start.",
-        //     ));
-        // }
-        // let contig_index = self.state.contig_header.try_get_index_by_str(&contig)?;
-
-        // let header = &self.state.contig_header.contigs[contig_index];
-        // if header.length.is_some_and(|length| start > length) {
-        //     return Err(ApiError::invalid(
-        //         "region.start",
-        //         "The interval starts beyond the contig.",
-        //     ));
-        // }
-        // let end = header.length.map_or(end, |length| end.min(length));
-        // if end - start >= 100_000 || end > (usize::MAX / 16) as u64 {
-        //     return Err(ApiError::invalid(
-        //         "region",
-        //         "Use an interval of at most 100000 bases within the platform coordinate range.",
-        //     ));
-        // }
-
-        // let region = InspectInterval {
-        //     contig: header.name.clone(),
-        //     start,
-        //     end,
-        // };
         let selected = self.selected_tracks(request.tracks.as_deref())?;
-        let query = Region {
-            focus: Focus {
-                contig_index,
-                position: start + (end - start) / 2,
-            },
-            half_width: (end - start).div_ceil(2),
-        };
-        self.state.messages.clear();
+        let query = self.state.messages.clear();
         self.load_region(&query, &selected)
             .await
             .map_err(|error| ApiError::invalid("region", error))?;

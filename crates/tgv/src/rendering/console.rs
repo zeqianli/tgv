@@ -1,5 +1,5 @@
 use crate::register::Registers;
-use gv_core::error::TGVError;
+use gv_core::prelude::*;
 use ratatui::{
     buffer::Buffer,
     layout::Rect,

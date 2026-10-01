@@ -4,10 +4,9 @@ use crate::{
 };
 use clap::{Parser, Subcommand, ValueEnum};
 use gv_core::alignment::is_url;
-use gv_core::error::TGVError;
 use gv_core::message::Movement;
-use gv_core::reference::Reference;
-use gv_core::settings::{AlignmentPath, BackendType, BamSource, FilePath};
+use gv_core::prelude::*;
+use gv_core::settings::{AlignmentPath, BackendType, BamSource};
 use gv_core::tracks::{UCSCDownloadSource, UcscHost};
 use std::path::PathBuf;
 
@@ -426,8 +425,7 @@ impl TryFrom<Cli> for Settings {
 mod tests {
     use super::*;
 
-    use gv_core::reference::Reference;
-    use gv_core::settings::{AlignmentPath, BamSource, FilePath};
+    use gv_core::settings::{AlignmentPath, BamSource};
     use rstest::rstest;
 
     fn bam(path: &str) -> AlignmentPath {

@@ -12,7 +12,7 @@ use axum::{
     http::StatusCode,
     routing::{get, post},
 };
-use gv_core::error::TGVError;
+use gv_core::prelude::*;
 use serde::Serialize;
 use serde_json::{Value, json};
 use tokio::sync::{mpsc, oneshot};

@@ -4,7 +4,7 @@ use crate::{
     track_registry::TrackId,
 };
 use crossterm::event::{MouseButton, MouseEvent, MouseEventKind};
-use gv_core::{alignment::BaseCoverage, error::TGVError, state::State};
+use gv_core::{alignment::BaseCoverage, prelude::*};
 use itertools::Itertools;
 
 /// Mouse interaction state for the currently displayed layout.

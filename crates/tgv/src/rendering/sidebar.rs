@@ -6,7 +6,7 @@ use crate::{
     rendering::colors::Palette,
 };
 
-use gv_core::{error::TGVError, message::AlignmentDisplayOption, state::State};
+use gv_core::{message::AlignmentDisplayOption, prelude::*};
 use itertools::Itertools;
 use ratatui::{
     buffer::Buffer,

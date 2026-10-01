@@ -7,7 +7,7 @@ use gv_core::{
         Alignment, PairedAlignment, RenderingContext, RenderingContextKind,
         RenderingContextModifier,
     },
-    error::TGVError,
+    prelude::*,
     sequence::Sequence,
 };
 use ratatui::{

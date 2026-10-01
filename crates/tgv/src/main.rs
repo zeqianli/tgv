@@ -3,9 +3,8 @@ use crossterm::{
     event::{DisableMouseCapture, EnableMouseCapture},
     execute,
 };
-use gv_core::error::TGVError;
+use gv_core::prelude::*;
 use gv_core::logging::{init_file_logging_with_level, timestamped_log_file_name};
-use gv_core::reference::Reference;
 use gv_core::tracks::{UCSCDownloader, UcscDbTrackService};
 use std::{io::stdout, path::PathBuf};
 use tgv::{

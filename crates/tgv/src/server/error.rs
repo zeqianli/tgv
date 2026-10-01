@@ -3,7 +3,7 @@ use axum::{
     http::StatusCode,
     response::{IntoResponse, Response},
 };
-use gv_core::error::TGVError;
+use gv_core::prelude::*;
 use serde_json::json;
 use thiserror::Error;
 

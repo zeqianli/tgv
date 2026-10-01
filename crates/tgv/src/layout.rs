@@ -4,10 +4,8 @@ use crate::{
 };
 use gv_core::{
     alignment::Alignment,
-    error::TGVError,
-    intervals::{Focus, GenomeInterval, Region},
     message::{Scroll, Zoom},
-    repository::{Repository, RepositoryFileIndex},
+    prelude::*,
 };
 use ratatui::layout::Rect;
 use std::sync::Arc;

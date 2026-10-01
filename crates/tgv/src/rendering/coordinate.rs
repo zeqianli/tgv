@@ -1,5 +1,5 @@
 use crate::layout::{AlignmentView, OnScreenCoordinate};
-use gv_core::{error::TGVError, state::State};
+use gv_core::prelude::*;
 
 use itertools::izip;
 use ratatui::{buffer::Buffer, layout::Rect, style::Style};

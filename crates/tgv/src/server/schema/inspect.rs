@@ -2,8 +2,7 @@
 
 use crate::track_registry::TrackId;
 use gv_core::{
-    alignment::BaseCoverage, bed::BedInterval, contig_header::ContigHeader, error::TGVError,
-    feature::Gene, intervals::GenomeInterval, intervals::Region, variant::Variant,
+    alignment::BaseCoverage, bed::BedInterval, feature::Gene, prelude::*, variant::Variant,
 };
 use noodles::vcf::variant::record::AlternateBases;
 use serde::{Deserialize, Serialize};

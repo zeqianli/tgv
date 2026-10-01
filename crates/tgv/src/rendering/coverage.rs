@@ -11,7 +11,7 @@ use ratatui::symbols::bar::{NINE_LEVELS, Set};
 
 use gv_core::{
     alignment::{Alignment, BaseCoverage},
-    error::TGVError,
+    prelude::*,
 };
 
 use crate::{layout::AlignmentView, rendering::Palette};

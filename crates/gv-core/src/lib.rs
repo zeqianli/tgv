@@ -9,6 +9,18 @@ pub mod intervals;
 pub mod logging;
 pub mod message;
 pub mod normal;
+/// Common core types shared by the TUI and server.
+pub mod prelude {
+    pub use crate::{
+        contig_header::ContigHeader,
+        error::TGVError,
+        intervals::{Focus, GenomeInterval, Region},
+        reference::Reference,
+        repository::{Repository, RepositoryFileIndex},
+        settings::FilePath,
+        state::State,
+    };
+}
 pub mod reference;
 pub mod repository;
 pub mod sequence;

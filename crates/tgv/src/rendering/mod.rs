@@ -36,7 +36,7 @@ use crate::{
     register::{KeyRegisterType, Registers},
 };
 
-use gv_core::{error::TGVError, message::AlignmentDisplayOption, state::State};
+use gv_core::{message::AlignmentDisplayOption, prelude::*};
 use ratatui::{
     buffer::Buffer,
     layout::Rect,
