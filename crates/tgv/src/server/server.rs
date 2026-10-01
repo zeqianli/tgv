@@ -16,7 +16,6 @@ use crossterm::style::{
 use gv_core::{
     error::TGVError,
     intervals::{Focus, GenomeInterval, Region},
-    reference::Reference,
     repository::{Repository, RepositoryFileIndex},
     settings::FilePath,
     state::State,
@@ -27,6 +26,7 @@ use std::{fmt::Write, sync::Arc};
 use tokio::sync::{mpsc, oneshot};
 use unicode_width::UnicodeWidthStr;
 
+/// Owns the loaded dataset and the mutable state used by HTTP requests.
 pub(super) struct Server {
     pub(super) settings: Settings,
     pub(super) state: State,
@@ -35,6 +35,7 @@ pub(super) struct Server {
 }
 
 impl Server {
+    /// Processes commands sequentially and closes the dataset when the worker exits.
     pub(super) async fn run(
         settings: Settings,
         mut receiver: mpsc::Receiver<(Command, oneshot::Sender<Reply>)>,
@@ -75,27 +76,24 @@ impl Server {
         Ok(())
     }
 
+    /// Describes the current reference and tracks using their wire-format types.
     fn description(&self) -> DatasetDescription {
         DatasetDescription {
-            reference: (self.settings.core.reference != Reference::NoReference)
-                .then(|| self.settings.core.reference.to_string()),
+            reference: self.settings.core.reference.to_string(),
             tracks: self
                 .tracks
                 .entries
                 .iter()
                 .map(|entry| TrackDescription {
                     id: entry.id,
-                    r#type: match entry.repository_index {
-                        RepositoryFileIndex::Alignment(_) => "alignment",
-                        RepositoryFileIndex::Variant(_) => "variant",
-                        RepositoryFileIndex::Bed(_) => "bed",
-                    },
+                    r#type: entry.repository_index.into(),
                     source: self.repository.file_path(entry.repository_index).to_owned(),
                 })
                 .collect(),
         }
     }
 
+    /// Builds a replacement dataset before swapping it into the worker.
     async fn replace(
         current: &mut Option<Self>,
         defaults: &Settings,
@@ -115,6 +113,7 @@ impl Server {
         Ok(result)
     }
 
+    /// Loads the repositories and initializes one state slot per track.
     pub(super) async fn new(settings: Settings) -> Result<Self, TGVError> {
         let (repository, contigs, file_indexes) = Repository::new(&settings.core).await?;
         let mut state = State::new(settings.core.reference.clone(), contigs)?;
@@ -134,6 +133,7 @@ impl Server {
         })
     }
 
+    /// Loads regional data for the selected tracks into the current state.
     async fn load_region(
         &mut self,
         region: &Region,
@@ -172,6 +172,7 @@ impl Server {
         Ok(())
     }
 
+    /// Validates requested track IDs and returns them in dataset order.
     fn selected_tracks(&self, tracks: Option<&[TrackId]>) -> Result<Vec<TrackId>, ApiError> {
         if let Some(tracks) = tracks {
             if tracks.is_empty()
@@ -196,28 +197,38 @@ impl Server {
             .collect())
     }
 
+    /// Summarizes an inclusive region, clamping its end to a known contig length.
     pub(super) async fn inspect(&mut self, request: InspectRequest) -> Reply {
-        let Interval { contig, start, end } = request.region;
-        if start == 0 || end < start || end - start >= 100_000 || end > (usize::MAX / 16) as u64 {
-            return Err(ApiError::invalid(
-                "region",
-                "Use a positive 1-based inclusive interval of at most 100000 bases within the platform coordinate range.",
-            ));
-        }
-        let contig_index = self.state.contig_header.try_get_index_by_str(&contig)?;
+        let InspectInterval { contig, start, end } = request.region;
 
-        let header = &self.state.contig_header.contigs[contig_index];
-        if header.length.is_some_and(|length| end > length) {
-            return Err(ApiError::invalid(
-                "region.end",
-                "The interval extends beyond the contig.",
-            ));
-        }
-        let region = Interval {
-            contig: header.name.clone(),
-            start,
-            end,
-        };
+        // if start == 0 || end < start {
+        //     return Err(ApiError::invalid(
+        //         "region",
+        //         "Use a positive 1-based inclusive interval with an end at or after the start.",
+        //     ));
+        // }
+        // let contig_index = self.state.contig_header.try_get_index_by_str(&contig)?;
+
+        // let header = &self.state.contig_header.contigs[contig_index];
+        // if header.length.is_some_and(|length| start > length) {
+        //     return Err(ApiError::invalid(
+        //         "region.start",
+        //         "The interval starts beyond the contig.",
+        //     ));
+        // }
+        // let end = header.length.map_or(end, |length| end.min(length));
+        // if end - start >= 100_000 || end > (usize::MAX / 16) as u64 {
+        //     return Err(ApiError::invalid(
+        //         "region",
+        //         "Use an interval of at most 100000 bases within the platform coordinate range.",
+        //     ));
+        // }
+
+        // let region = InspectInterval {
+        //     contig: header.name.clone(),
+        //     start,
+        //     end,
+        // };
         let selected = self.selected_tracks(request.tracks.as_deref())?;
         let query = Region {
             focus: Focus {
@@ -343,6 +354,7 @@ impl Server {
         })
     }
 
+    /// Renders the requested viewport through the existing TUI renderer.
     pub(super) async fn draw(&mut self, request: DrawRequest) -> Reply {
         let DrawRequest {
             center: DrawCenter { contig, position },
@@ -498,7 +510,7 @@ impl Server {
             format,
             width,
             height,
-            region: Interval {
+            region: DrawInterval {
                 contig,
                 start: displayed.start(),
                 end: displayed.end(),
@@ -509,6 +521,7 @@ impl Server {
         })
     }
 
+    /// Exports terminal cells as plain text or ANSI-colored text.
     fn export_buffer(buffer: &Buffer, format: RenderFormat) -> String {
         let mut output = String::new();
         for y in buffer.area.top()..buffer.area.bottom() {

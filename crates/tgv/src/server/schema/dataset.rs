@@ -4,10 +4,11 @@ use crate::{
     server::error::ApiError,
     settings::{Settings, classify_and_build_tracks},
 };
-use gv_core::reference::Reference;
+use gv_core::{reference::Reference, repository::RepositoryFileIndex};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
+/// Replaces the current dataset with a reference and a list of data files.
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 pub(in crate::server) struct DatasetRequest {
@@ -17,6 +18,7 @@ pub(in crate::server) struct DatasetRequest {
 }
 
 impl DatasetRequest {
+    /// Applies the request to the current settings and validates its file paths.
     pub(in crate::server) fn update_settings(
         &self,
         settings: &Settings,
@@ -46,15 +48,37 @@ impl DatasetRequest {
     }
 }
 
+/// Describes the reference and tracks in the loaded dataset.
 #[derive(Serialize)]
 pub(in crate::server) struct DatasetDescription {
-    pub reference: Option<String>,
+    pub reference: String,
     pub tracks: Vec<TrackDescription>,
 }
 
+/// Identifies one loaded track and its source file.
 #[derive(Serialize)]
 pub(in crate::server) struct TrackDescription {
     pub id: crate::track_registry::TrackId,
-    pub r#type: &'static str,
+    pub r#type: TrackType,
     pub source: String,
+}
+
+/// Classifies a track by the kind of repository that provides its data.
+#[derive(Clone, Copy, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub(in crate::server) enum TrackType {
+    Alignment,
+    Variant,
+    Bed,
+}
+
+impl From<RepositoryFileIndex> for TrackType {
+    /// Keeps the repository kind while discarding its per-kind index.
+    fn from(index: RepositoryFileIndex) -> Self {
+        match index {
+            RepositoryFileIndex::Alignment(_) => Self::Alignment,
+            RepositoryFileIndex::Variant(_) => Self::Variant,
+            RepositoryFileIndex::Bed(_) => Self::Bed,
+        }
+    }
 }
