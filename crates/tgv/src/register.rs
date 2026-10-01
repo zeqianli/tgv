@@ -68,6 +68,7 @@ impl Registers {
         state: &State,
     ) -> Result<Vec<Message>, TGVError> {
         match key_event.code {
+            KeyCode::Enter if state.contig_header.contigs.is_empty() => Ok(vec![]),
             KeyCode::Enter => Ok(vec![
                 Message::SwitchKeyRegister(KeyRegisterType::Normal),
                 Message::SwitchScene(Scene::Main),
@@ -84,30 +85,27 @@ impl Registers {
             // Note sure how useful this is.
             //
             KeyCode::Char('j') | KeyCode::Down => {
-                self.contig_list_cursor = usize::min(
+                let index = usize::min(
                     self.contig_list_cursor.saturating_add(1),
-                    state.contig_header.contigs.len() - 1,
+                    state.contig_header.contigs.len().saturating_sub(1),
                 );
-
-                Ok(vec![])
+                Ok(vec![Message::SelectContig(index)])
             }
-            KeyCode::Char('k') | KeyCode::Up => {
-                self.contig_list_cursor = self.contig_list_cursor.saturating_sub(1);
-                Ok(vec![])
-            }
+            KeyCode::Char('k') | KeyCode::Up => Ok(vec![Message::SelectContig(
+                self.contig_list_cursor.saturating_sub(1),
+            )]),
 
             KeyCode::Char('}') => {
-                self.contig_list_cursor = usize::min(
+                let index = usize::min(
                     self.contig_list_cursor.saturating_add(30),
-                    state.contig_header.contigs.len() - 1,
+                    state.contig_header.contigs.len().saturating_sub(1),
                 );
-                Ok(vec![])
+                Ok(vec![Message::SelectContig(index)])
             }
 
-            KeyCode::Char('{') => {
-                self.contig_list_cursor = self.contig_list_cursor.saturating_sub(30);
-                Ok(vec![])
-            }
+            KeyCode::Char('{') => Ok(vec![Message::SelectContig(
+                self.contig_list_cursor.saturating_sub(30),
+            )]),
             _ => Ok(vec![]),
         }
     }
@@ -148,25 +146,25 @@ impl Registers {
             KeyCode::Char(c) => {
                 self.command.insert(self.command_cursor, c);
                 self.command_cursor += 1;
-                Ok(vec![])
+                Ok(vec![Message::CommandChanged])
             }
             KeyCode::Backspace => {
                 if self.command_cursor > 0 {
                     self.command.remove(self.command_cursor - 1);
                     self.command_cursor -= 1;
                 }
-                Ok(vec![])
+                Ok(vec![Message::CommandChanged])
             }
             KeyCode::Left => {
                 self.command_cursor = self.command_cursor.saturating_sub(1);
-                Ok(vec![])
+                Ok(vec![Message::CommandChanged])
             }
             KeyCode::Right => {
                 self.command_cursor = self
                     .command_cursor
                     .saturating_add(1)
                     .clamp(0, self.command.len());
-                Ok(vec![])
+                Ok(vec![Message::CommandChanged])
             }
             _ => Err(TGVError::RegisterError(format!(
                 "Invalid command mode input: {:?}",

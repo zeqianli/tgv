@@ -91,6 +91,18 @@ pub fn render_main(
     }
 
     if render_side_bar {
+        let sidebar = Rect::new(
+            layout.terminal_area.x,
+            layout.terminal_area.y,
+            layout.main_area.x.saturating_sub(layout.terminal_area.x),
+            layout.terminal_area.height,
+        )
+        .intersection(buf.area);
+        for y in sidebar.top()..sidebar.bottom() {
+            for x in sidebar.left()..sidebar.right() {
+                buf[(x, y)].reset();
+            }
+        }
         sidebar::render_sidebar(
             buf,
             state,
@@ -116,6 +128,14 @@ pub fn render_main(
         // FIXME: this is bad code
         if !render_areas.contains(area_type) {
             continue;
+        }
+
+        // Invalidated areas may render less content than they did in the previous frame.
+        let clear_area = rect.intersection(buf.area);
+        for y in clear_area.top()..clear_area.bottom() {
+            for x in clear_area.left()..clear_area.right() {
+                buf[(x, y)].reset();
+            }
         }
 
         match area_type {
