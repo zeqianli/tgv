@@ -1,11 +1,17 @@
 //! HTTP request and response types, independent of session serialization.
 
-use crate::track_registry::TrackId;
+use crate::{server::error::ApiError, track_registry::TrackId};
 use gv_core::{
-    alignment::BaseCoverage, bed::BedInterval, feature::Gene, prelude::*, variant::Variant,
+    alignment::{Alignment, BaseCoverage},
+    bed::{BedInterval, BedTrack},
+    feature::Gene,
+    prelude::*,
+    variant::{Variant, VariantTrack},
 };
 use noodles::vcf::variant::record::AlternateBases;
 use serde::{Deserialize, Serialize};
+
+const MAX_SUMMARY_ITEMS: usize = 1000;
 
 /// Identifies an inclusive, 1-based interval for inspection.
 #[derive(Deserialize, Serialize)]
@@ -25,44 +31,7 @@ pub(in crate::server) struct InspectRequest {
 }
 
 impl InspectInterval {
-    const MAX_QUERY_WIDTH: u64 = 100_000;
-    /// Validate and convert a InspectInterval (with explict contig names, start, and end) to a tgv Region query.
-    pub(crate) fn try_to_region(&self, contig_header: &ContigHeader) -> Result<Region, TGVError> {
-        if self.start == 0 || self.end < self.start {
-            return Err(TGVError::StateError(
-                "Use a positive 1-based inclusive interval with an end at or after the start."
-                    .to_string(),
-            ));
-        }
-        let contig_index = contig_header.try_get_index_by_str(self.contig.as_ref())?;
-
-        let header = &contig_header.contigs[contig_index];
-        if header.length.is_some_and(|length| self.start > length) {
-            return Err(TGVError::StateError(
-                "The interval self.starts beyond the contig.".to_string(),
-            ));
-        }
-        let end = header
-            .length
-            .map_or(self.end, |length| self.end.min(length));
-        if self.end - self.start >= Self::MAX_QUERY_WIDTH {
-            return Err(TGVError::StateError(
-                format!(
-                    "Use an interval of at most {} bases within the platform coordinate range.",
-                    Self::MAX_QUERY_WIDTH
-                )
-                .to_string(),
-            ));
-        }
-
-        Ok(Region {
-            focus: Focus {
-                contig_index,
-                position: start + (end - start) / 2,
-            },
-            half_width: (end - start).div_ceil(2),
-        })
-    }
+    pub const MAX_QUERY_WIDTH: u64 = 100_000;
 }
 
 /// Returns statistics for the effective interval after contig-end clamping.
@@ -101,6 +70,86 @@ pub(in crate::server) enum TrackSummary {
         truncated: bool,
         items: Vec<BedRecord>,
     },
+}
+
+impl TrackSummary {
+    /// Summarizes overlapping reads and returns coverage for each requested position.
+    pub fn from_alignment(
+        track_id: TrackId,
+        alignment: &Alignment,
+        region: &InspectInterval,
+    ) -> (Self, TrackCoverage) {
+        let overlapping_records = alignment
+            .reads
+            .iter()
+            .filter(|read| read.start <= region.end && read.end >= region.start)
+            .count();
+        let positions = (region.start..=region.end)
+            .map(|position| PositionCoverage::from((position, alignment.coverage_at(position))))
+            .collect();
+        (
+            Self::Alignment {
+                track_id,
+                overlapping_records,
+            },
+            TrackCoverage {
+                track_id,
+                positions,
+            },
+        )
+    }
+
+    /// Summarizes overlapping variants and includes up to the response item limit.
+    pub fn from_variants(
+        track_id: TrackId,
+        variants: &VariantTrack,
+        contig_index: usize,
+        region: &InspectInterval,
+    ) -> Result<Self, ApiError> {
+        let mut records = variants
+            .overlapping(contig_index, region.start, region.end)
+            .map_err(ApiError::internal)?;
+        records.sort_by_key(|record| (record.start(), record.end(), record.index));
+        let items = records
+            .iter()
+            .take(MAX_SUMMARY_ITEMS)
+            .copied()
+            .map(|record| {
+                VariantRecord::try_from(record).map_err(|error| ApiError::invalid("files", error))
+            })
+            .collect::<Result<Vec<_>, ApiError>>()?;
+        Ok(Self::Variant {
+            track_id,
+            overlapping_records: records.len(),
+            truncated: records.len() > items.len(),
+            items,
+        })
+    }
+
+    /// Summarizes overlapping BED intervals and includes up to the response item limit.
+    pub fn from_bed(
+        track_id: TrackId,
+        intervals: &BedTrack,
+        contig_index: usize,
+        region: &InspectInterval,
+    ) -> Result<Self, ApiError> {
+        let mut records = intervals
+            .overlapping(contig_index, region.start, region.end)
+            .map_err(ApiError::internal)?;
+        records.sort_by_key(|record| (record.start(), record.end(), record.index));
+        let items: Vec<_> = records
+            .iter()
+            .take(MAX_SUMMARY_ITEMS)
+            .copied()
+            .map(BedRecord::from)
+            .collect();
+        Ok(Self::Bed {
+            track_id,
+            overlapping_records: records.len(),
+            truncated: records.len() > items.len(),
+            items,
+        })
+    }
 }
 
 /// Describes one variant returned in an inspection summary.
@@ -157,6 +206,34 @@ pub(in crate::server) struct GeneSummary {
     pub overlapping_records: usize,
     pub truncated: bool,
     pub items: Vec<GeneRecord>,
+}
+
+impl GeneSummary {
+    /// Summarizes overlapping genes while preserving annotation availability.
+    pub fn from_genes(
+        genes: &[Gene],
+        available: bool,
+        contig_index: usize,
+        region: &InspectInterval,
+    ) -> Self {
+        let mut records: Vec<_> = genes
+            .iter()
+            .filter(|gene| gene.overlaps(contig_index, region.start, region.end))
+            .collect();
+        records.sort_by(|a, b| (a.start(), a.end(), &a.id).cmp(&(b.start(), b.end(), &b.id)));
+        let items: Vec<_> = records
+            .iter()
+            .take(MAX_SUMMARY_ITEMS)
+            .copied()
+            .map(GeneRecord::from)
+            .collect();
+        Self {
+            available,
+            overlapping_records: records.len(),
+            truncated: records.len() > items.len(),
+            items,
+        }
+    }
 }
 
 /// Describes one gene returned in an inspection summary.

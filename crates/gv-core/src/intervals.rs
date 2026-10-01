@@ -191,6 +191,50 @@ impl Region {
             .get_sequence_name()
             .map(|name| noodles::core::Region::new(name, start..=end)))
     }
+
+    /// Validate and convert a InspectInterval (with explict contig names, start, and end) to a tgv Region query.
+    pub fn try_from_contig_names_and_bounds(
+        contig_name: &str,
+        start: u64,
+        end: u64,
+        contig_header: &ContigHeader,
+        max_width: Option<u64>,
+    ) -> Result<Region, TGVError> {
+        if start == 0 || end < start {
+            return Err(TGVError::StateError(
+                "Use a positive 1-based inclusive interval with an end at or after the start."
+                    .to_string(),
+            ));
+        }
+        let contig_index = contig_header.try_get_index_by_str(contig_name)?;
+
+        let header = &contig_header.contigs[contig_index];
+        if header.length.is_some_and(|length| start > length) {
+            return Err(TGVError::StateError(
+                "The interval starts beyond the contig.".to_string(),
+            ));
+        }
+        let end = header.length.map_or(end, |length| end.min(length));
+        if let Some(max_width) = max_width
+            && end - start >= max_width
+        {
+            return Err(TGVError::StateError(
+                format!(
+                    "Use an interval of at most {} bases within the platform coordinate range.",
+                    max_width
+                )
+                .to_string(),
+            ));
+        }
+
+        Ok(Region {
+            focus: Focus {
+                contig_index,
+                position: start + (end - start) / 2, // TODO: Thi
+            },
+            half_width: (end - start).div_ceil(2),
+        })
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Default)]

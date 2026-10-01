@@ -193,103 +193,63 @@ impl Server {
 
     /// Summarizes an inclusive region, clamping its end to a known contig length.
     pub(super) async fn inspect(&mut self, request: InspectRequest) -> Reply {
-        let InspectInterval { contig, start, end } = request.region;
-
         let selected = self.selected_tracks(request.tracks.as_deref())?;
-        let query = self.state.messages.clear();
-        self.load_region(&query, &selected)
-            .await
-            .map_err(|error| ApiError::invalid("region", error))?;
+        let query = Region::try_from_contig_names_and_bounds(
+            &request.region.contig,
+            request.region.start,
+            request.region.end,
+            &self.state.contig_header,
+            Some(InspectInterval::MAX_QUERY_WIDTH),
+        )?;
+        self.load_region(&query, &selected).await?;
+        let contig_index = query.contig_index();
+        let header = &self.state.contig_header.contigs[contig_index];
+        let region = InspectInterval {
+            contig: header.name.clone(),
+            start: request.region.start,
+            end: header
+                .length
+                .map_or(request.region.end, |length| request.region.end.min(length)),
+        };
 
-        let mut tracks = Vec::new();
-        let mut coverage = Vec::new();
+        let mut track_summaries = Vec::new();
+        let mut coverage_summaries = Vec::new();
         for &id in &selected {
-            let summary = match self.tracks.get(id).repository_index {
+            match self.tracks.get(id).repository_index {
                 RepositoryFileIndex::Alignment(index) => {
-                    let alignment = &self.state.alignments[index];
-                    let count = alignment
-                        .reads
-                        .iter()
-                        .filter(|read| read.start <= end && read.end >= start)
-                        .count();
-                    let positions = (start..=end)
-                        .map(|position| {
-                            PositionCoverage::from((position, alignment.coverage_at(position)))
-                        })
-                        .collect();
-                    coverage.push(TrackCoverage {
-                        track_id: id,
-                        positions,
-                    });
-                    TrackSummary::Alignment {
-                        track_id: id,
-                        overlapping_records: count,
-                    }
+                    let (track_summary, track_coverage) =
+                        TrackSummary::from_alignment(id, &self.state.alignments[index], &region);
+                    coverage_summaries.push(track_coverage);
+                    track_summaries.push(track_summary);
                 }
                 RepositoryFileIndex::Variant(index) => {
-                    let mut records = self.state.variants[index]
-                        .overlapping(contig_index, start, end)
-                        .map_err(ApiError::internal)?;
-                    records.sort_by_key(|record| (record.start(), record.end(), record.index));
-                    let items = records
-                        .iter()
-                        .take(1000)
-                        .copied()
-                        .map(|record| {
-                            VariantRecord::try_from(record)
-                                .map_err(|error| ApiError::invalid("files", error))
-                        })
-                        .collect::<Result<Vec<_>, ApiError>>()?;
-                    TrackSummary::Variant {
-                        track_id: id,
-                        overlapping_records: records.len(),
-                        truncated: records.len() > items.len(),
-                        items,
-                    }
+                    let track_summary = TrackSummary::from_variants(
+                        id,
+                        &self.state.variants[index],
+                        contig_index,
+                        &region,
+                    )?;
+                    track_summaries.push(track_summary)
                 }
                 RepositoryFileIndex::Bed(index) => {
-                    let mut records = self.state.bed_intervals[index]
-                        .overlapping(contig_index, start, end)
-                        .map_err(ApiError::internal)?;
-                    records.sort_by_key(|record| (record.start(), record.end(), record.index));
-                    let items: Vec<_> = records
-                        .iter()
-                        .take(1000)
-                        .copied()
-                        .map(BedRecord::from)
-                        .collect();
-                    TrackSummary::Bed {
-                        track_id: id,
-                        overlapping_records: records.len(),
-                        truncated: records.len() > items.len(),
-                        items,
-                    }
+                    let track_summary = TrackSummary::from_bed(
+                        id,
+                        &self.state.bed_intervals[index],
+                        contig_index,
+                        &region,
+                    )?;
+                    track_summaries.push(track_summary)
                 }
             };
-            tracks.push(summary);
         }
-        let mut genes: Vec<_> = self
-            .state
-            .track
-            .features
-            .iter()
-            .filter(|gene| gene.overlaps(contig_index, start, end))
-            .collect();
-        genes.sort_by(|a, b| (a.start(), a.end(), &a.id).cmp(&(b.start(), b.end(), &b.id)));
-        let gene_items: Vec<_> = genes
-            .iter()
-            .take(1000)
-            .copied()
-            .map(GeneRecord::from)
-            .collect();
         let summary = InspectSummary {
-            tracks,
-            genes: GeneSummary {
-                available: self.repository.track_service.is_some(),
-                overlapping_records: genes.len(),
-                truncated: genes.len() > gene_items.len(),
-                items: gene_items,
-            },
+            tracks: track_summaries,
+            genes: GeneSummary::from_genes(
+                &self.state.track.features,
+                self.repository.track_service.is_some(),
+                contig_index,
+                &region,
+            ),
         };
         let mut warnings = Vec::new();
         if self.repository.sequence_service.is_none() {
@@ -307,7 +267,7 @@ impl Server {
             summary,
             coverage: CoverageSummary {
                 method: CoverageMethod::ViewerCurrent,
-                tracks: coverage,
+                tracks: coverage_summaries,
             },
             warnings,
         })
