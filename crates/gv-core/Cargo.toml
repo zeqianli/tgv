@@ -24,6 +24,7 @@ native-tls.workspace = true
 nom.workspace = true
 noodles.workspace = true
 opendal.workspace = true
+polars.workspace = true
 reqwest.workspace = true
 serde.workspace = true
 serde_json.workspace = true

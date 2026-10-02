@@ -3,6 +3,7 @@ mod coverage;
 mod paired_alignment;
 mod read;
 mod repository;
+pub mod schema;
 pub use alignment::Alignment;
 pub use coverage::BaseCoverage;
 pub use paired_alignment::PairedAlignment;
