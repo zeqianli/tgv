@@ -4,7 +4,7 @@ use crate::{
     track_registry::TrackId,
 };
 use crossterm::event::{MouseButton, MouseEvent, MouseEventKind};
-use gv_core::{alignment::BaseCoverage, prelude::*};
+use gv_core::prelude::*;
 use itertools::Itertools;
 
 /// Mouse interaction state for the currently displayed layout.
@@ -140,12 +140,27 @@ impl MouseRegister {
                                     y_coordinate,
                                 )?
                             {
-                                messages.push(Message::message(
-                                    gv_core::alignment::AlignedReadRef::borrowed(
-                                        alignment.record(read_id),
-                                    )?
-                                    .describe()?,
-                                ));
+                                let record = alignment.record(read_id);
+                                let name = record
+                                    .name()
+                                    .map(|name| name.to_string())
+                                    .unwrap_or_else(|| "<missing>".into());
+                                let mapq = record
+                                    .mapping_quality()
+                                    .map(|quality| quality.get().to_string())
+                                    .unwrap_or_else(|| ".".into());
+                                let mut cigar = Vec::new();
+                                noodles::sam::io::writer::record::write_cigar(
+                                    &mut cigar,
+                                    record.cigar(),
+                                )?;
+                                messages.push(Message::message(format!(
+                                    "{}  Flags={}  MAPQ={}  Cigar={}",
+                                    name,
+                                    u16::from(record.flags()),
+                                    mapq,
+                                    String::from_utf8(cigar)?
+                                )));
                             }
                         }
                         AreaType::Sequence => {
@@ -169,10 +184,7 @@ impl MouseRegister {
                                 alignment_view.coordinates_of_onscreen_x(event.column, area)
                                 && let Some(alignment) = state.alignments.get(index)
                             {
-                                let mut coverage = BaseCoverage::default();
-                                for coordinate in left..=right {
-                                    coverage.add(&alignment.coverage.at(coordinate)?);
-                                }
+                                let coverage = alignment.coverage.query(left, right)?;
                                 let description = if left == right {
                                     format!("{}: {}", left, coverage.describe())
                                 } else {

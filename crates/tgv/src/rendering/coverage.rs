@@ -10,7 +10,7 @@ use ratatui::{
 use ratatui::symbols::bar::{NINE_LEVELS, Set};
 
 use gv_core::{
-    alignment::{BaseCoverage, CoverageTable},
+    alignment::{Coverage, CoverageTable},
     prelude::*,
 };
 
@@ -134,53 +134,29 @@ fn calculate_binned_coverage(
     right: u64,
     n_bins: usize,
 ) -> Result<Vec<Vec<usize>>, TGVError> {
-    if right < left {
-        return Err(TGVError::ValueError("Right is less than left".to_string()));
-    }
-
-    if n_bins == 0 {
-        return Err(TGVError::ValueError("n_bins is 0".to_string()));
-    }
-
     let linear_space = get_linear_space(left, right, n_bins)?;
-    let table = coverage.query(left, right)?;
-    let positions = table.column("pos")?.u64()?;
-    let totals = table.column("total")?.u64()?;
-    let a = table.column("A")?.u64()?;
-    let t = table.column("T")?.u64()?;
-    let c = table.column("C")?.u64()?;
-    let reference_bases = table.column("reference_base")?.u8()?;
     let mut output = vec![vec![0; n_bins]; 2];
     let single_base_bins = right - left + 1 == n_bins as u64;
-    let mut bin = 0;
-    for row in 0..table.height() {
-        let position = positions.get(row).expect("coverage positions are non-null");
-        while position > linear_space[bin].1 {
-            bin += 1;
-        }
-        let total = totals.get(row).expect("coverage totals are non-null") as usize;
-        if single_base_bins {
-            let a = a.get(row).expect("coverage counts are non-null") as usize;
-            let t = t.get(row).expect("coverage counts are non-null") as usize;
-            let c = c.get(row).expect("coverage counts are non-null") as usize;
-            let max_alt_depth = match reference_bases
-                .get(row)
-                .expect("reference bases are non-null")
-            {
-                b'A' | b'a' | b'G' | b'g' => c.max(t),
-                b'T' | b't' => a.max(c),
-                b'C' | b'c' => a.max(t),
-                _ => 0,
-            };
-            if max_alt_depth * BaseCoverage::MAX_DISPLAY_ALLELE_FREQUENCY_RECIPROCOL > total {
-                output[0][bin] = max_alt_depth;
-                output[1][bin] = total - max_alt_depth;
+    for (bin, (start, end)) in linear_space.into_iter().enumerate() {
+        let counts = coverage.query(start, end)?;
+        let alt = if single_base_bins && counts.total > 0 {
+            let rows = coverage.query_rows(start, end)?;
+            let reference = rows
+                .column("reference_base")?
+                .u8()?
+                .get(0)
+                .expect("covered positions have a reference base");
+            let depth = counts.max_alt_depth(reference);
+            if depth * Coverage::MAX_DISPLAY_ALLELE_FREQUENCY_RECIPROCOL > counts.total {
+                depth
             } else {
-                output[1][bin] = total;
+                0
             }
         } else {
-            output[1][bin] += total;
-        }
+            0
+        };
+        output[0][bin] = alt as usize;
+        output[1][bin] = (counts.total - alt) as usize;
     }
 
     Ok(output)

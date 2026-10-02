@@ -1,14 +1,12 @@
 mod alignment;
 mod coverage;
 mod paired_alignment;
-mod read;
 mod repository;
 pub mod tables;
 mod viewport;
 pub use alignment::Alignment;
-pub use coverage::{BaseCoverage, CoverageTable};
+pub use coverage::{Coverage, CoverageTable};
 pub use paired_alignment::PairedAlignment;
-pub use read::AlignedReadRef;
 pub use repository::{AlignmentRepositoryEnum, is_url};
 pub use tables::AlignmentTables;
 pub use viewport::AlignmentViewport;

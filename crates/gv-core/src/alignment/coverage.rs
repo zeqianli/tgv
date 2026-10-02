@@ -27,7 +27,7 @@ impl CoverageTable {
         contig_index: usize,
         reference_sequence: &Sequence,
     ) -> Result<Self, TGVError> {
-        let mut coverage = BTreeMap::new();
+        let mut coverage: BTreeMap<u64, [u64; 7]> = BTreeMap::new();
         for (kind, runs) in &viewport.runs {
             if !matches!(
                 kind,
@@ -49,19 +49,19 @@ impl CoverageTable {
                 let sequence = sequence.as_bytes();
                 for position in start..=end {
                     let base = sequence[offset + (position - start) as usize];
-                    let coordinate = position;
-                    let reference_base = if reference_sequence.contig_index == contig_index {
-                        reference_sequence.base_at(coordinate).unwrap_or(b'N')
-                    } else {
-                        b'N'
-                    };
-                    let entry = coverage
-                        .entry(coordinate)
-                        .or_insert_with(|| BaseCoverage::new(reference_base));
+                    let counts = coverage.entry(position).or_default();
                     if *kind == Kind::SoftClip {
-                        entry.update_softclip(base)
+                        counts[6] += 1;
                     } else {
-                        entry.update(base)
+                        let index = match base {
+                            b'A' | b'a' => 0,
+                            b'T' | b't' => 1,
+                            b'C' | b'c' => 2,
+                            b'G' | b'g' => 3,
+                            _ => 4,
+                        };
+                        counts[index] += 1;
+                        counts[5] += 1;
                     }
                 }
             }
@@ -77,14 +77,18 @@ impl CoverageTable {
         let mut reference_base = Vec::with_capacity(coverage.len());
         for (position, coverage) in coverage {
             positions.push(position);
-            a.push(coverage.A as u64);
-            t.push(coverage.T as u64);
-            c.push(coverage.C as u64);
-            g.push(coverage.G as u64);
-            n.push(coverage.N as u64);
-            total.push(coverage.total as u64);
-            softclip.push(coverage.softclip as u64);
-            reference_base.push(coverage.reference_base);
+            a.push(coverage[0]);
+            t.push(coverage[1]);
+            c.push(coverage[2]);
+            g.push(coverage[3]);
+            n.push(coverage[4]);
+            total.push(coverage[5]);
+            softclip.push(coverage[6]);
+            reference_base.push(if reference_sequence.contig_index == contig_index {
+                reference_sequence.base_at(position).unwrap_or(b'N')
+            } else {
+                b'N'
+            });
         }
         let data = DataFrame::new(
             positions.len(),
@@ -104,80 +108,48 @@ impl CoverageTable {
         Ok(Self { data })
     }
 
-    /// Basewise coverage at position.
-    /// 1-based, inclusive.
-    pub fn at(&self, pos: u64) -> Result<BaseCoverage, TGVError> {
-        let table = &self.data;
-        let positions = table.column("pos")?.u64()?;
-        let mut left = 0;
-        let mut right = positions.len();
-        while left < right {
-            let middle = left + (right - left) / 2;
-            if positions
-                .get(middle)
-                .expect("coverage positions are non-null")
-                < pos
-            {
-                left = middle + 1;
-            } else {
-                right = middle;
-            }
-        }
-        if left == positions.len() || positions.get(left) != Some(pos) {
-            return Ok(BaseCoverage::default());
-        }
-        Ok(BaseCoverage {
-            A: table
-                .column("A")?
-                .u64()?
-                .get(left)
-                .expect("coverage counts are non-null") as usize,
-            T: table
-                .column("T")?
-                .u64()?
-                .get(left)
-                .expect("coverage counts are non-null") as usize,
-            C: table
-                .column("C")?
-                .u64()?
-                .get(left)
-                .expect("coverage counts are non-null") as usize,
-            G: table
-                .column("G")?
-                .u64()?
-                .get(left)
-                .expect("coverage counts are non-null") as usize,
-            N: table
-                .column("N")?
-                .u64()?
-                .get(left)
-                .expect("coverage counts are non-null") as usize,
-            total: table
-                .column("total")?
-                .u64()?
-                .get(left)
-                .expect("coverage counts are non-null") as usize,
-            softclip: table
-                .column("softclip")?
-                .u64()?
-                .get(left)
-                .expect("coverage counts are non-null") as usize,
-            reference_base: table
-                .column("reference_base")?
-                .u8()?
-                .get(left)
-                .expect("reference bases are non-null"),
+    /// Sum coverage counts across a one-based, inclusive interval.
+    pub fn query(&self, start: u64, end: u64) -> Result<Coverage, TGVError> {
+        let table = self.query_rows(start, end)?;
+        Ok(Coverage {
+            A: table.column("A")?.u64()?.sum().unwrap_or(0),
+            T: table.column("T")?.u64()?.sum().unwrap_or(0),
+            C: table.column("C")?.u64()?.sum().unwrap_or(0),
+            G: table.column("G")?.u64()?.sum().unwrap_or(0),
+            N: table.column("N")?.u64()?.sum().unwrap_or(0),
+            total: table.column("total")?.u64()?.sum().unwrap_or(0),
+            softclip: table.column("softclip")?.u64()?.sum().unwrap_or(0),
         })
     }
 
-    /// Select sparse coverage rows within a one-based, inclusive interval.
-    pub fn query(&self, start: u64, end: u64) -> Result<DataFrame, TGVError> {
-        let table = &self.data;
-        let positions = table.column("pos")?.u64()?;
-        Ok(table.filter(&(positions.gt_eq(start) & positions.lt_eq(end)))?)
+    /// Select sparse rows within a one-based, inclusive interval.
+    pub fn query_rows(&self, start: u64, end: u64) -> Result<DataFrame, TGVError> {
+        let positions = self.data.column("pos")?.u64()?;
+        let bound = |position, inclusive| {
+            let mut left = 0;
+            let mut right = positions.len();
+            while left < right {
+                let middle = left + (right - left) / 2;
+                let value = positions
+                    .get(middle)
+                    .expect("coverage positions are non-null");
+                if value < position || (inclusive && value == position) {
+                    left = middle + 1;
+                } else {
+                    right = middle;
+                }
+            }
+            left
+        };
+        if start > end {
+            return Ok(self.data.slice(0, 0));
+        }
+        let left = bound(start, false);
+        let right = bound(end, true);
+        Ok(self.data.slice(left as i64, right - left))
     }
 
-    /// Sparse per-position coverage, with columns matching `BaseCoverage` fields.
+    /// Sparse per-position counts, positions, and reference bases.
     ///
     /// `pos` is one-based. Rows are sorted by position and contain no null values.
     /// Positions without read or soft-clip coverage have no row.
@@ -196,77 +168,39 @@ impl CoverageTable {
     }
 }
 
-#[derive(Clone, Debug)]
+/// Temporary summed counts from an interval coverage query.
+#[derive(Clone, Debug, Default)]
 #[allow(non_snake_case)]
-pub struct BaseCoverage {
-    pub A: usize,
-    pub T: usize,
-    pub C: usize,
-    pub G: usize,
-
-    pub N: usize,
-
+pub struct Coverage {
+    pub A: u64,
+    pub T: u64,
+    pub C: u64,
+    pub G: u64,
+    pub N: u64,
     /// Total coverage, excluding soft clips.
-    pub total: usize,
-
+    pub total: u64,
     /// Soft-clip count.
-    pub softclip: usize,
-
-    /// The reference base.
-    pub reference_base: u8,
+    pub softclip: u64,
 }
 
-impl BaseCoverage {
-    pub const MAX_DISPLAY_ALLELE_FREQUENCY_RECIPROCOL: usize = 100;
-    pub fn new(reference_base: u8) -> Self {
-        Self {
-            A: 0,
-            T: 0,
-            C: 0,
-            G: 0,
-            N: 0,
-            total: 0,
-            softclip: 0,
-            reference_base,
+impl Coverage {
+    pub const MAX_DISPLAY_ALLELE_FREQUENCY_RECIPROCOL: u64 = 100;
+
+    /// Calculate the displayed alternate depth relative to a reference base.
+    pub fn max_alt_depth(&self, reference_base: u8) -> u64 {
+        match reference_base {
+            b'A' | b'a' | b'G' | b'g' => self.C.max(self.T),
+            b'T' | b't' => self.A.max(self.C),
+            b'C' | b'c' => self.A.max(self.T),
+            _ => 0,
         }
     }
 
-    pub fn update(&mut self, base: u8) {
-        match base {
-            b'A' | b'a' => self.A += 1,
-            b'T' | b't' => self.T += 1,
-            b'C' | b'c' => self.C += 1,
-            b'G' | b'g' => self.G += 1,
-
-            _ => self.N += 1,
-        }
-
-        self.total += 1;
-    }
-
-    pub fn update_softclip(&mut self, _base: u8) {
-        self.softclip += 1
-    }
-
-    pub fn add(&mut self, other: &BaseCoverage) {
-        self.A += other.A;
-        self.T += other.T;
-        self.C += other.C;
-        self.G += other.G;
-        self.total += other.total;
-        self.softclip += other.softclip;
-    }
-
+    /// Describe the summed counts across the queried interval.
     pub fn describe(&self) -> String {
         format!(
             "A:{}, T:{}, C:{}, G:{}, N:{}, total:{}",
             self.A, self.T, self.C, self.G, self.N, self.total
         )
-    }
-}
-
-impl Default for BaseCoverage {
-    fn default() -> Self {
-        Self::new(b'N')
     }
 }

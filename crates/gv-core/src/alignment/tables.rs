@@ -4,7 +4,7 @@
 //! metadata. Polars schemas specify column names and types, but do not enforce
 //! whether values may be null. Optional tags remain in the original records.
 
-use crate::{alignment::read::matches_base, error::TGVError, sequence::Sequence};
+use crate::{error::TGVError, sequence::Sequence};
 use noodles::sam::{
     self,
     alignment::{
@@ -813,4 +813,651 @@ pub(super) fn base_modifications(
             Column::new("source_order".into(), source_order),
         ],
     )?)
+}
+
+fn matches_base(base1: u8, base2: u8) -> bool {
+    if base1 == base2 {
+        return true;
+    }
+
+    match (base1, base2) {
+        (b'A', b'a')
+        | (b'a', b'A')
+        | (b'C', b'c')
+        | (b'c', b'C')
+        | (b'G', b'g')
+        | (b'g', b'G')
+        | (b'T', b't')
+        | (b't', b'T') => true,
+        _ => false,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use noodles::sam::{
+        self,
+        alignment::{
+            record::cigar::{Op, op::Kind},
+            record_buf::Cigar,
+        },
+        record::data::field::value::base_modifications::group::modification,
+    };
+
+    use crate::{
+        alignment::{Alignment, CoverageTable, tables},
+        sequence::Sequence,
+    };
+    use noodles::sam::alignment::{
+        record::{Flags, data::field::Tag},
+        record_buf::data::{Data, field::Value},
+    };
+
+    fn extract_base_modifications(
+        mm: String,
+        ml: Option<Vec<u8>>,
+        flags: &Flags,
+        sequence: &sam::alignment::record_buf::Sequence,
+        cigars: &[Op],
+        start: u64,
+    ) -> Result<
+        Vec<(
+            u64,
+            noodles::sam::record::data::field::value::base_modifications::group::Modification,
+            Option<u8>,
+        )>,
+        TGVError,
+    > {
+        Ok(tables::extract_base_modifications(
+            &mm,
+            ml.as_deref(),
+            *flags,
+            sequence,
+            cigars,
+            start,
+            0,
+        )?
+        .into_iter()
+        .map(|(_, _, pos, modification, probability)| (pos, modification, probability))
+        .collect())
+    }
+
+    fn get_reference_position_from_seq_position(
+        pos: u64,
+        start: u64,
+        cigars: &[Op],
+    ) -> Option<u64> {
+        tables::locate_query_base(pos, start, cigars).map(|(_, _, pos)| pos)
+    }
+
+    use rstest::rstest;
+
+    fn read_from_parts(
+        start: u64,
+        cigar_ops: impl IntoIterator<Item = (Kind, usize)>,
+        sequence: &[u8],
+    ) -> RecordBuf {
+        let cigar: Cigar = cigar_ops
+            .into_iter()
+            .map(|(kind, len)| Op::new(kind, len))
+            .collect();
+
+        let record = sam::alignment::RecordBuf::builder()
+            .set_alignment_start(noodles::core::Position::try_from(start as usize).unwrap())
+            .set_cigar(cigar)
+            .set_sequence(sam::alignment::record_buf::Sequence::from(sequence))
+            .build();
+
+        record
+    }
+
+    #[test]
+    fn base_at_returns_reference_aligned_bases_only() {
+        let record = read_from_parts(
+            10,
+            [
+                (Kind::SoftClip, 1),
+                (Kind::Match, 2),
+                (Kind::Insertion, 1),
+                (Kind::SequenceMatch, 1),
+                (Kind::SequenceMismatch, 1),
+                (Kind::Deletion, 1),
+                (Kind::Match, 1),
+                (Kind::SoftClip, 1),
+            ],
+            b"SATIGCRZ",
+        );
+        let alignment = Alignment::from_records(
+            vec![record],
+            0,
+            (1, 100),
+            &Sequence {
+                start: 1,
+                sequence: vec![b'A'; 100],
+                contig_index: 0,
+            },
+        )
+        .unwrap();
+
+        let base_at = |pos| {
+            alignment
+                .base_events(pos)
+                .unwrap()
+                .column("base")
+                .unwrap()
+                .u8()
+                .unwrap()
+                .get(0)
+        };
+
+        assert_eq!(base_at(9), None);
+        assert_eq!(base_at(10), Some(b'A'));
+        assert_eq!(base_at(11), Some(b'T'));
+        assert_eq!(base_at(12), Some(b'G'));
+        assert_eq!(base_at(13), Some(b'C'));
+        assert_eq!(base_at(14), None);
+        assert_eq!(base_at(15), Some(b'R'));
+        assert_eq!(base_at(16), None);
+    }
+
+    #[test]
+    fn is_deletion_at_detects_deletions_and_reference_skips() {
+        let record = read_from_parts(
+            10,
+            [
+                (Kind::Match, 2),
+                (Kind::Deletion, 2),
+                (Kind::Match, 1),
+                (Kind::Skip, 1),
+                (Kind::Match, 1),
+            ],
+            b"AAAA",
+        );
+        let alignment = Alignment::from_records(
+            vec![record],
+            0,
+            (1, 100),
+            &Sequence {
+                start: 1,
+                sequence: vec![b'A'; 100],
+                contig_index: 0,
+            },
+        )
+        .unwrap();
+
+        let is_deletion_at = |pos| {
+            alignment
+                .base_events(pos)
+                .unwrap()
+                .column("sort_key")
+                .unwrap()
+                .u8()
+                .unwrap()
+                .get(0)
+                == Some(super::super::alignment::BaseSortKey::Deletion as u8)
+        };
+
+        assert!(!is_deletion_at(9));
+        assert!(!is_deletion_at(10));
+        assert!(!is_deletion_at(11));
+        assert!(is_deletion_at(12));
+        assert!(is_deletion_at(13));
+        assert!(!is_deletion_at(14));
+        assert!(is_deletion_at(15));
+        assert!(!is_deletion_at(16));
+        assert!(!is_deletion_at(17));
+    }
+
+    #[test]
+    fn has_insertion_at_detects_insertion_anchors() {
+        let record = read_from_parts(
+            10,
+            [
+                (Kind::Match, 2),
+                (Kind::Insertion, 2),
+                (Kind::Match, 1),
+                (Kind::Insertion, 1),
+            ],
+            b"AAIITI",
+        );
+        let alignment = Alignment::from_records(
+            vec![record],
+            0,
+            (1, 100),
+            &Sequence {
+                start: 1,
+                sequence: vec![b'A'; 100],
+                contig_index: 0,
+            },
+        )
+        .unwrap();
+
+        let has_insertion_at = |pos| {
+            alignment
+                .tables
+                .insertion
+                .column("ref_start")
+                .unwrap()
+                .u64()
+                .unwrap()
+                .iter()
+                .any(|start| start == Some(pos))
+        };
+
+        assert!(!has_insertion_at(11));
+        assert!(has_insertion_at(12));
+        assert!(has_insertion_at(13));
+        assert!(!has_insertion_at(14));
+    }
+
+    #[test]
+    fn is_softclip_at_detects_leading_and_trailing_softclips() {
+        let record = read_from_parts(
+            10,
+            [(Kind::SoftClip, 2), (Kind::Match, 3), (Kind::SoftClip, 1)],
+            b"SSAATZ",
+        );
+        let alignment = Alignment::from_records(
+            vec![record],
+            0,
+            (1, 100),
+            &Sequence {
+                start: 1,
+                sequence: vec![b'A'; 100],
+                contig_index: 0,
+            },
+        )
+        .unwrap();
+
+        let is_softclip_at = |pos| {
+            alignment
+                .tables
+                .viewport(pos, pos, &[0])
+                .unwrap()
+                .runs
+                .into_iter()
+                .find(|(kind, _)| *kind == Kind::SoftClip)
+                .unwrap()
+                .1
+                .height()
+                > 0
+        };
+
+        assert!(!is_softclip_at(7));
+        assert!(is_softclip_at(8));
+        assert!(is_softclip_at(9));
+        assert!(!is_softclip_at(10));
+        assert!(!is_softclip_at(12));
+        assert!(is_softclip_at(13));
+        assert!(!is_softclip_at(14));
+    }
+
+    #[test]
+    fn extract_base_modifications_preserves_missing_probabilities_for_each_position() {
+        let cigars = vec![Op::new(Kind::Match, 3)];
+        let sequence = sam::alignment::record_buf::Sequence::from(b"CCC");
+
+        let modifications = extract_base_modifications(
+            "C+m,0,0,0;".to_string(),
+            None,
+            &Flags::default(),
+            &sequence,
+            &cigars,
+            10,
+        )
+        .unwrap();
+
+        assert_eq!(
+            modifications,
+            vec![
+                (10, modification::FIVE_METHYLCYTOSINE, None),
+                (11, modification::FIVE_METHYLCYTOSINE, None),
+                (12, modification::FIVE_METHYLCYTOSINE, None),
+            ]
+        );
+    }
+
+    #[test]
+    fn extract_base_modifications_consumes_probability_for_each_position_and_modification() {
+        let cigars = vec![Op::new(Kind::Match, 2)];
+        let sequence = sam::alignment::record_buf::Sequence::from(b"CC");
+
+        let modifications = extract_base_modifications(
+            "C+mh,0,0;".to_string(),
+            Some(vec![10, 200, 180, 20]),
+            &Flags::default(),
+            &sequence,
+            &cigars,
+            10,
+        )
+        .unwrap();
+
+        assert_eq!(
+            modifications,
+            vec![
+                (10, modification::FIVE_METHYLCYTOSINE, Some(10)),
+                (10, modification::FIVE_HYDROXYMETHYLCYTOSINE, Some(200)),
+                (11, modification::FIVE_METHYLCYTOSINE, Some(180)),
+                (11, modification::FIVE_HYDROXYMETHYLCYTOSINE, Some(20)),
+            ]
+        );
+    }
+
+    #[test]
+    fn get_reference_position_from_seq_position_handles_cigar_boundaries() {
+        let cigars = vec![
+            Op::new(Kind::SoftClip, 2),
+            Op::new(Kind::Match, 2),
+            Op::new(Kind::Insertion, 1),
+            Op::new(Kind::Match, 2),
+            Op::new(Kind::SoftClip, 1),
+        ];
+
+        assert_eq!(
+            get_reference_position_from_seq_position(0, 10, &cigars),
+            Some(8)
+        );
+        assert_eq!(
+            get_reference_position_from_seq_position(2, 10, &cigars),
+            Some(10)
+        );
+        assert_eq!(
+            get_reference_position_from_seq_position(4, 10, &cigars),
+            None
+        );
+        assert_eq!(
+            get_reference_position_from_seq_position(5, 10, &cigars),
+            Some(12)
+        );
+        assert_eq!(
+            get_reference_position_from_seq_position(7, 10, &cigars),
+            Some(14)
+        );
+    }
+
+    #[test]
+    fn alignment_tables_store_base_modification_annotations() {
+        let mut data = Data::default();
+        data.insert(Tag::new(b'M', b'm'), Value::from("C+m,0,0,0;"));
+        data.insert(Tag::new(b'M', b'l'), Value::from(vec![255u8, 80, 20]));
+        let record = sam::alignment::RecordBuf::builder()
+            .set_alignment_start(noodles::core::Position::try_from(10).unwrap())
+            .set_cigar([Op::new(Kind::Match, 3)].into_iter().collect())
+            .set_sequence(sam::alignment::record_buf::Sequence::from(b"CCC"))
+            .set_data(data)
+            .build();
+        let alignment =
+            Alignment::from_records(vec![record], 0, (1, 100), &Sequence::default()).unwrap();
+        assert_eq!(
+            alignment.record(0).data().get(&Tag::new(b'M', b'm')),
+            Some(&Value::from("C+m,0,0,0;")),
+        );
+        assert_eq!(
+            alignment.record(0).data().get(&Tag::new(b'M', b'l')),
+            Some(&Value::from(vec![255u8, 80, 20])),
+        );
+        let table = &alignment.tables.base_modifications;
+        assert_eq!(
+            table
+                .column("display_pos")
+                .unwrap()
+                .u64()
+                .unwrap()
+                .into_no_null_iter()
+                .collect::<Vec<_>>(),
+            vec![10, 11, 12]
+        );
+        assert_eq!(
+            table
+                .column("probability")
+                .unwrap()
+                .u8()
+                .unwrap()
+                .into_no_null_iter()
+                .collect::<Vec<_>>(),
+            vec![255, 80, 20]
+        );
+        assert_eq!(
+            table
+                .column("code")
+                .unwrap()
+                .u8()
+                .unwrap()
+                .into_no_null_iter()
+                .collect::<Vec<_>>(),
+            vec![b'm'; 3]
+        );
+        assert_eq!(
+            table
+                .column("op_index")
+                .unwrap()
+                .u32()
+                .unwrap()
+                .into_no_null_iter()
+                .collect::<Vec<_>>(),
+            vec![0; 3]
+        );
+        assert_eq!(
+            table
+                .column("run_offset")
+                .unwrap()
+                .u32()
+                .unwrap()
+                .into_no_null_iter()
+                .collect::<Vec<_>>(),
+            vec![0, 1, 2]
+        );
+    }
+
+    #[rstest]
+    #[case(10, vec![(Kind::Match, 3)],  b"ATT", false,Sequence::default(), vec![(Kind::Match, 10, 12, vec![], None)])]
+    // Test reverse strand
+    #[case(10, vec![(Kind::Match, 3)],  b"ATT", true, Sequence::default(), vec![(Kind::Match, 10, 12, vec![], None)])]
+    // Test deletion
+    #[case(10, vec![(Kind::Match, 3),(Kind::Deletion, 2), (Kind::Match, 3)], b"AAATTT", true, Sequence::default(), vec![(Kind::Match, 10, 12, vec![], None), (Kind::Deletion, 13, 14, vec![], None), (Kind::Match, 15, 17, vec![], None)])]
+    // Test RefSkip
+    #[case(10, vec![(Kind::Match, 3),(Kind::Skip, 2)], b"AAA", false, Sequence::default(), vec![(Kind::Match, 10, 12, vec![], None), (Kind::Deletion, 13, 14, vec![], None)])]
+    // Test insertion
+    #[case(10, vec![(Kind::Match, 3), (Kind::Insertion, 2), (Kind::Match, 3)], b"AAATTCCC", false, Sequence::default(), vec![(Kind::Match, 10, 12, vec![], None), (Kind::Match, 13, 15, vec![], None)])]
+    // Test soft clips
+    #[case(10, vec![(Kind::SoftClip, 2), (Kind::Match, 3), (Kind::SoftClip, 1)], b"GGATTC", true, Sequence::default(), vec![
+        (Kind::SoftClip, 8, 8, vec![], Some(b'G')),
+        (Kind::SoftClip, 9, 9, vec![], Some(b'G')),
+        (Kind::Match, 10, 12, vec![], None),
+        (Kind::SoftClip, 13, 13, vec![], Some(b'C'))
+    ])]
+    // Test Equal cigar (matches current implementation with query pivot)
+    #[case(10, vec![(Kind::SequenceMatch, 3)], b"ATT", false, Sequence::default(), vec![(Kind::Match, 10, 12, vec![], None)])]
+    // Test Diff cigar (explicit mismatch)
+    #[case(10, vec![(Kind::SequenceMismatch, 3)], b"ATT", false, Sequence::default(), vec![(Kind::Match, 10, 12, vec![(10, b'A'),(11, b'T'),(12, b'T')], None)])]
+    // Test complex cigar: soft clip + match + insertion + match + deletion + match
+    #[case(10, vec![(Kind::SoftClip, 1), (Kind::Match, 2), (Kind::Insertion, 1), (Kind::Match, 2), (Kind::Deletion, 3), (Kind::Match, 2)],
+           b"GATCGAAA", false, Sequence::default(), vec![
+        (Kind::SoftClip, 9, 9, vec![], Some(b'G')),
+        (Kind::Match, 10, 11, vec![], None),
+        (Kind::Match, 12, 13, vec![], None),
+        (Kind::Deletion, 14, 16, vec![], None),
+        (Kind::Match, 17, 18, vec![], None)
+    ])]
+    // Test soft clips
+    #[case(10, vec![(Kind::SoftClip, 2), (Kind::Match, 3), (Kind::SoftClip, 1)], b"GGATTC", true, Sequence{start: 10, sequence: b"AATG".to_vec(), contig_index: 0}, vec![
+        (Kind::SoftClip, 8, 8, vec![], Some(b'G')),
+        (Kind::SoftClip, 9, 9, vec![], Some(b'G')),
+        (Kind::Match, 10, 12, vec![(11, b'T')], None),
+        (Kind::SoftClip, 13, 13, vec![], Some(b'C'))
+    ])]
+    fn run_tables_preserve_displayable_cigar_operations(
+        #[case] reference_start: u64,
+        #[case] cigars: Vec<(Kind, usize)>,
+        #[case] seq: &[u8],
+        #[case] is_reverse: bool,
+        #[case] reference_sequence: Sequence,
+        #[case] expected: Vec<(Kind, u64, u64, Vec<(u64, u8)>, Option<u8>)>,
+    ) {
+        let flags = if is_reverse {
+            Flags::REVERSE_COMPLEMENTED
+        } else {
+            Flags::default()
+        };
+        let record = sam::alignment::RecordBuf::builder()
+            .set_alignment_start(
+                noodles::core::Position::try_from(reference_start as usize).unwrap(),
+            )
+            .set_flags(flags)
+            .set_cigar(
+                cigars
+                    .into_iter()
+                    .map(|(kind, len)| Op::new(kind, len))
+                    .collect(),
+            )
+            .set_sequence(sam::alignment::record_buf::Sequence::from(seq))
+            .build();
+        let alignment =
+            Alignment::from_records(vec![record], 0, (1, 100), &reference_sequence).unwrap();
+        assert_eq!(
+            alignment
+                .tables
+                .reads
+                .column("pos")
+                .unwrap()
+                .u32()
+                .unwrap()
+                .get(0),
+            Some(reference_start as u32)
+        );
+        let first_kind = alignment.record(0).cigar().as_ref()[0].kind();
+        assert_eq!(
+            alignment
+                .tables
+                .run(first_kind)
+                .column("ref_start")
+                .unwrap()
+                .u64()
+                .unwrap()
+                .get(0),
+            Some(reference_start)
+        );
+        assert_eq!(alignment.coverage.data.schema(), &CoverageTable::schema());
+        assert_eq!(
+            alignment
+                .coverage
+                .query(reference_start, reference_start)
+                .unwrap()
+                .total,
+            1
+        );
+        assert_eq!(alignment.coverage.query(100, 100).unwrap().total, 0);
+        let viewport = alignment.tables.viewport(1, 100, &[0]).unwrap();
+        let mut actual = Vec::new();
+        for (kind, frame) in &viewport.runs {
+            if matches!(kind, Kind::Insertion | Kind::HardClip | Kind::Pad) {
+                continue;
+            }
+            for row in 0..frame.height() {
+                let start = frame
+                    .column("display_start")
+                    .unwrap()
+                    .u64()
+                    .unwrap()
+                    .get(row)
+                    .unwrap();
+                let end = frame
+                    .column("display_end")
+                    .unwrap()
+                    .u64()
+                    .unwrap()
+                    .get(row)
+                    .unwrap();
+                let index = frame
+                    .column("op_index")
+                    .unwrap()
+                    .u32()
+                    .unwrap()
+                    .get(row)
+                    .unwrap();
+                let mut mismatches = Vec::new();
+                for annotation in 0..viewport.reference_mismatches.height() {
+                    let table = &viewport.reference_mismatches;
+                    if table
+                        .column("op_index")
+                        .unwrap()
+                        .u32()
+                        .unwrap()
+                        .get(annotation)
+                        == Some(index)
+                    {
+                        mismatches.push((
+                            table
+                                .column("ref_pos")
+                                .unwrap()
+                                .u64()
+                                .unwrap()
+                                .get(annotation)
+                                .unwrap(),
+                            table
+                                .column("base")
+                                .unwrap()
+                                .u8()
+                                .unwrap()
+                                .get(annotation)
+                                .unwrap(),
+                        ));
+                    }
+                }
+                let sequence = if kind.consumes_read() {
+                    frame
+                        .column("seq")
+                        .unwrap()
+                        .str()
+                        .unwrap()
+                        .get(row)
+                        .unwrap()
+                        .as_bytes()
+                } else {
+                    &[]
+                };
+                if *kind == Kind::SequenceMismatch {
+                    mismatches
+                        .extend((start..=end).map(|pos| (pos, sequence[(pos - start) as usize])));
+                }
+                if *kind == Kind::SoftClip {
+                    for pos in start..=end {
+                        actual.push((
+                            Kind::SoftClip,
+                            pos,
+                            pos,
+                            vec![],
+                            sequence.get((pos - start) as usize).copied(),
+                        ));
+                    }
+                } else {
+                    actual.push((
+                        if matches!(kind, Kind::Deletion | Kind::Skip) {
+                            Kind::Deletion
+                        } else {
+                            Kind::Match
+                        },
+                        start,
+                        end,
+                        mismatches,
+                        None,
+                    ));
+                }
+            }
+        }
+        actual.sort_by_key(|value| value.1);
+        assert_eq!(actual, expected);
+        assert_eq!(
+            alignment
+                .tables
+                .reads
+                .column("reverse")
+                .unwrap()
+                .bool()
+                .unwrap()
+                .get(0),
+            Some(is_reverse)
+        );
+    }
 }

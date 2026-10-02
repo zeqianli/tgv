@@ -1,6 +1,5 @@
 use crate::alignment::{
     coverage::CoverageTable,
-    read::AlignedReadRef,
     tables::{self, AlignmentTables},
     viewport::AlignmentViewport,
 };
@@ -35,13 +34,6 @@ impl BaseSortKey {
             _ => Self::OtherBase,
         }
     }
-}
-
-pub(super) struct SortableStackItem {
-    pub show: bool,
-    pub stacking_start: u64,
-    pub stacking_end: u64,
-    pub sort_key: Option<BaseSortKey>,
 }
 
 /// An alignment stack
@@ -301,19 +293,40 @@ impl Alignment {
         filter: AlignmentFilter,
         reference_sequence: &Sequence,
     ) -> Result<(), TGVError> {
-        let candidate_ids = match &filter {
-            AlignmentFilter::Base(position, _) => self.base_candidates(*position)?,
-            AlignmentFilter::BaseSoftclip(position) => {
-                self.overlapping_reads(self.contig_index, *position, *position)?
+        let selected = match filter {
+            AlignmentFilter::Base(position, base) => {
+                let events = self.base_events(position)?;
+                let mask = events.column("base")?.u8()?.equal(base as u8);
+                events
+                    .column("read_id")?
+                    .filter(&mask)?
+                    .u64()?
+                    .into_no_null_iter()
+                    .map(|id| id as usize)
+                    .collect::<Vec<_>>()
             }
-            _ => (0..self.records.len()).collect(),
+            AlignmentFilter::BaseSoftclip(position) => {
+                let ids = (0..self.read_count()).collect::<Vec<_>>();
+                let viewport = self.tables.viewport(position, position, &ids)?;
+                let (_, clips) = viewport
+                    .runs
+                    .iter()
+                    .find(|(kind, _)| {
+                        *kind == noodles::sam::alignment::record::cigar::op::Kind::SoftClip
+                    })
+                    .expect("viewport includes the soft-clip table");
+                clips
+                    .column("read_id")?
+                    .u64()?
+                    .into_no_null_iter()
+                    .map(|id| id as usize)
+                    .collect()
+            }
+            _ => (0..self.read_count()).collect(),
         };
         self.show_read.fill(false);
-        for i in candidate_ids {
-            if self.stacking_bounds(i).is_some() {
-                let read = AlignedReadRef::borrowed(&self.records[i])?;
-                self.show_read[i] = read.passes_filter(&filter);
-            }
+        for id in selected {
+            self.show_read[id] = self.stacking_bounds(id).is_some();
         }
 
         self.ys = stack_tracks_for_reads(&self.tables.reads, &self.show_read)?;
@@ -334,64 +347,80 @@ impl Alignment {
     fn sort_by_base_at(&mut self, position: u64) -> Result<(), TGVError> {
         self.ensure_position_has_complete_data(position)?;
 
-        let candidates = self.base_candidates(position)?;
-        let candidate_set = candidates
-            .into_iter()
-            .collect::<std::collections::HashSet<_>>();
-        let items = self
-            .show_read
-            .iter()
-            .enumerate()
-            .map(|(i, show_read)| {
-                let bounds = self.stacking_bounds(i);
-                Ok(SortableStackItem {
-                    show: *show_read,
-                    stacking_start: bounds.map_or(0, |b| b.0),
-                    stacking_end: bounds.map_or(0, |b| b.1),
-                    sort_key: if candidate_set.contains(&i) {
-                        read_base_sort_key_at(
-                            &AlignedReadRef::borrowed(&self.records[i])?,
-                            position,
-                        )
-                    } else {
-                        None
-                    },
-                })
-            })
-            .collect::<Result<Vec<_>, TGVError>>()?;
-
-        self.ys = stack_tracks_by_sort_key(&items, 3);
+        let events = self.base_events(position)?;
+        let mut items = self.tables.reads.clone();
+        items.with_column(events.column("sort_key")?.clone())?;
+        self.ys = stack_tracks_by_sort_key(&items, "read_id", &self.show_read, 3)?;
         self.build_y_index()?;
-
         Ok(())
     }
 
-    fn base_candidates(&self, position: u64) -> Result<Vec<usize>, TGVError> {
+    /// Query aligned bases and event priorities at a one-based position.
+    pub(super) fn base_events(&self, position: u64) -> Result<DataFrame, TGVError> {
         use noodles::sam::alignment::record::cigar::op::Kind;
-        if position == 0 {
-            return Ok(Vec::new());
-        }
-        let pos = position;
-        let mut ids = std::collections::HashSet::new();
-        for kind in [
-            Kind::Match,
-            Kind::SequenceMatch,
-            Kind::SequenceMismatch,
-            Kind::Deletion,
-            Kind::Skip,
-            Kind::Insertion,
-        ] {
-            let runs = self.tables.run(kind);
-            let starts = runs.column("ref_start")?.u64()?;
-            let lengths = runs.column("op_len")?.cast(&DataType::UInt64)?;
-            let ends = starts + lengths.u64()?;
-            let mask = starts.lt_eq(pos) & ends.gt(pos);
-            let frame = runs.column("read_id")?.filter(&mask)?;
-            for id in frame.u64()?.into_no_null_iter() {
-                ids.insert(id as usize);
+        let mut bases = vec![None; self.read_count()];
+        let mut keys: Vec<Option<u8>> = vec![None; self.read_count()];
+        if position > 0 {
+            // Later event kinds take precedence over insertions at the same cursor.
+            for kind in [
+                Kind::Insertion,
+                Kind::Deletion,
+                Kind::Skip,
+                Kind::Match,
+                Kind::SequenceMatch,
+                Kind::SequenceMismatch,
+            ] {
+                let runs = self.tables.run(kind);
+                let starts = runs.column("ref_start")?.u64()?;
+                let mask = if kind == Kind::Insertion {
+                    starts.equal(position)
+                } else {
+                    let lengths = runs.column("op_len")?.cast(&DataType::UInt64)?;
+                    starts.lt_eq(position) & (starts + lengths.u64()?).gt(position)
+                };
+                let hits = runs.filter(&mask)?;
+                let ids = hits.column("read_id")?.u64()?;
+                let starts = hits.column("ref_start")?.u64()?;
+                let sequences = if matches!(
+                    kind,
+                    Kind::Match | Kind::SequenceMatch | Kind::SequenceMismatch
+                ) {
+                    Some(hits.column("seq")?.str()?)
+                } else {
+                    None
+                };
+                for row in 0..hits.height() {
+                    let id = ids.get(row).expect("run IDs are non-null") as usize;
+                    let key = match kind {
+                        Kind::Insertion => Some(BaseSortKey::Insertion),
+                        Kind::Deletion | Kind::Skip => Some(BaseSortKey::Deletion),
+                        _ => {
+                            let offset = (position
+                                - starts.get(row).expect("selected runs have positions"))
+                                as usize;
+                            let base = sequences
+                                .expect("aligned runs have a sequence column")
+                                .get(row)
+                                .and_then(|seq| seq.as_bytes().get(offset))
+                                .copied();
+                            bases[id] = base;
+                            base.map(BaseSortKey::from_base)
+                        }
+                    };
+                    if let Some(key) = key {
+                        keys[id] = Some(key as u8);
+                    }
+                }
             }
         }
-        Ok(ids.into_iter().collect())
+        Ok(DataFrame::new(
+            self.read_count(),
+            vec![
+                self.tables.reads.column("read_id")?.clone(),
+                Column::new("base".into(), bases),
+                Column::new("sort_key".into(), keys),
+            ],
+        )?)
     }
 }
 
@@ -421,66 +450,42 @@ fn stack_tracks_for_reads(reads: &DataFrame, show_reads: &[bool]) -> Result<Vec<
         .collect())
 }
 
-pub(super) fn read_base_sort_key_at(
-    read: &AlignedReadRef<'_>,
-    position: u64,
-) -> Option<BaseSortKey> {
-    if let Some(base) = read.base_at(position) {
-        return Some(BaseSortKey::from_base(base));
+pub(super) fn stack_tracks_by_sort_key(
+    items: &DataFrame,
+    id_column: &str,
+    show: &[bool],
+    min_gap: u64,
+) -> Result<Vec<usize>, TGVError> {
+    let visible = items.filter(&BooleanChunked::from_slice("show".into(), show))?;
+    let sorted = visible
+        .filter(&visible.column("sort_key")?.is_not_null())?
+        .sort(["sort_key", id_column], SortMultipleOptions::default())?;
+    let mut ys = vec![0; items.height()];
+    let mut track_left_bounds = Vec::with_capacity(sorted.height());
+    let mut track_right_bounds = Vec::with_capacity(sorted.height());
+    let ids = sorted.column(id_column)?.u64()?;
+    let starts = sorted.column("stacking_start")?.u64()?;
+    let ends = sorted.column("stacking_end")?.u64()?;
+    for row in 0..sorted.height() {
+        ys[ids.get(row).expect("item IDs are non-null") as usize] = row;
+        track_left_bounds.push(starts.get(row).expect("visible items have bounds"));
+        track_right_bounds.push(ends.get(row).expect("visible items have bounds"));
     }
-
-    if read.is_deletion_at(position) {
-        return Some(BaseSortKey::Deletion);
-    }
-
-    if read.has_insertion_at(position) {
-        return Some(BaseSortKey::Insertion);
-    }
-
-    None
-}
-
-pub(super) fn stack_tracks_by_sort_key(items: &[SortableStackItem], min_gap: u64) -> Vec<usize> {
-    let mut ys = vec![0; items.len()];
-    let mut sorted_item_indexes = items
-        .iter()
-        .enumerate()
-        .filter_map(|(index, item)| {
-            if !item.show {
-                return None;
-            }
-
-            Some((item.sort_key?, index))
-        })
-        .collect::<Vec<_>>();
-
-    sorted_item_indexes.sort_by_key(|(sort_key, index)| (*sort_key, *index));
-
-    let mut is_sorted_item = vec![false; items.len()];
-    let mut track_left_bounds = Vec::with_capacity(sorted_item_indexes.len());
-    let mut track_right_bounds = Vec::with_capacity(sorted_item_indexes.len());
-    for (y, (_sort_key, index)) in sorted_item_indexes.iter().enumerate() {
-        ys[*index] = y;
-        is_sorted_item[*index] = true;
-        track_left_bounds.push(items[*index].stacking_start);
-        track_right_bounds.push(items[*index].stacking_end);
-    }
-
-    for (index, item) in items.iter().enumerate() {
-        if !item.show || is_sorted_item[index] {
-            continue;
-        }
-
-        ys[index] = find_track(
-            item.stacking_start,
-            item.stacking_end,
+    let remaining = visible.filter(&visible.column("sort_key")?.is_null())?;
+    let ids = remaining.column(id_column)?.u64()?;
+    let starts = remaining.column("stacking_start")?.u64()?;
+    let ends = remaining.column("stacking_end")?.u64()?;
+    for row in 0..remaining.height() {
+        let id = ids.get(row).expect("item IDs are non-null") as usize;
+        ys[id] = find_track(
+            starts.get(row).expect("visible items have bounds"),
+            ends.get(row).expect("visible items have bounds"),
             &mut track_left_bounds,
             &mut track_right_bounds,
             min_gap,
         );
     }
-
-    ys
+    Ok(ys)
 }
 
 pub(super) fn find_track(
