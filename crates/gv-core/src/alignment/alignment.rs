@@ -1,7 +1,5 @@
 use crate::alignment::{
-    coverage::CoverageTable,
-    tables::AlignmentTables,
-    viewport::AlignmentViewport,
+    coverage::CoverageTable, tables::AlignmentTables, viewport::AlignmentViewport,
 };
 use crate::error::TGVError;
 use crate::intervals::{GenomeInterval, Region};
@@ -80,37 +78,6 @@ impl Alignment {
             .u64()?
             .max()
             .map_or(0, |y| y as usize + 1))
-    }
-
-    /// Iterate over indexed reads whose display spans overlap an inclusive interval.
-    /// The display span includes soft clips, matching the read hit test.
-    pub fn overlapping_reads(
-        &self,
-        contig_index: usize,
-        start: u64,
-        end: u64,
-    ) -> Result<Vec<usize>, TGVError> {
-        if self.contig_index != contig_index || start > end {
-            return Ok(Vec::new());
-        }
-        let hits = self
-            .tables
-            .reads
-            .clone()
-            .lazy()
-            .filter(
-                col("stacking_start")
-                    .lt_eq(lit(end))
-                    .and(col("stacking_end").gt_eq(lit(start))),
-            )
-            .select([col("read_id")])
-            .collect()?;
-        Ok(hits
-            .column("read_id")?
-            .u64()?
-            .into_no_null_iter()
-            .map(|id| id as usize)
-            .collect())
     }
 
     /// Return the read at x_coordinate, yth track

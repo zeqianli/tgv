@@ -108,27 +108,8 @@ impl CoverageTable {
         Ok(Self { data })
     }
 
-    /// Sum coverage counts across a one-based, inclusive interval.
-    pub fn query(&self, start: u64, end: u64) -> Result<Coverage, TGVError> {
-        let table = self
-            .data
-            .clone()
-            .lazy()
-            .filter(col("pos").gt_eq(lit(start)).and(col("pos").lt_eq(lit(end))))
-            .collect()?;
-        Ok(Coverage {
-            A: table.column("A")?.u64()?.sum().unwrap_or(0),
-            T: table.column("T")?.u64()?.sum().unwrap_or(0),
-            C: table.column("C")?.u64()?.sum().unwrap_or(0),
-            G: table.column("G")?.u64()?.sum().unwrap_or(0),
-            N: table.column("N")?.u64()?.sum().unwrap_or(0),
-            total: table.column("total")?.u64()?.sum().unwrap_or(0),
-            softclip: table.column("softclip")?.u64()?.sum().unwrap_or(0),
-        })
-    }
-
     /// Select sparse rows within a one-based, inclusive interval.
-    pub fn query_rows(&self, start: u64, end: u64) -> Result<DataFrame, TGVError> {
+    pub fn query(&self, start: u64, end: u64) -> Result<DataFrame, TGVError> {
         Ok(self
             .data
             .clone()
@@ -153,42 +134,5 @@ impl CoverageTable {
         schema.insert("softclip".into(), DataType::UInt64);
         schema.insert("reference_base".into(), DataType::UInt8);
         Arc::new(schema)
-    }
-}
-
-/// Temporary summed counts from an interval coverage query.
-#[derive(Clone, Debug, Default)]
-#[allow(non_snake_case)]
-pub struct Coverage {
-    pub A: u64,
-    pub T: u64,
-    pub C: u64,
-    pub G: u64,
-    pub N: u64,
-    /// Total coverage, excluding soft clips.
-    pub total: u64,
-    /// Soft-clip count.
-    pub softclip: u64,
-}
-
-impl Coverage {
-    pub const MAX_DISPLAY_ALLELE_FREQUENCY_RECIPROCOL: u64 = 100;
-
-    /// Calculate the displayed alternate depth relative to a reference base.
-    pub fn max_alt_depth(&self, reference_base: u8) -> u64 {
-        match reference_base {
-            b'A' | b'a' | b'G' | b'g' => self.C.max(self.T),
-            b'T' | b't' => self.A.max(self.C),
-            b'C' | b'c' => self.A.max(self.T),
-            _ => 0,
-        }
-    }
-
-    /// Describe the summed counts across the queried interval.
-    pub fn describe(&self) -> String {
-        format!(
-            "A:{}, T:{}, C:{}, G:{}, N:{}, total:{}",
-            self.A, self.T, self.C, self.G, self.N, self.total
-        )
     }
 }

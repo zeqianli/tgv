@@ -6,6 +6,7 @@ use crate::{
 use crossterm::event::{MouseButton, MouseEvent, MouseEventKind};
 use gv_core::prelude::*;
 use itertools::Itertools;
+use polars::prelude::ChunkAgg;
 
 /// Mouse interaction state for the currently displayed layout.
 #[derive(Default)]
@@ -195,10 +196,19 @@ impl MouseRegister {
                                 && let Some(alignment) = state.alignments.get(index)
                             {
                                 let coverage = alignment.coverage.query(left, right)?;
+                                let counts = format!(
+                                    "A:{}, T:{}, C:{}, G:{}, N:{}, total:{}",
+                                    coverage.column("A")?.u64()?.sum().unwrap_or(0),
+                                    coverage.column("T")?.u64()?.sum().unwrap_or(0),
+                                    coverage.column("C")?.u64()?.sum().unwrap_or(0),
+                                    coverage.column("G")?.u64()?.sum().unwrap_or(0),
+                                    coverage.column("N")?.u64()?.sum().unwrap_or(0),
+                                    coverage.column("total")?.u64()?.sum().unwrap_or(0)
+                                );
                                 let description = if left == right {
-                                    format!("{}: {}", left, coverage.describe())
+                                    format!("{}: {}", left, counts)
                                 } else {
-                                    format!("{} - {}: {}", left, right, coverage.describe())
+                                    format!("{} - {}: {}", left, right, counts)
                                 };
                                 messages.push(Message::message(description));
                             }

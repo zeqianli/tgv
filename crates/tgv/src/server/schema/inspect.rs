@@ -9,6 +9,7 @@ use gv_core::{
     variant::{Variant, VariantTrack},
 };
 use noodles::vcf::variant::record::AlternateBases;
+use polars::prelude::*;
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
@@ -81,10 +82,25 @@ impl TrackSummary {
         contig_index: usize,
         region: &InspectInterval,
     ) -> Result<Self, TGVError> {
-        let overlapping_records = alignment
-            .overlapping_reads(contig_index, region.start, region.end)?
-            .len();
-        let coverage = alignment.coverage.query_rows(region.start, region.end)?;
+        let overlapping_records =
+            if alignment.contig_index != contig_index || region.start > region.end {
+                0
+            } else {
+                alignment
+                    .tables
+                    .reads
+                    .clone()
+                    .lazy()
+                    .filter(
+                        col("stacking_start")
+                            .lt_eq(lit(region.end))
+                            .and(col("stacking_end").gt_eq(lit(region.start))),
+                    )
+                    .select([col("read_id")])
+                    .collect()?
+                    .height()
+            };
+        let coverage = alignment.coverage.query(region.start, region.end)?;
         let mut rows = coverage
             .column("pos")?
             .u64()?

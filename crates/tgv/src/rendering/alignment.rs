@@ -192,22 +192,24 @@ pub fn render_paired_alignment(
     }
     let viewport = alignment.query_viewport(&region, &ids)?;
     let cells = paint_runs(&viewport, view, area)?;
+    let stacking_starts = alignment.tables.reads.column("stacking_start")?.u64()?;
+    let stacking_ends = alignment.tables.reads.column("stacking_end")?.u64()?;
     for (first, second, y) in visible {
         let first_cells = cells.get(&first);
         let second_cells = second.and_then(|id| cells.get(&id));
         let gap = first_cells.zip(second_cells).and_then(|_| {
-            alignment
-                .stacking_bounds(first)
-                .zip(second.and_then(|id| alignment.stacking_bounds(id)))
-                .and_then(|(a, b)| {
-                    if a.1 < b.0 {
-                        Some((a.1 + 1, b.0 - 1))
-                    } else if b.1 < a.0 {
-                        Some((b.1 + 1, a.0 - 1))
-                    } else {
-                        None
-                    }
-                })
+            let second = second?;
+            let first_start = stacking_starts.get(first)?;
+            let first_end = stacking_ends.get(first)?;
+            let second_start = stacking_starts.get(second)?;
+            let second_end = stacking_ends.get(second)?;
+            if first_end < second_start {
+                Some((first_end + 1, second_start - 1))
+            } else if second_end < first_start {
+                Some((second_end + 1, first_start - 1))
+            } else {
+                None
+            }
         });
         if let Some((start, end)) = gap {
             let start = start.max(region.start());

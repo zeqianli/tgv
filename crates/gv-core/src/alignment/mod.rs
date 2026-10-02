@@ -5,7 +5,7 @@ mod repository;
 pub mod tables;
 mod viewport;
 pub use alignment::Alignment;
-pub use coverage::{Coverage, CoverageTable};
+pub use coverage::CoverageTable;
 pub use paired_alignment::PairedAlignment;
 pub use repository::{AlignmentRepositoryEnum, is_url};
 pub use tables::AlignmentTables;

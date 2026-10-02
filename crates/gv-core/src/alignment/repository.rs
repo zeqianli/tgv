@@ -139,7 +139,25 @@ impl RemoteBamRepository {
 
         let operator = Operator::new(builder)?.finish();
 
-        let _index = Self::read_index(s3_bai_path).await?;
+        let (index_bucket, index_name) = s3_bai_path
+            .strip_prefix("s3://")
+            .unwrap()
+            .split_once("/")
+            .unwrap();
+        let index_operator = Operator::new(services::S3::default().bucket(index_bucket))?.finish();
+        log::info!(
+            "Object storage request: operation=read object_url={} bucket={} key={} context=remote BAM index",
+            s3_bai_path,
+            index_bucket,
+            index_name
+        );
+        let index_stream = index_operator
+            .reader(index_name)
+            .await?
+            .into_futures_async_read(..)
+            .await?;
+        let mut index_reader = bai::r#async::io::Reader::new(index_stream.compat());
+        let index = index_reader.read_index().await?;
 
         log::info!(
             "Object storage request: operation=read object_url={} bucket={} key={} context=remote BAM header",
@@ -157,8 +175,6 @@ impl RemoteBamRepository {
 
         let header = reader.read_header().await?;
 
-        let index = Self::read_index(s3_bai_path).await?;
-
         Ok(Self {
             bam_path: s3_bam_path.to_string(),
             bai_path: s3_bai_path.to_string(),
@@ -169,34 +185,6 @@ impl RemoteBamRepository {
             operator,
             key: name.to_owned(),
         })
-    }
-
-    async fn read_index(s3_bai_path: &str) -> Result<bai::Index, TGVError> {
-        let (bucket, name) = s3_bai_path
-            .strip_prefix("s3://")
-            .unwrap()
-            .split_once("/")
-            .unwrap();
-
-        let builder = services::S3::default().bucket(bucket);
-
-        let operator = Operator::new(builder)?.finish();
-
-        log::info!(
-            "Object storage request: operation=read object_url={} bucket={} key={} context=remote BAM index",
-            s3_bai_path,
-            bucket,
-            name
-        );
-        let stream = operator
-            .reader(name)
-            .await?
-            .into_futures_async_read(..)
-            .await?;
-
-        let mut reader = bai::r#async::io::Reader::new(stream.compat());
-
-        Ok(reader.read_index().await?)
     }
 }
 

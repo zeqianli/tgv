@@ -104,7 +104,7 @@ impl AlignmentTables {
             return Ok(self);
         }
         let offset = self.reads.height() as u64;
-        let batch = Self::build_batch(records, reference_sequence, contig_index, offset)?;
+        let batch = build_batch(records, reference_sequence, contig_index, offset)?;
         self.reads = concat(
             [self.reads.lazy(), batch.reads.lazy()],
             UnionArgs::default(),
@@ -178,215 +178,214 @@ impl AlignmentTables {
         .collect()?;
         Ok(self)
     }
+}
 
-    fn build_batch(
-        records: &[RecordBuf],
-        reference_sequence: &Sequence,
-        contig_index: usize,
-        read_id_offset: u64,
-    ) -> Result<Self, TGVError> {
-        let mut read_id: Vec<u64> = Vec::with_capacity(records.len());
-        let mut qname: Vec<Option<String>> = Vec::with_capacity(records.len());
-        let mut ref_id: Vec<Option<u32>> = Vec::with_capacity(records.len());
-        let mut pos: Vec<Option<u32>> = Vec::with_capacity(records.len());
-        let mut mapq: Vec<Option<u8>> = Vec::with_capacity(records.len());
-        let mut next_ref_id: Vec<Option<u32>> = Vec::with_capacity(records.len());
-        let mut next_pos: Vec<Option<u32>> = Vec::with_capacity(records.len());
-        let mut tlen: Vec<i32> = Vec::with_capacity(records.len());
-        let mut stacking_start: Vec<Option<u64>> = Vec::with_capacity(records.len());
-        let mut stacking_end: Vec<Option<u64>> = Vec::with_capacity(records.len());
-        let mut paired: Vec<bool> = Vec::with_capacity(records.len());
-        let mut proper_pair: Vec<bool> = Vec::with_capacity(records.len());
-        let mut unmapped: Vec<bool> = Vec::with_capacity(records.len());
-        let mut mate_unmapped: Vec<bool> = Vec::with_capacity(records.len());
-        let mut reverse: Vec<bool> = Vec::with_capacity(records.len());
-        let mut mate_reverse: Vec<bool> = Vec::with_capacity(records.len());
-        let mut first_segment: Vec<bool> = Vec::with_capacity(records.len());
-        let mut last_segment: Vec<bool> = Vec::with_capacity(records.len());
-        let mut secondary: Vec<bool> = Vec::with_capacity(records.len());
-        let mut qc_failed: Vec<bool> = Vec::with_capacity(records.len());
-        let mut duplicate: Vec<bool> = Vec::with_capacity(records.len());
-        let mut supplementary: Vec<bool> = Vec::with_capacity(records.len());
-        let mut run_read_id: [Vec<u64>; 9] = std::array::from_fn(|_| Vec::new());
-        let mut run_op_index: [Vec<u32>; 9] = std::array::from_fn(|_| Vec::new());
-        let mut run_ref_id: [Vec<Option<u32>>; 9] = std::array::from_fn(|_| Vec::new());
-        let mut run_ref_start: [Vec<Option<u64>>; 9] = std::array::from_fn(|_| Vec::new());
-        let mut run_op_len: [Vec<u32>; 9] = std::array::from_fn(|_| Vec::new());
-        let mut run_seq: [Vec<Option<String>>; 9] = std::array::from_fn(|_| Vec::new());
-        let mut run_qual: [Vec<Option<Vec<u8>>>; 9] = std::array::from_fn(|_| Vec::new());
-        let mut unmapped_read_id: Vec<u64> = Vec::new();
-        let mut base_count: Vec<u32> = Vec::new();
-        let mut unmapped_seq: Vec<Option<String>> = Vec::new();
-        let mut unmapped_qual: Vec<Option<Vec<u8>>> = Vec::new();
-        for (index, record) in records.iter().enumerate() {
-            let id = read_id_offset + index as u64;
-            let sequence = std::str::from_utf8(record.sequence().as_ref())?;
-            if !sequence.is_ascii() {
-                return Err(TGVError::AlignmentParseError(format!(
-                    "SEQ is not ASCII for read {id}"
-                )));
-            }
-            append_read(
-                record,
-                id,
-                &mut read_id,
-                &mut qname,
-                &mut ref_id,
-                &mut pos,
-                &mut mapq,
-                &mut next_ref_id,
-                &mut next_pos,
-                &mut tlen,
-                &mut stacking_start,
-                &mut stacking_end,
-                &mut paired,
-                &mut proper_pair,
-                &mut unmapped,
-                &mut mate_unmapped,
-                &mut reverse,
-                &mut mate_reverse,
-                &mut first_segment,
-                &mut last_segment,
-                &mut secondary,
-                &mut qc_failed,
-                &mut duplicate,
-                &mut supplementary,
-            )?;
-            append_runs(
+fn build_batch(
+    records: &[RecordBuf],
+    reference_sequence: &Sequence,
+    contig_index: usize,
+    read_id_offset: u64,
+) -> Result<AlignmentTables, TGVError> {
+    let mut read_id: Vec<u64> = Vec::with_capacity(records.len());
+    let mut qname: Vec<Option<String>> = Vec::with_capacity(records.len());
+    let mut ref_id: Vec<Option<u32>> = Vec::with_capacity(records.len());
+    let mut pos: Vec<Option<u32>> = Vec::with_capacity(records.len());
+    let mut mapq: Vec<Option<u8>> = Vec::with_capacity(records.len());
+    let mut next_ref_id: Vec<Option<u32>> = Vec::with_capacity(records.len());
+    let mut next_pos: Vec<Option<u32>> = Vec::with_capacity(records.len());
+    let mut tlen: Vec<i32> = Vec::with_capacity(records.len());
+    let mut stacking_start: Vec<Option<u64>> = Vec::with_capacity(records.len());
+    let mut stacking_end: Vec<Option<u64>> = Vec::with_capacity(records.len());
+    let mut paired: Vec<bool> = Vec::with_capacity(records.len());
+    let mut proper_pair: Vec<bool> = Vec::with_capacity(records.len());
+    let mut unmapped: Vec<bool> = Vec::with_capacity(records.len());
+    let mut mate_unmapped: Vec<bool> = Vec::with_capacity(records.len());
+    let mut reverse: Vec<bool> = Vec::with_capacity(records.len());
+    let mut mate_reverse: Vec<bool> = Vec::with_capacity(records.len());
+    let mut first_segment: Vec<bool> = Vec::with_capacity(records.len());
+    let mut last_segment: Vec<bool> = Vec::with_capacity(records.len());
+    let mut secondary: Vec<bool> = Vec::with_capacity(records.len());
+    let mut qc_failed: Vec<bool> = Vec::with_capacity(records.len());
+    let mut duplicate: Vec<bool> = Vec::with_capacity(records.len());
+    let mut supplementary: Vec<bool> = Vec::with_capacity(records.len());
+    let mut run_read_id: [Vec<u64>; 9] = std::array::from_fn(|_| Vec::new());
+    let mut run_op_index: [Vec<u32>; 9] = std::array::from_fn(|_| Vec::new());
+    let mut run_ref_id: [Vec<Option<u32>>; 9] = std::array::from_fn(|_| Vec::new());
+    let mut run_ref_start: [Vec<Option<u64>>; 9] = std::array::from_fn(|_| Vec::new());
+    let mut run_op_len: [Vec<u32>; 9] = std::array::from_fn(|_| Vec::new());
+    let mut run_seq: [Vec<Option<String>>; 9] = std::array::from_fn(|_| Vec::new());
+    let mut run_qual: [Vec<Option<Vec<u8>>>; 9] = std::array::from_fn(|_| Vec::new());
+    let mut unmapped_read_id: Vec<u64> = Vec::new();
+    let mut base_count: Vec<u32> = Vec::new();
+    let mut unmapped_seq: Vec<Option<String>> = Vec::new();
+    let mut unmapped_qual: Vec<Option<Vec<u8>>> = Vec::new();
+    for (index, record) in records.iter().enumerate() {
+        let id = read_id_offset + index as u64;
+        let sequence = std::str::from_utf8(record.sequence().as_ref())?;
+        if !sequence.is_ascii() {
+            return Err(TGVError::AlignmentParseError(format!(
+                "SEQ is not ASCII for read {id}"
+            )));
+        }
+        append_read(
+            record,
+            id,
+            &mut read_id,
+            &mut qname,
+            &mut ref_id,
+            &mut pos,
+            &mut mapq,
+            &mut next_ref_id,
+            &mut next_pos,
+            &mut tlen,
+            &mut stacking_start,
+            &mut stacking_end,
+            &mut paired,
+            &mut proper_pair,
+            &mut unmapped,
+            &mut mate_unmapped,
+            &mut reverse,
+            &mut mate_reverse,
+            &mut first_segment,
+            &mut last_segment,
+            &mut secondary,
+            &mut qc_failed,
+            &mut duplicate,
+            &mut supplementary,
+        )?;
+        append_runs(
+            record,
+            id,
+            sequence,
+            &mut run_read_id,
+            &mut run_op_index,
+            &mut run_ref_id,
+            &mut run_ref_start,
+            &mut run_op_len,
+            &mut run_seq,
+            &mut run_qual,
+        )?;
+        if record.cigar().is_empty() {
+            append_unmapped(
                 record,
                 id,
                 sequence,
-                &mut run_read_id,
-                &mut run_op_index,
-                &mut run_ref_id,
-                &mut run_ref_start,
-                &mut run_op_len,
-                &mut run_seq,
-                &mut run_qual,
-            )?;
-            if record.cigar().is_empty() {
-                append_unmapped(
-                    record,
-                    id,
-                    sequence,
-                    &mut unmapped_read_id,
-                    &mut base_count,
-                    &mut unmapped_seq,
-                    &mut unmapped_qual,
-                );
-            }
+                &mut unmapped_read_id,
+                &mut base_count,
+                &mut unmapped_seq,
+                &mut unmapped_qual,
+            );
         }
-        let height = read_id.len();
-        let read_columns = vec![
-            Column::new("read_id".into(), read_id),
-            Column::new("qname".into(), qname),
-            Column::new("ref_id".into(), ref_id),
-            Column::new("pos".into(), pos),
-            Column::new("mapq".into(), mapq),
-            Column::new("next_ref_id".into(), next_ref_id),
-            Column::new("next_pos".into(), next_pos),
-            Column::new("tlen".into(), tlen),
-            Column::new("stacking_start".into(), stacking_start),
-            Column::new("stacking_end".into(), stacking_end),
-            Column::new("paired".into(), paired),
-            Column::new("proper_pair".into(), proper_pair),
-            Column::new("unmapped".into(), unmapped),
-            Column::new("mate_unmapped".into(), mate_unmapped),
-            Column::new("reverse".into(), reverse),
-            Column::new("mate_reverse".into(), mate_reverse),
-            Column::new("first_segment".into(), first_segment),
-            Column::new("last_segment".into(), last_segment),
-            Column::new("secondary".into(), secondary),
-            Column::new("qc_failed".into(), qc_failed),
-            Column::new("duplicate".into(), duplicate),
-            Column::new("supplementary".into(), supplementary),
-        ];
-        let reads = DataFrame::new(height, read_columns)?
-            .lazy()
-            .with_columns([
-                col("stacking_start").is_not_null().alias("show"),
-                lit(0u64).cast(DataType::UInt64).alias("y"),
-            ])
-            .collect()?;
-        let [
-            r#match,
-            sequence_match,
-            mismatch,
-            insertion,
-            deletion,
-            reference_skip,
-            soft_clip,
-            hard_clip,
-            padding,
-        ] = [
-            (0, Kind::Match),
-            (1, Kind::SequenceMatch),
-            (2, Kind::SequenceMismatch),
-            (3, Kind::Insertion),
-            (4, Kind::Deletion),
-            (5, Kind::Skip),
-            (6, Kind::SoftClip),
-            (7, Kind::HardClip),
-            (8, Kind::Pad),
-        ]
-        .map(|(index, kind)| -> Result<DataFrame, TGVError> {
-            let height = run_read_id[index].len();
-            let mut columns = vec![
-                Column::new("read_id".into(), std::mem::take(&mut run_read_id[index])),
-                Column::new("op_index".into(), std::mem::take(&mut run_op_index[index])),
-                Column::new("ref_id".into(), std::mem::take(&mut run_ref_id[index])),
-                Column::new(
-                    "ref_start".into(),
-                    std::mem::take(&mut run_ref_start[index]),
-                ),
-                Column::new("op_len".into(), std::mem::take(&mut run_op_len[index])),
-            ];
-            if kind.consumes_read() {
-                columns.push(Column::new(
-                    "seq".into(),
-                    std::mem::take(&mut run_seq[index]),
-                ));
-                columns.push(binary_column("qual", &run_qual[index]));
-            }
-            Ok(DataFrame::new(height, columns)?)
-        });
-        let r#match = r#match?;
-        let sequence_match = sequence_match?;
-        let mismatch = mismatch?;
-        let insertion = insertion?;
-        let deletion = deletion?;
-        let reference_skip = reference_skip?;
-        let soft_clip = soft_clip?;
-        let hard_clip = hard_clip?;
-        let padding = padding?;
-        let unmapped = DataFrame::new(
-            unmapped_read_id.len(),
-            vec![
-                Column::new("read_id".into(), unmapped_read_id),
-                Column::new("base_count".into(), base_count),
-                Column::new("seq".into(), unmapped_seq),
-                binary_column("qual", &unmapped_qual),
-            ],
-        )?;
-        let reference_mismatches =
-            reference_mismatches(&r#match, reference_sequence, contig_index)?;
-        let base_modifications = base_modifications(records, read_id_offset)?;
-        Ok(Self {
-            reads,
-            r#match,
-            sequence_match,
-            mismatch,
-            insertion,
-            deletion,
-            reference_skip,
-            soft_clip,
-            hard_clip,
-            padding,
-            unmapped,
-            reference_mismatches,
-            base_modifications,
-        })
     }
+    let height = read_id.len();
+    let read_columns = vec![
+        Column::new("read_id".into(), read_id),
+        Column::new("qname".into(), qname),
+        Column::new("ref_id".into(), ref_id),
+        Column::new("pos".into(), pos),
+        Column::new("mapq".into(), mapq),
+        Column::new("next_ref_id".into(), next_ref_id),
+        Column::new("next_pos".into(), next_pos),
+        Column::new("tlen".into(), tlen),
+        Column::new("stacking_start".into(), stacking_start),
+        Column::new("stacking_end".into(), stacking_end),
+        Column::new("paired".into(), paired),
+        Column::new("proper_pair".into(), proper_pair),
+        Column::new("unmapped".into(), unmapped),
+        Column::new("mate_unmapped".into(), mate_unmapped),
+        Column::new("reverse".into(), reverse),
+        Column::new("mate_reverse".into(), mate_reverse),
+        Column::new("first_segment".into(), first_segment),
+        Column::new("last_segment".into(), last_segment),
+        Column::new("secondary".into(), secondary),
+        Column::new("qc_failed".into(), qc_failed),
+        Column::new("duplicate".into(), duplicate),
+        Column::new("supplementary".into(), supplementary),
+    ];
+    let reads = DataFrame::new(height, read_columns)?
+        .lazy()
+        .with_columns([
+            col("stacking_start").is_not_null().alias("show"),
+            lit(0u64).cast(DataType::UInt64).alias("y"),
+        ])
+        .collect()?;
+    let [
+        r#match,
+        sequence_match,
+        mismatch,
+        insertion,
+        deletion,
+        reference_skip,
+        soft_clip,
+        hard_clip,
+        padding,
+    ] = [
+        (0, Kind::Match),
+        (1, Kind::SequenceMatch),
+        (2, Kind::SequenceMismatch),
+        (3, Kind::Insertion),
+        (4, Kind::Deletion),
+        (5, Kind::Skip),
+        (6, Kind::SoftClip),
+        (7, Kind::HardClip),
+        (8, Kind::Pad),
+    ]
+    .map(|(index, kind)| -> Result<DataFrame, TGVError> {
+        let height = run_read_id[index].len();
+        let mut columns = vec![
+            Column::new("read_id".into(), std::mem::take(&mut run_read_id[index])),
+            Column::new("op_index".into(), std::mem::take(&mut run_op_index[index])),
+            Column::new("ref_id".into(), std::mem::take(&mut run_ref_id[index])),
+            Column::new(
+                "ref_start".into(),
+                std::mem::take(&mut run_ref_start[index]),
+            ),
+            Column::new("op_len".into(), std::mem::take(&mut run_op_len[index])),
+        ];
+        if kind.consumes_read() {
+            columns.push(Column::new(
+                "seq".into(),
+                std::mem::take(&mut run_seq[index]),
+            ));
+            columns.push(binary_column("qual", &run_qual[index]));
+        }
+        Ok(DataFrame::new(height, columns)?)
+    });
+    let r#match = r#match?;
+    let sequence_match = sequence_match?;
+    let mismatch = mismatch?;
+    let insertion = insertion?;
+    let deletion = deletion?;
+    let reference_skip = reference_skip?;
+    let soft_clip = soft_clip?;
+    let hard_clip = hard_clip?;
+    let padding = padding?;
+    let unmapped = DataFrame::new(
+        unmapped_read_id.len(),
+        vec![
+            Column::new("read_id".into(), unmapped_read_id),
+            Column::new("base_count".into(), base_count),
+            Column::new("seq".into(), unmapped_seq),
+            binary_column("qual", &unmapped_qual),
+        ],
+    )?;
+    let reference_mismatches = reference_mismatches(&r#match, reference_sequence, contig_index)?;
+    let base_modifications = base_modifications(records, read_id_offset)?;
+    Ok(AlignmentTables {
+        reads,
+        r#match,
+        sequence_match,
+        mismatch,
+        insertion,
+        deletion,
+        reference_skip,
+        soft_clip,
+        hard_clip,
+        padding,
+        unmapped,
+        reference_mismatches,
+        base_modifications,
+    })
 }
 
 fn append_read(
@@ -1409,10 +1408,27 @@ mod tests {
                 .coverage
                 .query(reference_start, reference_start)
                 .unwrap()
-                .total,
+                .column("total")
+                .unwrap()
+                .u64()
+                .unwrap()
+                .sum()
+                .unwrap_or(0),
             1
         );
-        assert_eq!(alignment.coverage.query(100, 100).unwrap().total, 0);
+        assert_eq!(
+            alignment
+                .coverage
+                .query(100, 100)
+                .unwrap()
+                .column("total")
+                .unwrap()
+                .u64()
+                .unwrap()
+                .sum()
+                .unwrap_or(0),
+            0
+        );
         let viewport = alignment.tables.viewport(1, 100, &[0]).unwrap();
         let mut actual = Vec::new();
         for (kind, frame) in &viewport.runs {
