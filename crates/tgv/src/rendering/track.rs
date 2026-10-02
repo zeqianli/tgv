@@ -2,11 +2,9 @@ use crate::{
     layout::{AlignmentView, OnScreenCoordinate},
     rendering::colors::Palette,
 };
-use gv_core::intervals::GenomeInterval;
 use gv_core::{
-    error::TGVError,
     feature::{Gene, SubGeneFeatureType},
-    state::State,
+    prelude::*,
     strand::Strand,
 };
 use ratatui::{buffer::Buffer, layout::Rect, style::Style};

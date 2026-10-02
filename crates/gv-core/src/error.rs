@@ -1,8 +1,9 @@
 use bigtools::{BBIReadError, BigBedReadOpenError};
+use miette::Diagnostic;
 use std::path::PathBuf;
 use thiserror::Error;
 
-#[derive(Debug, Error)]
+#[derive(Debug, Diagnostic, Error)]
 #[allow(clippy::enum_variant_names)]
 pub enum TGVError {
     #[error("CLI error: {0}")]
@@ -51,6 +52,18 @@ pub enum TGVError {
 
     #[error("File IO error: {0}")]
     FileIOError(#[from] std::io::Error),
+
+    #[error("{message}")]
+    McpInvalidInput {
+        field: &'static str,
+        message: String,
+    },
+
+    #[error("Load a dataset before {operation}.")]
+    McpNoDataset { operation: &'static str },
+
+    #[error("{message}")]
+    McpInternal { message: String },
 
     #[error("Logging error: {0}")]
     LoggingError(#[from] crate::logging::LoggingError),

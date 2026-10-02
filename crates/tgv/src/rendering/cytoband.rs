@@ -1,7 +1,6 @@
 use gv_core::{
     cytoband::{Cytoband, CytobandSegment, Stain},
-    error::TGVError,
-    state::State,
+    prelude::*,
 };
 
 use crate::{

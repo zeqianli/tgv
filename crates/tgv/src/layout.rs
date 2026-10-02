@@ -1,28 +1,29 @@
-use crate::settings::Settings;
+use crate::{
+    settings::Settings,
+    track_registry::{TrackId, TrackRegistry},
+};
 use gv_core::{
     alignment::Alignment,
-    error::TGVError,
-    intervals::{Focus, GenomeInterval, Region},
     message::{Scroll, Zoom},
-    repository::RepositoryFileIndex,
-    settings::{AlignmentPath, FilePath},
+    prelude::*,
 };
 use ratatui::layout::Rect;
+use std::sync::Arc;
 use unicode_width::UnicodeWidthChar;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum AreaType {
     Cytoband,
     Coordinate,
-    Coverage(usize),
-    Alignment(usize),
-    AlignmentDivider { upper: usize, lower: usize },
+    Coverage(TrackId),
+    Alignment(TrackId),
+    AlignmentDivider { upper: TrackId, lower: TrackId },
     Sequence,
     GeneTrack,
     Console,
     Error,
-    Variant(usize),
-    Bed(usize),
+    Variant(TrackId),
+    Bed(TrackId),
     Fill,
 }
 
@@ -93,12 +94,18 @@ impl AlignmentView {
     pub const MAX_ZOOM_TO_DISPLAY_SEQUENCES: u64 = 2;
 
     pub fn new(focus: Focus, alignment_count: usize) -> Self {
-        AlignmentView {
+        Self::new_with_zoom(focus, 1, alignment_count)
+    }
+
+    /// Creates an alignment view with an explicit initial zoom.
+    pub fn new_with_zoom(focus: Focus, zoom: u64, alignment_count: usize) -> Self {
+        Self {
             focus,
-            zoom: 1,
+            zoom,
             y: vec![0; alignment_count],
         }
     }
+
     const ALIGNMENT_CACHE_RATIO: u64 = 3;
 
     pub fn alignment_cache_region(&self, region: Region) -> Region {
@@ -327,7 +334,7 @@ pub struct MainLayout {
     /// Requested sidebar width, retained while the sidebar is hidden.
     pub sidebar_width: u16,
     pub sidebar_visible: bool,
-    file_labels: Vec<(RepositoryFileIndex, String)>,
+    pub track_registry: Arc<TrackRegistry>,
 }
 
 impl MainLayout {
@@ -335,7 +342,11 @@ impl MainLayout {
     const SIDEBAR_DEFAULT_WIDTH: u16 = 18;
     const SIDEBAR_MIN_WIDTH: u16 = 6;
 
-    pub fn new(settings: &Settings, repository_file_indexes: &[RepositoryFileIndex]) -> Self {
+    pub fn new(
+        settings: &Settings,
+        track_registry: Arc<TrackRegistry>,
+        visible: &[TrackId],
+    ) -> Self {
         let mut tracks = vec![];
         if settings.core.reference.needs_track() {
             tracks.push(AreaType::Cytoband);
@@ -343,26 +354,23 @@ impl MainLayout {
 
         tracks.push(AreaType::Coordinate);
 
-        let mut last_alignment_index = None;
-        for repository_file_index in repository_file_indexes {
-            match repository_file_index {
-                RepositoryFileIndex::Alignment(index) => {
-                    if let Some(upper) = last_alignment_index {
-                        tracks.push(AreaType::AlignmentDivider {
-                            upper,
-                            lower: *index,
-                        });
+        let mut last_alignment_id = None;
+        for &id in visible {
+            match track_registry.get(id).repository_index {
+                RepositoryFileIndex::Alignment(_) => {
+                    if let Some(upper) = last_alignment_id {
+                        tracks.push(AreaType::AlignmentDivider { upper, lower: id });
                     }
-                    tracks.push(AreaType::Coverage(*index));
-                    tracks.push(AreaType::Alignment(*index));
-                    last_alignment_index = Some(*index);
+                    tracks.push(AreaType::Coverage(id));
+                    tracks.push(AreaType::Alignment(id));
+                    last_alignment_id = Some(id);
                 }
-                RepositoryFileIndex::Variant(index) => tracks.push(AreaType::Variant(*index)),
-                RepositoryFileIndex::Bed(index) => tracks.push(AreaType::Bed(*index)),
+                RepositoryFileIndex::Variant(_) => tracks.push(AreaType::Variant(id)),
+                RepositoryFileIndex::Bed(_) => tracks.push(AreaType::Bed(id)),
             }
         }
 
-        if last_alignment_index.is_none() {
+        if last_alignment_id.is_none() {
             tracks.push(AreaType::Fill);
         }
         if settings.core.reference.needs_sequence() {
@@ -375,36 +383,12 @@ impl MainLayout {
         tracks.push(AreaType::Console);
         tracks.push(AreaType::Error);
         let track_heights = tracks.iter().map(AreaType::desired_height).collect();
-        debug_assert_eq!(
-            settings.core.file_paths.len(),
-            repository_file_indexes.len()
-        );
-        let file_labels = repository_file_indexes
-            .iter()
-            .zip(&settings.core.file_paths)
-            .map(|(index, file)| {
-                let path = match file {
-                    FilePath::AlignmentPath(AlignmentPath::Bam { path, .. })
-                    | FilePath::AlignmentPath(AlignmentPath::Cram { path, .. })
-                    | FilePath::VariantPath(path)
-                    | FilePath::BedPath(path) => path,
-                };
-                let name = path
-                    .trim_end_matches(['/', '\\'])
-                    .rsplit(['/', '\\'])
-                    .next()
-                    .filter(|name| !name.is_empty())
-                    .unwrap_or(path);
-                (*index, name.to_owned())
-            })
-            .collect();
-
         MainLayout {
             tracks,
             track_heights,
             sidebar_width: Self::SIDEBAR_DEFAULT_WIDTH,
             sidebar_visible: true,
-            file_labels,
+            track_registry,
         }
     }
 
@@ -422,8 +406,8 @@ impl MainLayout {
 
     pub fn resize_alignment_pair(
         &mut self,
-        upper: usize,
-        lower: usize,
+        upper: TrackId,
+        lower: TrackId,
         delta_rows: i32,
         resolved: &ResolvedMainLayout,
     ) {
@@ -462,7 +446,28 @@ impl MainLayout {
     }
 
     /// Resolve the requested layout within the terminal area.
-    pub fn resolve(&self, terminal_area: Rect) -> ResolvedMainLayout {
+    pub fn resolve(&self, terminal_area: Rect, repository: &Repository) -> ResolvedMainLayout {
+        self.resolve_with_file_path(terminal_area, |index| repository.file_path(index))
+    }
+
+    fn resolve_with_file_path<'a>(
+        &self,
+        terminal_area: Rect,
+        file_path: impl Fn(RepositoryFileIndex) -> &'a str,
+    ) -> ResolvedMainLayout {
+        let file_names: Vec<&str> = self
+            .track_registry
+            .entries
+            .iter()
+            .map(|entry| {
+                let path = file_path(entry.repository_index);
+                path.trim_end_matches(['/', '\\'])
+                    .rsplit(['/', '\\'])
+                    .next()
+                    .filter(|name| !name.is_empty())
+                    .unwrap_or(path)
+            })
+            .collect();
         let sidebar_width =
             if self.sidebar_visible && terminal_area.width >= Self::SIDEBAR_MIN_WIDTH + 2 {
                 self.sidebar_width
@@ -484,18 +489,12 @@ impl MainLayout {
         let mut effective_track_heights = self.track_heights.clone();
         if sidebar_width > 0 {
             for (area, height) in self.tracks.iter().zip(&mut effective_track_heights) {
-                let file_index = match area {
-                    AreaType::Variant(index) => Some(RepositoryFileIndex::Variant(*index)),
-                    AreaType::Bed(index) => Some(RepositoryFileIndex::Bed(*index)),
+                let track_id = match area {
+                    AreaType::Variant(id) | AreaType::Bed(id) => Some(*id),
                     _ => None,
                 };
-                if let Some(file_index) = file_index
-                    && let Some((_, label)) = self
-                        .file_labels
-                        .iter()
-                        .find(|(index, _)| *index == file_index)
-                {
-                    let lines = wrap_sidebar_label(label, sidebar_width).len();
+                if let Some(track_id) = track_id {
+                    let lines = wrap_sidebar_label(file_names[track_id], sidebar_width).len();
                     *height = Some(lines.saturating_add(1).min(u16::MAX as usize) as u16);
                 }
             }
@@ -597,7 +596,7 @@ impl MainLayout {
                         coordinate.bottom().saturating_sub(rect.y),
                     )
                 }
-                AreaType::Coverage(index) if matches!(areas.get(track_index + 1), Some((AreaType::Alignment(next), _)) if *next == index) =>
+                AreaType::Coverage(id) if matches!(areas.get(track_index + 1), Some((AreaType::Alignment(next), _)) if *next == id) =>
                 {
                     let alignment = areas[track_index + 1].1;
                     track_index += 2;
@@ -672,13 +671,13 @@ impl MainLayout {
             .iter()
             .enumerate()
             .filter_map(|(index, (area_type, section))| {
-                let AreaType::Coverage(alignment_index) = area_type else {
+                let AreaType::Coverage(id) = area_type else {
                     return None;
                 };
                 let reserved = u16::from(separator_after(index));
                 (sidebar_width > 0 && section.height > reserved).then_some((
                     Rect::new(section.x, section.bottom() - reserved - 1, section.width, 1),
-                    *alignment_index,
+                    *id,
                 ))
             })
             .collect();
@@ -686,16 +685,11 @@ impl MainLayout {
             .iter()
             .enumerate()
             .filter_map(|(index, (area_type, section))| {
-                let file_index = match area_type {
-                    AreaType::Coverage(index) => RepositoryFileIndex::Alignment(*index),
-                    AreaType::Variant(index) => RepositoryFileIndex::Variant(*index),
-                    AreaType::Bed(index) => RepositoryFileIndex::Bed(*index),
+                let track_id = match area_type {
+                    AreaType::Coverage(id) | AreaType::Variant(id) | AreaType::Bed(id) => *id,
                     _ => return None,
                 };
-                let (_, name) = self
-                    .file_labels
-                    .iter()
-                    .find(|(file, _)| *file == file_index)?;
+                let name = file_names[track_id];
                 let reserved = u16::from(separator_after(index))
                     + u16::from(matches!(area_type, AreaType::Coverage(_)));
                 let label_area = Rect::new(
@@ -705,7 +699,7 @@ impl MainLayout {
                     section.height.saturating_sub(reserved),
                 );
                 (label_area.height > 0 && label_area.width > 0)
-                    .then_some((label_area, name.clone()))
+                    .then_some((label_area, name.to_owned()))
             })
             .collect();
 
@@ -719,6 +713,7 @@ impl MainLayout {
             sidebar_section_dividers,
             sidebar_labels,
             sidebar_alignment_depths,
+            track_registry: Arc::clone(&self.track_registry),
         }
     }
 }
@@ -734,7 +729,8 @@ pub struct ResolvedMainLayout {
     pub sidebar_divider_area: Rect,
     pub sidebar_section_dividers: Vec<Rect>,
     pub sidebar_labels: Vec<(Rect, String)>,
-    pub sidebar_alignment_depths: Vec<(Rect, usize)>,
+    pub sidebar_alignment_depths: Vec<(Rect, TrackId)>,
+    pub track_registry: Arc<TrackRegistry>,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -878,7 +874,10 @@ pub fn linear_scale(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use gv_core::reference::Reference;
+    use gv_core::{
+        reference::Reference,
+        settings::{AlignmentPath, FilePath},
+    };
     use rstest::rstest;
 
     fn settings_without_reference(indexes: &[RepositoryFileIndex]) -> Settings {
@@ -903,13 +902,27 @@ mod tests {
         settings
     }
 
+    fn resolve(layout: &MainLayout, area: Rect) -> ResolvedMainLayout {
+        layout.resolve_with_file_path(area, |_| "sample.bam")
+    }
+
+    fn layout_for_indexes(indexes: &[RepositoryFileIndex]) -> MainLayout {
+        let settings = settings_without_reference(indexes);
+        let registry = Arc::new(TrackRegistry::new(indexes));
+        let ids = registry
+            .entries
+            .iter()
+            .map(|entry| entry.id)
+            .collect::<Vec<_>>();
+        MainLayout::new(&settings, registry, &ids)
+    }
+
     fn alignment_layout(alignment_count: usize, height: u16) -> (MainLayout, ResolvedMainLayout) {
         let repository_file_indexes = (0..alignment_count)
             .map(RepositoryFileIndex::Alignment)
             .collect::<Vec<_>>();
-        let settings = settings_without_reference(&repository_file_indexes);
-        let layout = MainLayout::new(&settings, &repository_file_indexes);
-        let resolved = layout.resolve(Rect::new(0, 0, 80, height + 2));
+        let layout = layout_for_indexes(&repository_file_indexes);
+        let resolved = resolve(&layout, Rect::new(0, 0, 80, height + 2));
         (layout, resolved)
     }
 
@@ -969,12 +982,12 @@ mod tests {
         vec![
             AreaType::Coordinate,
             AreaType::Variant(0),
-            AreaType::Coverage(0),
-            AreaType::Alignment(0),
-            AreaType::Bed(0),
-            AreaType::AlignmentDivider { upper: 0, lower: 1 },
             AreaType::Coverage(1),
             AreaType::Alignment(1),
+            AreaType::Bed(2),
+            AreaType::AlignmentDivider { upper: 1, lower: 3 },
+            AreaType::Coverage(3),
+            AreaType::Alignment(3),
             AreaType::Console,
             AreaType::Error,
         ]
@@ -983,11 +996,9 @@ mod tests {
         #[case] repository_file_indexes: Vec<RepositoryFileIndex>,
         #[case] expected_tracks: Vec<AreaType>,
     ) {
-        let settings = settings_without_reference(&repository_file_indexes);
-
-        let layout = MainLayout::new(&settings, &repository_file_indexes);
+        let layout = layout_for_indexes(&repository_file_indexes);
         assert_eq!(layout.tracks, expected_tracks);
-        let resolved = layout.resolve(Rect::new(0, 0, 80, 24));
+        let resolved = resolve(&layout, Rect::new(0, 0, 80, 24));
         assert_eq!(resolved.sidebar_width, 18);
         for (area_type, area) in &resolved.areas {
             if matches!(area_type, AreaType::Console | AreaType::Error) {
@@ -1029,7 +1040,7 @@ mod tests {
         let initial_second_coverage_height = area_height(&resolved, AreaType::Coverage(1));
 
         layout.resize_alignment_pair(0, 1, initial_delta as i32, &resolved);
-        resolved = layout.resolve(Rect::new(0, 0, 80, 26));
+        resolved = resolve(&layout, Rect::new(0, 0, 80, 26));
         assert_eq!(
             area_height(&resolved, AreaType::Alignment(0)),
             initial_upper_height + initial_delta as u16
@@ -1048,7 +1059,7 @@ mod tests {
         );
 
         layout.resize_alignment_pair(0, 1, -(second_delta as i32), &resolved);
-        resolved = layout.resolve(Rect::new(0, 0, 80, 26));
+        resolved = resolve(&layout, Rect::new(0, 0, 80, 26));
         assert_eq!(
             area_height(&resolved, AreaType::Alignment(0)),
             initial_upper_height + initial_delta as u16 - second_delta as u16
@@ -1070,7 +1081,7 @@ mod tests {
         let (mut layout, mut resolved) = alignment_layout(2, 24);
 
         layout.resize_alignment_pair(0, 1, delta as i32, &resolved);
-        resolved = layout.resolve(Rect::new(0, 0, 80, 26));
+        resolved = resolve(&layout, Rect::new(0, 0, 80, 26));
 
         assert_eq!(
             area_height(&resolved, AreaType::Alignment(0)),
@@ -1119,10 +1130,10 @@ mod tests {
             layout.get_area_type_at_position(80, 0),
             HoveringAreaType::None
         );
-        let narrow = layout_state.resolve(Rect::new(0, 0, 7, 16));
+        let narrow = resolve(&layout_state, Rect::new(0, 0, 7, 16));
         assert_eq!(narrow.sidebar_width, 0);
         assert_eq!(
-            layout_state.resolve(Rect::new(0, 0, 80, 16)).sidebar_width,
+            resolve(&layout_state, Rect::new(0, 0, 80, 16)).sidebar_width,
             18
         );
     }

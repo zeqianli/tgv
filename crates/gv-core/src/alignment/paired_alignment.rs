@@ -74,6 +74,22 @@ impl PairedAlignment {
         self.ys_index.len()
     }
 
+    /// Iterate over indexed pairs whose display spans overlap an inclusive interval.
+    /// The span includes soft clips and the gap between mates.
+    pub fn overlapping_pairs<'a>(
+        &'a self,
+        alignment: &'a Alignment,
+        contig_index: usize,
+        start: u64,
+        end: u64,
+    ) -> impl Iterator<Item = (usize, &'a ReadPair)> + 'a {
+        self.read_pairs.iter().enumerate().filter(move |(_, pair)| {
+            alignment.contig_index == contig_index
+                && start <= end
+                && pair.full_pair_overlaps(&alignment.reads, start, end)
+        })
+    }
+
     pub fn pair_overlapping(
         &self,
         reads: &[AlignedRead],

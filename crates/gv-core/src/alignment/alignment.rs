@@ -117,6 +117,19 @@ impl Alignment {
         }
     }
 
+    /// Iterate over indexed reads whose display spans overlap an inclusive interval.
+    /// The display span includes soft clips, matching the read hit test.
+    pub fn overlapping_reads(
+        &self,
+        contig_index: usize,
+        start: u64,
+        end: u64,
+    ) -> impl Iterator<Item = (usize, &AlignedRead)> {
+        self.reads.iter().enumerate().filter(move |(_, read)| {
+            self.contig_index == contig_index && start <= end && read.full_read_overlaps(start, end)
+        })
+    }
+
     /// Return the read at x_coordinate, yth track
     pub fn read_overlapping(&self, left: u64, right: u64, y: usize) -> Option<&AlignedRead> {
         if y >= self.depth() {

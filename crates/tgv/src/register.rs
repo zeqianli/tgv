@@ -4,7 +4,7 @@ use crate::{
 };
 use crossterm::event::{KeyCode, KeyEvent};
 use gv_core::normal::update_by_char;
-use gv_core::{error::TGVError, state::State};
+use gv_core::prelude::*;
 use itertools::Itertools;
 #[derive(Debug, Clone, Eq, PartialEq)]
 pub enum KeyRegisterType {

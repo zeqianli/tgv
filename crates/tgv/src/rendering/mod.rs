@@ -36,7 +36,7 @@ use crate::{
     register::{KeyRegisterType, Registers},
 };
 
-use gv_core::{error::TGVError, message::AlignmentDisplayOption, state::State};
+use gv_core::{message::AlignmentDisplayOption, prelude::*};
 use ratatui::{
     buffer::Buffer,
     layout::Rect,
@@ -141,30 +141,34 @@ pub fn render_main(
         match area_type {
             AreaType::Cytoband => render_cytobands(rect, buf, state, alignment_view, pallete)?,
             AreaType::Coordinate => render_coordinates(rect, buf, alignment_view, state)?,
-            AreaType::Coverage(index) => {
+            AreaType::Coverage(id) => {
+                let index = layout.track_registry.alignment_index(*id)?;
                 if alignment_view.zoom <= AlignmentView::MAX_ZOOM_TO_DISPLAY_ALIGNMENTS
-                    && let Some(alignment) = state.alignments.get(*index)
+                    && let Some(alignment) = state.alignments.get(index)
                 {
                     render_coverage(rect, buf, alignment, alignment_view, pallete)?;
                 }
             }
-            AreaType::Alignment(index) => {
+            AreaType::Alignment(id) => {
+                let index = layout.track_registry.alignment_index(*id)?;
                 if alignment_view.zoom <= AlignmentView::MAX_ZOOM_TO_DISPLAY_ALIGNMENTS {
-                    if state.alignment_options[*index]
-                        .contains(&AlignmentDisplayOption::ViewAsPairs)
+                    if state.alignment_options[index].contains(&AlignmentDisplayOption::ViewAsPairs)
                     {
-                        let paired_alignment = state.paired_alignments[*index].as_mut().ok_or(
-                            TGVError::StateError(
-                                format!("Paired alignment {index} not yet calculated at rendering")
+                        let paired_alignment =
+                            state.paired_alignments[index]
+                                .as_mut()
+                                .ok_or(TGVError::StateError(
+                                    format!(
+                                        "Paired alignment {index} not yet calculated at rendering"
+                                    )
                                     .to_string(),
-                            ),
-                        )?;
+                                ))?;
 
                         render_paired_alignment(
-                            *index,
+                            index,
                             rect,
                             buf,
-                            &mut state.alignments[*index],
+                            &mut state.alignments[index],
                             alignment_view,
                             paired_alignment,
                             &state.sequence,
@@ -172,10 +176,10 @@ pub fn render_main(
                         )?;
                     } else {
                         render_alignment(
-                            *index,
+                            index,
                             rect,
                             buf,
-                            &mut state.alignments[*index],
+                            &mut state.alignments[index],
                             alignment_view,
                             &state.sequence,
                             pallete,
@@ -205,13 +209,15 @@ pub fn render_main(
             AreaType::Error => {
                 render_status_bar(rect, buf, state);
             }
-            AreaType::Variant(index) => {
-                if let Some(variants) = state.variants.get(*index) {
+            AreaType::Variant(id) => {
+                let index = layout.track_registry.variant_index(*id)?;
+                if let Some(variants) = state.variants.get(index) {
                     render_variants(rect, buf, variants, alignment_view, pallete)?;
                 }
             }
-            AreaType::Bed(index) => {
-                if let Some(bed_intervals) = state.bed_intervals.get(*index) {
+            AreaType::Bed(id) => {
+                let index = layout.track_registry.bed_index(*id)?;
+                if let Some(bed_intervals) = state.bed_intervals.get(index) {
                     render_bed(rect, buf, bed_intervals, alignment_view, pallete)?;
                 }
             }

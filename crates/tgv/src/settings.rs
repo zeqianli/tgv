@@ -4,10 +4,9 @@ use crate::{
 };
 use clap::{Parser, Subcommand, ValueEnum};
 use gv_core::alignment::is_url;
-use gv_core::error::TGVError;
 use gv_core::message::Movement;
-use gv_core::reference::Reference;
-use gv_core::settings::{AlignmentPath, BackendType, BamSource, FilePath};
+use gv_core::prelude::*;
+use gv_core::settings::{AlignmentPath, BackendType, BamSource};
 use gv_core::tracks::{UCSCDownloadSource, UcscHost};
 use std::path::PathBuf;
 
@@ -59,6 +58,8 @@ impl From<UCSCDownloadSourceCli> for UCSCDownloadSource {
 
 #[derive(Subcommand, Clone, Debug)]
 pub enum Commands {
+    /// Serve regional genome evidence through MCP over standard input and output.
+    Serve,
     /// Download reference data.
     Download {
         /// Reference genome to download.
@@ -253,7 +254,7 @@ impl Cli {
 /// Classify input files and build the track paths.
 ///
 /// Returns file paths in the same order as the CLI arguments.
-fn classify_and_build_tracks(files: &[String]) -> Result<Vec<FilePath>, TGVError> {
+pub(crate) fn classify_and_build_tracks(files: &[String]) -> Result<Vec<FilePath>, TGVError> {
     for file in files {
         let lower = file.to_lowercase();
         if lower.ends_with(".fa")
@@ -420,8 +421,7 @@ impl TryFrom<Cli> for Settings {
 mod tests {
     use super::*;
 
-    use gv_core::reference::Reference;
-    use gv_core::settings::{AlignmentPath, BamSource, FilePath};
+    use gv_core::settings::{AlignmentPath, BamSource};
     use rstest::rstest;
 
     fn bam(path: &str) -> AlignmentPath {

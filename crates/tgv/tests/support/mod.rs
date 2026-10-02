@@ -41,7 +41,8 @@ impl AppHarness {
     async fn initialize(&mut self) -> Result<(), TGVError> {
         self.terminal
             .draw(|frame| {
-                self.app.resolved_layout = self.app.layout.resolve(frame.area());
+                self.app.resolved_layout =
+                    self.app.layout.resolve(frame.area(), &self.app.repository);
             })
             .expect("initial layout draw");
 
@@ -125,7 +126,6 @@ impl AppHarness {
         self.terminal
             .draw(|frame| {
                 let buffer = frame.buffer_mut();
-                self.app.resolved_layout = self.app.layout.resolve(buffer.area);
                 self.app.render(buffer, render_events).expect("render");
             })
             .expect("terminal render");

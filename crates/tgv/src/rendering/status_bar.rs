@@ -1,4 +1,4 @@
-use gv_core::state::State;
+use gv_core::prelude::*;
 use itertools::Itertools;
 use ratatui::{buffer::Buffer, layout::Rect, style::Style};
 

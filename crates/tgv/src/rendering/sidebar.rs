@@ -6,7 +6,7 @@ use crate::{
     rendering::colors::Palette,
 };
 
-use gv_core::{error::TGVError, message::AlignmentDisplayOption, state::State};
+use gv_core::{message::AlignmentDisplayOption, prelude::*};
 use itertools::Itertools;
 use ratatui::{
     buffer::Buffer,
@@ -103,11 +103,12 @@ pub fn render_sidebar(
                 _ => {}
             }
         }
-        for (area, index) in &layout.sidebar_alignment_depths {
+        for (area, id) in &layout.sidebar_alignment_depths {
+            let index = layout.track_registry.alignment_index(*id)?;
             buf.set_stringn(
                 area.x,
                 area.y,
-                alignment_depth_description(state, alignment_view, *index),
+                alignment_depth_description(state, alignment_view, index),
                 area.width as usize,
                 sidebar_style,
             );

@@ -7,7 +7,7 @@ use gv_core::{
         Alignment, PairedAlignment, RenderingContext, RenderingContextKind,
         RenderingContextModifier,
     },
-    error::TGVError,
+    prelude::*,
     sequence::Sequence,
 };
 use ratatui::{
@@ -31,12 +31,12 @@ pub fn render_alignment(
         return Ok(());
     }
 
+    let region = alignment_view.region(area);
     let visible_reads = alignment
-        .ys_index
-        .iter()
-        .enumerate()
-        .flat_map(|(y, read_indexes)| read_indexes.iter().map(move |read_index| (y, *read_index)))
-        .filter(|(_y, read_index)| alignment.show_read[*read_index])
+        .overlapping_reads(region.contig_index(), region.start(), region.end())
+        .filter_map(|(read_index, _)| {
+            alignment.show_read[read_index].then_some((alignment.ys[read_index], read_index))
+        })
         .collect::<Vec<_>>();
 
     for (y, read_index) in visible_reads {
@@ -68,12 +68,18 @@ pub fn render_paired_alignment(
         return Ok(());
     }
 
+    let region = alignment_view.region(area);
     let visible_pairs = paired_alignment
-        .ys_index
-        .iter()
-        .enumerate()
-        .flat_map(|(y, read_indexes)| read_indexes.iter().map(move |read_index| (y, *read_index)))
-        .filter(|(_y, read_index)| paired_alignment.show_pair[*read_index])
+        .overlapping_pairs(
+            alignment,
+            region.contig_index(),
+            region.start(),
+            region.end(),
+        )
+        .filter_map(|(pair_index, _)| {
+            paired_alignment.show_pair[pair_index]
+                .then_some((paired_alignment.ys[pair_index], pair_index))
+        })
         .collect::<Vec<_>>();
 
     for (y, pair_index) in visible_pairs {

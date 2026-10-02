@@ -19,6 +19,7 @@ csv.workspace = true
 futures.workspace = true
 itertools.workspace = true
 log.workspace = true
+miette.workspace = true
 native-tls.workspace = true
 nom.workspace = true
 noodles.workspace = true

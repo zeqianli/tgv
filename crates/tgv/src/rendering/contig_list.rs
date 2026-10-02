@@ -1,5 +1,5 @@
 use crate::register::Registers;
-use gv_core::{contig_header::Contig, error::TGVError, state::State};
+use gv_core::{contig_header::Contig, prelude::*};
 use ratatui::{
     buffer::Buffer,
     layout::{Position, Rect},

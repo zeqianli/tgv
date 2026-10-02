@@ -7,10 +7,9 @@
 use crate::{app::App, message::Message, settings::Settings};
 use gv_core::{
     alignment::is_url,
-    error::TGVError,
     message::Movement,
-    reference::Reference,
-    settings::{AlignmentPath, BackendType, BamSource, FilePath},
+    prelude::*,
+    settings::{AlignmentPath, BackendType, BamSource},
     tracks::UcscHost,
 };
 use serde::{Deserialize, Serialize};
