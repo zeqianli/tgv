@@ -8,21 +8,18 @@ resolver = "3"
 async-compat = "0"
 async-compression = { version = "0.4", features = ["gzip", "tokio"] }
 async-trait = "0"
-bigtools = "0"
-bytes = "1"
+bigtools = { version = "0", default-features = false, features = ["read"] }
 chrono = { version = "0", features = ["clock"] }
 clap = { version = "4", features = ["derive"] }
 crossterm = "0"
-csv = "1"
 futures = "0"
 itertools = "0"
 log = { version = "0.4", features = ["std"] }
 miette = { version = "7", features = ["fancy"] }
-native-tls = { version = "0.2", features = ["vendored"] }
 nom = "8"
 noodles = { version = "0", features = ["async", "bam", "bed", "bgzf", "core", "cram", "fasta", "sam", "vcf"] }
 opendal = { version = "0.53.3", default-features = false, features = ["services-s3"] }
-polars = { version = "0.55.2", default-features = false, features = ["dtype-u8", "dtype-u16"] }
+polars = { version = "0.55.2", default-features = false, features = ["dtype-u8", "dtype-u16", "lazy"] }
 ratatui = "0.29"
 rmcp = { version = "=3.5.0", default-features = false, features = ["server", "macros", "transport-io"] }
 schemars = "1"
@@ -31,7 +28,7 @@ serde = { version = "1.0", features = ["derive"] }
 serde_json = "1"
 toml = "0.8"
 shellexpand = "3.1"
-sqlx = { version = "0.7", features = ["mysql", "sqlite", "runtime-tokio-rustls"] }
+sqlx = { version = "0.7", default-features = false, features = ["mysql", "sqlite", "runtime-tokio-rustls"] }
 strum = { version = "0.27", features = ["derive"] }
 thiserror = { version = "2" }
 tempfile = "3"
@@ -39,7 +36,6 @@ tokio = { version = "1", features = ["full"] }
 tokio-util = { version = "0.7", features = ["io"] }
 twobit = "0"
 unicode-width = "0.2"
-url = "2.5.4"
 
 # local crates
 

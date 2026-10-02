@@ -10,12 +10,10 @@ include = ["src/*", "!src/snapshots", "Cargo.toml", "./README.md"]
 [dependencies]
 clap.workspace = true
 crossterm.workspace = true
-futures.workspace = true
 gv-core.workspace = true
 itertools.workspace = true
 log.workspace = true
 miette.workspace = true
-nom.workspace = true
 ratatui.workspace = true
 rmcp.workspace = true
 schemars.workspace = true
@@ -31,7 +29,6 @@ polars.workspace = true
 unicode-width.workspace = true
 
 [dev-dependencies]
-cargo-insta = "1.42"
 insta = "1.42"
 rstest = "0.25.0"
 shlex = "1.3.0"

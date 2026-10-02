@@ -28,6 +28,7 @@ impl PairedAlignment {
             & !reads.column("secondary")?.bool()?.clone()
             & !reads.column("supplementary")?.bool()?.clone()
             & reads.column("qname")?.is_not_null();
+
         let candidates = reads.filter(&eligible)?;
         let grouped = candidates.group_by_stable(["qname"])?.groups()?;
         let groups = grouped.column("groups")?.list()?;
@@ -91,6 +92,7 @@ impl PairedAlignment {
             "pair_id".into(),
             (0..pairs.height() as u64).collect::<Vec<_>>(),
         ))?;
+
         pairs.with_column(Column::new(
             "stacking_start".into(),
             bounds.iter().map(|b| b.map(|b| b.0)).collect::<Vec<_>>(),
