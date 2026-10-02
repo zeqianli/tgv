@@ -2,7 +2,7 @@ use crate::sequence::SequenceRepositoryEnum;
 use crate::tracks::{TrackService, TrackServiceEnum};
 use crate::variant::VariantRepository;
 use crate::{
-    alignment::{Alignment, AlignmentRepositoryEnum, PairedAlignment},
+    alignment::{Alignment, AlignmentRepositoryEnum, PairedAlignment, tables},
     bed::{BedRepository, BedTrack},
     contig_header::ContigHeader,
     cytoband::Cytoband,
@@ -179,7 +179,7 @@ impl State {
                 return Err(e);
             }
         };
-        let read_count = alignment.read_count();
+        let read_count = alignment.records.len();
         let depth = alignment.depth()?;
         self.alignments[index] = alignment;
 
@@ -270,10 +270,16 @@ impl State {
         let mismatch_tables = self
             .alignments
             .iter()
-            .map(|alignment| alignment.prepare_reference_mismatches(&sequence))
+            .map(|alignment| {
+                tables::reference_mismatches(
+                    &alignment.tables.r#match,
+                    &sequence,
+                    alignment.contig_index,
+                )
+            })
             .collect::<Result<Vec<_>, _>>()?;
         for (alignment, table) in self.alignments.iter_mut().zip(mismatch_tables) {
-            alignment.replace_reference_mismatches(table);
+            alignment.tables.reference_mismatches = table;
         }
         self.sequence = sequence;
         log::debug!(

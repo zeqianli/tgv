@@ -150,7 +150,7 @@ impl MouseRegister {
                                         )?
                                     }
                             {
-                                let record = alignment.record(read_id);
+                                let record = &alignment.records[read_id];
                                 let name = record
                                     .name()
                                     .map(|name| name.to_string())

@@ -1,6 +1,6 @@
 use crate::alignment::{
     coverage::CoverageTable,
-    tables::{self, AlignmentTables},
+    tables::AlignmentTables,
     viewport::AlignmentViewport,
 };
 use crate::error::TGVError;
@@ -147,32 +147,6 @@ impl Alignment {
             .map(|id| id as usize))
     }
 
-    pub fn record(&self, read_id: usize) -> &RecordBuf {
-        &self.records[read_id]
-    }
-
-    pub fn read_count(&self) -> usize {
-        self.records.len()
-    }
-
-    /// One-based, inclusive display bounds, including soft clips.
-    pub fn stacking_bounds(&self, read_id: usize) -> Option<(u64, u64)> {
-        let reads = &self.tables.reads;
-        let start = reads
-            .column("stacking_start")
-            .expect("reads have stacking bounds")
-            .u64()
-            .expect("bounds are u64")
-            .get(read_id);
-        let end = reads
-            .column("stacking_end")
-            .expect("reads have stacking bounds")
-            .u64()
-            .expect("bounds are u64")
-            .get(read_id);
-        start.zip(end)
-    }
-
     pub fn query_viewport(
         &self,
         region: &Region,
@@ -182,22 +156,6 @@ impl Alignment {
             return self.tables.viewport(1, 1, &[]);
         }
         self.tables.viewport(region.start(), region.end(), read_ids)
-    }
-
-    pub(crate) fn prepare_reference_mismatches(
-        &self,
-        reference: &Sequence,
-    ) -> Result<DataFrame, TGVError> {
-        tables::reference_mismatches(
-            self.tables
-                .run(noodles::sam::alignment::record::cigar::op::Kind::Match),
-            reference,
-            self.contig_index,
-        )
-    }
-
-    pub(crate) fn replace_reference_mismatches(&mut self, table: DataFrame) {
-        self.tables.reference_mismatches = table;
     }
 
     pub fn from_records(
@@ -290,7 +248,7 @@ impl Alignment {
                     .collect::<Vec<_>>()
             }
             AlignmentFilter::BaseSoftclip(position) => {
-                let ids = (0..self.read_count()).collect::<Vec<_>>();
+                let ids = (0..self.records.len()).collect::<Vec<_>>();
                 let viewport = self.tables.viewport(position, position, &ids)?;
                 let (_, clips) = viewport
                     .runs
@@ -306,7 +264,7 @@ impl Alignment {
                     .map(|id| id as usize)
                     .collect()
             }
-            _ => (0..self.read_count()).collect(),
+            _ => (0..self.records.len()).collect(),
         };
         let selected = Series::new(
             "selected".into(),

@@ -665,7 +665,7 @@ pub fn base_modifications_schema() -> SchemaRef {
     Arc::new(schema)
 }
 
-pub(super) fn reference_mismatches(
+pub(crate) fn reference_mismatches(
     runs: &DataFrame,
     reference: &Sequence,
     contig_index: usize,
@@ -1255,11 +1255,11 @@ mod tests {
         let alignment =
             Alignment::from_records(vec![record], 0, (1, 100), &Sequence::default()).unwrap();
         assert_eq!(
-            alignment.record(0).data().get(&Tag::new(b'M', b'm')),
+            alignment.records[0].data().get(&Tag::new(b'M', b'm')),
             Some(&Value::from("C+m,0,0,0;")),
         );
         assert_eq!(
-            alignment.record(0).data().get(&Tag::new(b'M', b'l')),
+            alignment.records[0].data().get(&Tag::new(b'M', b'l')),
             Some(&Value::from(vec![255u8, 80, 20])),
         );
         let table = &alignment.tables.base_modifications;
@@ -1391,7 +1391,7 @@ mod tests {
                 .get(0),
             Some(reference_start as u32)
         );
-        let first_kind = alignment.record(0).cigar().as_ref()[0].kind();
+        let first_kind = alignment.records[0].cigar().as_ref()[0].kind();
         assert_eq!(
             alignment
                 .tables

@@ -114,62 +114,6 @@ impl PairedAlignment {
         Ok(())
     }
 
-    pub fn pair_count(&self) -> usize {
-        self.pairs.height()
-    }
-
-    /// The stable read IDs belonging to a pair.
-    pub fn members(&self, pair_id: usize) -> (usize, Option<usize>) {
-        let first = self
-            .pairs
-            .column("read_1_id")
-            .unwrap()
-            .u64()
-            .unwrap()
-            .get(pair_id)
-            .unwrap() as usize;
-        let second = self
-            .pairs
-            .column("read_2_id")
-            .unwrap()
-            .u64()
-            .unwrap()
-            .get(pair_id)
-            .map(|id| id as usize);
-        (first, second)
-    }
-
-    /// Iterate over indexed pairs whose display spans overlap an inclusive interval.
-    /// The span includes soft clips and the gap between mates.
-    pub fn overlapping_pairs<'a>(
-        &'a self,
-        alignment: &'a Alignment,
-        contig_index: usize,
-        start: u64,
-        end: u64,
-    ) -> Result<Vec<usize>, TGVError> {
-        if alignment.contig_index != contig_index || start > end {
-            return Ok(Vec::new());
-        }
-        let hits = self
-            .pairs
-            .clone()
-            .lazy()
-            .filter(
-                col("stacking_start")
-                    .lt_eq(lit(end))
-                    .and(col("stacking_end").gt_eq(lit(start))),
-            )
-            .select([col("pair_id")])
-            .collect()?;
-        Ok(hits
-            .column("pair_id")?
-            .u64()?
-            .into_no_null_iter()
-            .map(|id| id as usize)
-            .collect())
-    }
-
     /// Find a read in a visible pair or singleton at the displayed row.
     pub fn read_overlapping(
         &self,
