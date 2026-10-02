@@ -134,13 +134,18 @@ impl MouseRegister {
                                 alignment_view.coordinates_of_onscreen_x(event.column, area),
                                 alignment_view.coordinate_of_onscreen_y(index, event.row, area),
                             ) && let Some(alignment) = state.alignments.get(index)
-                                && let Some(read) = alignment.read_overlapping(
+                                && let Some(read_id) = alignment.read_overlapping(
                                     left_coordinate,
                                     right_coordinate,
                                     y_coordinate,
-                                )
+                                )?
                             {
-                                messages.push(Message::message(read.describe()?));
+                                messages.push(Message::message(
+                                    gv_core::alignment::AlignedReadRef::borrowed(
+                                        alignment.record(read_id),
+                                    )?
+                                    .describe()?,
+                                ));
                             }
                         }
                         AreaType::Sequence => {

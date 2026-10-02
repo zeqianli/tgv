@@ -53,6 +53,15 @@
 - **Type states** encoded in generics when state transitions matter
 - **Non-exhaustive in stable crates**: The `nextest-metadata` crate has a stable API and public types there should be `#[non_exhaustive]` for forward compatibility. Internal crates like `nextest-runner` do not have stable APIs, so `#[non_exhaustive]` is not required (though error types may still use it).
 
+### Field access
+
+- Do not write simple getters that only return a field, such as `reads(&self)`. Expose the field as `pub` and access it directly. Keep methods for operations that compute, select, or validate data.
+
+### Coordinates
+
+- Keep all internal genomic coordinates one-based, with inclusive interval endpoints. This includes alignment tables, annotations, viewport queries, and rendering.
+- Row IDs, operation indexes, and offsets into sequences remain zero-based indexes.
+
 ### Indexed state invariants
 
 - When parallel vectors or indexed state are expected to have matching shapes, initialize them to the correct length at construction or update boundaries, then access valid indexes directly with `[index]`.

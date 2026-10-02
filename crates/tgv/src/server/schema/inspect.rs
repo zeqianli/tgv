@@ -80,21 +80,21 @@ impl TrackSummary {
         alignment: &Alignment,
         contig_index: usize,
         region: &InspectInterval,
-    ) -> Self {
+    ) -> Result<Self, TGVError> {
         let overlapping_records = alignment
-            .overlapping_reads(contig_index, region.start, region.end)
-            .count();
+            .overlapping_reads(contig_index, region.start, region.end)?
+            .len();
         let positions = (region.start..=region.end)
             .map(|position| PositionCoverage::from((position, alignment.coverage_at(position))))
             .collect();
-        Self::Alignment {
+        Ok(Self::Alignment {
             track_id,
             overlapping_records,
             coverage: CoverageSummary {
                 method: CoverageMethod::ViewerCurrent,
                 positions,
             },
-        }
+        })
     }
 
     /// Summarizes overlapping variants and includes up to the response item limit.

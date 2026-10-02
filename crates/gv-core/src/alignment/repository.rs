@@ -1,5 +1,5 @@
 use crate::{
-    alignment::{AlignedRead, Alignment},
+    alignment::{Alignment, AlignmentTables},
     contig_header::ContigHeader,
     error::TGVError,
     intervals::{GenomeInterval, Region},
@@ -22,6 +22,8 @@ use std::fs;
 use std::path::Path;
 use std::time::Instant;
 use tokio::fs::File;
+
+const RECORD_BATCH_SIZE: usize = 1024;
 
 pub struct BamRepository {
     bam_path: String,
@@ -293,9 +295,11 @@ impl AlignmentRepositoryEnum {
             }
         };
 
-        let records = match query_region {
-            Some(region) => {
-                let mut records = Vec::new();
+        let mut records = Vec::new();
+        let mut batch = Vec::with_capacity(RECORD_BATCH_SIZE);
+        let mut tables = AlignmentTables::default();
+        match query_region {
+            Some(query_region) => {
                 match self {
                     AlignmentRepositoryEnum::Bam(inner) => {
                         // Reopen the reader because repeated queries at the same BGZF offset
@@ -303,13 +307,22 @@ impl AlignmentRepositoryEnum {
                         let file = File::open(&inner.bam_path).await?;
                         let mut reader = bam::r#async::io::Reader::new(file);
                         let mut query = reader
-                            .query(&inner.header, &inner.index, &region)?
+                            .query(&inner.header, &inner.index, &query_region)?
                             .records();
 
                         while let Some(record) = query.try_next().await? {
-                            records.push(AlignedRead::try_from(
-                                RecordBuf::try_from_alignment_record(&inner.header, &record)?,
+                            batch.push(RecordBuf::try_from_alignment_record(
+                                &inner.header,
+                                &record,
                             )?);
+                            if batch.len() == RECORD_BATCH_SIZE {
+                                tables = tables.add_records(
+                                    &batch,
+                                    reference_sequence,
+                                    region.contig_index(),
+                                )?;
+                                records.append(&mut batch);
+                            }
                         }
                     }
                     AlignmentRepositoryEnum::RemoteBam(inner) => {
@@ -327,26 +340,40 @@ impl AlignmentRepositoryEnum {
                             .await?;
                         let mut reader = bam::r#async::io::Reader::new(stream.compat());
                         let mut query = reader
-                            .query(&inner.header, &inner.index, &region)?
+                            .query(&inner.header, &inner.index, &query_region)?
                             .records();
 
                         while let Some(record) = query.try_next().await? {
-                            records.push(AlignedRead::try_from(
-                                RecordBuf::try_from_alignment_record(&inner.header, &record)?,
+                            batch.push(RecordBuf::try_from_alignment_record(
+                                &inner.header,
+                                &record,
                             )?);
+                            if batch.len() == RECORD_BATCH_SIZE {
+                                tables = tables.add_records(
+                                    &batch,
+                                    reference_sequence,
+                                    region.contig_index(),
+                                )?;
+                                records.append(&mut batch);
+                            }
                         }
                     }
                     AlignmentRepositoryEnum::Cram(inner) => {
-                        let query = inner.reader.query(&inner.header, &region)?; //&inner.index,
+                        let query = inner.reader.query(&inner.header, &query_region)?;
 
-                        //while let Some(record_buf) = query.try_next().await? {
                         for record in query {
-                            records.push(AlignedRead::try_from(record?)?);
+                            batch.push(record?);
+                            if batch.len() == RECORD_BATCH_SIZE {
+                                tables = tables.add_records(
+                                    &batch,
+                                    reference_sequence,
+                                    region.contig_index(),
+                                )?;
+                                records.append(&mut batch);
+                            }
                         }
                     }
                 };
-
-                records
             }
             None => {
                 log::debug!(
@@ -357,13 +384,15 @@ impl AlignmentRepositoryEnum {
                     region,
                     started.elapsed().as_millis(),
                 );
-                Vec::new()
             }
         };
 
+        tables = tables.add_records(&batch, reference_sequence, region.contig_index())?;
+        records.append(&mut batch);
         let record_count = records.len();
-        let alignment = match Alignment::from_aligned_reads(
+        let alignment = match Alignment::from_tables(
             records,
+            tables,
             region.contig_index(),
             (region.start(), region.end()),
             reference_sequence,

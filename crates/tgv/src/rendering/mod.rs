@@ -168,10 +168,9 @@ pub fn render_main(
                             index,
                             rect,
                             buf,
-                            &mut state.alignments[index],
+                            &state.alignments[index],
                             alignment_view,
                             paired_alignment,
-                            &state.sequence,
                             pallete,
                         )?;
                     } else {
@@ -179,9 +178,8 @@ pub fn render_main(
                             index,
                             rect,
                             buf,
-                            &mut state.alignments[index],
+                            &state.alignments[index],
                             alignment_view,
-                            &state.sequence,
                             pallete,
                         )?;
                     }

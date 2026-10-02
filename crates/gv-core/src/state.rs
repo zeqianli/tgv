@@ -179,7 +179,7 @@ impl State {
                 return Err(e);
             }
         };
-        let read_count = alignment.reads.len();
+        let read_count = alignment.read_count();
         let depth = alignment.depth();
         self.alignments[index] = alignment;
 
@@ -267,6 +267,14 @@ impl State {
             }
         };
         let base_count = sequence.len();
+        let mismatch_tables = self
+            .alignments
+            .iter()
+            .map(|alignment| alignment.prepare_reference_mismatches(&sequence))
+            .collect::<Result<Vec<_>, _>>()?;
+        for (alignment, table) in self.alignments.iter_mut().zip(mismatch_tables) {
+            alignment.replace_reference_mismatches(table);
+        }
         self.sequence = sequence;
         log::debug!(
             "Loaded sequence data: region={:?} bases={} elapsed_ms={}",
