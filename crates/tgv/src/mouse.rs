@@ -171,7 +171,7 @@ impl MouseRegister {
                             {
                                 let mut coverage = BaseCoverage::default();
                                 for coordinate in left..=right {
-                                    coverage.add(alignment.coverage_at(coordinate));
+                                    coverage.add(&alignment.coverage.at(coordinate)?);
                                 }
                                 let description = if left == right {
                                     format!("{}: {}", left, coverage.describe())

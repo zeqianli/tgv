@@ -1,5 +1,5 @@
 use crate::alignment::{
-    coverage::{BaseCoverage, DEFAULT_COVERAGE},
+    coverage::CoverageTable,
     read::AlignedReadRef,
     tables::{self, AlignmentTables},
     viewport::AlignmentViewport,
@@ -10,7 +10,6 @@ use crate::message::{AlignmentFilter, AlignmentSort};
 use crate::sequence::Sequence;
 use noodles::sam::alignment::RecordBuf;
 use polars::prelude::*;
-use std::collections::BTreeMap;
 
 #[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
 pub(super) enum BaseSortKey {
@@ -57,15 +56,14 @@ pub struct Alignment {
     /// The queryable alignment representation.
     pub tables: AlignmentTables,
 
+    /// Derived coverage of the visible reads.
+    pub coverage: CoverageTable,
+
     /// Read IDs to track positions.
     pub ys: Vec<usize>,
 
     /// y -> read indexes at y location
     pub ys_index: Vec<Vec<usize>>,
-
-    /// Coverage at each position. Keys are 1-based, inclusive.
-    /// Calculated as needed.
-    coverage: BTreeMap<u64, BaseCoverage>,
 
     /// The left bound of region with complete data.
     /// 1-based, inclusive.
@@ -85,9 +83,9 @@ impl Default for Alignment {
             contig_index: 0,
             records: Vec::new(),
             tables: AlignmentTables::default(),
+            coverage: CoverageTable::default(),
             ys: Vec::new(),
             ys_index: Vec::new(),
-            coverage: BTreeMap::new(),
             data_complete_left_bound: 0,
             data_complete_right_bound: 0,
             show_read: Vec::new(),
@@ -119,15 +117,6 @@ impl Alignment {
     /// Return the number of alignment tracks.
     pub fn depth(&self) -> usize {
         self.ys_index.len()
-    }
-
-    /// Basewise coverage at position.
-    /// 1-based, inclusive.
-    pub fn coverage_at(&self, pos: u64) -> &BaseCoverage {
-        match self.coverage.get(&pos) {
-            Some(coverage) => coverage,
-            None => &DEFAULT_COVERAGE,
-        }
     }
 
     /// Iterate over indexed reads whose display spans overlap an inclusive interval.
@@ -263,8 +252,8 @@ impl Alignment {
         let mut alignment = Self {
             records,
             tables,
+            coverage: CoverageTable::default(),
             contig_index,
-            coverage: BTreeMap::new(),
             data_complete_left_bound: data_complete_bound.0,
             data_complete_right_bound: data_complete_bound.1,
             ys,
@@ -275,31 +264,6 @@ impl Alignment {
             .build_y_index()?
             .build_coverage(reference_sequence)?;
         Ok(alignment)
-    }
-
-    /// Build an alignment from the existing owned read fixtures.
-    #[cfg(test)]
-    pub fn from_aligned_reads(
-        reads: Vec<crate::alignment::read::AlignedRead>,
-        contig_index: usize,
-        data_complete_bound: (u64, u64),
-        reference_sequence: &Sequence,
-    ) -> Result<Self, TGVError> {
-        let records = reads
-            .into_iter()
-            .map(|read| read.record.into_owned())
-            .collect::<Vec<_>>();
-        let mut tables = AlignmentTables::default();
-        for batch in records.chunks(1) {
-            tables = tables.add_records(batch, reference_sequence, contig_index)?;
-        }
-        Self::from_tables(
-            records,
-            tables,
-            contig_index,
-            data_complete_bound,
-            reference_sequence,
-        )
     }
 
     /// Build indexes, coverages after key assets are set: reads, show_read, ys
@@ -320,7 +284,6 @@ impl Alignment {
     }
 
     pub fn build_coverage(&mut self, reference_sequence: &Sequence) -> Result<&mut Self, TGVError> {
-        use noodles::sam::alignment::record::cigar::op::Kind;
         let selected = self
             .show_read
             .iter()
@@ -328,46 +291,7 @@ impl Alignment {
             .filter_map(|(id, show)| show.then_some(id))
             .collect::<Vec<_>>();
         let viewport = self.tables.viewport(1, u64::MAX, &selected)?;
-        let mut coverage = BTreeMap::new();
-        for (kind, runs) in &viewport.runs {
-            if !matches!(
-                kind,
-                Kind::Match | Kind::SequenceMatch | Kind::SequenceMismatch | Kind::SoftClip
-            ) {
-                continue;
-            }
-            let starts = runs.column("display_start")?.u64()?;
-            let ends = runs.column("display_end")?.u64()?;
-            let offsets = runs.column("run_offset")?.u32()?;
-            let sequences = runs.column("seq")?.str()?;
-            for row in 0..runs.height() {
-                let start = starts.get(row).expect("queried runs have display bounds");
-                let end = ends.get(row).expect("queried runs have display bounds");
-                let offset = offsets.get(row).expect("queried runs have offsets") as usize;
-                let Some(sequence) = sequences.get(row) else {
-                    continue;
-                };
-                let sequence = sequence.as_bytes();
-                for position in start..=end {
-                    let base = sequence[offset + (position - start) as usize];
-                    let coordinate = position;
-                    let reference_base = if reference_sequence.contig_index == self.contig_index {
-                        reference_sequence.base_at(coordinate).unwrap_or(b'N')
-                    } else {
-                        b'N'
-                    };
-                    let entry = coverage
-                        .entry(coordinate)
-                        .or_insert_with(|| BaseCoverage::new(reference_base));
-                    if *kind == Kind::SoftClip {
-                        entry.update_softclip(base)
-                    } else {
-                        entry.update(base)
-                    }
-                }
-            }
-        }
-        self.coverage = coverage;
+        self.coverage = CoverageTable::from_runs(&viewport, self.contig_index, reference_sequence)?;
 
         Ok(self)
     }
@@ -589,7 +513,6 @@ pub(super) fn find_track(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::alignment::read::AlignedRead;
     use noodles::sam::{
         self,
         alignment::{
@@ -606,7 +529,7 @@ mod tests {
         start: u64,
         cigar_ops: impl IntoIterator<Item = (Kind, usize)>,
         sequence: &[u8],
-    ) -> AlignedRead {
+    ) -> RecordBuf {
         let cigar: Cigar = cigar_ops
             .into_iter()
             .map(|(kind, len)| Op::new(kind, len))
@@ -620,11 +543,11 @@ mod tests {
             .set_sequence(sam::alignment::record_buf::Sequence::from(sequence))
             .build();
 
-        AlignedRead::try_from(record).unwrap()
+        record
     }
 
-    fn alignment_with_reads(reads: Vec<AlignedRead>, data_complete_bound: (u64, u64)) -> Alignment {
-        Alignment::from_aligned_reads(
+    fn alignment_with_reads(reads: Vec<RecordBuf>, data_complete_bound: (u64, u64)) -> Alignment {
+        Alignment::from_records(
             reads,
             0,
             data_complete_bound,

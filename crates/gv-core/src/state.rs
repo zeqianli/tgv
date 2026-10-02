@@ -875,7 +875,6 @@ impl State {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::alignment::AlignedRead;
     use crate::contig_header::ContigHeader;
     use noodles::sam::{
         self,
@@ -893,7 +892,7 @@ mod tests {
         start: u64,
         cigar_ops: impl IntoIterator<Item = (Kind, usize)>,
         sequence: &[u8],
-    ) -> AlignedRead {
+    ) -> sam::alignment::RecordBuf {
         let cigar: Cigar = cigar_ops
             .into_iter()
             .map(|(kind, len)| Op::new(kind, len))
@@ -907,7 +906,7 @@ mod tests {
             .set_sequence(sam::alignment::record_buf::Sequence::from(sequence))
             .build();
 
-        AlignedRead::try_from(record).unwrap()
+        record
     }
 
     fn test_sequence() -> Sequence {
@@ -918,8 +917,11 @@ mod tests {
         }
     }
 
-    fn alignment_from_reads(reads: Vec<AlignedRead>, data_complete_bound: (u64, u64)) -> Alignment {
-        Alignment::from_aligned_reads(reads, 0, data_complete_bound, &test_sequence()).unwrap()
+    fn alignment_from_reads(
+        reads: Vec<sam::alignment::RecordBuf>,
+        data_complete_bound: (u64, u64),
+    ) -> Alignment {
+        Alignment::from_records(reads, 0, data_complete_bound, &test_sequence()).unwrap()
     }
 
     fn state_with_alignment(alignment: Alignment) -> State {

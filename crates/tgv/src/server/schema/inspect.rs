@@ -85,8 +85,13 @@ impl TrackSummary {
             .overlapping_reads(contig_index, region.start, region.end)?
             .len();
         let positions = (region.start..=region.end)
-            .map(|position| PositionCoverage::from((position, alignment.coverage_at(position))))
-            .collect();
+            .map(|position| {
+                Ok(PositionCoverage::from((
+                    position,
+                    &alignment.coverage.at(position)?,
+                )))
+            })
+            .collect::<Result<Vec<_>, TGVError>>()?;
         Ok(Self::Alignment {
             track_id,
             overlapping_records,

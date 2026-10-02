@@ -10,7 +10,7 @@ use ratatui::{
 use ratatui::symbols::bar::{NINE_LEVELS, Set};
 
 use gv_core::{
-    alignment::{Alignment, BaseCoverage},
+    alignment::{BaseCoverage, CoverageTable},
     prelude::*,
 };
 
@@ -22,7 +22,7 @@ const MIN_AREA_HEIGHT: u16 = 1;
 pub fn render_coverage(
     area: &Rect,
     buf: &mut Buffer,
-    alignment: &Alignment,
+    coverage: &CoverageTable,
     alignment_view: &AlignmentView,
     palette: &Palette,
 ) -> Result<(), TGVError> {
@@ -41,7 +41,7 @@ pub fn render_coverage(
     };
 
     let mut binned_coverage =
-        calculate_binned_coverage(alignment, left, right, plot_area.width as usize)?;
+        calculate_binned_coverage(coverage, left, right, plot_area.width as usize)?;
 
     let y_max: usize = round_up_max_coverage(
         (0..binned_coverage[0].len())
@@ -129,7 +129,7 @@ fn get_linear_space(left: u64, right: u64, n_bins: usize) -> Result<Vec<(u64, u6
 /// Calculate the binned coverage in [left_bound, right_bound].
 /// 1-based, inclusive.
 fn calculate_binned_coverage(
-    alignment: &Alignment,
+    coverage: &CoverageTable,
     left: u64,
     right: u64,
     n_bins: usize,
@@ -142,38 +142,46 @@ fn calculate_binned_coverage(
         return Err(TGVError::ValueError("n_bins is 0".to_string()));
     }
 
-    if right - left + 1 == n_bins as u64 {
-        // 1x zoom. Not need to calulate binned coverage.
-
-        // Stack 0: alt allele if above a threshold
-        // Stack 1: non-alt alleles
-        let mut output = vec![vec![0; n_bins]; 2];
-        (left..right + 1).enumerate().for_each(|(i, x)| {
-            let coverage = alignment.coverage_at(x);
-            let max_alt_depth = coverage.max_alt_depth().unwrap_or(0);
-
-            if max_alt_depth * BaseCoverage::MAX_DISPLAY_ALLELE_FREQUENCY_RECIPROCOL
-                > coverage.total
-            {
-                output[0][i] = max_alt_depth;
-                output[1][i] = coverage.total - max_alt_depth;
-            } else {
-                output[0][i] = 0;
-                output[1][i] = coverage.total;
-            }
-        });
-        return Ok(output);
-    }
-
     let linear_space = get_linear_space(left, right, n_bins)?;
-
-    let mut output = vec![vec![0; linear_space.len()]; 2];
-    linear_space
-        .into_iter()
-        .enumerate()
-        .for_each(|(i, (bin_left, bin_right))| {
-            (bin_left..bin_right + 1).for_each(|x| output[1][i] += alignment.coverage_at(x).total);
-        });
+    let table = coverage.query(left, right)?;
+    let positions = table.column("pos")?.u64()?;
+    let totals = table.column("total")?.u64()?;
+    let a = table.column("A")?.u64()?;
+    let t = table.column("T")?.u64()?;
+    let c = table.column("C")?.u64()?;
+    let reference_bases = table.column("reference_base")?.u8()?;
+    let mut output = vec![vec![0; n_bins]; 2];
+    let single_base_bins = right - left + 1 == n_bins as u64;
+    let mut bin = 0;
+    for row in 0..table.height() {
+        let position = positions.get(row).expect("coverage positions are non-null");
+        while position > linear_space[bin].1 {
+            bin += 1;
+        }
+        let total = totals.get(row).expect("coverage totals are non-null") as usize;
+        if single_base_bins {
+            let a = a.get(row).expect("coverage counts are non-null") as usize;
+            let t = t.get(row).expect("coverage counts are non-null") as usize;
+            let c = c.get(row).expect("coverage counts are non-null") as usize;
+            let max_alt_depth = match reference_bases
+                .get(row)
+                .expect("reference bases are non-null")
+            {
+                b'A' | b'a' | b'G' | b'g' => c.max(t),
+                b'T' | b't' => a.max(c),
+                b'C' | b'c' => a.max(t),
+                _ => 0,
+            };
+            if max_alt_depth * BaseCoverage::MAX_DISPLAY_ALLELE_FREQUENCY_RECIPROCOL > total {
+                output[0][bin] = max_alt_depth;
+                output[1][bin] = total - max_alt_depth;
+            } else {
+                output[1][bin] = total;
+            }
+        } else {
+            output[1][bin] += total;
+        }
+    }
 
     Ok(output)
 }

@@ -4,14 +4,12 @@ use noodles::sam::{
     self,
     alignment::{RecordBuf, record::cigar::op::Kind},
 };
-use std::borrow::Cow;
 
-/// An aligned read with viewing coordinates.
-/// A few extra attributes are used frequently and thus saved.
+/// A temporary borrowed view for base queries, filtering, and read details.
 #[derive(Clone, Debug)]
 pub struct AlignedReadRef<'a> {
-    /// Alignment record data
-    pub record: Cow<'a, RecordBuf>,
+    /// The original alignment record.
+    pub record: &'a RecordBuf,
 
     /// Non-clipped start genome coordinate on the alignment view
     /// 1-based, inclusive
@@ -28,14 +26,8 @@ pub struct AlignedReadRef<'a> {
     pub trailing_softclips: u64,
 }
 
-pub type AlignedRead = AlignedReadRef<'static>;
-
 impl<'a> AlignedReadRef<'a> {
     pub fn borrowed(record: &'a RecordBuf) -> Result<Self, TGVError> {
-        Self::from_record(Cow::Borrowed(record))
-    }
-
-    fn from_record(record: Cow<'a, RecordBuf>) -> Result<Self, TGVError> {
         let start = record.alignment_start().ok_or_else(|| {
             TGVError::AlignmentParseError(
                 "Alignment record is missing a start position.".to_string(),
@@ -67,14 +59,6 @@ impl<'a> AlignedReadRef<'a> {
             leading_softclips,
             trailing_softclips,
         })
-    }
-
-    pub fn stacking_start(&self) -> u64 {
-        u64::max(self.start.saturating_sub(self.leading_softclips), 1)
-    }
-
-    pub fn stacking_end(&self) -> u64 {
-        self.end.saturating_add(self.trailing_softclips)
     }
 
     /// Read details
@@ -126,17 +110,6 @@ impl<'a> AlignedReadRef<'a> {
             mapping_quality,
             cigar
         ))
-    }
-
-    /// Whether the alignment segment (including softclips) covers a x_coordinate (1-based).
-    pub fn full_read_overlaps(&self, left: u64, right: u64) -> bool {
-        self.stacking_start() <= right && self.stacking_end() >= left
-    }
-    /// Whether show together with the mate in paired view
-    pub fn show_as_pair(&self) -> bool {
-        self.record.flags().is_segmented()
-            && !self.record.flags().is_supplementary()
-            && !self.record.flags().is_secondary()
     }
 
     /// Return the base at coordinate.
@@ -304,43 +277,12 @@ impl<'a> AlignedReadRef<'a> {
             _ => true, // TODO
         }
     }
-
-    // /// Construct an `AlignedRead` from a CRAM `RecordBuf` by round-tripping through an in-memory
-    // /// BAM encoding. CRAM queries yield `RecordBuf` records, which need to be bridged to the
-    // /// `bam::Record`-based representation used internally.
-    // pub fn from_cram_record(
-    //     read_index: usize,
-    //     header: &Header,
-    //     record_buf: &RecordBuf,
-    //     reference_sequence: &Sequence,
-    // ) -> Result<Self, TGVError> {
-    //     use noodles::sam::alignment::io::Write as AlignmentWrite;
-
-    //     let mut buf = Vec::new();
-    //     let mut writer = noodles::bam::io::Writer::from(&mut buf);
-    //     writer.write_alignment_record(header, record_buf)?;
-    //     drop(writer);
-
-    //     let mut reader = noodles::bam::io::Reader::from(&buf[..]);
-    //     let mut record = Record::default();
-    //     reader.read_record(&mut record)?;
-
-    //     Self::from_bam_record(read_index, record, reference_sequence)
-    // }
-    //
 }
 
 fn cigar_to_string(cigar: &sam::alignment::record_buf::Cigar) -> Result<String, TGVError> {
     let mut buf = Vec::new();
     sam::io::writer::record::write_cigar(&mut buf, cigar)?;
     Ok(String::from_utf8(buf)?)
-}
-
-impl TryFrom<RecordBuf> for AlignedRead {
-    type Error = TGVError;
-    fn try_from(record: RecordBuf) -> Result<Self, TGVError> {
-        Self::from_record(Cow::Owned(record))
-    }
 }
 
 pub fn matches_base(base1: u8, base2: u8) -> bool {
@@ -388,7 +330,7 @@ mod tests {
     };
 
     use crate::{
-        alignment::{Alignment, tables},
+        alignment::{Alignment, CoverageTable, tables},
         sequence::Sequence,
     };
     use noodles::sam::alignment::{
@@ -439,7 +381,7 @@ mod tests {
         start: u64,
         cigar_ops: impl IntoIterator<Item = (Kind, usize)>,
         sequence: &[u8],
-    ) -> AlignedRead {
+    ) -> RecordBuf {
         let cigar: Cigar = cigar_ops
             .into_iter()
             .map(|(kind, len)| Op::new(kind, len))
@@ -451,7 +393,7 @@ mod tests {
             .set_sequence(sam::alignment::record_buf::Sequence::from(sequence))
             .build();
 
-        AlignedRead::try_from(record).unwrap()
+        record
     }
 
     #[test]
@@ -468,7 +410,7 @@ mod tests {
             .set_cigar(cigar)
             .build();
 
-        let read = AlignedRead::try_from(record)?;
+        let read = AlignedReadRef::borrowed(&record)?;
 
         assert_eq!(read.describe()?, "r0  Flags=80  MAPQ=60  Cigar=4M2S");
 
@@ -477,7 +419,7 @@ mod tests {
 
     #[test]
     fn base_at_returns_reference_aligned_bases_only() {
-        let read = read_from_parts(
+        let record = read_from_parts(
             10,
             [
                 (Kind::SoftClip, 1),
@@ -491,6 +433,7 @@ mod tests {
             ],
             b"SATIGCR",
         );
+        let read = AlignedReadRef::borrowed(&record).unwrap();
 
         assert_eq!(read.base_at(9), None);
         assert_eq!(read.base_at(10), Some(b'A'));
@@ -504,7 +447,7 @@ mod tests {
 
     #[test]
     fn is_deletion_at_detects_deletions_and_reference_skips() {
-        let read = read_from_parts(
+        let record = read_from_parts(
             10,
             [
                 (Kind::Match, 2),
@@ -515,6 +458,7 @@ mod tests {
             ],
             b"AAAA",
         );
+        let read = AlignedReadRef::borrowed(&record).unwrap();
 
         assert!(!read.is_deletion_at(9));
         assert!(!read.is_deletion_at(10));
@@ -529,7 +473,7 @@ mod tests {
 
     #[test]
     fn has_insertion_at_detects_insertion_anchors() {
-        let read = read_from_parts(
+        let record = read_from_parts(
             10,
             [
                 (Kind::Match, 2),
@@ -539,6 +483,7 @@ mod tests {
             ],
             b"AAIIT",
         );
+        let read = AlignedReadRef::borrowed(&record).unwrap();
 
         assert!(!read.has_insertion_at(11));
         assert!(read.has_insertion_at(12));
@@ -548,11 +493,12 @@ mod tests {
 
     #[test]
     fn is_softclip_at_detects_leading_and_trailing_softclips() {
-        let read = read_from_parts(
+        let record = read_from_parts(
             10,
             [(Kind::SoftClip, 2), (Kind::Match, 3), (Kind::SoftClip, 1)],
             b"SSAATZ",
         );
+        let read = AlignedReadRef::borrowed(&record).unwrap();
 
         assert!(!read.is_softclip_at(7));
         assert!(read.is_softclip_at(8));
@@ -808,6 +754,9 @@ mod tests {
                 .get(0),
             Some(reference_start)
         );
+        assert_eq!(alignment.coverage.data.schema(), &CoverageTable::schema());
+        assert_eq!(alignment.coverage.at(reference_start).unwrap().total, 1);
+        assert_eq!(alignment.coverage.at(100).unwrap().total, 0);
         let viewport = alignment.tables.viewport(1, 100, &[0]).unwrap();
         let mut actual = Vec::new();
         for (kind, frame) in &viewport.runs {

@@ -384,7 +384,7 @@ fn pair_bounds(pair: &ReadPair, alignment: &Alignment) -> Option<(u64, u64)> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{alignment::read::AlignedRead, sequence::Sequence};
+    use crate::sequence::Sequence;
     use noodles::sam::{
         self,
         alignment::{
@@ -401,7 +401,7 @@ mod tests {
         start: u64,
         cigar_ops: impl IntoIterator<Item = (Kind, usize)>,
         sequence: &[u8],
-    ) -> AlignedRead {
+    ) -> RecordBuf {
         let cigar: Cigar = cigar_ops
             .into_iter()
             .map(|(kind, len)| Op::new(kind, len))
@@ -415,11 +415,11 @@ mod tests {
             .set_sequence(sam::alignment::record_buf::Sequence::from(sequence))
             .build();
 
-        AlignedRead::try_from(record).unwrap()
+        record
     }
 
-    fn alignment_from_reads(reads: Vec<AlignedRead>) -> Alignment {
-        Alignment::from_aligned_reads(
+    fn alignment_from_reads(reads: Vec<RecordBuf>) -> Alignment {
+        Alignment::from_records(
             reads,
             0,
             (1, 100),
