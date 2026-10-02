@@ -10,32 +10,6 @@ use crate::sequence::Sequence;
 use noodles::sam::alignment::RecordBuf;
 use polars::prelude::*;
 
-#[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
-pub(super) enum BaseSortKey {
-    A,
-    T,
-    C,
-    G,
-    N,
-    OtherBase,
-    Deletion,
-    Insertion,
-    PairGap,
-}
-
-impl BaseSortKey {
-    fn from_base(base: u8) -> Self {
-        match base.to_ascii_uppercase() {
-            b'A' => Self::A,
-            b'T' => Self::T,
-            b'C' => Self::C,
-            b'G' => Self::G,
-            b'N' => Self::N,
-            _ => Self::OtherBase,
-        }
-    }
-}
-
 /// An alignment stack
 #[derive(Debug)]
 pub struct Alignment {
@@ -359,6 +333,7 @@ impl Alignment {
     pub(super) fn base_events(&self, position: u64) -> Result<DataFrame, TGVError> {
         use noodles::sam::alignment::record::cigar::op::Kind;
         let mut bases = vec![None; self.read_count()];
+        // Priorities are A, T, C, G, N, other bases, deletions, insertions, then pair gaps.
         let mut keys: Vec<Option<u8>> = vec![None; self.read_count()];
         if position > 0 {
             // Later event kinds take precedence over insertions at the same cursor.
@@ -392,8 +367,8 @@ impl Alignment {
                 for row in 0..hits.height() {
                     let id = ids.get(row).expect("run IDs are non-null") as usize;
                     let key = match kind {
-                        Kind::Insertion => Some(BaseSortKey::Insertion),
-                        Kind::Deletion | Kind::Skip => Some(BaseSortKey::Deletion),
+                        Kind::Insertion => Some(7),
+                        Kind::Deletion | Kind::Skip => Some(6),
                         _ => {
                             let offset = (position
                                 - starts.get(row).expect("selected runs have positions"))
@@ -404,11 +379,18 @@ impl Alignment {
                                 .and_then(|seq| seq.as_bytes().get(offset))
                                 .copied();
                             bases[id] = base;
-                            base.map(BaseSortKey::from_base)
+                            base.map(|base| match base.to_ascii_uppercase() {
+                                b'A' => 0,
+                                b'T' => 1,
+                                b'C' => 2,
+                                b'G' => 3,
+                                b'N' => 4,
+                                _ => 5,
+                            })
                         }
                     };
                     if let Some(key) = key {
-                        keys[id] = Some(key as u8);
+                        keys[id] = Some(key);
                     }
                 }
             }

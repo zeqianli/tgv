@@ -1,5 +1,5 @@
 use crate::{
-    alignment::alignment::{Alignment, BaseSortKey, find_track, stack_tracks_by_sort_key},
+    alignment::alignment::{Alignment, find_track, stack_tracks_by_sort_key},
     error::TGVError,
     message::AlignmentSort,
 };
@@ -243,7 +243,7 @@ impl PairedAlignment {
                                 position,
                             )
                         })
-                        .map(|_| BaseSortKey::PairGap as u8)
+                        .map(|_| 8)
                 });
             keys.push(key);
         }

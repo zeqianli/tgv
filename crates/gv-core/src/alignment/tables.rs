@@ -995,7 +995,7 @@ mod tests {
                 .u8()
                 .unwrap()
                 .get(0)
-                == Some(super::super::alignment::BaseSortKey::Deletion as u8)
+                == Some(6)
         };
 
         assert!(!is_deletion_at(9));
