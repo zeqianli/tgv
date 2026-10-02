@@ -27,6 +27,7 @@ thiserror.workspace = true
 tokio.workspace = true
 toml.workspace = true
 noodles.workspace = true
+polars.workspace = true
 unicode-width.workspace = true
 
 [dev-dependencies]

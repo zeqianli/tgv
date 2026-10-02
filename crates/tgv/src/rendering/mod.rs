@@ -146,7 +146,7 @@ pub fn render_main(
                 if alignment_view.zoom <= AlignmentView::MAX_ZOOM_TO_DISPLAY_ALIGNMENTS
                     && let Some(alignment) = state.alignments.get(index)
                 {
-                    render_coverage(rect, buf, alignment, alignment_view, pallete)?;
+                    render_coverage(rect, buf, &alignment.coverage, alignment_view, pallete)?;
                 }
             }
             AreaType::Alignment(id) => {
@@ -168,10 +168,9 @@ pub fn render_main(
                             index,
                             rect,
                             buf,
-                            &mut state.alignments[index],
+                            &state.alignments[index],
                             alignment_view,
                             paired_alignment,
-                            &state.sequence,
                             pallete,
                         )?;
                     } else {
@@ -179,9 +178,8 @@ pub fn render_main(
                             index,
                             rect,
                             buf,
-                            &mut state.alignments[index],
+                            &state.alignments[index],
                             alignment_view,
-                            &state.sequence,
                             pallete,
                         )?;
                     }

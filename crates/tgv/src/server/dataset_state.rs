@@ -238,7 +238,7 @@ impl DatasetState {
                         &self.state.alignments[index],
                         contig_index,
                         &region,
-                    ));
+                    )?);
                 }
                 RepositoryFileIndex::Variant(index) => {
                     let track_summary = TrackSummary::from_variants(

@@ -95,6 +95,9 @@ pub enum TGVError {
     #[error("UTF-8 decoding error: {0}")]
     Utf8DecodingError(#[from] std::string::FromUtf8Error),
 
+    #[error("UTF-8 decoding error: {0}")]
+    BorrowedUtf8DecodingError(#[from] std::str::Utf8Error),
+
     #[error("ParseInt error {0}")]
     ParseIntError(#[from] std::num::ParseIntError),
 
@@ -109,6 +112,12 @@ pub enum TGVError {
 
     #[error("Alignment Parse error")]
     AlignmentParseError(String),
+
+    #[error("Polars error: {0}")]
+    PolarsError(#[from] polars::error::PolarsError),
+
+    #[error("Failed to parse base modifications for alignment read {read_id}: {message}")]
+    AlignmentBaseModifications { read_id: u64, message: String },
 
     #[error(
         "Cannot sort alignment by base at position {position}: the loaded alignment region is {loaded_left}-{loaded_right}."

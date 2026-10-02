@@ -1,14 +1,14 @@
 use crate::alignment::{
-    coverage::{BaseCoverage, DEFAULT_COVERAGE, calculate_basewise_coverage},
-    read::{AlignedRead, RenderingContext, calculate_rendering_contexts},
+    coverage::CoverageTable,
+    tables::{self, AlignmentTables},
+    viewport::AlignmentViewport,
 };
 use crate::error::TGVError;
 use crate::intervals::{GenomeInterval, Region};
 use crate::message::{AlignmentFilter, AlignmentSort};
 use crate::sequence::Sequence;
-use std::collections::{BTreeMap, HashMap, hash_map::Entry};
-
-pub(super) const RENDERING_CONTEXT_NOT_CALCULATED: u64 = u64::MAX;
+use noodles::sam::alignment::RecordBuf;
+use polars::prelude::*;
 
 #[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
 pub(super) enum BaseSortKey {
@@ -36,39 +36,26 @@ impl BaseSortKey {
     }
 }
 
-pub(super) struct SortableStackItem {
-    pub show: bool,
-    pub stacking_start: u64,
-    pub stacking_end: u64,
-    pub sort_key: Option<BaseSortKey>,
-}
-
 /// An alignment stack
-#[derive(Debug, Default)]
+#[derive(Debug)]
 pub struct Alignment {
     /// Contig of the current alignment
     pub contig_index: usize,
 
-    pub reads: Vec<AlignedRead>,
+    /// The original decoded records in stable read-ID order.
+    pub records: Vec<RecordBuf>,
 
-    /// Base mismatches with the reference.
-    pub rendering_contexts: Vec<Vec<RenderingContext>>,
+    /// The queryable alignment representation.
+    pub tables: AlignmentTables,
 
-    /// Read index to rendering context index.
-    pub read_rendering_context_indexes: Vec<u64>,
+    /// Derived coverage of the visible reads.
+    pub coverage: CoverageTable,
 
-    // /// Paired alignment view state.
-    // paired_alignment: Option<PairedAlignment>,
-
-    // read index -> y locations
+    /// Read IDs to track positions.
     pub ys: Vec<usize>,
 
     /// y -> read indexes at y location
     pub ys_index: Vec<Vec<usize>>,
-
-    /// Coverage at each position. Keys are 1-based, inclusive.
-    /// Calculated as needed.
-    coverage: BTreeMap<u64, BaseCoverage>,
 
     /// The left bound of region with complete data.
     /// 1-based, inclusive.
@@ -80,6 +67,22 @@ pub struct Alignment {
 
     // Whether to display the read
     pub show_read: Vec<bool>,
+}
+
+impl Default for Alignment {
+    fn default() -> Self {
+        Self {
+            contig_index: 0,
+            records: Vec::new(),
+            tables: AlignmentTables::default(),
+            coverage: CoverageTable::default(),
+            ys: Vec::new(),
+            ys_index: Vec::new(),
+            data_complete_left_bound: 0,
+            data_complete_right_bound: 0,
+            show_read: Vec::new(),
+        }
+    }
 }
 
 impl Alignment {
@@ -108,15 +111,6 @@ impl Alignment {
         self.ys_index.len()
     }
 
-    /// Basewise coverage at position.
-    /// 1-based, inclusive.
-    pub fn coverage_at(&self, pos: u64) -> &BaseCoverage {
-        match self.coverage.get(&pos) {
-            Some(coverage) => coverage,
-            None => &DEFAULT_COVERAGE,
-        }
-    }
-
     /// Iterate over indexed reads whose display spans overlap an inclusive interval.
     /// The display span includes soft clips, matching the read hit test.
     pub fn overlapping_reads(
@@ -124,41 +118,137 @@ impl Alignment {
         contig_index: usize,
         start: u64,
         end: u64,
-    ) -> impl Iterator<Item = (usize, &AlignedRead)> {
-        self.reads.iter().enumerate().filter(move |(_, read)| {
-            self.contig_index == contig_index && start <= end && read.full_read_overlaps(start, end)
-        })
+    ) -> Result<Vec<usize>, TGVError> {
+        if self.contig_index != contig_index || start > end {
+            return Ok(Vec::new());
+        }
+        let reads = &self.tables.reads;
+        let left = reads.column("stacking_start")?.u64()?;
+        let right = reads.column("stacking_end")?.u64()?;
+        let mask = left.lt_eq(end) & right.gt_eq(start);
+        let hits = reads.column("read_id")?.filter(&mask)?;
+        Ok(hits
+            .u64()?
+            .into_no_null_iter()
+            .map(|id| id as usize)
+            .collect())
     }
 
     /// Return the read at x_coordinate, yth track
-    pub fn read_overlapping(&self, left: u64, right: u64, y: usize) -> Option<&AlignedRead> {
+    pub fn read_overlapping(
+        &self,
+        left: u64,
+        right: u64,
+        y: usize,
+    ) -> Result<Option<usize>, TGVError> {
         if y >= self.depth() {
-            return None;
+            return Ok(None);
         }
-
-        self.ys_index[y]
+        let hits = self.overlapping_reads(self.contig_index, left, right)?;
+        Ok(self.ys_index[y]
             .iter()
-            .find(|i_read| self.reads[**i_read].full_read_overlaps(left, right))
-            .map(|index| &self.reads[*index])
+            .copied()
+            .find(|id| hits.contains(id)))
     }
 
-    pub fn from_aligned_reads(
-        reads: Vec<AlignedRead>,
+    pub fn record(&self, read_id: usize) -> &RecordBuf {
+        &self.records[read_id]
+    }
+
+    pub fn read_count(&self) -> usize {
+        self.records.len()
+    }
+
+    /// One-based, inclusive display bounds, including soft clips.
+    pub fn stacking_bounds(&self, read_id: usize) -> Option<(u64, u64)> {
+        let reads = &self.tables.reads;
+        let start = reads
+            .column("stacking_start")
+            .expect("reads have stacking bounds")
+            .u64()
+            .expect("bounds are u64")
+            .get(read_id);
+        let end = reads
+            .column("stacking_end")
+            .expect("reads have stacking bounds")
+            .u64()
+            .expect("bounds are u64")
+            .get(read_id);
+        start.zip(end)
+    }
+
+    pub fn query_viewport(
+        &self,
+        region: &Region,
+        read_ids: &[usize],
+    ) -> Result<AlignmentViewport, TGVError> {
+        if region.contig_index() != self.contig_index || region.start() > region.end() {
+            return self.tables.viewport(1, 1, &[]);
+        }
+        self.tables.viewport(region.start(), region.end(), read_ids)
+    }
+
+    pub(crate) fn prepare_reference_mismatches(
+        &self,
+        reference: &Sequence,
+    ) -> Result<DataFrame, TGVError> {
+        tables::reference_mismatches(
+            self.tables
+                .run(noodles::sam::alignment::record::cigar::op::Kind::Match),
+            reference,
+            self.contig_index,
+        )
+    }
+
+    pub(crate) fn replace_reference_mismatches(&mut self, table: DataFrame) {
+        self.tables.reference_mismatches = table;
+    }
+
+    pub fn from_records(
+        records: Vec<RecordBuf>,
         contig_index: usize,
         data_complete_bound: (u64, u64),
         reference_sequence: &Sequence,
     ) -> Result<Self, TGVError> {
-        let show_reads = vec![true; reads.len()];
-        let ys = stack_tracks_for_reads(&reads, &show_reads);
-        let mut alignment = Self {
-            rendering_contexts: Vec::new(),
-            read_rendering_context_indexes: vec![RENDERING_CONTEXT_NOT_CALCULATED; reads.len()],
-            reads,
+        let tables =
+            AlignmentTables::default().add_records(&records, reference_sequence, contig_index)?;
+        Self::from_tables(
+            records,
+            tables,
             contig_index,
-            coverage: BTreeMap::new(),
+            data_complete_bound,
+            reference_sequence,
+        )
+    }
+
+    pub(crate) fn from_tables(
+        records: Vec<RecordBuf>,
+        tables: AlignmentTables,
+        contig_index: usize,
+        data_complete_bound: (u64, u64),
+        reference_sequence: &Sequence,
+    ) -> Result<Self, TGVError> {
+        assert_eq!(
+            records.len(),
+            tables.reads.height(),
+            "record IDs and table rows have matching shapes"
+        );
+        let show_reads = tables
+            .reads
+            .column("stacking_start")?
+            .is_not_null()
+            .iter()
+            .map(|value| value.expect("validity masks are non-null"))
+            .collect::<Vec<_>>();
+        let ys = stack_tracks_for_reads(&tables.reads, &show_reads)?;
+        let mut alignment = Self {
+            records,
+            tables,
+            coverage: CoverageTable::default(),
+            contig_index,
             data_complete_left_bound: data_complete_bound.0,
             data_complete_right_bound: data_complete_bound.1,
-            ys: ys.clone(),
+            ys,
             show_read: show_reads,
             ys_index: Vec::new(),
         };
@@ -185,85 +275,15 @@ impl Alignment {
         Ok(self)
     }
 
-    /// If rendering context is calculated for read_index, return the rendering context index in self.rendering_contexts
-    /// Return None if not yet calculated.
-    pub fn get_rendering_context_index(&self, read_index: usize) -> Option<u64> {
-        match self.read_rendering_context_indexes[read_index] {
-            RENDERING_CONTEXT_NOT_CALCULATED => None,
-            i => Some(i),
-        }
-    }
-
-    /// Calculate and write rendering context for read_index.
-    /// The new context is added to the end of the context vector.
-    /// Returns the index of the new contexts.
-    pub fn calculate_read_rendering_context(
-        &mut self,
-        read_index: usize,
-        reference_sequence: &Sequence,
-    ) -> Result<u64, TGVError> {
-        let read = &self.reads[read_index];
-
-        let mut contexts = Vec::new();
-        calculate_rendering_contexts(
-            &mut contexts,
-            read.start,
-            &read.record.flags(),
-            read.record.cigar().as_ref(),
-            read.record.sequence(),
-            read.record.data(),
-            reference_sequence,
-        )?;
-
-        self.rendering_contexts.push(contexts);
-        let rendering_context_index = (self.rendering_contexts.len() - 1) as u64;
-        self.read_rendering_context_indexes[read_index] = rendering_context_index;
-
-        Ok(rendering_context_index)
-    }
-
-    // pub fn apply_options(
-    //     &mut self,
-    //     options: &Vec<AlignmentDisplayOption>,
-    //     reference_sequence: &Sequence,
-    // ) -> Result<&mut Self, TGVError> {
-
-    // }
-
-    /// Reset alignment options
-    // pub fn reset(&mut self, reference_sequence: &Sequence) -> Result<&mut Self, TGVError> {
-    //     // TODO: reference sequence could be empty.
-    //     self.show_read = vec![true; self.reads.len()];
-    //     self.ys = stack_tracks_for_reads(&self.reads, &self.show_read);
-    //     self.paired_alignment = None;
-
-    //     self.build_y_index()?.build_coverage(reference_sequence)
-    // }
-
     pub fn build_coverage(&mut self, reference_sequence: &Sequence) -> Result<&mut Self, TGVError> {
-        // TODO: optimize
-        let mut coverage_hashmap: HashMap<u64, BaseCoverage> = HashMap::new();
-        for (read, show_read) in self.reads.iter().zip(self.show_read.iter()) {
-            if !*show_read {
-                continue;
-            }
-            let read_coverage = calculate_basewise_coverage(
-                read.start,
-                read.record.cigar(),
-                read.record.sequence(),
-                reference_sequence,
-            )?; // TODO: seq() is called twice. Optimize this in the future.
-            for (i, coverage) in read_coverage.into_iter() {
-                match coverage_hashmap.entry(i) {
-                    Entry::Occupied(mut oe) => oe.get_mut().add(&coverage),
-                    Entry::Vacant(ve) => {
-                        ve.insert(coverage);
-                    }
-                }
-            }
-        }
-
-        self.coverage = coverage_hashmap.into_iter().collect();
+        let selected = self
+            .show_read
+            .iter()
+            .enumerate()
+            .filter_map(|(id, show)| show.then_some(id))
+            .collect::<Vec<_>>();
+        let viewport = self.tables.viewport(1, u64::MAX, &selected)?;
+        self.coverage = CoverageTable::from_runs(&viewport, self.contig_index, reference_sequence)?;
 
         Ok(self)
     }
@@ -273,11 +293,43 @@ impl Alignment {
         filter: AlignmentFilter,
         reference_sequence: &Sequence,
     ) -> Result<(), TGVError> {
-        for (i, read) in self.reads.iter().enumerate() {
-            self.show_read[i] = read.passes_filter(&filter)
+        let selected = match filter {
+            AlignmentFilter::Base(position, base) => {
+                let events = self.base_events(position)?;
+                let mask = events.column("base")?.u8()?.equal(base as u8);
+                events
+                    .column("read_id")?
+                    .filter(&mask)?
+                    .u64()?
+                    .into_no_null_iter()
+                    .map(|id| id as usize)
+                    .collect::<Vec<_>>()
+            }
+            AlignmentFilter::BaseSoftclip(position) => {
+                let ids = (0..self.read_count()).collect::<Vec<_>>();
+                let viewport = self.tables.viewport(position, position, &ids)?;
+                let (_, clips) = viewport
+                    .runs
+                    .iter()
+                    .find(|(kind, _)| {
+                        *kind == noodles::sam::alignment::record::cigar::op::Kind::SoftClip
+                    })
+                    .expect("viewport includes the soft-clip table");
+                clips
+                    .column("read_id")?
+                    .u64()?
+                    .into_no_null_iter()
+                    .map(|id| id as usize)
+                    .collect()
+            }
+            _ => (0..self.read_count()).collect(),
+        };
+        self.show_read.fill(false);
+        for id in selected {
+            self.show_read[id] = self.stacking_bounds(id).is_some();
         }
 
-        self.ys = stack_tracks_for_reads(&self.reads, &self.show_read);
+        self.ys = stack_tracks_for_reads(&self.tables.reads, &self.show_read)?;
         self.build_y_index()?.build_coverage(reference_sequence)?;
 
         Ok(())
@@ -295,37 +347,98 @@ impl Alignment {
     fn sort_by_base_at(&mut self, position: u64) -> Result<(), TGVError> {
         self.ensure_position_has_complete_data(position)?;
 
-        let items = self
-            .reads
-            .iter()
-            .zip(self.show_read.iter())
-            .map(|(read, show_read)| SortableStackItem {
-                show: *show_read,
-                stacking_start: read.stacking_start(),
-                stacking_end: read.stacking_end(),
-                sort_key: read_base_sort_key_at(read, position),
-            })
-            .collect::<Vec<_>>();
-
-        self.ys = stack_tracks_by_sort_key(&items, 3);
+        let events = self.base_events(position)?;
+        let mut items = self.tables.reads.clone();
+        items.with_column(events.column("sort_key")?.clone())?;
+        self.ys = stack_tracks_by_sort_key(&items, "read_id", &self.show_read, 3)?;
         self.build_y_index()?;
-
         Ok(())
+    }
+
+    /// Query aligned bases and event priorities at a one-based position.
+    pub(super) fn base_events(&self, position: u64) -> Result<DataFrame, TGVError> {
+        use noodles::sam::alignment::record::cigar::op::Kind;
+        let mut bases = vec![None; self.read_count()];
+        let mut keys: Vec<Option<u8>> = vec![None; self.read_count()];
+        if position > 0 {
+            // Later event kinds take precedence over insertions at the same cursor.
+            for kind in [
+                Kind::Insertion,
+                Kind::Deletion,
+                Kind::Skip,
+                Kind::Match,
+                Kind::SequenceMatch,
+                Kind::SequenceMismatch,
+            ] {
+                let runs = self.tables.run(kind);
+                let starts = runs.column("ref_start")?.u64()?;
+                let mask = if kind == Kind::Insertion {
+                    starts.equal(position)
+                } else {
+                    let lengths = runs.column("op_len")?.cast(&DataType::UInt64)?;
+                    starts.lt_eq(position) & (starts + lengths.u64()?).gt(position)
+                };
+                let hits = runs.filter(&mask)?;
+                let ids = hits.column("read_id")?.u64()?;
+                let starts = hits.column("ref_start")?.u64()?;
+                let sequences = if matches!(
+                    kind,
+                    Kind::Match | Kind::SequenceMatch | Kind::SequenceMismatch
+                ) {
+                    Some(hits.column("seq")?.str()?)
+                } else {
+                    None
+                };
+                for row in 0..hits.height() {
+                    let id = ids.get(row).expect("run IDs are non-null") as usize;
+                    let key = match kind {
+                        Kind::Insertion => Some(BaseSortKey::Insertion),
+                        Kind::Deletion | Kind::Skip => Some(BaseSortKey::Deletion),
+                        _ => {
+                            let offset = (position
+                                - starts.get(row).expect("selected runs have positions"))
+                                as usize;
+                            let base = sequences
+                                .expect("aligned runs have a sequence column")
+                                .get(row)
+                                .and_then(|seq| seq.as_bytes().get(offset))
+                                .copied();
+                            bases[id] = base;
+                            base.map(BaseSortKey::from_base)
+                        }
+                    };
+                    if let Some(key) = key {
+                        keys[id] = Some(key as u8);
+                    }
+                }
+            }
+        }
+        Ok(DataFrame::new(
+            self.read_count(),
+            vec![
+                self.tables.reads.column("read_id")?.clone(),
+                Column::new("base".into(), bases),
+                Column::new("sort_key".into(), keys),
+            ],
+        )?)
     }
 }
 
-fn stack_tracks_for_reads(reads: &Vec<AlignedRead>, show_reads: &Vec<bool>) -> Vec<usize> {
-    let mut track_left_bounds: Vec<u64> = Vec::new();
-    let mut track_right_bounds: Vec<u64> = Vec::new();
-
-    reads
+fn stack_tracks_for_reads(reads: &DataFrame, show_reads: &[bool]) -> Result<Vec<usize>, TGVError> {
+    let starts = reads.column("stacking_start")?.u64()?;
+    let ends = reads.column("stacking_end")?.u64()?;
+    let mut track_left_bounds = Vec::new();
+    let mut track_right_bounds = Vec::new();
+    Ok(show_reads
         .iter()
-        .zip(show_reads.iter())
-        .map(|(read, show_read)| {
-            if *show_read {
+        .enumerate()
+        .map(|(id, show)| {
+            if *show {
+                let start = starts.get(id).expect("visible reads have display bounds");
+                let end = ends.get(id).expect("visible reads have display bounds");
                 find_track(
-                    read.stacking_start(),
-                    read.stacking_end(),
+                    start,
+                    end,
                     &mut track_left_bounds,
                     &mut track_right_bounds,
                     3,
@@ -334,66 +447,45 @@ fn stack_tracks_for_reads(reads: &Vec<AlignedRead>, show_reads: &Vec<bool>) -> V
                 0
             }
         })
-        .collect::<Vec<usize>>()
+        .collect())
 }
 
-pub(super) fn read_base_sort_key_at(read: &AlignedRead, position: u64) -> Option<BaseSortKey> {
-    if let Some(base) = read.base_at(position) {
-        return Some(BaseSortKey::from_base(base));
+pub(super) fn stack_tracks_by_sort_key(
+    items: &DataFrame,
+    id_column: &str,
+    show: &[bool],
+    min_gap: u64,
+) -> Result<Vec<usize>, TGVError> {
+    let visible = items.filter(&BooleanChunked::from_slice("show".into(), show))?;
+    let sorted = visible
+        .filter(&visible.column("sort_key")?.is_not_null())?
+        .sort(["sort_key", id_column], SortMultipleOptions::default())?;
+    let mut ys = vec![0; items.height()];
+    let mut track_left_bounds = Vec::with_capacity(sorted.height());
+    let mut track_right_bounds = Vec::with_capacity(sorted.height());
+    let ids = sorted.column(id_column)?.u64()?;
+    let starts = sorted.column("stacking_start")?.u64()?;
+    let ends = sorted.column("stacking_end")?.u64()?;
+    for row in 0..sorted.height() {
+        ys[ids.get(row).expect("item IDs are non-null") as usize] = row;
+        track_left_bounds.push(starts.get(row).expect("visible items have bounds"));
+        track_right_bounds.push(ends.get(row).expect("visible items have bounds"));
     }
-
-    if read.is_deletion_at(position) {
-        return Some(BaseSortKey::Deletion);
-    }
-
-    if read.has_insertion_at(position) {
-        return Some(BaseSortKey::Insertion);
-    }
-
-    None
-}
-
-pub(super) fn stack_tracks_by_sort_key(items: &[SortableStackItem], min_gap: u64) -> Vec<usize> {
-    let mut ys = vec![0; items.len()];
-    let mut sorted_item_indexes = items
-        .iter()
-        .enumerate()
-        .filter_map(|(index, item)| {
-            if !item.show {
-                return None;
-            }
-
-            Some((item.sort_key?, index))
-        })
-        .collect::<Vec<_>>();
-
-    sorted_item_indexes.sort_by_key(|(sort_key, index)| (*sort_key, *index));
-
-    let mut is_sorted_item = vec![false; items.len()];
-    let mut track_left_bounds = Vec::with_capacity(sorted_item_indexes.len());
-    let mut track_right_bounds = Vec::with_capacity(sorted_item_indexes.len());
-    for (y, (_sort_key, index)) in sorted_item_indexes.iter().enumerate() {
-        ys[*index] = y;
-        is_sorted_item[*index] = true;
-        track_left_bounds.push(items[*index].stacking_start);
-        track_right_bounds.push(items[*index].stacking_end);
-    }
-
-    for (index, item) in items.iter().enumerate() {
-        if !item.show || is_sorted_item[index] {
-            continue;
-        }
-
-        ys[index] = find_track(
-            item.stacking_start,
-            item.stacking_end,
+    let remaining = visible.filter(&visible.column("sort_key")?.is_null())?;
+    let ids = remaining.column(id_column)?.u64()?;
+    let starts = remaining.column("stacking_start")?.u64()?;
+    let ends = remaining.column("stacking_end")?.u64()?;
+    for row in 0..remaining.height() {
+        let id = ids.get(row).expect("item IDs are non-null") as usize;
+        ys[id] = find_track(
+            starts.get(row).expect("visible items have bounds"),
+            ends.get(row).expect("visible items have bounds"),
             &mut track_left_bounds,
             &mut track_right_bounds,
             min_gap,
         );
     }
-
-    ys
+    Ok(ys)
 }
 
 pub(super) fn find_track(
@@ -436,14 +528,13 @@ mod tests {
             record_buf::Cigar,
         },
     };
-    use std::collections::BTreeMap;
 
     fn read(
         name: &str,
         start: u64,
         cigar_ops: impl IntoIterator<Item = (Kind, usize)>,
         sequence: &[u8],
-    ) -> AlignedRead {
+    ) -> RecordBuf {
         let cigar: Cigar = cigar_ops
             .into_iter()
             .map(|(kind, len)| Op::new(kind, len))
@@ -457,27 +548,21 @@ mod tests {
             .set_sequence(sam::alignment::record_buf::Sequence::from(sequence))
             .build();
 
-        AlignedRead::try_from(record).unwrap()
+        record
     }
 
-    fn alignment_with_reads(reads: Vec<AlignedRead>, data_complete_bound: (u64, u64)) -> Alignment {
-        let read_count = reads.len();
-        let show_read = vec![true; read_count];
-        let ys = stack_tracks_for_reads(&reads, &show_read);
-        let mut alignment = Alignment {
-            contig_index: 0,
+    fn alignment_with_reads(reads: Vec<RecordBuf>, data_complete_bound: (u64, u64)) -> Alignment {
+        Alignment::from_records(
             reads,
-            rendering_contexts: Vec::new(),
-            read_rendering_context_indexes: vec![RENDERING_CONTEXT_NOT_CALCULATED; read_count],
-            ys,
-            ys_index: Vec::new(),
-            coverage: BTreeMap::new(),
-            data_complete_left_bound: data_complete_bound.0,
-            data_complete_right_bound: data_complete_bound.1,
-            show_read,
-        };
-        alignment.build_y_index().unwrap();
-        alignment
+            0,
+            data_complete_bound,
+            &Sequence {
+                start: 1,
+                sequence: vec![b'A'; 100],
+                contig_index: 0,
+            },
+        )
+        .unwrap()
     }
 
     #[test]

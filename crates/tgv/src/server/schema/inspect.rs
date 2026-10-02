@@ -2,7 +2,7 @@
 
 use crate::track_registry::TrackId;
 use gv_core::{
-    alignment::{Alignment, BaseCoverage},
+    alignment::Alignment,
     bed::{BedInterval, BedTrack},
     feature::Gene,
     prelude::*,
@@ -80,21 +80,56 @@ impl TrackSummary {
         alignment: &Alignment,
         contig_index: usize,
         region: &InspectInterval,
-    ) -> Self {
+    ) -> Result<Self, TGVError> {
         let overlapping_records = alignment
-            .overlapping_reads(contig_index, region.start, region.end)
-            .count();
+            .overlapping_reads(contig_index, region.start, region.end)?
+            .len();
+        let coverage = alignment.coverage.query_rows(region.start, region.end)?;
+        let mut rows = coverage
+            .column("pos")?
+            .u64()?
+            .into_no_null_iter()
+            .enumerate()
+            .peekable();
+        let a = coverage.column("A")?.u64()?;
+        let c = coverage.column("C")?.u64()?;
+        let g = coverage.column("G")?.u64()?;
+        let t = coverage.column("T")?.u64()?;
+        let n = coverage.column("N")?.u64()?;
+        let total = coverage.column("total")?.u64()?;
+        let softclip = coverage.column("softclip")?.u64()?;
         let positions = (region.start..=region.end)
-            .map(|position| PositionCoverage::from((position, alignment.coverage_at(position))))
+            .map(|position| {
+                let row = if rows.peek().is_some_and(|(_, pos)| *pos == position) {
+                    rows.next().map(|(row, _)| row)
+                } else {
+                    None
+                };
+                let count = |column: &polars::prelude::UInt64Chunked| {
+                    row.map_or(0, |row| {
+                        column.get(row).expect("coverage counts are non-null") as usize
+                    })
+                };
+                PositionCoverage {
+                    position,
+                    a: count(a),
+                    c: count(c),
+                    g: count(g),
+                    t: count(t),
+                    n: count(n),
+                    total: count(total),
+                    softclip: count(softclip),
+                }
+            })
             .collect();
-        Self::Alignment {
+        Ok(Self::Alignment {
             track_id,
             overlapping_records,
             coverage: CoverageSummary {
                 method: CoverageMethod::ViewerCurrent,
                 positions,
             },
-        }
+        })
     }
 
     /// Summarizes overlapping variants and includes up to the response item limit.
@@ -281,22 +316,6 @@ pub(in crate::server) struct PositionCoverage {
     pub n: usize,
     pub total: usize,
     pub softclip: usize,
-}
-
-impl From<(u64, &BaseCoverage)> for PositionCoverage {
-    /// Copies the current viewer coverage counts at a position.
-    fn from((position, coverage): (u64, &BaseCoverage)) -> Self {
-        Self {
-            position,
-            a: coverage.A,
-            c: coverage.C,
-            g: coverage.G,
-            t: coverage.T,
-            n: coverage.N,
-            total: coverage.total,
-            softclip: coverage.softclip,
-        }
-    }
 }
 
 /// Reports unavailable data in an inspection response.
