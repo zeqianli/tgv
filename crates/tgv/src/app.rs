@@ -322,8 +322,14 @@ impl App {
                         scroll,
                         previous_y
                     );
-                    self.alignment_view
-                        .scroll(scroll.clone(), &self.state.alignments);
+                    if !self.state.alignments.is_empty() {
+                        let index = scroll.index();
+                        let depth = match &self.state.paired_alignments[index] {
+                            Some(paired) => paired.depth()?,
+                            None => self.state.alignments[index].depth()?,
+                        };
+                        self.alignment_view.scroll(scroll.clone(), depth);
+                    }
                     log::debug!(
                         "Scroll applied: scroll={:?} y_before={:?} y_after={:?}",
                         scroll,

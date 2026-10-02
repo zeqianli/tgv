@@ -134,11 +134,21 @@ impl MouseRegister {
                                 alignment_view.coordinates_of_onscreen_x(event.column, area),
                                 alignment_view.coordinate_of_onscreen_y(index, event.row, area),
                             ) && let Some(alignment) = state.alignments.get(index)
-                                && let Some(read_id) = alignment.read_overlapping(
-                                    left_coordinate,
-                                    right_coordinate,
-                                    y_coordinate,
-                                )?
+                                && let Some(read_id) =
+                                    if let Some(paired) = &state.paired_alignments[index] {
+                                        paired.read_overlapping(
+                                            alignment,
+                                            left_coordinate,
+                                            right_coordinate,
+                                            y_coordinate,
+                                        )?
+                                    } else {
+                                        alignment.read_overlapping(
+                                            left_coordinate,
+                                            right_coordinate,
+                                            y_coordinate,
+                                        )?
+                                    }
                             {
                                 let record = alignment.record(read_id);
                                 let name = record

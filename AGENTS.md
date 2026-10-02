@@ -98,6 +98,7 @@ When modifying any struct that is serialized to disk or over the wire:
 ### Memory and performance
 
 - Use `Arc` or borrows for shared immutable data.
+- Use direct typed column reductions for simple DataFrame statistics, such as sums, maxima, and visibility checks. Keep lazy expressions for row selection, transformations, joins, and grouped aggregations.
 
 
 ## Testing practices

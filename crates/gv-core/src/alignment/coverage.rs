@@ -110,7 +110,12 @@ impl CoverageTable {
 
     /// Sum coverage counts across a one-based, inclusive interval.
     pub fn query(&self, start: u64, end: u64) -> Result<Coverage, TGVError> {
-        let table = self.query_rows(start, end)?;
+        let table = self
+            .data
+            .clone()
+            .lazy()
+            .filter(col("pos").gt_eq(lit(start)).and(col("pos").lt_eq(lit(end))))
+            .collect()?;
         Ok(Coverage {
             A: table.column("A")?.u64()?.sum().unwrap_or(0),
             T: table.column("T")?.u64()?.sum().unwrap_or(0),
@@ -124,29 +129,12 @@ impl CoverageTable {
 
     /// Select sparse rows within a one-based, inclusive interval.
     pub fn query_rows(&self, start: u64, end: u64) -> Result<DataFrame, TGVError> {
-        let positions = self.data.column("pos")?.u64()?;
-        let bound = |position, inclusive| {
-            let mut left = 0;
-            let mut right = positions.len();
-            while left < right {
-                let middle = left + (right - left) / 2;
-                let value = positions
-                    .get(middle)
-                    .expect("coverage positions are non-null");
-                if value < position || (inclusive && value == position) {
-                    left = middle + 1;
-                } else {
-                    right = middle;
-                }
-            }
-            left
-        };
-        if start > end {
-            return Ok(self.data.slice(0, 0));
-        }
-        let left = bound(start, false);
-        let right = bound(end, true);
-        Ok(self.data.slice(left as i64, right - left))
+        Ok(self
+            .data
+            .clone()
+            .lazy()
+            .filter(col("pos").gt_eq(lit(start)).and(col("pos").lt_eq(lit(end))))
+            .collect()?)
     }
 
     /// Sparse per-position counts, positions, and reference bases.

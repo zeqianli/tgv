@@ -1,5 +1,5 @@
 use crate::{
-    alignment::alignment::{Alignment, find_track, stack_tracks_by_sort_key},
+    alignment::alignment::{Alignment, stack_tracks_by_sort_key},
     error::TGVError,
     message::AlignmentSort,
 };
@@ -11,125 +11,107 @@ pub struct PairedAlignment {
     /// Stable pair IDs and their member read IDs.
     pub pairs: DataFrame,
 
-    /// Pair index to y locations.
-    pub ys: Vec<usize>,
-
-    /// y to pair indexes at y location.
-    pub ys_index: Vec<Vec<usize>>,
-
-    /// Whether to display the pair.
-    pub show_pair: Vec<bool>,
+    /// Unpaired, unnamed, secondary, and supplementary records.
+    pub singles: DataFrame,
 }
 
 impl PairedAlignment {
     pub fn new(alignment: &Alignment) -> Result<Self, TGVError> {
-        let reads = &alignment.tables.reads;
-        let eligible = reads.column("paired")?.bool()?.clone()
-            & !reads.column("secondary")?.bool()?.clone()
-            & !reads.column("supplementary")?.bool()?.clone()
-            & reads.column("qname")?.is_not_null();
-
-        let candidates = reads.filter(&eligible)?;
-        let grouped = candidates.group_by_stable(["qname"])?.groups()?;
-        let groups = grouped.column("groups")?.list()?;
-        let candidate_ids = candidates.column("read_id")?.u64()?;
-        let mut read_1_id = Vec::new();
-        let mut read_2_id = Vec::new();
-        for row in 0..groups.len() {
-            let group = groups
-                .get_as_series(row)
-                .expect("qname groups are non-null");
-            let ids = group
-                .idx()?
-                .into_no_null_iter()
-                .map(|row| {
-                    candidate_ids
-                        .get(row as usize)
-                        .expect("read IDs are non-null")
-                })
-                .collect::<Vec<_>>();
-            // Duplicate primary records with one qname remain consecutive pairs.
-            for members in ids.chunks(2) {
-                read_1_id.push(members[0]);
-                read_2_id.push(members.get(1).copied());
-            }
-        }
-        for id in reads
-            .column("read_id")?
-            .filter(&!eligible)?
-            .u64()?
-            .into_no_null_iter()
-        {
-            read_1_id.push(id);
-            read_2_id.push(None);
-        }
-        let mut pairs = DataFrame::new(
-            read_1_id.len(),
-            vec![
-                Column::new("read_1_id".into(), read_1_id),
-                Column::new("read_2_id".into(), read_2_id),
-            ],
-        )?
-        .sort(["read_1_id"], SortMultipleOptions::default())?;
-        let first = pairs.column("read_1_id")?.u64()?;
-        let second = pairs.column("read_2_id")?.u64()?;
-        let bounds = first
-            .into_no_null_iter()
-            .zip(second.iter())
-            .map(|(first, second)| {
-                pair_bounds((first as usize, second.map(|id| id as usize)), alignment)
-            })
-            .collect::<Vec<_>>();
-        let show_pair = first
-            .into_no_null_iter()
-            .zip(second.iter())
-            .map(|(first, second)| {
-                alignment.show_read[first as usize]
-                    || second.is_some_and(|id| alignment.show_read[id as usize])
-            })
-            .collect::<Vec<_>>();
-        pairs.with_column(Column::new(
-            "pair_id".into(),
-            (0..pairs.height() as u64).collect::<Vec<_>>(),
-        ))?;
-
-        pairs.with_column(Column::new(
-            "stacking_start".into(),
-            bounds.iter().map(|b| b.map(|b| b.0)).collect::<Vec<_>>(),
-        ))?;
-        pairs.with_column(Column::new(
-            "stacking_end".into(),
-            bounds.iter().map(|b| b.map(|b| b.1)).collect::<Vec<_>>(),
-        ))?;
-        let mut left = Vec::new();
-        let mut right = Vec::new();
-        let ys = bounds
-            .iter()
-            .zip(&show_pair)
-            .map(|(bounds, show)| {
-                if *show {
-                    let (start, end) = bounds.expect("visible pairs have bounds");
-                    find_track(start, end, &mut left, &mut right, 10)
-                } else {
-                    0
-                }
-            })
-            .collect();
-        let mut paired_alignment = Self {
-            pairs,
-            show_pair,
-            ys,
-            ys_index: Vec::new(),
-        };
-
-        paired_alignment.build_y_index()?;
-
-        Ok(paired_alignment)
+        let reads = alignment.tables.reads.clone().lazy();
+        let eligible = col("paired")
+            .and(col("secondary").not())
+            .and(col("supplementary").not())
+            .and(col("qname").is_not_null());
+        let pairs = reads
+            .clone()
+            .filter(eligible.clone())
+            .group_by(["qname"])
+            .agg([
+                col("read_id").min().alias("read_1_id"),
+                // Only the first and last records represent a qname with more than two records.
+                when(len().gt(lit(1u32)))
+                    .then(col("read_id").max())
+                    .otherwise(lit(NULL).cast(DataType::UInt64))
+                    .alias("read_2_id"),
+                col("stacking_start").min(),
+                col("stacking_end").max(),
+                col("show").any(false).alias("show"),
+            ])
+            .select([
+                col("read_1_id"),
+                col("read_2_id"),
+                col("stacking_start"),
+                col("stacking_end"),
+                col("show"),
+            ])
+            .sort(["read_1_id"], SortMultipleOptions::default())
+            .with_row_index("pair_id", None)
+            .with_columns([
+                col("pair_id").cast(DataType::UInt64),
+                lit(NULL).cast(DataType::UInt8).alias("sort_key"),
+            ])
+            .collect()?;
+        let singles = reads
+            .filter(eligible.not())
+            .sort(["read_id"], SortMultipleOptions::default())
+            .with_columns([lit(NULL).cast(DataType::UInt8).alias("sort_key")])
+            .collect()?;
+        let mut result = Self { pairs, singles };
+        result.assign_rows()?;
+        Ok(result)
     }
 
-    /// Return the number of paired alignment tracks.
-    pub fn depth(&self) -> usize {
-        self.ys_index.len()
+    /// Return the combined depth of the visible pairs and singles.
+    pub fn depth(&self) -> Result<usize, TGVError> {
+        if !self.pairs.column("show")?.bool()?.any() && !self.singles.column("show")?.bool()?.any()
+        {
+            return Ok(0);
+        }
+        let pair_y = self.pairs.column("y")?.u64()?.max();
+        let single_y = self.singles.column("y")?.u64()?.max();
+        Ok(pair_y.max(single_y).map_or(0, |y| y as usize + 1))
+    }
+
+    fn assign_rows(&mut self) -> Result<(), TGVError> {
+        let items = concat(
+            [
+                self.pairs.clone().lazy().select([
+                    col("show"),
+                    col("stacking_start"),
+                    col("stacking_end"),
+                    col("sort_key"),
+                ]),
+                self.singles.clone().lazy().select([
+                    col("show"),
+                    col("stacking_start"),
+                    col("stacking_end"),
+                    col("sort_key"),
+                ]),
+            ],
+            UnionArgs::default(),
+        )?
+        .with_row_index("item_id", None)
+        .with_columns([col("item_id").cast(DataType::UInt64)])
+        .collect()?;
+        let y = stack_tracks_by_sort_key(&items, "item_id", 10)?;
+        let (pair_y, single_y) = y.split_at(self.pairs.height());
+        let pairs = self
+            .pairs
+            .clone()
+            .lazy()
+            .with_columns([lit(Series::new("y".into(), pair_y)).alias("y")])
+            .drop(cols(["sort_key"]))
+            .collect()?;
+        let singles = self
+            .singles
+            .clone()
+            .lazy()
+            .with_columns([lit(Series::new("y".into(), single_y)).alias("y")])
+            .drop(cols(["sort_key"]))
+            .collect()?;
+        self.pairs = pairs;
+        self.singles = singles;
+        Ok(())
     }
 
     pub fn pair_count(&self) -> usize {
@@ -169,44 +151,85 @@ impl PairedAlignment {
         if alignment.contig_index != contig_index || start > end {
             return Ok(Vec::new());
         }
-        let left = self.pairs.column("stacking_start")?.u64()?;
-        let right = self.pairs.column("stacking_end")?.u64()?;
-        let mask = left.lt_eq(end) & right.gt_eq(start);
-        let hits = self.pairs.column("pair_id")?.filter(&mask)?;
+        let hits = self
+            .pairs
+            .clone()
+            .lazy()
+            .filter(
+                col("stacking_start")
+                    .lt_eq(lit(end))
+                    .and(col("stacking_end").gt_eq(lit(start))),
+            )
+            .select([col("pair_id")])
+            .collect()?;
         Ok(hits
+            .column("pair_id")?
             .u64()?
             .into_no_null_iter()
             .map(|id| id as usize)
             .collect())
     }
 
-    pub fn pair_overlapping(
+    /// Find a read in a visible pair or singleton at the displayed row.
+    pub fn read_overlapping(
         &self,
         alignment: &Alignment,
         left: u64,
         right: u64,
         y: usize,
     ) -> Result<Option<usize>, TGVError> {
-        if y >= self.depth() {
+        if left > right {
             return Ok(None);
         }
-        let hits = self.overlapping_pairs(alignment, alignment.contig_index, left, right)?;
-        Ok(self.ys_index[y]
+        let hit = col("show")
+            .and(col("y").eq(lit(y as u64)))
+            .and(col("stacking_start").lt_eq(lit(right)))
+            .and(col("stacking_end").gt_eq(lit(left)));
+        let pairs = self
+            .pairs
+            .clone()
+            .lazy()
+            .filter(hit.clone())
+            .select([col("read_1_id"), col("read_2_id")])
+            .collect()?;
+        let first = pairs.column("read_1_id")?.u64()?;
+        let second = pairs.column("read_2_id")?.u64()?;
+        let mut candidates = first
+            .into_no_null_iter()
+            .zip(second.iter())
+            .flat_map(|(first, second)| std::iter::once(first).chain(second))
+            .collect::<Vec<_>>();
+        let singles = self
+            .singles
+            .clone()
+            .lazy()
+            .filter(hit)
+            .select([col("read_id")])
+            .collect()?;
+        candidates.extend(singles.column("read_id")?.u64()?.into_no_null_iter());
+        let selected = Series::new("selected".into(), candidates);
+        let hits = alignment
+            .tables
+            .reads
+            .clone()
+            .lazy()
+            .filter(
+                col("show")
+                    .and(col("read_id").is_in(lit(selected).implode(true), false))
+                    .and(col("stacking_start").lt_eq(lit(right)))
+                    .and(col("stacking_end").gt_eq(lit(left))),
+            )
+            .select([col("read_id")])
+            .sort(["read_id"], SortMultipleOptions::default())
+            .limit(1)
+            .collect()?;
+        Ok(hits
+            .column("read_id")?
+            .u64()?
             .iter()
-            .copied()
-            .find(|id| hits.contains(id)))
-    }
-
-    fn build_y_index(&mut self) -> Result<(), TGVError> {
-        let mut ys_index = vec![Vec::new(); *self.ys.iter().max().unwrap_or(&0) + 1];
-        for (pair_index, (y, show_pair)) in self.ys.iter().zip(self.show_pair.iter()).enumerate() {
-            if *show_pair {
-                ys_index[*y].push(pair_index);
-            }
-        }
-        self.ys_index = ys_index;
-
-        Ok(())
+            .next()
+            .flatten()
+            .map(|id| id as usize))
     }
 
     pub fn sort(&mut self, alignment: &Alignment, option: AlignmentSort) -> Result<(), TGVError> {
@@ -222,58 +245,78 @@ impl PairedAlignment {
         alignment.ensure_position_has_complete_data(position)?;
 
         let events = alignment.base_events(position)?;
-        let read_keys = events.column("sort_key")?.u8()?;
-        let mut keys = Vec::with_capacity(self.pair_count());
-        for id in 0..self.pair_count() {
-            let (first, second) = self.members(id);
-            self.show_pair[id] =
-                alignment.show_read[first] || second.is_some_and(|id| alignment.show_read[id]);
-            let key = alignment.show_read[first]
-                .then(|| read_keys.get(first))
-                .flatten()
-                .or_else(|| {
-                    second
-                        .filter(|id| alignment.show_read[*id])
-                        .and_then(|id| read_keys.get(id))
-                })
-                .or_else(|| {
-                    second
-                        .filter(|id| {
-                            pair_gap_at(
-                                alignment.stacking_bounds(first),
-                                alignment.stacking_bounds(*id),
-                                position,
-                            )
-                        })
-                        .map(|_| 8)
-                });
-            keys.push(key);
-        }
-        let mut items = self.pairs.clone();
-        items.with_column(Column::new("sort_key".into(), keys))?;
-        self.ys = stack_tracks_by_sort_key(&items, "pair_id", &self.show_pair, 10)?;
-        self.build_y_index()
-    }
-}
-
-fn pair_gap_at(read_1: Option<(u64, u64)>, read_2: Option<(u64, u64)>, position: u64) -> bool {
-    let (Some(first), Some(second)) = (read_1, read_2) else {
-        return false;
-    };
-    if position == 0 {
-        return false;
-    }
-    (first.1 < second.0 && position > first.1 && position < second.0)
-        || (second.1 < first.0 && position > second.1 && position < first.0)
-}
-
-fn pair_bounds(pair: (usize, Option<usize>), alignment: &Alignment) -> Option<(u64, u64)> {
-    let first = alignment.stacking_bounds(pair.0);
-    let second = pair.1.and_then(|id| alignment.stacking_bounds(id));
-    match (first, second) {
-        (Some(a), Some(b)) => Some((a.0.min(b.0), a.1.max(b.1))),
-        (Some(a), None) | (None, Some(a)) => Some(a),
-        (None, None) => None,
+        let reads = alignment.tables.reads.clone().lazy().left_join(
+            events.lazy(),
+            col("read_id"),
+            col("read_id"),
+        );
+        let mate = |prefix: &str| {
+            reads.clone().select([
+                col("read_id").alias(format!("{prefix}_id")),
+                col("show").alias(format!("{prefix}_show")),
+                when(col("show"))
+                    .then(col("sort_key"))
+                    .otherwise(lit(NULL).cast(DataType::UInt8))
+                    .alias(format!("{prefix}_key")),
+                col("stacking_start").alias(format!("{prefix}_start")),
+                col("stacking_end").alias(format!("{prefix}_end")),
+            ])
+        };
+        let pos = lit(position);
+        let gap = col("first_end")
+            .lt(col("second_start"))
+            .and(pos.clone().gt(col("first_end")))
+            .and(pos.clone().lt(col("second_start")))
+            .or(col("second_end")
+                .lt(col("first_start"))
+                .and(pos.clone().gt(col("second_end")))
+                .and(pos.lt(col("first_start"))));
+        let items = self
+            .pairs
+            .clone()
+            .lazy()
+            .left_join(mate("first"), col("read_1_id"), col("first_id"))
+            .left_join(mate("second"), col("read_2_id"), col("second_id"))
+            .with_columns([
+                col("first_show")
+                    .or(col("second_show").fill_null(lit(false)))
+                    .alias("show"),
+                coalesce(&[
+                    col("first_key"),
+                    col("second_key"),
+                    when(gap)
+                        .then(lit(8u8))
+                        .otherwise(lit(NULL).cast(DataType::UInt8)),
+                ])
+                .alias("sort_key"),
+            ])
+            .sort(["pair_id"], SortMultipleOptions::default())
+            .collect()?;
+        let pairs = items
+            .lazy()
+            .select([
+                col("pair_id"),
+                col("read_1_id"),
+                col("read_2_id"),
+                col("stacking_start"),
+                col("stacking_end"),
+                col("show"),
+                col("sort_key"),
+            ])
+            .collect()?;
+        let singles = self
+            .singles
+            .clone()
+            .lazy()
+            .select([col("read_id")])
+            .left_join(reads, col("read_id"), col("read_id"))
+            .drop(cols(["base"]))
+            .sort(["read_id"], SortMultipleOptions::default())
+            .collect()?;
+        let mut replacement = Self { pairs, singles };
+        replacement.assign_rows()?;
+        *self = replacement;
+        Ok(())
     }
 }
 
@@ -347,30 +390,105 @@ mod tests {
             .sort(&alignment, AlignmentSort::BaseAt(10))
             .unwrap();
 
-        assert_eq!(paired_alignment.ys, vec![1, 0, 2, 3]);
         assert_eq!(
-            paired_alignment.ys_index,
-            vec![vec![1], vec![0], vec![2], vec![3]]
+            paired_alignment
+                .pairs
+                .column("y")
+                .unwrap()
+                .u64()
+                .unwrap()
+                .into_no_null_iter()
+                .collect::<Vec<_>>(),
+            vec![1, 0, 2, 3]
+        );
+        assert_eq!(paired_alignment.depth().unwrap(), 4);
+        assert_eq!(
+            paired_alignment
+                .read_overlapping(&alignment, 10, 10, 0)
+                .unwrap(),
+            Some(2)
         );
     }
 
     #[test]
     fn paired_sort_visibility_follows_underlying_reads() {
+        let mut singleton = read("singleton", 10, [(Kind::Match, 1)], b"G");
+        *singleton.flags_mut() = Flags::default();
+        let mut secondary = read("visible", 30, [(Kind::Match, 1)], b"A");
+        *secondary.flags_mut() = Flags::from(0x101);
         let mut alignment = alignment_from_reads(vec![
             read("hidden", 10, [(Kind::Match, 1)], b"A"),
             read("hidden", 10, [(Kind::Match, 1)], b"A"),
             read("visible", 10, [(Kind::Match, 1)], b"T"),
             read("visible", 10, [(Kind::Match, 1)], b"T"),
+            singleton,
+            secondary,
         ]);
-        alignment.show_read[0] = false;
-        alignment.show_read[1] = false;
+        alignment.tables.reads = alignment
+            .tables
+            .reads
+            .clone()
+            .lazy()
+            .with_columns([col("read_id").gt_eq(lit(2u64)).alias("show")])
+            .collect()
+            .unwrap();
 
         let mut paired_alignment = PairedAlignment::new(&alignment).unwrap();
         paired_alignment
             .sort(&alignment, AlignmentSort::BaseAt(10))
             .unwrap();
 
-        assert_eq!(paired_alignment.show_pair, vec![false, true]);
-        assert_eq!(paired_alignment.ys_index, vec![vec![1]]);
+        assert_eq!(
+            paired_alignment
+                .pairs
+                .column("show")
+                .unwrap()
+                .bool()
+                .unwrap()
+                .iter()
+                .collect::<Vec<_>>(),
+            vec![Some(false), Some(true)]
+        );
+        assert_eq!(paired_alignment.depth().unwrap(), 2);
+        assert_eq!(
+            paired_alignment
+                .singles
+                .column("read_id")
+                .unwrap()
+                .u64()
+                .unwrap()
+                .into_no_null_iter()
+                .collect::<Vec<_>>(),
+            vec![4, 5]
+        );
+        assert_eq!(
+            paired_alignment
+                .singles
+                .column("y")
+                .unwrap()
+                .u64()
+                .unwrap()
+                .into_no_null_iter()
+                .collect::<Vec<_>>(),
+            vec![1, 0]
+        );
+        assert_eq!(
+            paired_alignment
+                .read_overlapping(&alignment, 10, 10, 1)
+                .unwrap(),
+            Some(4)
+        );
+        assert_eq!(
+            paired_alignment
+                .read_overlapping(&alignment, 30, 30, 0)
+                .unwrap(),
+            Some(5)
+        );
+        assert_eq!(
+            paired_alignment
+                .read_overlapping(&alignment, 10, 10, 0)
+                .unwrap(),
+            Some(2)
+        );
     }
 }

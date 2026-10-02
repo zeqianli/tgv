@@ -3,7 +3,6 @@ use crate::{
     track_registry::{TrackId, TrackRegistry},
 };
 use gv_core::{
-    alignment::Alignment,
     message::{Scroll, Zoom},
     prelude::*,
 };
@@ -133,29 +132,12 @@ impl AlignmentView {
         }
     }
 
-    pub fn scroll(&mut self, scroll: Scroll, alignments: &[Alignment]) {
+    pub fn scroll(&mut self, scroll: Scroll, depth: usize) {
         match scroll {
-            Scroll::Up { index, n } => {
-                if !alignments.is_empty() {
-                    self.y[index] = self.y[index].saturating_sub(n);
-                }
-            }
-            Scroll::Down { index, n } => {
-                if !alignments.is_empty() {
-                    self.y[index] =
-                        usize::min(self.y[index].saturating_add(n), alignments[index].depth());
-                }
-            }
-            Scroll::Position { index, position } => {
-                if !alignments.is_empty() {
-                    self.y[index] = position;
-                }
-            }
-            Scroll::Bottom { index } => {
-                if !alignments.is_empty() {
-                    self.y[index] = alignments[index].depth().saturating_sub(1);
-                }
-            }
+            Scroll::Up { index, n } => self.y[index] = self.y[index].saturating_sub(n),
+            Scroll::Down { index, n } => self.y[index] = self.y[index].saturating_add(n).min(depth),
+            Scroll::Position { index, position } => self.y[index] = position,
+            Scroll::Bottom { index } => self.y[index] = depth.saturating_sub(1),
         }
     }
 
@@ -874,6 +856,7 @@ pub fn linear_scale(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use gv_core::alignment::Alignment;
     use gv_core::{
         reference::Reference,
         settings::{AlignmentPath, FilePath},
@@ -936,7 +919,20 @@ mod tests {
 
     fn alignment_with_depth(depth: usize) -> Alignment {
         let mut alignment = Alignment::default();
-        alignment.ys_index.resize(depth, Vec::new());
+        use polars::prelude::*;
+        alignment.tables.reads =
+            DataFrame::full_null(&gv_core::alignment::tables::reads_schema(), depth)
+                .lazy()
+                .with_columns([
+                    lit(Series::new(
+                        "y".into(),
+                        (0..depth as u64).collect::<Vec<_>>(),
+                    ))
+                    .alias("y"),
+                    lit(true).alias("show"),
+                ])
+                .collect()
+                .unwrap();
         alignment
     }
 
@@ -1013,15 +1009,24 @@ mod tests {
         let alignments = vec![alignment_with_depth(10), alignment_with_depth(10)];
         let mut alignment_view = AlignmentView::new(Focus::default(), alignments.len());
 
-        alignment_view.scroll(Scroll::Down { index: 1, n: 3 }, &alignments);
+        alignment_view.scroll(
+            Scroll::Down { index: 1, n: 3 },
+            alignments[1].depth().unwrap(),
+        );
         assert_eq!(alignment_view.top(0), 0);
         assert_eq!(alignment_view.top(1), 3);
 
-        alignment_view.scroll(Scroll::Up { index: 1, n: 1 }, &alignments);
+        alignment_view.scroll(
+            Scroll::Up { index: 1, n: 1 },
+            alignments[1].depth().unwrap(),
+        );
         assert_eq!(alignment_view.top(0), 0);
         assert_eq!(alignment_view.top(1), 2);
 
-        alignment_view.scroll(Scroll::Down { index: 0, n: 4 }, &alignments);
+        alignment_view.scroll(
+            Scroll::Down { index: 0, n: 4 },
+            alignments[0].depth().unwrap(),
+        );
         assert_eq!(alignment_view.top(0), 4);
         assert_eq!(alignment_view.top(1), 2);
     }

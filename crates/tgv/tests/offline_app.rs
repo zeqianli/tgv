@@ -284,7 +284,7 @@ async fn offline_sequence_handles_sorting_command() {
         ))]
     );
     assert_eq!(harness.app.state.messages, initial_messages);
-    assert!(harness.app.state.alignments[0].depth() > 0);
+    assert!(harness.app.state.alignments[0].depth().unwrap() > 0);
 
     harness.close().await.unwrap();
 }

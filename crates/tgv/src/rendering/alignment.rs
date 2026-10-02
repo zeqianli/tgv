@@ -72,16 +72,29 @@ pub fn render_alignment(
         return Ok(());
     }
     let region = view.region(area);
-    let visible = alignment
-        .overlapping_reads(region.contig_index(), region.start(), region.end())?
-        .into_iter()
-        .filter(|id| alignment.show_read[*id])
-        .filter_map(
-            |id| match view.onscreen_y_coordinate(index, alignment.ys[id], area) {
-                OnScreenCoordinate::OnScreen(y) if y < usize::from(area.height) => Some((id, y)),
-                _ => None,
-            },
+    if region.contig_index() != alignment.contig_index {
+        return Ok(());
+    }
+    let rows = alignment
+        .tables
+        .reads
+        .clone()
+        .lazy()
+        .filter(
+            col("show")
+                .and(col("stacking_start").lt_eq(lit(region.end())))
+                .and(col("stacking_end").gt_eq(lit(region.start())))
+                .and(col("y").gt_eq(lit(view.top(index) as u64)))
+                .and(col("y").lt(lit(view.bottom(index, area) as u64))),
         )
+        .select([col("read_id"), col("y")])
+        .collect()?;
+    let visible = rows
+        .column("read_id")?
+        .u64()?
+        .into_no_null_iter()
+        .zip(rows.column("y")?.u64()?.into_no_null_iter())
+        .map(|(id, y)| (id as usize, y as usize - view.top(index)))
         .collect::<Vec<_>>();
     let ids = visible.iter().map(|(id, _)| *id).collect::<Vec<_>>();
     if ids.is_empty() {
@@ -113,50 +126,89 @@ pub fn render_paired_alignment(
         return Ok(());
     }
     let region = view.region(area);
-    let visible = paired
-        .overlapping_pairs(
-            alignment,
-            region.contig_index(),
-            region.start(),
-            region.end(),
-        )?
-        .into_iter()
-        .filter(|id| paired.show_pair[*id])
-        .filter_map(
-            |id| match view.onscreen_y_coordinate(index, paired.ys[id], area) {
-                OnScreenCoordinate::OnScreen(y) if y < usize::from(area.height) => Some((id, y)),
-                _ => None,
-            },
-        )
-        .collect::<Vec<_>>();
-    let ids = visible
-        .iter()
-        .flat_map(|(id, _)| {
-            let (first, second) = paired.members(*id);
-            std::iter::once(first).chain(second)
+    if region.contig_index() != alignment.contig_index {
+        return Ok(());
+    }
+    let visible = col("show")
+        .and(col("stacking_start").lt_eq(lit(region.end())))
+        .and(col("stacking_end").gt_eq(lit(region.start())))
+        .and(col("y").gt_eq(lit(view.top(index) as u64)))
+        .and(col("y").lt(lit(view.bottom(index, area) as u64)));
+    let rows = concat(
+        [
+            paired.pairs.clone().lazy().filter(visible.clone()).select([
+                col("read_1_id"),
+                col("read_2_id"),
+                col("y"),
+            ]),
+            paired.singles.clone().lazy().filter(visible).select([
+                col("read_id").alias("read_1_id"),
+                lit(NULL).cast(DataType::UInt64).alias("read_2_id"),
+                col("y"),
+            ]),
+        ],
+        UnionArgs::default(),
+    )?
+    .collect()?;
+    let visible = rows
+        .column("read_1_id")?
+        .u64()?
+        .into_no_null_iter()
+        .zip(rows.column("read_2_id")?.u64()?.iter())
+        .zip(rows.column("y")?.u64()?.into_no_null_iter())
+        .map(|((first, second), y)| {
+            (
+                first as usize,
+                second.map(|id| id as usize),
+                y as usize - view.top(index),
+            )
         })
+        .collect::<Vec<_>>();
+    let selected = Series::new(
+        "selected".into(),
+        visible
+            .iter()
+            .flat_map(|(first, second, _)| {
+                std::iter::once(*first as u64).chain(second.map(|id| id as u64))
+            })
+            .collect::<Vec<_>>(),
+    );
+    let reads = alignment
+        .tables
+        .reads
+        .clone()
+        .lazy()
+        .filter(col("show").and(col("read_id").is_in(lit(selected).implode(true), false)))
+        .select([col("read_id")])
+        .collect()?;
+    let ids = reads
+        .column("read_id")?
+        .u64()?
+        .into_no_null_iter()
+        .map(|id| id as usize)
         .collect::<Vec<_>>();
     if ids.is_empty() {
         return Ok(());
     }
     let viewport = alignment.query_viewport(&region, &ids)?;
     let cells = paint_runs(&viewport, view, area)?;
-    for (id, y) in visible {
-        let (first, second) = paired.members(id);
-        let first_cells = &cells[&first];
-        let second_cells = second.map(|id| &cells[&id]);
-        let gap = alignment
-            .stacking_bounds(first)
-            .zip(second.and_then(|id| alignment.stacking_bounds(id)))
-            .and_then(|(a, b)| {
-                if a.1 < b.0 {
-                    Some((a.1 + 1, b.0 - 1))
-                } else if b.1 < a.0 {
-                    Some((b.1 + 1, a.0 - 1))
-                } else {
-                    None
-                }
-            });
+    for (first, second, y) in visible {
+        let first_cells = cells.get(&first);
+        let second_cells = second.and_then(|id| cells.get(&id));
+        let gap = first_cells.zip(second_cells).and_then(|_| {
+            alignment
+                .stacking_bounds(first)
+                .zip(second.and_then(|id| alignment.stacking_bounds(id)))
+                .and_then(|(a, b)| {
+                    if a.1 < b.0 {
+                        Some((a.1 + 1, b.0 - 1))
+                    } else if b.1 < a.0 {
+                        Some((b.1 + 1, a.0 - 1))
+                    } else {
+                        None
+                    }
+                })
+        });
         if let Some((start, end)) = gap {
             let start = start.max(region.start());
             let end = end.min(region.end());
@@ -176,9 +228,10 @@ pub fn render_paired_alignment(
                 }
             }
         }
-        for (x, first) in first_cells.iter().enumerate() {
+        for x in 0..usize::from(area.width) {
+            let first = first_cells.and_then(|cells| cells[x]);
             let second = second_cells.and_then(|cells| cells[x]);
-            let paint = match (*first, second) {
+            let paint = match (first, second) {
                 (Some(first), Some(second)) => Some(merge_pair_cell(first, second)),
                 (Some(paint), None) | (None, Some(paint)) => Some(paint),
                 (None, None) => None,

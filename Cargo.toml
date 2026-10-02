@@ -19,7 +19,8 @@ miette = { version = "7", features = ["fancy"] }
 nom = "8"
 noodles = { version = "0", features = ["async", "bam", "bed", "bgzf", "core", "cram", "fasta", "sam", "vcf"] }
 opendal = { version = "0.53.3", default-features = false, features = ["services-s3"] }
-polars = { version = "0.55.2", default-features = false, features = ["dtype-u8", "dtype-u16", "lazy"] }
+# Polars 0.55 string expressions also require its temporal support.
+polars = { version = "0.55.2", default-features = false, features = ["dtype-u8", "dtype-u16", "lazy", "strings", "is_in", "cum_agg", "dtype-i128", "temporal", "round_series"] }
 ratatui = "0.29"
 rmcp = { version = "=3.5.0", default-features = false, features = ["server", "macros", "transport-io"] }
 schemars = "1"

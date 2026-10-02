@@ -105,21 +105,77 @@ impl AlignmentTables {
         }
         let offset = self.reads.height() as u64;
         let batch = Self::build_batch(records, reference_sequence, contig_index, offset)?;
-        self.reads.vstack_mut(&batch.reads)?;
-        self.r#match.vstack_mut(&batch.r#match)?;
-        self.sequence_match.vstack_mut(&batch.sequence_match)?;
-        self.mismatch.vstack_mut(&batch.mismatch)?;
-        self.insertion.vstack_mut(&batch.insertion)?;
-        self.deletion.vstack_mut(&batch.deletion)?;
-        self.reference_skip.vstack_mut(&batch.reference_skip)?;
-        self.soft_clip.vstack_mut(&batch.soft_clip)?;
-        self.hard_clip.vstack_mut(&batch.hard_clip)?;
-        self.padding.vstack_mut(&batch.padding)?;
-        self.unmapped.vstack_mut(&batch.unmapped)?;
-        self.reference_mismatches
-            .vstack_mut(&batch.reference_mismatches)?;
-        self.base_modifications
-            .vstack_mut(&batch.base_modifications)?;
+        self.reads = concat(
+            [self.reads.lazy(), batch.reads.lazy()],
+            UnionArgs::default(),
+        )?
+        .collect()?;
+        self.r#match = concat(
+            [self.r#match.lazy(), batch.r#match.lazy()],
+            UnionArgs::default(),
+        )?
+        .collect()?;
+        self.sequence_match = concat(
+            [self.sequence_match.lazy(), batch.sequence_match.lazy()],
+            UnionArgs::default(),
+        )?
+        .collect()?;
+        self.mismatch = concat(
+            [self.mismatch.lazy(), batch.mismatch.lazy()],
+            UnionArgs::default(),
+        )?
+        .collect()?;
+        self.insertion = concat(
+            [self.insertion.lazy(), batch.insertion.lazy()],
+            UnionArgs::default(),
+        )?
+        .collect()?;
+        self.deletion = concat(
+            [self.deletion.lazy(), batch.deletion.lazy()],
+            UnionArgs::default(),
+        )?
+        .collect()?;
+        self.reference_skip = concat(
+            [self.reference_skip.lazy(), batch.reference_skip.lazy()],
+            UnionArgs::default(),
+        )?
+        .collect()?;
+        self.soft_clip = concat(
+            [self.soft_clip.lazy(), batch.soft_clip.lazy()],
+            UnionArgs::default(),
+        )?
+        .collect()?;
+        self.hard_clip = concat(
+            [self.hard_clip.lazy(), batch.hard_clip.lazy()],
+            UnionArgs::default(),
+        )?
+        .collect()?;
+        self.padding = concat(
+            [self.padding.lazy(), batch.padding.lazy()],
+            UnionArgs::default(),
+        )?
+        .collect()?;
+        self.unmapped = concat(
+            [self.unmapped.lazy(), batch.unmapped.lazy()],
+            UnionArgs::default(),
+        )?
+        .collect()?;
+        self.reference_mismatches = concat(
+            [
+                self.reference_mismatches.lazy(),
+                batch.reference_mismatches.lazy(),
+            ],
+            UnionArgs::default(),
+        )?
+        .collect()?;
+        self.base_modifications = concat(
+            [
+                self.base_modifications.lazy(),
+                batch.base_modifications.lazy(),
+            ],
+            UnionArgs::default(),
+        )?
+        .collect()?;
         Ok(self)
     }
 
@@ -245,7 +301,13 @@ impl AlignmentTables {
             Column::new("duplicate".into(), duplicate),
             Column::new("supplementary".into(), supplementary),
         ];
-        let reads = DataFrame::new(height, read_columns)?;
+        let reads = DataFrame::new(height, read_columns)?
+            .lazy()
+            .with_columns([
+                col("stacking_start").is_not_null().alias("show"),
+                lit(0u64).cast(DataType::UInt64).alias("y"),
+            ])
+            .collect()?;
         let [
             r#match,
             sequence_match,
@@ -513,7 +575,7 @@ pub const fn run_table_name(kind: Kind) -> &'static str {
 /// `stacking_start` and `stacking_end` are nullable, one-based, inclusive
 /// display bounds, including soft clips. Both are null for unpositioned reads.
 pub fn reads_schema() -> SchemaRef {
-    let mut schema = Schema::with_capacity(22);
+    let mut schema = Schema::with_capacity(24);
     schema.insert("read_id".into(), DataType::UInt64);
     schema.insert("qname".into(), DataType::String);
     schema.insert("ref_id".into(), DataType::UInt32);
@@ -536,6 +598,8 @@ pub fn reads_schema() -> SchemaRef {
     schema.insert("qc_failed".into(), DataType::Boolean);
     schema.insert("duplicate".into(), DataType::Boolean);
     schema.insert("supplementary".into(), DataType::Boolean);
+    schema.insert("show".into(), DataType::Boolean);
+    schema.insert("y".into(), DataType::UInt64);
     Arc::new(schema)
 }
 
@@ -946,9 +1010,10 @@ mod tests {
                 .unwrap()
                 .column("base")
                 .unwrap()
-                .u8()
+                .str()
                 .unwrap()
                 .get(0)
+                .map(|base| base.as_bytes()[0])
         };
 
         assert_eq!(base_at(9), None);

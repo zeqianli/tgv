@@ -180,7 +180,7 @@ impl State {
             }
         };
         let read_count = alignment.read_count();
-        let depth = alignment.depth();
+        let depth = alignment.depth()?;
         self.alignments[index] = alignment;
 
         // Re-compute paired alignment later, if needed.
@@ -965,7 +965,18 @@ mod tests {
             state.alignment_options[0],
             vec![AlignmentDisplayOption::Sort(AlignmentSort::BaseAt(12))]
         );
-        assert_eq!(state.alignments[0].ys, vec![1, 0]);
+        assert_eq!(
+            state.alignments[0]
+                .tables
+                .reads
+                .column("y")
+                .unwrap()
+                .u64()
+                .unwrap()
+                .into_no_null_iter()
+                .collect::<Vec<_>>(),
+            vec![1, 0]
+        );
     }
 
     #[test]
@@ -977,7 +988,15 @@ mod tests {
             ],
             (10, 20),
         );
-        let original_ys = alignment.ys.clone();
+        let original_y = alignment
+            .tables
+            .reads
+            .column("y")
+            .unwrap()
+            .u64()
+            .unwrap()
+            .into_no_null_iter()
+            .collect::<Vec<_>>();
         let mut state = state_with_alignment(alignment);
         let focus = Focus {
             contig_index: 0,
@@ -998,7 +1017,18 @@ mod tests {
             state.alignment_options[0],
             vec![AlignmentDisplayOption::Sort(AlignmentSort::BaseAt(30))]
         );
-        assert_eq!(state.alignments[0].ys, original_ys);
+        assert_eq!(
+            state.alignments[0]
+                .tables
+                .reads
+                .column("y")
+                .unwrap()
+                .u64()
+                .unwrap()
+                .into_no_null_iter()
+                .collect::<Vec<_>>(),
+            original_y
+        );
     }
 
     #[test]
