@@ -2,18 +2,20 @@ use crate::{
     layout::{AlignmentView, OnScreenCoordinate},
     rendering::colors::Palette,
 };
-use gv_core::{
-    feature::{Gene, SubGeneFeatureType},
-    gene::genes_from_rows,
-    prelude::*,
-    strand::Strand,
-};
+use gv_core::{gene::query_segments, prelude::*, strand::Strand};
+use polars::prelude::DataFrame;
 use ratatui::{buffer::Buffer, layout::Rect, style::Style};
+use std::{collections::HashMap, ops::Range};
+
+enum SegmentKind {
+    CodingExon,
+    NoncodingExon,
+    Intron,
+}
 
 const MIN_AREA_WIDTH: u16 = 5;
 const MIN_AREA_HEIGHT: u16 = 2;
 
-// Type alias for the complex return type
 struct TrackRenderContext {
     x: u16,
     string: String,
@@ -40,8 +42,27 @@ pub fn render_track(
     let rows = state
         .track
         .query(region.contig_index(), region.start(), region.end())?;
-    for feature in &genes_from_rows(&rows)? {
-        for context in get_rendering_info(alignment_view, area, feature, pallete) {
+    let segments = query_segments(rows.clone(), region.start(), region.end())?;
+    let segment_gene_ids = segments.column("gene_row_id")?.u64()?;
+    let mut segment_ranges: HashMap<u64, Range<usize>> = HashMap::new();
+    for (row, id) in segment_gene_ids.into_no_null_iter().enumerate() {
+        segment_ranges
+            .entry(id)
+            .and_modify(|range| range.end = row + 1)
+            .or_insert(row..row + 1);
+    }
+    let gene_ids = rows.column("row_id")?.u64()?;
+    for (row, id) in gene_ids.into_no_null_iter().enumerate() {
+        let segment_rows = segment_ranges.get(&id).cloned().unwrap_or(0..0);
+        for context in get_rendering_info(
+            alignment_view,
+            area,
+            &rows,
+            row,
+            &segments,
+            segment_rows,
+            pallete,
+        )? {
             buf.set_string(
                 context.x + area.x,
                 area.y,
@@ -73,45 +94,90 @@ const MIN_GENE_ON_SCREEN_LENGTH_TO_SHOW_EXONS: usize = 10;
 fn get_rendering_info(
     alignment_view: &AlignmentView,
     area: &Rect,
-    gene: &Gene,
+    genes: &DataFrame,
+    row: usize,
+    segments: &DataFrame,
+    segment_rows: Range<usize>,
     pallete: &Palette,
-) -> Vec<TrackRenderContext> {
-    // First, check if the gene should be rendered as a single segment or multiple segments.
+) -> Result<Vec<TrackRenderContext>, TGVError> {
+    let start = genes
+        .column("start")?
+        .u64()?
+        .get(row)
+        .expect("gene starts are non-null");
+    let end = genes
+        .column("end")?
+        .u64()?
+        .get(row)
+        .expect("gene ends are non-null");
+    let name = genes
+        .column("name")?
+        .str()?
+        .get(row)
+        .expect("gene names are non-null");
+    let strand = Strand::from_str(
+        genes
+            .column("strand")?
+            .str()?
+            .get(row)
+            .expect("gene strands are non-null")
+            .to_owned(),
+    )?;
+    let has_exons = genes
+        .column("has_exons")?
+        .bool()?
+        .get(row)
+        .expect("exon availability is non-null");
 
-    let gene_start_x = alignment_view.onscreen_x_coordinate(gene.start(), area);
-    let gene_end_x = alignment_view.onscreen_x_coordinate(gene.end(), area);
+    let gene_start_x = alignment_view.onscreen_x_coordinate(start, area);
+    let gene_end_x = alignment_view.onscreen_x_coordinate(end, area);
 
     let render_whole_gene = (OnScreenCoordinate::width(&gene_start_x, &gene_end_x, area)
         <= MIN_GENE_ON_SCREEN_LENGTH_TO_SHOW_EXONS)
-        | !gene.has_exons;
+        | !has_exons;
 
     if render_whole_gene {
         if let Some((x, length)) =
             OnScreenCoordinate::onscreen_start_and_length(&gene_start_x, &gene_end_x, area)
         {
             let (string, style) =
-                get_gene_segment_string_and_style(length, gene.strand.clone(), pallete);
+                get_gene_segment_string_and_style(length, strand.clone(), pallete);
 
-            // label x and text
-            let label = gene.name.to_string();
+            let label = name.to_owned();
             let label_x = x + (length.saturating_sub(label.len() as u16) / 2);
 
-            vec![TrackRenderContext {
+            Ok(vec![TrackRenderContext {
                 x,
                 string,
                 style,
                 label_info: Some((label_x, label)),
-            }]
+            }])
         } else {
-            vec![]
+            Ok(vec![])
         }
     } else {
-        // Render each exon as a separate segment.
         let mut exons_info: Vec<TrackRenderContext> = Vec::new();
         let mut non_cds_exons_info: Vec<TrackRenderContext> = Vec::new();
         let mut introns_info: Vec<TrackRenderContext> = Vec::new();
         let mut right_most_label_onscreen_x = 0;
-        for (feature_start, feature_end, feature_type, feature_index) in gene.features() {
+        let starts = segments.column("start")?.u64()?;
+        let ends = segments.column("end")?.u64()?;
+        let kinds = segments.column("kind")?.str()?;
+        let indexes = segments.column("feature_index")?.u64()?;
+        for row in segment_rows {
+            let feature_start = starts.get(row).expect("segment starts are non-null");
+            let feature_end = ends.get(row).expect("segment ends are non-null");
+            let feature_index = indexes.get(row).expect("segment indexes are non-null");
+            let feature_type = match kinds.get(row).expect("segment kinds are non-null") {
+                "coding_exon" => SegmentKind::CodingExon,
+                "noncoding_exon" => SegmentKind::NoncodingExon,
+                "intron" => SegmentKind::Intron,
+                kind => {
+                    return Err(TGVError::ValueError(format!(
+                        "Unknown gene segment kind: {kind}."
+                    )));
+                }
+            };
             let feature_start_x = alignment_view.onscreen_x_coordinate(feature_start, area);
             let feature_end_x = alignment_view.onscreen_x_coordinate(feature_end, area);
 
@@ -122,17 +188,17 @@ fn get_rendering_info(
             ) {
                 let (string, style) = get_feature_segment_string_and_style(
                     length,
-                    gene.strand.clone(),
+                    strand.clone(),
                     &feature_type,
                     pallete,
                 );
 
                 match feature_type {
-                    SubGeneFeatureType::Exon => {
-                        let label = format!("{}:exon{}", gene.name, feature_index);
+                    SegmentKind::CodingExon => {
+                        let label = format!("{}:exon{}", name, feature_index);
 
                         let label_x = x + (length.saturating_sub(label.len() as u16) / 2);
-                        let label_right_coordinate = label_x + label.len() as u16 - 1; // inclusive
+                        let label_right_coordinate = label_x + label.len() as u16 - 1; // Inclusive.
 
                         exons_info.push(TrackRenderContext {
                             x,
@@ -147,10 +213,10 @@ fn get_rendering_info(
                             },
                         });
                     }
-                    SubGeneFeatureType::NonCDSExon => {
-                        let label = gene.name.to_string();
+                    SegmentKind::NoncodingExon => {
+                        let label = name.to_owned();
                         let label_x = x + (length.saturating_sub(label.len() as u16) / 2);
-                        let label_right_coordinate = label_x + label.len() as u16 - 1; // inclusive
+                        let label_right_coordinate = label_x + label.len() as u16 - 1; // Inclusive.
 
                         non_cds_exons_info.push(TrackRenderContext {
                             x,
@@ -165,7 +231,7 @@ fn get_rendering_info(
                             },
                         });
                     }
-                    SubGeneFeatureType::Intron => {
+                    SegmentKind::Intron => {
                         introns_info.push(TrackRenderContext {
                             x,
                             string,
@@ -180,11 +246,11 @@ fn get_rendering_info(
         // The order decides rendering order.
         // Exons are on top of non-CDS exons, on top of introns.
 
-        introns_info
+        Ok(introns_info
             .into_iter()
             .chain(non_cds_exons_info)
             .chain(exons_info)
-            .collect()
+            .collect())
     }
 }
 
@@ -214,38 +280,36 @@ fn get_gene_segment_string_and_style(
 fn get_feature_segment_string_and_style(
     length: u16,
     strand: Strand,
-    feature_type: &SubGeneFeatureType,
+    feature_type: &SegmentKind,
     pallete: &Palette,
 ) -> (String, Style) {
     let string = match (strand, feature_type) {
-        (Strand::Forward, SubGeneFeatureType::Exon) => (0..length)
+        (Strand::Forward, SegmentKind::CodingExon) => (0..length)
             .map(|i| if i % EXON_ARROW_GAP == 0 { ">" } else { " " })
             .collect::<String>(),
-        (Strand::Forward, SubGeneFeatureType::NonCDSExon) => {
+        (Strand::Forward, SegmentKind::NoncodingExon) => {
             (0..length).map(|_| "▅").collect::<String>()
         }
-        (Strand::Forward, SubGeneFeatureType::Intron) => (0..length)
+        (Strand::Forward, SegmentKind::Intron) => (0..length)
             .map(|i| if i % INTRON_ARROW_GAP == 0 { ">" } else { "-" })
             .collect::<String>(),
-        (Strand::Reverse, SubGeneFeatureType::Exon) => (0..length)
+        (Strand::Reverse, SegmentKind::CodingExon) => (0..length)
             .map(|i| if i % EXON_ARROW_GAP == 0 { "<" } else { "-" })
             .collect::<String>(),
-        (Strand::Reverse, SubGeneFeatureType::NonCDSExon) => {
+        (Strand::Reverse, SegmentKind::NoncodingExon) => {
             (0..length).map(|_| "▅").collect::<String>()
         }
-        (Strand::Reverse, SubGeneFeatureType::Intron) => (0..length)
+        (Strand::Reverse, SegmentKind::Intron) => (0..length)
             .map(|i| if i % INTRON_ARROW_GAP == 0 { "<" } else { "-" })
             .collect::<String>(),
     };
 
     let style = match feature_type {
-        SubGeneFeatureType::Exon => Style::default()
+        SegmentKind::CodingExon => Style::default()
             .fg(pallete.EXON_FOREGROUND_COLOR)
             .bg(pallete.EXON_BACKGROUND_COLOR),
-        SubGeneFeatureType::Intron => Style::default().fg(pallete.INTRON_FOREGROUND_COLOR),
-        SubGeneFeatureType::NonCDSExon => {
-            Style::default().fg(pallete.NON_CDS_EXON_BACKGROUND_COLOR)
-        }
+        SegmentKind::Intron => Style::default().fg(pallete.INTRON_FOREGROUND_COLOR),
+        SegmentKind::NoncodingExon => Style::default().fg(pallete.NON_CDS_EXON_BACKGROUND_COLOR),
     };
 
     (string, style)

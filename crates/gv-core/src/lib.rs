@@ -4,7 +4,6 @@ pub mod command;
 pub mod contig_header;
 pub mod cytoband;
 pub mod error;
-pub mod feature;
 pub mod intervals;
 pub mod logging;
 pub mod message;

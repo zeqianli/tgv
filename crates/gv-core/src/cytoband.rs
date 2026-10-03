@@ -53,29 +53,6 @@ pub struct Cytoband {
 }
 
 impl Cytoband {
-    pub fn default(
-        reference: &Reference,
-        contig_index: usize,
-        contig_length: u64,
-        contig_name: &str,
-    ) -> Self {
-        Self {
-            reference: Some(reference.clone()),
-            contig_index,
-            segments: vec![CytobandSegment {
-                contig_index,
-                start: 1,
-                end: contig_length,
-                name: contig_name.to_string(),
-                stain: Stain::Other("unknown".to_string()),
-            }],
-        }
-    }
-
-    pub fn start(&self) -> u64 {
-        1
-    }
-
     pub fn end(&self) -> u64 {
         self.segments.last().unwrap().end
     }

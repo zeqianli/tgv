@@ -10,13 +10,21 @@ The query predicate selects the requested contig and rows with `start <= query_e
 
 ## Gene tables and navigation
 
-`GeneTable` lives in `gv-core/src/gene.rs`. Its `start` and `end` columns represent transcription bounds. The remaining columns follow `Gene`: `id`, `name`, and `strand` are strings; `cds_start` and `cds_end` are `UInt64`; `exon_starts` and `exon_ends` are `List(UInt64)`; and `has_exons` is Boolean. Strand values are `+` and `-`. Empty exon lists remain typed, non-null lists. Construction checks the contig, transcription bounds, paired exon-list lengths, and exon bounds. A noncoding CDS can retain the start-after-end representation produced by conversion from an empty UCSC interval.
+`GeneTable` lives in `gv-core/src/gene.rs`. Its `start` and `end` columns represent transcription bounds. The remaining columns describe each transcript: `id`, `name`, and `strand` are strings; `cds_start` and `cds_end` are `UInt64`; `exon_starts` and `exon_ends` are `List(UInt64)`; and `has_exons` is Boolean. Strand values are `+` and `-`. Empty exon lists remain typed, non-null lists. Construction checks the contig, transcription bounds, CDS bounds, paired exon-list lengths, and ordered, nonoverlapping exon bounds. A noncoding CDS can retain the start-after-end representation produced by conversion from an empty UCSC interval.
 
-The table separately retains the loaded contig and complete-data bounds. Empty query results do not imply that a region is unavailable. UCSC API and database adapters both convert zero-based starts to one-based coordinates before constructing a table. Malformed exon coordinate lists produce errors instead of silently dropping values.
+The table separately retains the loaded contig and complete-data bounds. Empty query results do not imply that a region is unavailable. UCSC API payloads normalize to `UcscGeneRow`, preserving their source coordinate convention. Table ingestion appends their fields directly to typed column builders and converts zero-based starts to one-based coordinates. Malformed exon coordinate lists produce errors instead of silently dropping values.
 
 Gene navigation filters and sorts the table. Positive k values select genes after the position by start, or before the position by end; k zero selects a covering gene. Exon navigation temporarily explodes paired coordinate lists, excludes unavailable or empty lists, and selects by exon bounds. Previous-exon navigation retains its inclusive end predicate, while previous-gene navigation uses a strict end predicate. Stable sorts retain duplicates, and saturating service queries select the boundary gene or exon when the requested ordinal is unavailable. No exon DataFrame or boundary maps remain stored.
 
-`Gene` and `SubGeneFeature` remain temporary values for parsing, service responses, navigation results, and drawing. `genes_from_rows` converts queried rows to temporary genes; no parallel gene vector is retained. The UCSC cache stores gene tables by contig and resolves names through table queries. Gene drawing queries the viewport once before using the existing CDS segmentation, strand, and label logic.
+There are no internal `Gene` or `SubGeneFeature` structs. Lookup, navigation, and service queries return DataFrames; optional selections contain zero or one row. Navigation reads interval columns directly when constructing a `Focus`. Backend navigation and name queries retain their errors for unavailable targets. The UCSC cache stores gene tables by contig and resolves names through table queries.
+
+## Gene drawing segments
+
+Gene drawing queries overlapping transcripts once and reads names, strands, and transcription bounds directly from the selected columns. Short onscreen genes and genes with unavailable exon data retain their whole-gene presentation.
+
+`query_segments` derives a temporary DataFrame with `gene_row_id`, `start`, `end`, `kind`, and `feature_index`. It explodes paired exon lists and numbers the complete transcript's exons by strand before splitting at CDS boundaries or filtering to the viewport. Kinds are `coding_exon`, `noncoding_exon`, and `intron`. Empty CDS intervals produce noncoding exon segments. Introns use inclusive bounds `[previous_exon_end + 1, next_exon_start - 1]`; adjacent exons produce no intron. Signed intermediate arithmetic allows segment boundary calculations without unsigned underflow or overflow, and final coordinates remain `UInt64`.
+
+The renderer indexes temporary segment ranges by stable gene row ID, preserving transcript drawing order and drawing coding exons over noncoding exons and introns. Segment frames and row ranges are not retained in application state. Drawing kinds map to a renderer-local enum; no subfeature objects or reconstruction of exon vectors are needed.
 
 ## BED and variant records
 

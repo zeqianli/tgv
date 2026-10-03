@@ -9,32 +9,6 @@ pub trait GenomeInterval {
     fn length(&self) -> u64 {
         self.end() - self.start() + 1
     }
-
-    fn covers(&self, position: u64) -> bool {
-        self.start() <= position && self.end() >= position
-    }
-
-    fn middle(&self) -> u64 {
-        (self.start() + self.end()) / 2
-    }
-
-    fn overlaps(&self, contig_index: usize, start: u64, end: u64) -> bool {
-        self.contig_index() == contig_index && self.start() <= end && self.end() >= start
-    }
-
-    fn contains(&self, other: &impl GenomeInterval) -> bool {
-        self.contig_index() == other.contig_index()
-            && self.start() <= other.start()
-            && self.end() >= other.end()
-    }
-
-    // The region ends at the end of the genome. Inclusive.
-    fn is_properly_bounded(&self, end: Option<u64>) -> bool {
-        match end {
-            Some(e) => self.start() <= self.end() && self.end() <= e,
-            None => self.start() <= self.end(),
-        }
-    }
 }
 
 /// A columnar collection of one-based, inclusive genomic intervals.
@@ -68,11 +42,6 @@ impl GenomeInterval for Region {
         self.focus.contig_index
     }
 
-    // override
-    fn middle(&self) -> u64 {
-        self.focus.position
-    }
-
     /// Width of a genome region.
     // override
     fn length(&self) -> u64 {
@@ -81,13 +50,6 @@ impl GenomeInterval for Region {
 }
 
 impl Region {
-    pub fn move_to(self, position: u64) -> Self {
-        Self {
-            focus: self.focus.move_to(position),
-            half_width: self.half_width,
-        }
-    }
-
     pub fn alignment(
         &self,
         header: &ContigHeader,

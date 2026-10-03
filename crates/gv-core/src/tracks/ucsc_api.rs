@@ -3,14 +3,14 @@ use crate::{
     contig_header::{Contig, ContigHeader},
     cytoband::Cytoband,
     error::TGVError,
-    feature::{Gene, SubGeneFeature},
-    gene::{GeneTable, genes_from_rows},
+    gene::GeneTable,
     intervals::Region,
     intervals::{GenomeInterval, IntervalTable},
     reference::Reference,
     tracks::schema::*,
 };
 use async_trait::async_trait;
+use polars::prelude::DataFrame;
 use reqwest::Client;
 use std::time::Instant;
 
@@ -45,6 +45,7 @@ impl UcscApiTrackService {
         reference: &Reference,
         contig_name: &str,
         contig_index: usize,
+        contig_header: &ContigHeader,
     ) -> Result<(), TGVError> {
         if self.cache.contig_quried(&contig_index) {
             return Ok(());
@@ -60,8 +61,7 @@ impl UcscApiTrackService {
                         )),
                     )?; // TODO: proper handling
 
-                    self.cache
-                        .set_preferred_track_name(Some(preferred_track.clone()));
+                    self.cache.preferred_track_name = Some(Some(preferred_track.clone()));
                     preferred_track
                 }
             }
@@ -125,13 +125,14 @@ impl UcscApiTrackService {
 
         self.cache.add_track(
             contig_index,
-            GeneTable::from_genes(
+            GeneTable::from_gene_rows(
                 response
                     .into_iter()
-                    .map(|response| response.to_gene(contig_index))
-                    .collect::<Result<Vec<Gene>, TGVError>>()?,
+                    .map(|response| response.into_gene_row(contig_name.to_owned()))
+                    .collect(),
                 contig_index,
-                (1, u64::MAX),
+                contig_header,
+                Some((1, u64::MAX)),
             )?,
         );
 
@@ -358,16 +359,21 @@ impl TrackService for UcscApiTrackService {
         reference: &Reference,
         region: &Region,
         contig_header: &ContigHeader,
-    ) -> Result<Vec<Gene>, TGVError> {
+    ) -> Result<DataFrame, TGVError> {
         let contig_name = match contig_header
             .try_get(region.contig_index())?
             .get_track_name()
         {
             Some(contig_name) => contig_name,
-            None => return Ok(Vec::new()), // Contig doesn't have track data
+            None => return Ok(GeneTable::default().data), // Contig doesn't have track data
         };
-        self.query_track_if_not_cached(reference, contig_name, region.contig_index())
-            .await?;
+        self.query_track_if_not_cached(
+            reference,
+            contig_name,
+            region.contig_index(),
+            contig_header,
+        )
+        .await?;
 
         // TODO: now I don't really handle empty query results
 
@@ -381,33 +387,7 @@ impl TrackService for UcscApiTrackService {
                     region.contig_index()
                 ))
             })?;
-        genes_from_rows(&table.query(region.contig_index(), region.start(), region.end())?)
-    }
-
-    async fn query_gene_covering(
-        &mut self,
-        reference: &Reference,
-        contig_index: usize,
-        position: u64,
-
-        contig_header: &ContigHeader,
-    ) -> Result<Option<Gene>, TGVError> {
-        let contig_name = match contig_header.try_get(contig_index)?.get_track_name() {
-            Some(contig_name) => contig_name,
-            None => return Ok(None), // Contig doesn't have track data
-        };
-        self.query_track_if_not_cached(reference, contig_name, contig_index)
-            .await?;
-
-        Ok(self
-            .cache
-            .tracks
-            .get(&contig_index)
-            .ok_or(TGVError::IOError(format!(
-                "Track not found for contig index {}",
-                contig_index
-            )))?
-            .get_gene_at(position)?)
+        table.query(region.contig_index(), region.start(), region.end())
     }
 
     async fn query_gene_name(
@@ -415,17 +395,16 @@ impl TrackService for UcscApiTrackService {
         reference: &Reference,
         gene_name: &str,
         contig_header: &ContigHeader,
-    ) -> Result<Gene, TGVError> {
-        if !self.cache.gene_quried(gene_name) {
-            // query all possible tracks until the gene is found
-            for (contig_index, contig) in contig_header.contigs.iter().enumerate() {
-                if let Some(contig_name) = contig.get_track_name() {
-                    self.query_track_if_not_cached(reference, contig_name, contig_index)
-                        .await?;
+    ) -> Result<DataFrame, TGVError> {
+        // query all possible tracks until the gene is found
+        for (contig_index, contig) in contig_header.contigs.iter().enumerate() {
+            if let Some(contig_name) = contig.get_track_name() {
+                self.query_track_if_not_cached(reference, contig_name, contig_index, contig_header)
+                    .await?;
 
-                    if let Some(gene) = self.cache.get_gene(gene_name)? {
-                        return Ok(gene);
-                    }
+                let rows = self.cache.get_gene(gene_name)?;
+                if rows.height() > 0 {
+                    return Ok(rows);
                 }
             }
         }
@@ -440,7 +419,7 @@ impl TrackService for UcscApiTrackService {
         coord: u64,
         k: usize,
         contig_header: &ContigHeader,
-    ) -> Result<Gene, TGVError> {
+    ) -> Result<DataFrame, TGVError> {
         let contig_name = match contig_header.try_get(contig_index)?.get_track_name() {
             Some(contig_name) => contig_name,
             None => {
@@ -452,18 +431,23 @@ impl TrackService for UcscApiTrackService {
                 )));
             }
         };
-        self.query_track_if_not_cached(reference, contig_name, contig_index)
+        self.query_track_if_not_cached(reference, contig_name, contig_index, contig_header)
             .await?;
 
-        self.cache
+        let rows = self
+            .cache
             .tracks
             .get(&contig_index)
             .ok_or(TGVError::IOError(format!(
                 "Track not found for contig {}",
                 contig_index
             )))?
-            .get_saturating_k_genes_after(coord, k)?
-            .ok_or(TGVError::IOError("No genes found".to_string()))
+            .get_saturating_k_genes_after(coord, k)?;
+        if rows.height() == 0 {
+            Err(TGVError::IOError("No genes found".to_string()))
+        } else {
+            Ok(rows)
+        }
     }
 
     async fn query_k_genes_before(
@@ -473,7 +457,7 @@ impl TrackService for UcscApiTrackService {
         coord: u64,
         k: usize,
         contig_header: &ContigHeader,
-    ) -> Result<Gene, TGVError> {
+    ) -> Result<DataFrame, TGVError> {
         let contig_name = match contig_header.try_get(contig_index)?.get_track_name() {
             Some(contig_name) => contig_name,
             None => {
@@ -485,18 +469,23 @@ impl TrackService for UcscApiTrackService {
                 )));
             }
         };
-        self.query_track_if_not_cached(reference, contig_name, contig_index)
+        self.query_track_if_not_cached(reference, contig_name, contig_index, contig_header)
             .await?;
 
-        self.cache
+        let rows = self
+            .cache
             .tracks
             .get(&contig_index)
             .ok_or(TGVError::IOError(format!(
                 "Track not found for contig {}",
                 contig_index
             )))?
-            .get_saturating_k_genes_before(coord, k)?
-            .ok_or(TGVError::IOError("No genes found".to_string()))
+            .get_saturating_k_genes_before(coord, k)?;
+        if rows.height() == 0 {
+            Err(TGVError::IOError("No genes found".to_string()))
+        } else {
+            Ok(rows)
+        }
     }
 
     async fn query_k_exons_after(
@@ -507,7 +496,7 @@ impl TrackService for UcscApiTrackService {
         k: usize,
 
         contig_header: &ContigHeader,
-    ) -> Result<SubGeneFeature, TGVError> {
+    ) -> Result<DataFrame, TGVError> {
         let contig_name = match contig_header.try_get(contig_index)?.get_track_name() {
             Some(contig_name) => contig_name,
             None => {
@@ -519,18 +508,23 @@ impl TrackService for UcscApiTrackService {
                 )));
             }
         };
-        self.query_track_if_not_cached(reference, contig_name, contig_index)
+        self.query_track_if_not_cached(reference, contig_name, contig_index, contig_header)
             .await?;
 
-        self.cache
+        let rows = self
+            .cache
             .tracks
             .get(&contig_index)
             .ok_or(TGVError::IOError(format!(
                 "Track not found for contig {}",
                 contig_index
             )))?
-            .get_saturating_k_exons_after(coord, k)?
-            .ok_or(TGVError::IOError("No exons found".to_string()))
+            .get_saturating_k_exons_after(coord, k)?;
+        if rows.height() == 0 {
+            Err(TGVError::IOError("No exons found".to_string()))
+        } else {
+            Ok(rows)
+        }
     }
 
     async fn query_k_exons_before(
@@ -540,7 +534,7 @@ impl TrackService for UcscApiTrackService {
         coord: u64,
         k: usize,
         contig_header: &ContigHeader,
-    ) -> Result<SubGeneFeature, TGVError> {
+    ) -> Result<DataFrame, TGVError> {
         let contig_name = match contig_header.try_get(contig_index)?.get_track_name() {
             Some(contig_name) => contig_name,
             None => {
@@ -552,17 +546,22 @@ impl TrackService for UcscApiTrackService {
                 )));
             }
         };
-        self.query_track_if_not_cached(reference, contig_name, contig_index)
+        self.query_track_if_not_cached(reference, contig_name, contig_index, contig_header)
             .await?;
 
-        self.cache
+        let rows = self
+            .cache
             .tracks
             .get(&contig_index)
             .ok_or(TGVError::IOError(format!(
                 "Track not found for contig {}",
                 contig_index
             )))?
-            .get_saturating_k_exons_before(coord, k)?
-            .ok_or(TGVError::IOError("No exons found".to_string()))
+            .get_saturating_k_exons_before(coord, k)?;
+        if rows.height() == 0 {
+            Err(TGVError::IOError("No exons found".to_string()))
+        } else {
+            Ok(rows)
+        }
     }
 }

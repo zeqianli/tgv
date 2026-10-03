@@ -7,7 +7,6 @@ use crate::{
     contig_header::ContigHeader,
     cytoband::Cytoband,
     error::TGVError,
-    feature::Gene,
     gene::GeneTable,
     intervals::{Focus, GenomeInterval, Region},
     message::{AlignmentDisplayOption, AlignmentFilter, AlignmentSort, Movement},
@@ -529,29 +528,31 @@ impl State {
             return Ok(focus);
         }
 
-        // The gene is in the track.
-        if let Some(gene) = self.track.get_k_genes_after(focus.position, n)? {
-            return Ok(Focus {
-                contig_index: gene.contig_index,
-                position: gene.start(),
-            });
+        let mut gene = self.track.get_k_genes_after(focus.position, n)?;
+        if gene.height() == 0 {
+            gene = repository
+                .track_service_checked()?
+                .query_k_genes_after(
+                    &self.reference,
+                    focus.contig_index,
+                    focus.position,
+                    n,
+                    &self.contig_header,
+                )
+                .await?;
         }
 
-        // Query for the target gene
-        let gene = repository
-            .track_service_checked()?
-            .query_k_genes_after(
-                &self.reference,
-                focus.contig_index,
-                focus.position,
-                n,
-                &self.contig_header,
-            )
-            .await?;
-
         Ok(Focus {
-            contig_index: gene.contig_index,
-            position: gene.start(),
+            contig_index: gene
+                .column("contig_index")?
+                .u64()?
+                .get(0)
+                .expect("selected contigs are non-null") as usize,
+            position: gene
+                .column("start")?
+                .u64()?
+                .get(0)
+                .expect("selected starts are non-null"),
         })
     }
 
@@ -565,28 +566,32 @@ impl State {
             return Ok(focus);
         }
 
-        if let Some(gene) = self.track.get_k_genes_after(focus.position, n)? {
-            return Ok(Focus {
-                contig_index: gene.contig_index,
-                position: gene.end() + 1,
-            });
+        let mut gene = self.track.get_k_genes_after(focus.position, n)?;
+        if gene.height() == 0 {
+            gene = repository
+                .track_service_checked()?
+                .query_k_genes_after(
+                    &self.reference,
+                    focus.contig_index,
+                    focus.position,
+                    n,
+                    &self.contig_header,
+                )
+                .await?;
         }
 
-        // Query for the target gene
-        let gene = repository
-            .track_service_checked()?
-            .query_k_genes_after(
-                &self.reference,
-                focus.contig_index,
-                focus.position,
-                n,
-                &self.contig_header,
-            )
-            .await?;
-
         Ok(Focus {
-            contig_index: gene.contig_index,
-            position: gene.end() + 1,
+            contig_index: gene
+                .column("contig_index")?
+                .u64()?
+                .get(0)
+                .expect("selected contigs are non-null") as usize,
+            position: gene
+                .column("end")?
+                .u64()?
+                .get(0)
+                .expect("selected ends are non-null")
+                + 1,
         })
     }
 
@@ -600,28 +605,32 @@ impl State {
             return Ok(focus);
         }
 
-        if let Some(gene) = self.track.get_k_genes_before(focus.position, n)? {
-            return Ok(Focus {
-                contig_index: gene.contig_index,
-                position: gene.start() - 1,
-            });
+        let mut gene = self.track.get_k_genes_before(focus.position, n)?;
+        if gene.height() == 0 {
+            gene = repository
+                .track_service_checked()?
+                .query_k_genes_before(
+                    &self.reference,
+                    focus.contig_index,
+                    focus.position,
+                    n,
+                    &self.contig_header,
+                )
+                .await?;
         }
 
-        // Query for the target gene
-        let gene = repository
-            .track_service_checked()?
-            .query_k_genes_before(
-                &self.reference,
-                focus.contig_index,
-                focus.position,
-                n,
-                &self.contig_header,
-            )
-            .await?;
-
         Ok(Focus {
-            contig_index: gene.contig_index,
-            position: gene.start() - 1,
+            contig_index: gene
+                .column("contig_index")?
+                .u64()?
+                .get(0)
+                .expect("selected contigs are non-null") as usize,
+            position: gene
+                .column("start")?
+                .u64()?
+                .get(0)
+                .expect("selected starts are non-null")
+                - 1,
         })
     }
 
@@ -635,28 +644,32 @@ impl State {
             return Ok(focus);
         }
 
-        if let Some(gene) = self.track.get_k_genes_before(focus.position, n)? {
-            return Ok(Focus {
-                contig_index: gene.contig_index,
-                position: gene.end() - 1,
-            });
+        let mut gene = self.track.get_k_genes_before(focus.position, n)?;
+        if gene.height() == 0 {
+            gene = repository
+                .track_service_checked()?
+                .query_k_genes_before(
+                    &self.reference,
+                    focus.contig_index,
+                    focus.position,
+                    n,
+                    &self.contig_header,
+                )
+                .await?;
         }
 
-        // Query for the target gene
-        let gene = repository
-            .track_service_checked()?
-            .query_k_genes_before(
-                &self.reference,
-                focus.contig_index,
-                focus.position,
-                n,
-                &self.contig_header,
-            )
-            .await?;
-
         Ok(Focus {
-            contig_index: gene.contig_index,
-            position: gene.end() - 1,
+            contig_index: gene
+                .column("contig_index")?
+                .u64()?
+                .get(0)
+                .expect("selected contigs are non-null") as usize,
+            position: gene
+                .column("end")?
+                .u64()?
+                .get(0)
+                .expect("selected ends are non-null")
+                - 1,
         })
     }
 
@@ -670,28 +683,32 @@ impl State {
             return Ok(focus);
         }
 
-        if let Some(exon) = self.track.get_k_exons_after(focus.position, n)? {
-            return Ok(Focus {
-                contig_index: exon.contig_index,
-                position: exon.start() + 1,
-            });
+        let mut exon = self.track.get_k_exons_after(focus.position, n)?;
+        if exon.height() == 0 {
+            exon = repository
+                .track_service_checked()?
+                .query_k_exons_after(
+                    &self.reference,
+                    focus.contig_index,
+                    focus.position,
+                    n,
+                    &self.contig_header,
+                )
+                .await?;
         }
 
-        // Query for the target exon
-        let exon = repository
-            .track_service_checked()?
-            .query_k_exons_after(
-                &self.reference,
-                focus.contig_index,
-                focus.position,
-                n,
-                &self.contig_header,
-            )
-            .await?;
-
         Ok(Focus {
-            contig_index: exon.contig_index,
-            position: exon.start() + 1,
+            contig_index: exon
+                .column("contig_index")?
+                .u64()?
+                .get(0)
+                .expect("selected contigs are non-null") as usize,
+            position: exon
+                .column("start")?
+                .u64()?
+                .get(0)
+                .expect("selected starts are non-null")
+                + 1,
         })
     }
 
@@ -705,28 +722,32 @@ impl State {
             return Ok(focus);
         }
 
-        if let Some(exon) = self.track.get_k_exons_after(focus.position, n)? {
-            return Ok(Focus {
-                contig_index: exon.contig_index,
-                position: exon.end() + 1,
-            });
+        let mut exon = self.track.get_k_exons_after(focus.position, n)?;
+        if exon.height() == 0 {
+            exon = repository
+                .track_service_checked()?
+                .query_k_exons_after(
+                    &self.reference,
+                    focus.contig_index,
+                    focus.position,
+                    n,
+                    &self.contig_header,
+                )
+                .await?;
         }
 
-        // Query for the target exon
-        let exon = repository
-            .track_service_checked()?
-            .query_k_exons_after(
-                &self.reference,
-                focus.contig_index,
-                focus.position,
-                n,
-                &self.contig_header,
-            )
-            .await?;
-
         Ok(Focus {
-            contig_index: exon.contig_index,
-            position: exon.end() + 1,
+            contig_index: exon
+                .column("contig_index")?
+                .u64()?
+                .get(0)
+                .expect("selected contigs are non-null") as usize,
+            position: exon
+                .column("end")?
+                .u64()?
+                .get(0)
+                .expect("selected ends are non-null")
+                + 1,
         })
     }
 
@@ -740,28 +761,32 @@ impl State {
             return Ok(focus);
         }
 
-        if let Some(exon) = self.track.get_k_exons_before(focus.position, n)? {
-            return Ok(Focus {
-                contig_index: exon.contig_index,
-                position: exon.start() - 1,
-            });
+        let mut exon = self.track.get_k_exons_before(focus.position, n)?;
+        if exon.height() == 0 {
+            exon = repository
+                .track_service_checked()?
+                .query_k_exons_before(
+                    &self.reference,
+                    focus.contig_index,
+                    focus.position,
+                    n,
+                    &self.contig_header,
+                )
+                .await?;
         }
 
-        // Query for the target exon
-        let exon = repository
-            .track_service_checked()?
-            .query_k_exons_before(
-                &self.reference,
-                focus.contig_index,
-                focus.position,
-                n,
-                &self.contig_header,
-            )
-            .await?;
-
         Ok(Focus {
-            contig_index: exon.contig_index,
-            position: exon.start() - 1,
+            contig_index: exon
+                .column("contig_index")?
+                .u64()?
+                .get(0)
+                .expect("selected contigs are non-null") as usize,
+            position: exon
+                .column("start")?
+                .u64()?
+                .get(0)
+                .expect("selected starts are non-null")
+                - 1,
         })
     }
 
@@ -775,29 +800,32 @@ impl State {
             return Ok(focus);
         }
 
-        let exon = self.track.get_k_exons_before(focus.position, n)?;
-        if let Some(exon) = exon {
-            return Ok(Focus {
-                contig_index: exon.contig_index,
-                position: exon.end() - 1,
-            });
+        let mut exon = self.track.get_k_exons_before(focus.position, n)?;
+        if exon.height() == 0 {
+            exon = repository
+                .track_service_checked()?
+                .query_k_exons_before(
+                    &self.reference,
+                    focus.contig_index,
+                    focus.position,
+                    n,
+                    &self.contig_header,
+                )
+                .await?;
         }
 
-        // Query for the target exon
-        let exon = repository
-            .track_service_checked()?
-            .query_k_exons_before(
-                &self.reference,
-                focus.contig_index,
-                focus.position,
-                n,
-                &self.contig_header,
-            )
-            .await?;
-
         Ok(Focus {
-            contig_index: exon.contig_index,
-            position: exon.end() - 1,
+            contig_index: exon
+                .column("contig_index")?
+                .u64()?
+                .get(0)
+                .expect("selected contigs are non-null") as usize,
+            position: exon
+                .column("end")?
+                .u64()?
+                .get(0)
+                .expect("selected ends are non-null")
+                - 1,
         })
     }
 
@@ -810,9 +838,21 @@ impl State {
             .track_service_checked()?
             .query_gene_name(&self.reference, gene_name, &self.contig_header)
             .await
-            .map(|gene| Focus {
-                contig_index: gene.contig_index(),
-                position: gene.start() + 1,
+            .and_then(|gene| {
+                Ok(Focus {
+                    contig_index: gene
+                        .column("contig_index")?
+                        .u64()?
+                        .get(0)
+                        .expect("selected contigs are non-null")
+                        as usize,
+                    position: gene
+                        .column("start")?
+                        .u64()?
+                        .get(0)
+                        .expect("selected starts are non-null")
+                        + 1,
+                })
             })
     }
 
@@ -852,8 +892,18 @@ impl State {
                     Ok(gene) => {
                         // Found a gene, go to its start (using 1-based coordinates for Goto)
                         return Ok(Focus {
-                            contig_index: gene.contig_index,
-                            position: gene.start() + 1,
+                            contig_index: gene
+                                .column("contig_index")?
+                                .u64()?
+                                .get(0)
+                                .expect("selected contigs are non-null")
+                                as usize,
+                            position: gene
+                                .column("start")?
+                                .u64()?
+                                .get(0)
+                                .expect("selected starts are non-null")
+                                + 1,
                         });
                     }
                     Err(_) => {} // Gene not found. Handle later.
