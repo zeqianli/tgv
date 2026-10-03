@@ -1,6 +1,11 @@
 //! Columnar BED intervals with the original noodles records in source order.
 
-use crate::{contig_header::ContigHeader, error::TGVError, intervals::IntervalTable};
+use crate::{
+    contig_header::ContigHeader,
+    error::TGVError,
+    intervals::{IntervalSchema, IntervalTable},
+    table_schema::TableSchema,
+};
 use noodles::bed;
 use polars::prelude::*;
 use std::sync::Arc;
@@ -11,15 +16,31 @@ pub struct BedTable {
     pub records: Vec<bed::Record<3>>,
 }
 
+/// The ordered columns for BED intervals.
+pub struct BedSchema;
+
+impl BedSchema {
+    pub const ROW_ID: &'static str = IntervalSchema::ROW_ID;
+    pub const CONTIG_INDEX: &'static str = IntervalSchema::CONTIG_INDEX;
+    pub const START: &'static str = IntervalSchema::START;
+    pub const END: &'static str = IntervalSchema::END;
+}
+
+impl TableSchema for BedSchema {
+    fn schema() -> SchemaRef {
+        let mut schema = Schema::with_capacity(4);
+        schema.insert(Self::ROW_ID.into(), DataType::UInt64);
+        schema.insert(Self::CONTIG_INDEX.into(), DataType::UInt64);
+        schema.insert(Self::START.into(), DataType::UInt64);
+        schema.insert(Self::END.into(), DataType::UInt64);
+        Arc::new(schema)
+    }
+}
+
 impl Default for BedTable {
     fn default() -> Self {
-        let mut schema = Schema::with_capacity(4);
-        schema.insert("row_id".into(), DataType::UInt64);
-        schema.insert("contig_index".into(), DataType::UInt64);
-        schema.insert("start".into(), DataType::UInt64);
-        schema.insert("end".into(), DataType::UInt64);
         Self {
-            data: DataFrame::full_null(&Arc::new(schema), 0),
+            data: BedSchema::empty(),
             records: Vec::new(),
         }
     }
@@ -40,10 +61,10 @@ impl IntervalTable for BedTable {
             .clone()
             .lazy()
             .filter(
-                col("contig_index")
+                col(BedSchema::CONTIG_INDEX)
                     .eq(lit(contig_index as u64))
-                    .and(col("start").lt_eq(lit(end)))
-                    .and(col("end").gt_eq(lit(start))),
+                    .and(col(BedSchema::START).lt_eq(lit(end)))
+                    .and(col(BedSchema::END).gt_eq(lit(start))),
             )
             .collect()?)
     }
@@ -85,15 +106,20 @@ impl BedTable {
         let batch = DataFrame::new(
             records.len(),
             vec![
-                Column::new("row_id".into(), ids),
-                Column::new("contig_index".into(), contigs),
-                Column::new("start".into(), starts),
-                Column::new("end".into(), ends),
+                Column::new(BedSchema::ROW_ID.into(), ids),
+                Column::new(BedSchema::CONTIG_INDEX.into(), contigs),
+                Column::new(BedSchema::START.into(), starts),
+                Column::new(BedSchema::END.into(), ends),
             ],
         )?;
         self.data = concat([self.data.lazy(), batch.lazy()], UnionArgs::default())?
             .sort(
-                ["contig_index", "start", "end", "row_id"],
+                [
+                    BedSchema::CONTIG_INDEX,
+                    BedSchema::START,
+                    BedSchema::END,
+                    BedSchema::ROW_ID,
+                ],
                 SortMultipleOptions::default(),
             )
             .collect()?;

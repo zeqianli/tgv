@@ -2,7 +2,7 @@ use crate::{
     contig_header::{Contig, ContigHeader},
     cytoband::{Cytoband, CytobandSegment, Stain},
     error::TGVError,
-    gene::GeneTable,
+    gene::{GeneSchema, GeneTable},
     reference::Reference,
     strand::Strand,
 };
@@ -98,13 +98,13 @@ impl GeneTable {
         let mut cds_starts = Vec::with_capacity(gene_rows.len());
         let mut cds_ends = Vec::with_capacity(gene_rows.len());
         let mut exon_starts = ListPrimitiveChunkedBuilder::<UInt64Type>::new(
-            "exon_starts".into(),
+            GeneSchema::EXON_STARTS.into(),
             gene_rows.len(),
             0,
             DataType::UInt64,
         );
         let mut exon_ends = ListPrimitiveChunkedBuilder::<UInt64Type>::new(
-            "exon_ends".into(),
+            GeneSchema::EXON_ENDS.into(),
             gene_rows.len(),
             0,
             DataType::UInt64,
@@ -156,23 +156,32 @@ impl GeneTable {
         let data = DataFrame::new(
             height,
             vec![
-                Column::new("row_id".into(), (0..height as u64).collect::<Vec<_>>()),
-                Column::new("contig_index".into(), vec![contig_index as u64; height]),
-                Column::new("start".into(), starts),
-                Column::new("end".into(), ends),
-                Column::new("id".into(), ids),
-                Column::new("name".into(), names),
-                Column::new("strand".into(), strands),
-                Column::new("cds_start".into(), cds_starts),
-                Column::new("cds_end".into(), cds_ends),
+                Column::new(
+                    GeneSchema::ROW_ID.into(),
+                    (0..height as u64).collect::<Vec<_>>(),
+                ),
+                Column::new(
+                    GeneSchema::CONTIG_INDEX.into(),
+                    vec![contig_index as u64; height],
+                ),
+                Column::new(GeneSchema::START.into(), starts),
+                Column::new(GeneSchema::END.into(), ends),
+                Column::new(GeneSchema::ID.into(), ids),
+                Column::new(GeneSchema::NAME.into(), names),
+                Column::new(GeneSchema::STRAND.into(), strands),
+                Column::new(GeneSchema::CDS_START.into(), cds_starts),
+                Column::new(GeneSchema::CDS_END.into(), cds_ends),
                 exon_starts.finish().into_column(),
                 exon_ends.finish().into_column(),
-                Column::new("has_exons".into(), has_exons),
+                Column::new(GeneSchema::HAS_EXONS.into(), has_exons),
             ],
         )?;
         let bounds = loaded_bounds.unwrap_or((
-            data.column("start")?.u64()?.min().unwrap_or(u64::MAX),
-            data.column("end")?.u64()?.max().unwrap_or(0),
+            data.column(GeneSchema::START)?
+                .u64()?
+                .min()
+                .unwrap_or(u64::MAX),
+            data.column(GeneSchema::END)?.u64()?.max().unwrap_or(0),
         ));
         Self::from_data(data, contig_index, bounds)
     }

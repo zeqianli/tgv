@@ -5,7 +5,13 @@ use crate::{
     rendering::colors::Palette,
 };
 use gv_core::{
-    alignment::{Alignment, AlignmentViewport, PairedAlignment},
+    alignment::{
+        Alignment, AlignmentViewport, PairSchema, PairedAlignment,
+        tables::{
+            BaseModificationSchema, CigarRunSchema, ReadSchema, ReferenceMismatchSchema,
+            SequenceCigarRunSchema,
+        },
+    },
     prelude::*,
 };
 use noodles::sam::{
@@ -81,19 +87,19 @@ pub fn render_alignment(
         .clone()
         .lazy()
         .filter(
-            col("show")
-                .and(col("stacking_start").lt_eq(lit(region.end())))
-                .and(col("stacking_end").gt_eq(lit(region.start())))
-                .and(col("y").gt_eq(lit(view.top(index) as u64)))
-                .and(col("y").lt(lit(view.bottom(index, area) as u64))),
+            col(ReadSchema::SHOW)
+                .and(col(ReadSchema::STACKING_START).lt_eq(lit(region.end())))
+                .and(col(ReadSchema::STACKING_END).gt_eq(lit(region.start())))
+                .and(col(ReadSchema::Y).gt_eq(lit(view.top(index) as u64)))
+                .and(col(ReadSchema::Y).lt(lit(view.bottom(index, area) as u64))),
         )
-        .select([col("read_id"), col("y")])
+        .select([col(ReadSchema::READ_ID), col(ReadSchema::Y)])
         .collect()?;
     let visible = rows
-        .column("read_id")?
+        .column(ReadSchema::READ_ID)?
         .u64()?
         .into_no_null_iter()
-        .zip(rows.column("y")?.u64()?.into_no_null_iter())
+        .zip(rows.column(ReadSchema::Y)?.u64()?.into_no_null_iter())
         .map(|(id, y)| (id as usize, y as usize - view.top(index)))
         .collect::<Vec<_>>();
     let ids = visible.iter().map(|(id, _)| *id).collect::<Vec<_>>();
@@ -129,33 +135,35 @@ pub fn render_paired_alignment(
     if region.contig_index() != alignment.contig_index {
         return Ok(());
     }
-    let visible = col("show")
-        .and(col("stacking_start").lt_eq(lit(region.end())))
-        .and(col("stacking_end").gt_eq(lit(region.start())))
-        .and(col("y").gt_eq(lit(view.top(index) as u64)))
-        .and(col("y").lt(lit(view.bottom(index, area) as u64)));
+    let visible = col(PairSchema::SHOW)
+        .and(col(PairSchema::STACKING_START).lt_eq(lit(region.end())))
+        .and(col(PairSchema::STACKING_END).gt_eq(lit(region.start())))
+        .and(col(PairSchema::Y).gt_eq(lit(view.top(index) as u64)))
+        .and(col(PairSchema::Y).lt(lit(view.bottom(index, area) as u64)));
     let rows = concat(
         [
             paired.pairs.clone().lazy().filter(visible.clone()).select([
-                col("read_1_id"),
-                col("read_2_id"),
-                col("y"),
+                col(PairSchema::READ_1_ID),
+                col(PairSchema::READ_2_ID),
+                col(PairSchema::Y),
             ]),
             paired.singles.clone().lazy().filter(visible).select([
-                col("read_id").alias("read_1_id"),
-                lit(NULL).cast(DataType::UInt64).alias("read_2_id"),
-                col("y"),
+                col(ReadSchema::READ_ID).alias(PairSchema::READ_1_ID),
+                lit(NULL)
+                    .cast(DataType::UInt64)
+                    .alias(PairSchema::READ_2_ID),
+                col(ReadSchema::Y),
             ]),
         ],
         UnionArgs::default(),
     )?
     .collect()?;
     let visible = rows
-        .column("read_1_id")?
+        .column(PairSchema::READ_1_ID)?
         .u64()?
         .into_no_null_iter()
-        .zip(rows.column("read_2_id")?.u64()?.iter())
-        .zip(rows.column("y")?.u64()?.into_no_null_iter())
+        .zip(rows.column(PairSchema::READ_2_ID)?.u64()?.iter())
+        .zip(rows.column(PairSchema::Y)?.u64()?.into_no_null_iter())
         .map(|((first, second), y)| {
             (
                 first as usize,
@@ -165,7 +173,7 @@ pub fn render_paired_alignment(
         })
         .collect::<Vec<_>>();
     let selected = Series::new(
-        "selected".into(),
+        ReadSchema::READ_ID.into(),
         visible
             .iter()
             .flat_map(|(first, second, _)| {
@@ -178,11 +186,14 @@ pub fn render_paired_alignment(
         .reads
         .clone()
         .lazy()
-        .filter(col("show").and(col("read_id").is_in(lit(selected).implode(true), false)))
-        .select([col("read_id")])
+        .filter(
+            col(ReadSchema::SHOW)
+                .and(col(ReadSchema::READ_ID).is_in(lit(selected).implode(true), false)),
+        )
+        .select([col(ReadSchema::READ_ID)])
         .collect()?;
     let ids = reads
-        .column("read_id")?
+        .column(ReadSchema::READ_ID)?
         .u64()?
         .into_no_null_iter()
         .map(|id| id as usize)
@@ -192,8 +203,16 @@ pub fn render_paired_alignment(
     }
     let viewport = alignment.query_viewport(&region, &ids)?;
     let cells = paint_runs(&viewport, view, area)?;
-    let stacking_starts = alignment.tables.reads.column("stacking_start")?.u64()?;
-    let stacking_ends = alignment.tables.reads.column("stacking_end")?.u64()?;
+    let stacking_starts = alignment
+        .tables
+        .reads
+        .column(ReadSchema::STACKING_START)?
+        .u64()?;
+    let stacking_ends = alignment
+        .tables
+        .reads
+        .column(ReadSchema::STACKING_END)?
+        .u64()?;
     for (first, second, y) in visible {
         let first_cells = cells.get(&first);
         let second_cells = second.and_then(|id| cells.get(&id));
@@ -253,7 +272,7 @@ fn paint_runs(
 ) -> PolarsResult<HashMap<usize, Vec<Option<Paint>>>> {
     let mut cells = viewport
         .reads
-        .column("read_id")?
+        .column(ReadSchema::READ_ID)?
         .u64()?
         .into_no_null_iter()
         .map(|id| (id as usize, vec![None; usize::from(area.width)]))
@@ -265,13 +284,13 @@ fn paint_runs(
         .map(|(kind, frame)| {
             Ok((
                 *kind,
-                frame.column("read_id")?.u64()?,
-                frame.column("op_index")?.u32()?,
-                frame.column("display_start")?.u64()?,
-                frame.column("display_end")?.u64()?,
-                frame.column("run_offset")?.u32()?,
+                frame.column(CigarRunSchema::READ_ID)?.u64()?,
+                frame.column(CigarRunSchema::OP_INDEX)?.u32()?,
+                frame.column(CigarRunSchema::DISPLAY_START)?.u64()?,
+                frame.column(CigarRunSchema::DISPLAY_END)?.u64()?,
+                frame.column(CigarRunSchema::RUN_OFFSET)?.u32()?,
                 if kind.consumes_read() {
-                    Some(frame.column("seq")?.str()?)
+                    Some(frame.column(SequenceCigarRunSchema::SEQ)?.str()?)
                 } else {
                     None
                 },
@@ -333,10 +352,10 @@ fn paint_runs(
         }
     }
     let reads = &viewport.reads;
-    let ids = reads.column("read_id")?.u64()?;
-    let starts = reads.column("stacking_start")?.u64()?;
-    let ends = reads.column("stacking_end")?.u64()?;
-    let reverse = reads.column("reverse")?.bool()?;
+    let ids = reads.column(ReadSchema::READ_ID)?.u64()?;
+    let starts = reads.column(ReadSchema::STACKING_START)?.u64()?;
+    let ends = reads.column(ReadSchema::STACKING_END)?.u64()?;
+    let reverse = reads.column(ReadSchema::REVERSE)?.bool()?;
     for row in 0..reads.height() {
         let is_reverse = reverse.get(row).expect("read flags are non-null");
         let position = if is_reverse {
@@ -358,10 +377,10 @@ fn paint_runs(
         if *kind != Kind::Insertion {
             continue;
         }
-        let ids = frame.column("read_id")?.u64()?;
-        let indexes = frame.column("op_index")?.u32()?;
-        let starts = frame.column("display_start")?.u64()?;
-        let lengths = frame.column("op_len")?.u32()?;
+        let ids = frame.column(CigarRunSchema::READ_ID)?.u64()?;
+        let indexes = frame.column(CigarRunSchema::OP_INDEX)?.u32()?;
+        let starts = frame.column(CigarRunSchema::DISPLAY_START)?.u64()?;
+        let lengths = frame.column(CigarRunSchema::OP_LEN)?.u32()?;
         for row in 0..frame.height() {
             let Some(x) = pixel(
                 starts.get(row).expect("insertions have anchors"),
@@ -390,10 +409,10 @@ fn paint_runs(
         }
     }
     let frame = &viewport.reference_mismatches;
-    let ids = frame.column("read_id")?.u64()?;
-    let indexes = frame.column("op_index")?.u32()?;
-    let positions = frame.column("ref_pos")?.u64()?;
-    let bases = frame.column("base")?.u8()?;
+    let ids = frame.column(ReferenceMismatchSchema::READ_ID)?.u64()?;
+    let indexes = frame.column(ReferenceMismatchSchema::OP_INDEX)?.u32()?;
+    let positions = frame.column(ReferenceMismatchSchema::REF_POS)?.u64()?;
+    let bases = frame.column(ReferenceMismatchSchema::BASE)?.u8()?;
     for row in 0..frame.height() {
         let Some(x) = pixel(
             positions.get(row).expect("mismatch positions are non-null"),
@@ -415,13 +434,13 @@ fn paint_runs(
         }
     }
     let frame = &viewport.base_modifications;
-    let ids = frame.column("read_id")?.u64()?;
-    let indexes = frame.column("op_index")?.u32()?;
-    let positions = frame.column("display_pos")?.u64()?;
-    let codes = frame.column("code")?.u8()?;
-    let chebi = frame.column("chebi_id")?.u32()?;
-    let probabilities = frame.column("probability")?.u8()?;
-    let orders = frame.column("source_order")?.u64()?;
+    let ids = frame.column(BaseModificationSchema::READ_ID)?.u64()?;
+    let indexes = frame.column(BaseModificationSchema::OP_INDEX)?.u32()?;
+    let positions = frame.column(BaseModificationSchema::DISPLAY_POS)?.u64()?;
+    let codes = frame.column(BaseModificationSchema::CODE)?.u8()?;
+    let chebi = frame.column(BaseModificationSchema::CHEBI_ID)?.u32()?;
+    let probabilities = frame.column(BaseModificationSchema::PROBABILITY)?.u8()?;
+    let orders = frame.column(BaseModificationSchema::SOURCE_ORDER)?.u64()?;
     for row in 0..frame.height() {
         let position = positions
             .get(row)

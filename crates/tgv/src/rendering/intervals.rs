@@ -1,4 +1,5 @@
 use crate::layout::{AlignmentView, OnScreenCoordinate};
+use gv_core::intervals::IntervalSchema;
 use gv_core::prelude::*;
 use polars::prelude::DataFrame;
 
@@ -18,8 +19,8 @@ pub fn render_simple_intervals(
     // A better solution for overlapping intervals.
 
     let mut i_color = first_color_index;
-    let starts = intervals.column("start")?.u64()?;
-    let ends = intervals.column("end")?.u64()?;
+    let starts = intervals.column(IntervalSchema::START)?.u64()?;
+    let ends = intervals.column(IntervalSchema::END)?.u64()?;
     for (start, end) in starts.into_no_null_iter().zip(ends.into_no_null_iter()) {
         let onscreen_x = alignment_view.onscreen_x_coordinate(start, area);
         let onscreen_y = alignment_view.onscreen_x_coordinate(end, area);

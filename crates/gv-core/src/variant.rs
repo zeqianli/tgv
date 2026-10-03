@@ -1,6 +1,11 @@
 //! Queryable VCF core fields with the original records and header preserved.
 
-use crate::{contig_header::ContigHeader, error::TGVError, intervals::IntervalTable};
+use crate::{
+    contig_header::ContigHeader,
+    error::TGVError,
+    intervals::{IntervalSchema, IntervalTable},
+    table_schema::TableSchema,
+};
 use noodles::vcf::{
     self,
     variant::record::{AlternateBases as _, Filters as _, Ids as _},
@@ -15,23 +20,47 @@ pub struct VariantTable {
     pub header: vcf::Header,
 }
 
-impl Default for VariantTable {
-    fn default() -> Self {
+/// The ordered columns for VCF core fields.
+pub struct VariantSchema;
+
+impl VariantSchema {
+    pub const ROW_ID: &'static str = IntervalSchema::ROW_ID;
+    pub const CONTIG_INDEX: &'static str = IntervalSchema::CONTIG_INDEX;
+    pub const START: &'static str = IntervalSchema::START;
+    pub const END: &'static str = IntervalSchema::END;
+    pub const IDS: &'static str = "ids";
+    pub const REFERENCE: &'static str = "reference";
+    pub const ALTERNATE: &'static str = "alternate";
+    pub const QUALITY_SCORE: &'static str = "quality_score";
+    pub const FILTERS: &'static str = "filters";
+}
+
+impl TableSchema for VariantSchema {
+    fn schema() -> SchemaRef {
         let mut schema = Schema::with_capacity(9);
-        schema.insert("row_id".into(), DataType::UInt64);
-        schema.insert("contig_index".into(), DataType::UInt64);
-        schema.insert("start".into(), DataType::UInt64);
-        schema.insert("end".into(), DataType::UInt64);
-        schema.insert("ids".into(), DataType::List(Box::new(DataType::String)));
-        schema.insert("reference".into(), DataType::String);
+        schema.insert(Self::ROW_ID.into(), DataType::UInt64);
+        schema.insert(Self::CONTIG_INDEX.into(), DataType::UInt64);
+        schema.insert(Self::START.into(), DataType::UInt64);
+        schema.insert(Self::END.into(), DataType::UInt64);
+        schema.insert(Self::IDS.into(), DataType::List(Box::new(DataType::String)));
+        schema.insert(Self::REFERENCE.into(), DataType::String);
         schema.insert(
-            "alternate".into(),
+            Self::ALTERNATE.into(),
             DataType::List(Box::new(DataType::String)),
         );
-        schema.insert("quality_score".into(), DataType::Float32);
-        schema.insert("filters".into(), DataType::List(Box::new(DataType::String)));
+        schema.insert(Self::QUALITY_SCORE.into(), DataType::Float32);
+        schema.insert(
+            Self::FILTERS.into(),
+            DataType::List(Box::new(DataType::String)),
+        );
+        Arc::new(schema)
+    }
+}
+
+impl Default for VariantTable {
+    fn default() -> Self {
         Self {
-            data: DataFrame::full_null(&Arc::new(schema), 0),
+            data: VariantSchema::empty(),
             records: Vec::new(),
             header: vcf::Header::default(),
         }
@@ -53,10 +82,10 @@ impl IntervalTable for VariantTable {
             .clone()
             .lazy()
             .filter(
-                col("contig_index")
+                col(VariantSchema::CONTIG_INDEX)
                     .eq(lit(contig_index as u64))
-                    .and(col("start").lt_eq(lit(end)))
-                    .and(col("end").gt_eq(lit(start))),
+                    .and(col(VariantSchema::START).lt_eq(lit(end)))
+                    .and(col(VariantSchema::END).gt_eq(lit(start))),
             )
             .collect()?)
     }
@@ -78,11 +107,18 @@ impl VariantTable {
         let mut ends = Vec::with_capacity(records.len());
         let mut reference = Vec::with_capacity(records.len());
         let mut quality = Vec::with_capacity(records.len());
-        let mut ids = ListStringChunkedBuilder::new("ids".into(), records.len(), records.len());
-        let mut alternate =
-            ListStringChunkedBuilder::new("alternate".into(), records.len(), records.len());
-        let mut filters =
-            ListStringChunkedBuilder::new("filters".into(), records.len(), records.len());
+        let mut ids =
+            ListStringChunkedBuilder::new(VariantSchema::IDS.into(), records.len(), records.len());
+        let mut alternate = ListStringChunkedBuilder::new(
+            VariantSchema::ALTERNATE.into(),
+            records.len(),
+            records.len(),
+        );
+        let mut filters = ListStringChunkedBuilder::new(
+            VariantSchema::FILTERS.into(),
+            records.len(),
+            records.len(),
+        );
         for (index, record) in records.iter().enumerate() {
             let id = offset + index as u64;
             let contig = contig_header.try_get_index_by_str(record.reference_sequence_name())?;
@@ -131,20 +167,25 @@ impl VariantTable {
         let batch = DataFrame::new(
             records.len(),
             vec![
-                Column::new("row_id".into(), row_ids),
-                Column::new("contig_index".into(), contigs),
-                Column::new("start".into(), starts),
-                Column::new("end".into(), ends),
+                Column::new(VariantSchema::ROW_ID.into(), row_ids),
+                Column::new(VariantSchema::CONTIG_INDEX.into(), contigs),
+                Column::new(VariantSchema::START.into(), starts),
+                Column::new(VariantSchema::END.into(), ends),
                 ids.finish().into_series().into(),
-                Column::new("reference".into(), reference),
+                Column::new(VariantSchema::REFERENCE.into(), reference),
                 alternate.finish().into_series().into(),
-                Column::new("quality_score".into(), quality),
+                Column::new(VariantSchema::QUALITY_SCORE.into(), quality),
                 filters.finish().into_series().into(),
             ],
         )?;
         self.data = concat([self.data.lazy(), batch.lazy()], UnionArgs::default())?
             .sort(
-                ["contig_index", "start", "end", "row_id"],
+                [
+                    VariantSchema::CONTIG_INDEX,
+                    VariantSchema::START,
+                    VariantSchema::END,
+                    VariantSchema::ROW_ID,
+                ],
                 SortMultipleOptions::default(),
             )
             .collect()?;

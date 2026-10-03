@@ -2,7 +2,8 @@
 
 use crate::{
     error::TGVError,
-    intervals::{GenomeInterval, IntervalTable, Region},
+    intervals::{GenomeInterval, IntervalSchema, IntervalTable, Region},
+    table_schema::TableSchema,
 };
 use polars::prelude::*;
 use std::sync::Arc;
@@ -19,7 +20,7 @@ pub struct GeneTable {
 impl Default for GeneTable {
     fn default() -> Self {
         Self {
-            data: DataFrame::full_null(&gene_schema(), 0),
+            data: GeneSchema::empty(),
             contig_index: 0,
             data_complete_left_bound: u64::MAX,
             data_complete_right_bound: 0,
@@ -42,10 +43,10 @@ impl IntervalTable for GeneTable {
             .clone()
             .lazy()
             .filter(
-                col("contig_index")
+                col(GeneSchema::CONTIG_INDEX)
                     .eq(lit(contig_index as u64))
-                    .and(col("start").lt_eq(lit(end)))
-                    .and(col("end").gt_eq(lit(start))),
+                    .and(col(GeneSchema::START).lt_eq(lit(end)))
+                    .and(col(GeneSchema::END).gt_eq(lit(start))),
             )
             .collect()?)
     }
@@ -61,7 +62,12 @@ impl GeneTable {
             data: data
                 .lazy()
                 .sort(
-                    ["contig_index", "start", "end", "row_id"],
+                    [
+                        GeneSchema::CONTIG_INDEX,
+                        GeneSchema::START,
+                        GeneSchema::END,
+                        GeneSchema::ROW_ID,
+                    ],
                     SortMultipleOptions::default(),
                 )
                 .collect()?,
@@ -82,7 +88,7 @@ impl GeneTable {
             .data
             .clone()
             .lazy()
-            .filter(col("name").eq(lit(name)))
+            .filter(col(GeneSchema::NAME).eq(lit(name)))
             .limit(1)
             .collect()?;
         Ok(rows)
@@ -99,9 +105,9 @@ impl GeneTable {
             .clone()
             .lazy()
             .filter(
-                col("start")
+                col(GeneSchema::START)
                     .lt_eq(lit(position))
-                    .and(col("end").gt_eq(lit(position))),
+                    .and(col(GeneSchema::END).gt_eq(lit(position))),
             )
             .limit(1)
             .collect()?)
@@ -163,7 +169,11 @@ fn navigate_genes(
             table.get_gene_at(position)
         };
     }
-    let bound = if after { "start" } else { "end" };
+    let bound = if after {
+        GeneSchema::START
+    } else {
+        GeneSchema::END
+    };
     let predicate = if after {
         col(bound).gt(lit(position))
     } else {
@@ -175,7 +185,15 @@ fn navigate_genes(
         .lazy()
         .filter(predicate)
         .sort(
-            [bound, if after { "end" } else { "start" }, "row_id"],
+            [
+                bound,
+                if after {
+                    GeneSchema::END
+                } else {
+                    GeneSchema::START
+                },
+                GeneSchema::ROW_ID,
+            ],
             SortMultipleOptions::default()
                 .with_order_descending(!after)
                 .with_maintain_order(true),
@@ -193,7 +211,7 @@ fn navigate_genes(
         .clone()
         .lazy()
         .sort(
-            ["start", "end", "row_id"],
+            [GeneSchema::START, GeneSchema::END, GeneSchema::ROW_ID],
             SortMultipleOptions::default().with_order_descending(after),
         )
         .limit(1)
@@ -213,15 +231,17 @@ fn navigate_exons(
         .data
         .clone()
         .lazy()
-        .filter(col("has_exons").and(col("exon_starts").list().len().gt(lit(0u32))))
+        .filter(
+            col(GeneSchema::HAS_EXONS).and(col(GeneSchema::EXON_STARTS).list().len().gt(lit(0u32))),
+        )
         .select([
-            col("row_id"),
-            col("contig_index"),
-            col("exon_starts").alias("start"),
-            col("exon_ends").alias("end"),
+            col(GeneSchema::ROW_ID),
+            col(GeneSchema::CONTIG_INDEX),
+            col(GeneSchema::EXON_STARTS).alias(GeneSchema::START),
+            col(GeneSchema::EXON_ENDS).alias(GeneSchema::END),
         ])
         .explode(
-            cols(["start", "end"]),
+            cols([GeneSchema::START, GeneSchema::END]),
             ExplodeOptions {
                 empty_as_null: false,
                 keep_nulls: false,
@@ -231,22 +251,30 @@ fn navigate_exons(
         return Ok(exons.limit(0).collect()?);
     }
     let predicate = if k == 0 {
-        col("start")
+        col(GeneSchema::START)
             .lt_eq(lit(position))
-            .and(col("end").gt_eq(lit(position)))
+            .and(col(GeneSchema::END).gt_eq(lit(position)))
     } else if after {
-        col("start").gt(lit(position))
+        col(GeneSchema::START).gt(lit(position))
     } else {
-        col("end").lt_eq(lit(position))
+        col(GeneSchema::END).lt_eq(lit(position))
     };
     let mut rows = exons
         .clone()
         .filter(predicate)
         .sort(
             [
-                if after { "start" } else { "end" },
-                if after { "end" } else { "start" },
-                "row_id",
+                if after {
+                    GeneSchema::START
+                } else {
+                    GeneSchema::END
+                },
+                if after {
+                    GeneSchema::END
+                } else {
+                    GeneSchema::START
+                },
+                GeneSchema::ROW_ID,
             ],
             SortMultipleOptions::default()
                 .with_order_descending(!after)
@@ -257,7 +285,7 @@ fn navigate_exons(
     if rows.height() == 0 && saturating {
         rows = exons
             .sort(
-                ["start", "end", "row_id"],
+                [GeneSchema::START, GeneSchema::END, GeneSchema::ROW_ID],
                 SortMultipleOptions::default().with_order_descending(after),
             )
             .limit(1)
@@ -273,91 +301,106 @@ pub fn query_segments(genes: DataFrame, start: u64, end: u64) -> Result<DataFram
 
     let exons = genes
         .lazy()
-        .filter(col("has_exons").and(col("exon_starts").list().len().gt(lit(0u32))))
+        .filter(
+            col(GeneSchema::HAS_EXONS).and(col(GeneSchema::EXON_STARTS).list().len().gt(lit(0u32))),
+        )
         .select([
-            col("row_id").alias("gene_row_id"),
-            col("strand"),
-            col("cds_start").cast(DataType::Int128),
-            col("cds_end").cast(DataType::Int128),
-            col("exon_starts").alias("start"),
-            col("exon_ends").alias("end"),
+            col(GeneSchema::ROW_ID).alias(GeneSegmentSchema::GENE_ROW_ID),
+            col(GeneSchema::STRAND),
+            col(GeneSchema::CDS_START).cast(DataType::Int128),
+            col(GeneSchema::CDS_END).cast(DataType::Int128),
+            col(GeneSchema::EXON_STARTS).alias(GeneSegmentSchema::START),
+            col(GeneSchema::EXON_ENDS).alias(GeneSegmentSchema::END),
         ])
         .explode(
-            cols(["start", "end"]),
+            cols([GeneSegmentSchema::START, GeneSegmentSchema::END]),
             ExplodeOptions {
                 empty_as_null: false,
                 keep_nulls: false,
             },
         )
         .with_columns([
-            col("start")
+            col(GeneSegmentSchema::START)
                 .cum_count(false)
-                .over([col("gene_row_id")])?
+                .over([col(GeneSegmentSchema::GENE_ROW_ID)])?
                 .cast(DataType::UInt64)
-                .alias("exon_ordinal"),
+                .alias(GeneSegmentSchema::EXON_ORDINAL),
             len()
-                .over([col("gene_row_id")])?
+                .over([col(GeneSegmentSchema::GENE_ROW_ID)])?
                 .cast(DataType::UInt64)
-                .alias("exon_count"),
-            col("end")
+                .alias(GeneSegmentSchema::EXON_COUNT),
+            col(GeneSegmentSchema::END)
                 .shift(lit(1i64))
-                .over([col("gene_row_id")])?
+                .over([col(GeneSegmentSchema::GENE_ROW_ID)])?
                 .cast(DataType::Int128)
-                .alias("previous_end"),
-            col("start").cast(DataType::Int128),
-            col("end").cast(DataType::Int128),
+                .alias(GeneSegmentSchema::PREVIOUS_END),
+            col(GeneSegmentSchema::START).cast(DataType::Int128),
+            col(GeneSegmentSchema::END).cast(DataType::Int128),
         ])
-        .with_columns([when(col("strand").eq(lit("+")))
-            .then(col("exon_ordinal"))
-            .otherwise(col("exon_count") - col("exon_ordinal") + lit(1u64))
-            .alias("feature_index")]);
-    let coding = col("cds_start").lt_eq(col("cds_end"));
+        .with_columns([when(col(GeneSchema::STRAND).eq(lit("+")))
+            .then(col(GeneSegmentSchema::EXON_ORDINAL))
+            .otherwise(
+                col(GeneSegmentSchema::EXON_COUNT) - col(GeneSegmentSchema::EXON_ORDINAL)
+                    + lit(1u64),
+            )
+            .alias(GeneSegmentSchema::FEATURE_INDEX)]);
+    let coding = col(GeneSchema::CDS_START).lt_eq(col(GeneSchema::CDS_END));
     let columns = [
-        col("gene_row_id"),
-        col("start"),
-        col("end"),
-        col("kind"),
-        col("feature_index"),
+        col(GeneSegmentSchema::GENE_ROW_ID),
+        col(GeneSegmentSchema::START),
+        col(GeneSegmentSchema::END),
+        col(GeneSegmentSchema::KIND),
+        col(GeneSegmentSchema::FEATURE_INDEX),
     ];
     let coding_exons = exons
         .clone()
         .filter(coding.clone())
         .with_columns([
-            max_horizontal([col("start"), col("cds_start")])?.alias("start"),
-            min_horizontal([col("end"), col("cds_end")])?.alias("end"),
-            lit("coding_exon").alias("kind"),
+            max_horizontal([col(GeneSegmentSchema::START), col(GeneSchema::CDS_START)])?
+                .alias(GeneSegmentSchema::START),
+            min_horizontal([col(GeneSegmentSchema::END), col(GeneSchema::CDS_END)])?
+                .alias(GeneSegmentSchema::END),
+            lit("coding_exon").alias(GeneSegmentSchema::KIND),
         ])
         .select(columns.clone());
     let before_cds = exons
         .clone()
         .filter(coding.clone())
         .with_columns([
-            min_horizontal([col("end"), col("cds_start") - lit(1i128)])?.alias("end"),
-            lit("noncoding_exon").alias("kind"),
+            min_horizontal([
+                col(GeneSegmentSchema::END),
+                col(GeneSchema::CDS_START) - lit(1i128),
+            ])?
+            .alias(GeneSegmentSchema::END),
+            lit("noncoding_exon").alias(GeneSegmentSchema::KIND),
         ])
         .select(columns.clone());
     let after_cds = exons
         .clone()
         .filter(coding.clone())
         .with_columns([
-            max_horizontal([col("start"), col("cds_end") + lit(1i128)])?.alias("start"),
-            lit("noncoding_exon").alias("kind"),
+            max_horizontal([
+                col(GeneSegmentSchema::START),
+                col(GeneSchema::CDS_END) + lit(1i128),
+            ])?
+            .alias(GeneSegmentSchema::START),
+            lit("noncoding_exon").alias(GeneSegmentSchema::KIND),
         ])
         .select(columns.clone());
     let noncoding = exons
         .clone()
         .filter(coding.not())
-        .with_columns([lit("noncoding_exon").alias("kind")])
+        .with_columns([lit("noncoding_exon").alias(GeneSegmentSchema::KIND)])
         .select(columns.clone());
     let introns = exons
         .with_columns([
-            (col("previous_end") + lit(1i128)).alias("start"),
-            (col("start") - lit(1i128)).alias("end"),
-            lit("intron").alias("kind"),
-            when(col("strand").eq(lit("+")))
-                .then(col("exon_ordinal") - lit(1u64))
-                .otherwise(col("feature_index"))
-                .alias("feature_index"),
+            (col(GeneSegmentSchema::PREVIOUS_END) + lit(1i128)).alias(GeneSegmentSchema::START),
+            (col(GeneSegmentSchema::START) - lit(1i128)).alias(GeneSegmentSchema::END),
+            lit("intron").alias(GeneSegmentSchema::KIND),
+            when(col(GeneSchema::STRAND).eq(lit("+")))
+                .then(col(GeneSegmentSchema::EXON_ORDINAL) - lit(1u64))
+                .otherwise(col(GeneSegmentSchema::FEATURE_INDEX))
+                .alias(GeneSegmentSchema::FEATURE_INDEX),
         ])
         .select(columns);
     Ok(concat(
@@ -365,44 +408,99 @@ pub fn query_segments(genes: DataFrame, start: u64, end: u64) -> Result<DataFram
         UnionArgs::default(),
     )?
     .filter(
-        col("start")
-            .lt_eq(col("end"))
-            .and(col("start").lt_eq(lit(end as i128)))
-            .and(col("end").gt_eq(lit(start as i128))),
+        col(GeneSegmentSchema::START)
+            .lt_eq(col(GeneSegmentSchema::END))
+            .and(col(GeneSegmentSchema::START).lt_eq(lit(end as i128)))
+            .and(col(GeneSegmentSchema::END).gt_eq(lit(start as i128))),
     )
     .with_columns([
-        col("start").cast(DataType::UInt64),
-        col("end").cast(DataType::UInt64),
+        col(GeneSegmentSchema::START).cast(DataType::UInt64),
+        col(GeneSegmentSchema::END).cast(DataType::UInt64),
     ])
     .sort(
-        ["gene_row_id", "start", "end"],
+        [
+            GeneSegmentSchema::GENE_ROW_ID,
+            GeneSegmentSchema::START,
+            GeneSegmentSchema::END,
+        ],
         SortMultipleOptions::default(),
     )
     .collect()?)
 }
 
-fn gene_schema() -> SchemaRef {
-    let mut schema = Schema::with_capacity(13);
-    schema.insert("row_id".into(), DataType::UInt64);
-    schema.insert("contig_index".into(), DataType::UInt64);
-    schema.insert("start".into(), DataType::UInt64);
-    schema.insert("end".into(), DataType::UInt64);
-    schema.insert("id".into(), DataType::String);
-    schema.insert("name".into(), DataType::String);
-    schema.insert("strand".into(), DataType::String);
-    schema.insert("cds_start".into(), DataType::UInt64);
-    schema.insert("cds_end".into(), DataType::UInt64);
-    schema.insert(
-        "exon_starts".into(),
-        DataType::List(Box::new(DataType::UInt64)),
-    );
-    schema.insert(
-        "exon_ends".into(),
-        DataType::List(Box::new(DataType::UInt64)),
-    );
-    schema.insert("has_exons".into(), DataType::Boolean);
-    Arc::new(schema)
+/// Transcript bounds, CDS bounds, paired exon lists, and gene metadata.
+/// Coordinates are one-based and inclusive; empty exon lists retain their element type.
+pub struct GeneSchema;
+
+impl GeneSchema {
+    pub const ROW_ID: &'static str = IntervalSchema::ROW_ID;
+    pub const CONTIG_INDEX: &'static str = IntervalSchema::CONTIG_INDEX;
+    pub const START: &'static str = IntervalSchema::START;
+    pub const END: &'static str = IntervalSchema::END;
+    pub const ID: &'static str = "id";
+    pub const NAME: &'static str = "name";
+    pub const STRAND: &'static str = "strand";
+    pub const CDS_START: &'static str = "cds_start";
+    pub const CDS_END: &'static str = "cds_end";
+    pub const EXON_STARTS: &'static str = "exon_starts";
+    pub const EXON_ENDS: &'static str = "exon_ends";
+    pub const HAS_EXONS: &'static str = "has_exons";
 }
+
+impl TableSchema for GeneSchema {
+    fn schema() -> SchemaRef {
+        let mut schema = Schema::with_capacity(12);
+        schema.insert(Self::ROW_ID.into(), DataType::UInt64);
+        schema.insert(Self::CONTIG_INDEX.into(), DataType::UInt64);
+        schema.insert(Self::START.into(), DataType::UInt64);
+        schema.insert(Self::END.into(), DataType::UInt64);
+        schema.insert(Self::ID.into(), DataType::String);
+        schema.insert(Self::NAME.into(), DataType::String);
+        schema.insert(Self::STRAND.into(), DataType::String);
+        schema.insert(Self::CDS_START.into(), DataType::UInt64);
+        schema.insert(Self::CDS_END.into(), DataType::UInt64);
+        schema.insert(
+            Self::EXON_STARTS.into(),
+            DataType::List(Box::new(DataType::UInt64)),
+        );
+        schema.insert(
+            Self::EXON_ENDS.into(),
+            DataType::List(Box::new(DataType::UInt64)),
+        );
+        schema.insert(Self::HAS_EXONS.into(), DataType::Boolean);
+        Arc::new(schema)
+    }
+}
+
+/// Derived coding exon, noncoding exon, and intron drawing segments.
+/// Exon indexes refer to the complete transcript before viewport filtering.
+pub struct GeneSegmentSchema;
+
+impl GeneSegmentSchema {
+    pub const GENE_ROW_ID: &'static str = "gene_row_id";
+    pub const START: &'static str = "start";
+    pub const END: &'static str = "end";
+    pub const KIND: &'static str = "kind";
+    pub const FEATURE_INDEX: &'static str = "feature_index";
+
+    // Temporary columns used while deriving query results.
+    pub const EXON_ORDINAL: &'static str = "exon_ordinal";
+    pub const EXON_COUNT: &'static str = "exon_count";
+    pub const PREVIOUS_END: &'static str = "previous_end";
+}
+
+impl TableSchema for GeneSegmentSchema {
+    fn schema() -> SchemaRef {
+        let mut schema = Schema::with_capacity(5);
+        schema.insert(Self::GENE_ROW_ID.into(), DataType::UInt64);
+        schema.insert(Self::START.into(), DataType::UInt64);
+        schema.insert(Self::END.into(), DataType::UInt64);
+        schema.insert(Self::KIND.into(), DataType::String);
+        schema.insert(Self::FEATURE_INDEX.into(), DataType::UInt64);
+        Arc::new(schema)
+    }
+}
+
 #[cfg(test)]
 mod tests {
 
@@ -413,17 +511,17 @@ mod tests {
         let data = DataFrame::new(
             3,
             vec![
-                Column::new("row_id".into(), [0u64, 1, 2]),
-                Column::new("contig_index".into(), [0u64; 3]),
-                Column::new("start".into(), [2u64, 21, 41]),
-                Column::new("end".into(), [10u64, 30, 50]),
-                Column::new("id".into(), ["gene1", "gene_no_exon", "gene2"]),
-                Column::new("name".into(), ["gene1", "gene_no_exon", "gene2"]),
-                Column::new("strand".into(), ["+"; 3]),
-                Column::new("cds_start".into(), [2u64, 25, 45]),
-                Column::new("cds_end".into(), [10u64, 25, 50]),
+                Column::new(GeneSchema::ROW_ID.into(), [0u64, 1, 2]),
+                Column::new(GeneSchema::CONTIG_INDEX.into(), [0u64; 3]),
+                Column::new(GeneSchema::START.into(), [2u64, 21, 41]),
+                Column::new(GeneSchema::END.into(), [10u64, 30, 50]),
+                Column::new(GeneSchema::ID.into(), ["gene1", "gene_no_exon", "gene2"]),
+                Column::new(GeneSchema::NAME.into(), ["gene1", "gene_no_exon", "gene2"]),
+                Column::new(GeneSchema::STRAND.into(), ["+"; 3]),
+                Column::new(GeneSchema::CDS_START.into(), [2u64, 25, 45]),
+                Column::new(GeneSchema::CDS_END.into(), [10u64, 25, 50]),
                 Column::new(
-                    "exon_starts".into(),
+                    GeneSchema::EXON_STARTS.into(),
                     vec![
                         Series::new("".into(), [2u64, 8]),
                         Series::new("".into(), Vec::<u64>::new()),
@@ -431,14 +529,14 @@ mod tests {
                     ],
                 ),
                 Column::new(
-                    "exon_ends".into(),
+                    GeneSchema::EXON_ENDS.into(),
                     vec![
                         Series::new("".into(), [5u64, 10]),
                         Series::new("".into(), Vec::<u64>::new()),
                         Series::new("".into(), [50u64]),
                     ],
                 ),
-                Column::new("has_exons".into(), [true, false, true]),
+                Column::new(GeneSchema::HAS_EXONS.into(), [true, false, true]),
             ],
         )
         .unwrap();
@@ -462,7 +560,7 @@ mod tests {
                 track
                     .get_gene_at(position)
                     .unwrap()
-                    .column("name")
+                    .column(GeneSchema::NAME)
                     .unwrap()
                     .str()
                     .unwrap()
@@ -492,7 +590,7 @@ mod tests {
                 track
                     .get_k_genes_before(position, k)
                     .unwrap()
-                    .column("name")
+                    .column(GeneSchema::NAME)
                     .unwrap()
                     .str()
                     .unwrap()
@@ -525,7 +623,7 @@ mod tests {
                     track
                         .get_k_genes_after(position, k)
                         .unwrap()
-                        .column("name")
+                        .column(GeneSchema::NAME)
                         .unwrap()
                         .str()
                         .unwrap()
@@ -551,7 +649,7 @@ mod tests {
                 track
                     .get_k_exons_after(position, 0)
                     .unwrap()
-                    .column("start")
+                    .column(GeneSchema::START)
                     .unwrap()
                     .u64()
                     .unwrap()
@@ -581,7 +679,7 @@ mod tests {
                 track
                     .get_k_exons_before(position, k)
                     .unwrap()
-                    .column("start")
+                    .column(GeneSchema::START)
                     .unwrap()
                     .u64()
                     .unwrap()
@@ -613,7 +711,7 @@ mod tests {
                 track
                     .get_k_exons_after(position, k)
                     .unwrap()
-                    .column("start")
+                    .column(GeneSchema::START)
                     .unwrap()
                     .u64()
                     .unwrap()

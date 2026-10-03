@@ -1,9 +1,14 @@
 use crate::{
-    alignment::alignment::{Alignment, stack_tracks_by_sort_key},
+    alignment::{
+        alignment::{Alignment, BaseEventSchema, stack_tracks_by_sort_key},
+        tables::ReadSchema,
+    },
     error::TGVError,
     message::AlignmentSort,
+    table_schema::TableSchema,
 };
 use polars::prelude::*;
+use std::sync::Arc;
 
 /// State and utilities for paired alignment display.
 #[derive(Debug)]
@@ -15,46 +20,91 @@ pub struct PairedAlignment {
     pub singles: DataFrame,
 }
 
+/// Grouped mate IDs, display bounds, visibility, and stacking rows.
+/// The second read ID and display bounds may be null.
+pub struct PairSchema;
+
+impl PairSchema {
+    pub const PAIR_ID: &'static str = "pair_id";
+    pub const READ_1_ID: &'static str = "read_1_id";
+    pub const READ_2_ID: &'static str = "read_2_id";
+    pub const STACKING_START: &'static str = ReadSchema::STACKING_START;
+    pub const STACKING_END: &'static str = ReadSchema::STACKING_END;
+    pub const SHOW: &'static str = ReadSchema::SHOW;
+    pub const Y: &'static str = ReadSchema::Y;
+
+    // Temporary columns used while deriving query results.
+    pub const ITEM_ID: &'static str = "item_id";
+    pub const FIRST_ID: &'static str = "first_id";
+    pub const FIRST_SHOW: &'static str = "first_show";
+    pub const FIRST_KEY: &'static str = "first_key";
+    pub const FIRST_START: &'static str = "first_start";
+    pub const FIRST_END: &'static str = "first_end";
+    pub const SECOND_ID: &'static str = "second_id";
+    pub const SECOND_SHOW: &'static str = "second_show";
+    pub const SECOND_KEY: &'static str = "second_key";
+    pub const SECOND_START: &'static str = "second_start";
+    pub const SECOND_END: &'static str = "second_end";
+}
+
+impl TableSchema for PairSchema {
+    fn schema() -> SchemaRef {
+        let mut schema = Schema::with_capacity(7);
+        schema.insert(Self::PAIR_ID.into(), DataType::UInt64);
+        schema.insert(Self::READ_1_ID.into(), DataType::UInt64);
+        schema.insert(Self::READ_2_ID.into(), DataType::UInt64);
+        schema.insert(Self::STACKING_START.into(), DataType::UInt64);
+        schema.insert(Self::STACKING_END.into(), DataType::UInt64);
+        schema.insert(Self::SHOW.into(), DataType::Boolean);
+        schema.insert(Self::Y.into(), DataType::UInt64);
+        Arc::new(schema)
+    }
+}
+
 impl PairedAlignment {
     pub fn new(alignment: &Alignment) -> Result<Self, TGVError> {
         let reads = alignment.tables.reads.clone().lazy();
-        let eligible = col("paired")
-            .and(col("secondary").not())
-            .and(col("supplementary").not())
-            .and(col("qname").is_not_null());
+        let eligible = col(ReadSchema::PAIRED)
+            .and(col(ReadSchema::SECONDARY).not())
+            .and(col(ReadSchema::SUPPLEMENTARY).not())
+            .and(col(ReadSchema::QNAME).is_not_null());
         let pairs = reads
             .clone()
             .filter(eligible.clone())
-            .group_by(["qname"])
+            .group_by([ReadSchema::QNAME])
             .agg([
-                col("read_id").min().alias("read_1_id"),
+                col(ReadSchema::READ_ID).min().alias(PairSchema::READ_1_ID),
                 // Only the first and last records represent a qname with more than two records.
                 when(len().gt(lit(1u32)))
-                    .then(col("read_id").max())
+                    .then(col(ReadSchema::READ_ID).max())
                     .otherwise(lit(NULL).cast(DataType::UInt64))
-                    .alias("read_2_id"),
-                col("stacking_start").min(),
-                col("stacking_end").max(),
-                col("show").any(false).alias("show"),
+                    .alias(PairSchema::READ_2_ID),
+                col(ReadSchema::STACKING_START).min(),
+                col(ReadSchema::STACKING_END).max(),
+                col(ReadSchema::SHOW).any(false).alias(PairSchema::SHOW),
             ])
             .select([
-                col("read_1_id"),
-                col("read_2_id"),
-                col("stacking_start"),
-                col("stacking_end"),
-                col("show"),
+                col(PairSchema::READ_1_ID),
+                col(PairSchema::READ_2_ID),
+                col(PairSchema::STACKING_START),
+                col(PairSchema::STACKING_END),
+                col(PairSchema::SHOW),
             ])
-            .sort(["read_1_id"], SortMultipleOptions::default())
-            .with_row_index("pair_id", None)
+            .sort([PairSchema::READ_1_ID], SortMultipleOptions::default())
+            .with_row_index(PairSchema::PAIR_ID, None)
             .with_columns([
-                col("pair_id").cast(DataType::UInt64),
-                lit(NULL).cast(DataType::UInt8).alias("sort_key"),
+                col(PairSchema::PAIR_ID).cast(DataType::UInt64),
+                lit(NULL)
+                    .cast(DataType::UInt8)
+                    .alias(BaseEventSchema::SORT_KEY),
             ])
             .collect()?;
         let singles = reads
             .filter(eligible.not())
-            .sort(["read_id"], SortMultipleOptions::default())
-            .with_columns([lit(NULL).cast(DataType::UInt8).alias("sort_key")])
+            .sort([ReadSchema::READ_ID], SortMultipleOptions::default())
+            .with_columns([lit(NULL)
+                .cast(DataType::UInt8)
+                .alias(BaseEventSchema::SORT_KEY)])
             .collect()?;
         let mut result = Self { pairs, singles };
         result.assign_rows()?;
@@ -63,12 +113,13 @@ impl PairedAlignment {
 
     /// Return the combined depth of the visible pairs and singles.
     pub fn depth(&self) -> Result<usize, TGVError> {
-        if !self.pairs.column("show")?.bool()?.any() && !self.singles.column("show")?.bool()?.any()
+        if !self.pairs.column(PairSchema::SHOW)?.bool()?.any()
+            && !self.singles.column(ReadSchema::SHOW)?.bool()?.any()
         {
             return Ok(0);
         }
-        let pair_y = self.pairs.column("y")?.u64()?.max();
-        let single_y = self.singles.column("y")?.u64()?.max();
+        let pair_y = self.pairs.column(PairSchema::Y)?.u64()?.max();
+        let single_y = self.singles.column(ReadSchema::Y)?.u64()?.max();
         Ok(pair_y.max(single_y).map_or(0, |y| y as usize + 1))
     }
 
@@ -76,38 +127,38 @@ impl PairedAlignment {
         let items = concat(
             [
                 self.pairs.clone().lazy().select([
-                    col("show"),
-                    col("stacking_start"),
-                    col("stacking_end"),
-                    col("sort_key"),
+                    col(PairSchema::SHOW),
+                    col(PairSchema::STACKING_START),
+                    col(PairSchema::STACKING_END),
+                    col(BaseEventSchema::SORT_KEY),
                 ]),
                 self.singles.clone().lazy().select([
-                    col("show"),
-                    col("stacking_start"),
-                    col("stacking_end"),
-                    col("sort_key"),
+                    col(ReadSchema::SHOW),
+                    col(ReadSchema::STACKING_START),
+                    col(ReadSchema::STACKING_END),
+                    col(BaseEventSchema::SORT_KEY),
                 ]),
             ],
             UnionArgs::default(),
         )?
-        .with_row_index("item_id", None)
-        .with_columns([col("item_id").cast(DataType::UInt64)])
+        .with_row_index(PairSchema::ITEM_ID, None)
+        .with_columns([col(PairSchema::ITEM_ID).cast(DataType::UInt64)])
         .collect()?;
-        let y = stack_tracks_by_sort_key(&items, "item_id", 10)?;
+        let y = stack_tracks_by_sort_key(&items, PairSchema::ITEM_ID, 10)?;
         let (pair_y, single_y) = y.split_at(self.pairs.height());
         let pairs = self
             .pairs
             .clone()
             .lazy()
-            .with_columns([lit(Series::new("y".into(), pair_y)).alias("y")])
-            .drop(cols(["sort_key"]))
+            .with_columns([lit(Series::new(PairSchema::Y.into(), pair_y)).alias(PairSchema::Y)])
+            .drop(cols([BaseEventSchema::SORT_KEY]))
             .collect()?;
         let singles = self
             .singles
             .clone()
             .lazy()
-            .with_columns([lit(Series::new("y".into(), single_y)).alias("y")])
-            .drop(cols(["sort_key"]))
+            .with_columns([lit(Series::new(ReadSchema::Y.into(), single_y)).alias(ReadSchema::Y)])
+            .drop(cols([BaseEventSchema::SORT_KEY]))
             .collect()?;
         self.pairs = pairs;
         self.singles = singles;
@@ -125,19 +176,19 @@ impl PairedAlignment {
         if left > right {
             return Ok(None);
         }
-        let hit = col("show")
-            .and(col("y").eq(lit(y as u64)))
-            .and(col("stacking_start").lt_eq(lit(right)))
-            .and(col("stacking_end").gt_eq(lit(left)));
+        let hit = col(PairSchema::SHOW)
+            .and(col(PairSchema::Y).eq(lit(y as u64)))
+            .and(col(PairSchema::STACKING_START).lt_eq(lit(right)))
+            .and(col(PairSchema::STACKING_END).gt_eq(lit(left)));
         let pairs = self
             .pairs
             .clone()
             .lazy()
             .filter(hit.clone())
-            .select([col("read_1_id"), col("read_2_id")])
+            .select([col(PairSchema::READ_1_ID), col(PairSchema::READ_2_ID)])
             .collect()?;
-        let first = pairs.column("read_1_id")?.u64()?;
-        let second = pairs.column("read_2_id")?.u64()?;
+        let first = pairs.column(PairSchema::READ_1_ID)?.u64()?;
+        let second = pairs.column(PairSchema::READ_2_ID)?.u64()?;
         let mut candidates = first
             .into_no_null_iter()
             .zip(second.iter())
@@ -148,27 +199,32 @@ impl PairedAlignment {
             .clone()
             .lazy()
             .filter(hit)
-            .select([col("read_id")])
+            .select([col(ReadSchema::READ_ID)])
             .collect()?;
-        candidates.extend(singles.column("read_id")?.u64()?.into_no_null_iter());
-        let selected = Series::new("selected".into(), candidates);
+        candidates.extend(
+            singles
+                .column(ReadSchema::READ_ID)?
+                .u64()?
+                .into_no_null_iter(),
+        );
+        let selected = Series::new(ReadSchema::READ_ID.into(), candidates);
         let hits = alignment
             .tables
             .reads
             .clone()
             .lazy()
             .filter(
-                col("show")
-                    .and(col("read_id").is_in(lit(selected).implode(true), false))
-                    .and(col("stacking_start").lt_eq(lit(right)))
-                    .and(col("stacking_end").gt_eq(lit(left))),
+                col(ReadSchema::SHOW)
+                    .and(col(ReadSchema::READ_ID).is_in(lit(selected).implode(true), false))
+                    .and(col(ReadSchema::STACKING_START).lt_eq(lit(right)))
+                    .and(col(ReadSchema::STACKING_END).gt_eq(lit(left))),
             )
-            .select([col("read_id")])
-            .sort(["read_id"], SortMultipleOptions::default())
+            .select([col(ReadSchema::READ_ID)])
+            .sort([ReadSchema::READ_ID], SortMultipleOptions::default())
             .limit(1)
             .collect()?;
         Ok(hits
-            .column("read_id")?
+            .column(ReadSchema::READ_ID)?
             .u64()?
             .iter()
             .next()
@@ -191,71 +247,91 @@ impl PairedAlignment {
         let events = alignment.base_events(position)?;
         let reads = alignment.tables.reads.clone().lazy().left_join(
             events.lazy(),
-            col("read_id"),
-            col("read_id"),
+            col(ReadSchema::READ_ID),
+            col(ReadSchema::READ_ID),
         );
-        let mate = |prefix: &str| {
+        let mate = |[id, show, key, start, end]: [&str; 5]| {
             reads.clone().select([
-                col("read_id").alias(format!("{prefix}_id")),
-                col("show").alias(format!("{prefix}_show")),
-                when(col("show"))
-                    .then(col("sort_key"))
+                col(ReadSchema::READ_ID).alias(id),
+                col(ReadSchema::SHOW).alias(show),
+                when(col(ReadSchema::SHOW))
+                    .then(col(BaseEventSchema::SORT_KEY))
                     .otherwise(lit(NULL).cast(DataType::UInt8))
-                    .alias(format!("{prefix}_key")),
-                col("stacking_start").alias(format!("{prefix}_start")),
-                col("stacking_end").alias(format!("{prefix}_end")),
+                    .alias(key),
+                col(ReadSchema::STACKING_START).alias(start),
+                col(ReadSchema::STACKING_END).alias(end),
             ])
         };
         let pos = lit(position);
-        let gap = col("first_end")
-            .lt(col("second_start"))
-            .and(pos.clone().gt(col("first_end")))
-            .and(pos.clone().lt(col("second_start")))
-            .or(col("second_end")
-                .lt(col("first_start"))
-                .and(pos.clone().gt(col("second_end")))
-                .and(pos.lt(col("first_start"))));
+        let gap = col(PairSchema::FIRST_END)
+            .lt(col(PairSchema::SECOND_START))
+            .and(pos.clone().gt(col(PairSchema::FIRST_END)))
+            .and(pos.clone().lt(col(PairSchema::SECOND_START)))
+            .or(col(PairSchema::SECOND_END)
+                .lt(col(PairSchema::FIRST_START))
+                .and(pos.clone().gt(col(PairSchema::SECOND_END)))
+                .and(pos.lt(col(PairSchema::FIRST_START))));
         let items = self
             .pairs
             .clone()
             .lazy()
-            .left_join(mate("first"), col("read_1_id"), col("first_id"))
-            .left_join(mate("second"), col("read_2_id"), col("second_id"))
+            .left_join(
+                mate([
+                    PairSchema::FIRST_ID,
+                    PairSchema::FIRST_SHOW,
+                    PairSchema::FIRST_KEY,
+                    PairSchema::FIRST_START,
+                    PairSchema::FIRST_END,
+                ]),
+                col(PairSchema::READ_1_ID),
+                col(PairSchema::FIRST_ID),
+            )
+            .left_join(
+                mate([
+                    PairSchema::SECOND_ID,
+                    PairSchema::SECOND_SHOW,
+                    PairSchema::SECOND_KEY,
+                    PairSchema::SECOND_START,
+                    PairSchema::SECOND_END,
+                ]),
+                col(PairSchema::READ_2_ID),
+                col(PairSchema::SECOND_ID),
+            )
             .with_columns([
-                col("first_show")
-                    .or(col("second_show").fill_null(lit(false)))
-                    .alias("show"),
+                col(PairSchema::FIRST_SHOW)
+                    .or(col(PairSchema::SECOND_SHOW).fill_null(lit(false)))
+                    .alias(PairSchema::SHOW),
                 coalesce(&[
-                    col("first_key"),
-                    col("second_key"),
+                    col(PairSchema::FIRST_KEY),
+                    col(PairSchema::SECOND_KEY),
                     when(gap)
                         .then(lit(8u8))
                         .otherwise(lit(NULL).cast(DataType::UInt8)),
                 ])
-                .alias("sort_key"),
+                .alias(BaseEventSchema::SORT_KEY),
             ])
-            .sort(["pair_id"], SortMultipleOptions::default())
+            .sort([PairSchema::PAIR_ID], SortMultipleOptions::default())
             .collect()?;
         let pairs = items
             .lazy()
             .select([
-                col("pair_id"),
-                col("read_1_id"),
-                col("read_2_id"),
-                col("stacking_start"),
-                col("stacking_end"),
-                col("show"),
-                col("sort_key"),
+                col(PairSchema::PAIR_ID),
+                col(PairSchema::READ_1_ID),
+                col(PairSchema::READ_2_ID),
+                col(PairSchema::STACKING_START),
+                col(PairSchema::STACKING_END),
+                col(PairSchema::SHOW),
+                col(BaseEventSchema::SORT_KEY),
             ])
             .collect()?;
         let singles = self
             .singles
             .clone()
             .lazy()
-            .select([col("read_id")])
-            .left_join(reads, col("read_id"), col("read_id"))
-            .drop(cols(["base"]))
-            .sort(["read_id"], SortMultipleOptions::default())
+            .select([col(ReadSchema::READ_ID)])
+            .left_join(reads, col(ReadSchema::READ_ID), col(ReadSchema::READ_ID))
+            .drop(cols([BaseEventSchema::BASE]))
+            .sort([ReadSchema::READ_ID], SortMultipleOptions::default())
             .collect()?;
         let mut replacement = Self { pairs, singles };
         replacement.assign_rows()?;
@@ -337,7 +413,7 @@ mod tests {
         assert_eq!(
             paired_alignment
                 .pairs
-                .column("y")
+                .column(PairSchema::Y)
                 .unwrap()
                 .u64()
                 .unwrap()
@@ -373,7 +449,9 @@ mod tests {
             .reads
             .clone()
             .lazy()
-            .with_columns([col("read_id").gt_eq(lit(2u64)).alias("show")])
+            .with_columns([col(ReadSchema::READ_ID)
+                .gt_eq(lit(2u64))
+                .alias(ReadSchema::SHOW)])
             .collect()
             .unwrap();
 
@@ -385,7 +463,7 @@ mod tests {
         assert_eq!(
             paired_alignment
                 .pairs
-                .column("show")
+                .column(PairSchema::SHOW)
                 .unwrap()
                 .bool()
                 .unwrap()
@@ -397,7 +475,7 @@ mod tests {
         assert_eq!(
             paired_alignment
                 .singles
-                .column("read_id")
+                .column(ReadSchema::READ_ID)
                 .unwrap()
                 .u64()
                 .unwrap()
@@ -408,7 +486,7 @@ mod tests {
         assert_eq!(
             paired_alignment
                 .singles
-                .column("y")
+                .column(ReadSchema::Y)
                 .unwrap()
                 .u64()
                 .unwrap()

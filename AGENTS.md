@@ -57,6 +57,10 @@
 
 - Do not write simple getters that only return a field, such as `reads(&self)`. Expose the field as `pub` and access it directly. Keep methods for operations that compute, select, or validate data.
 
+### DataFrame schemas
+
+- Define column names as associated constants on the owning schema type, and use those constants in schema declarations, builders, queries, rendering, and tests. Do not use string literals for DataFrame column references, including temporary query columns.
+
 ### Coordinates
 
 - Keep all internal genomic coordinates one-based, with inclusive interval endpoints. This includes alignment tables, annotations, viewport queries, and rendering.

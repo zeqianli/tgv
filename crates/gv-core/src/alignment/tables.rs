@@ -4,7 +4,7 @@
 //! metadata. Polars schemas specify column names and types, but do not enforce
 //! whether values may be null. Optional tags remain in the original records.
 
-use crate::{error::TGVError, sequence::Sequence};
+use crate::{error::TGVError, sequence::Sequence, table_schema::TableSchema};
 use noodles::sam::{
     self,
     alignment::{
@@ -57,19 +57,19 @@ pub struct AlignmentTables {
 impl Default for AlignmentTables {
     fn default() -> Self {
         Self {
-            reads: DataFrame::full_null(&reads_schema(), 0),
-            r#match: DataFrame::full_null(&run_schema(Kind::Match), 0),
-            sequence_match: DataFrame::full_null(&run_schema(Kind::SequenceMatch), 0),
-            mismatch: DataFrame::full_null(&run_schema(Kind::SequenceMismatch), 0),
-            insertion: DataFrame::full_null(&run_schema(Kind::Insertion), 0),
-            deletion: DataFrame::full_null(&run_schema(Kind::Deletion), 0),
-            reference_skip: DataFrame::full_null(&run_schema(Kind::Skip), 0),
-            soft_clip: DataFrame::full_null(&run_schema(Kind::SoftClip), 0),
-            hard_clip: DataFrame::full_null(&run_schema(Kind::HardClip), 0),
-            padding: DataFrame::full_null(&run_schema(Kind::Pad), 0),
-            unmapped: DataFrame::full_null(&unmapped_schema(), 0),
-            reference_mismatches: DataFrame::full_null(&reference_mismatches_schema(), 0),
-            base_modifications: DataFrame::full_null(&base_modifications_schema(), 0),
+            reads: ReadSchema::empty(),
+            r#match: SequenceCigarRunSchema::empty(),
+            sequence_match: SequenceCigarRunSchema::empty(),
+            mismatch: SequenceCigarRunSchema::empty(),
+            insertion: SequenceCigarRunSchema::empty(),
+            deletion: CigarRunSchema::empty(),
+            reference_skip: CigarRunSchema::empty(),
+            soft_clip: SequenceCigarRunSchema::empty(),
+            hard_clip: CigarRunSchema::empty(),
+            padding: CigarRunSchema::empty(),
+            unmapped: UnmappedReadSchema::empty(),
+            reference_mismatches: ReferenceMismatchSchema::empty(),
+            base_modifications: BaseModificationSchema::empty(),
         }
     }
 }
@@ -279,34 +279,36 @@ fn build_batch(
     }
     let height = read_id.len();
     let read_columns = vec![
-        Column::new("read_id".into(), read_id),
-        Column::new("qname".into(), qname),
-        Column::new("ref_id".into(), ref_id),
-        Column::new("pos".into(), pos),
-        Column::new("mapq".into(), mapq),
-        Column::new("next_ref_id".into(), next_ref_id),
-        Column::new("next_pos".into(), next_pos),
-        Column::new("tlen".into(), tlen),
-        Column::new("stacking_start".into(), stacking_start),
-        Column::new("stacking_end".into(), stacking_end),
-        Column::new("paired".into(), paired),
-        Column::new("proper_pair".into(), proper_pair),
-        Column::new("unmapped".into(), unmapped),
-        Column::new("mate_unmapped".into(), mate_unmapped),
-        Column::new("reverse".into(), reverse),
-        Column::new("mate_reverse".into(), mate_reverse),
-        Column::new("first_segment".into(), first_segment),
-        Column::new("last_segment".into(), last_segment),
-        Column::new("secondary".into(), secondary),
-        Column::new("qc_failed".into(), qc_failed),
-        Column::new("duplicate".into(), duplicate),
-        Column::new("supplementary".into(), supplementary),
+        Column::new(ReadSchema::READ_ID.into(), read_id),
+        Column::new(ReadSchema::QNAME.into(), qname),
+        Column::new(ReadSchema::REF_ID.into(), ref_id),
+        Column::new(ReadSchema::POS.into(), pos),
+        Column::new(ReadSchema::MAPQ.into(), mapq),
+        Column::new(ReadSchema::NEXT_REF_ID.into(), next_ref_id),
+        Column::new(ReadSchema::NEXT_POS.into(), next_pos),
+        Column::new(ReadSchema::TLEN.into(), tlen),
+        Column::new(ReadSchema::STACKING_START.into(), stacking_start),
+        Column::new(ReadSchema::STACKING_END.into(), stacking_end),
+        Column::new(ReadSchema::PAIRED.into(), paired),
+        Column::new(ReadSchema::PROPER_PAIR.into(), proper_pair),
+        Column::new(ReadSchema::UNMAPPED.into(), unmapped),
+        Column::new(ReadSchema::MATE_UNMAPPED.into(), mate_unmapped),
+        Column::new(ReadSchema::REVERSE.into(), reverse),
+        Column::new(ReadSchema::MATE_REVERSE.into(), mate_reverse),
+        Column::new(ReadSchema::FIRST_SEGMENT.into(), first_segment),
+        Column::new(ReadSchema::LAST_SEGMENT.into(), last_segment),
+        Column::new(ReadSchema::SECONDARY.into(), secondary),
+        Column::new(ReadSchema::QC_FAILED.into(), qc_failed),
+        Column::new(ReadSchema::DUPLICATE.into(), duplicate),
+        Column::new(ReadSchema::SUPPLEMENTARY.into(), supplementary),
     ];
     let reads = DataFrame::new(height, read_columns)?
         .lazy()
         .with_columns([
-            col("stacking_start").is_not_null().alias("show"),
-            lit(0u64).cast(DataType::UInt64).alias("y"),
+            col(ReadSchema::STACKING_START)
+                .is_not_null()
+                .alias(ReadSchema::SHOW),
+            lit(0u64).cast(DataType::UInt64).alias(ReadSchema::Y),
         ])
         .collect()?;
     let [
@@ -333,21 +335,36 @@ fn build_batch(
     .map(|(index, kind)| -> Result<DataFrame, TGVError> {
         let height = run_read_id[index].len();
         let mut columns = vec![
-            Column::new("read_id".into(), std::mem::take(&mut run_read_id[index])),
-            Column::new("op_index".into(), std::mem::take(&mut run_op_index[index])),
-            Column::new("ref_id".into(), std::mem::take(&mut run_ref_id[index])),
             Column::new(
-                "ref_start".into(),
+                CigarRunSchema::READ_ID.into(),
+                std::mem::take(&mut run_read_id[index]),
+            ),
+            Column::new(
+                CigarRunSchema::OP_INDEX.into(),
+                std::mem::take(&mut run_op_index[index]),
+            ),
+            Column::new(
+                CigarRunSchema::REF_ID.into(),
+                std::mem::take(&mut run_ref_id[index]),
+            ),
+            Column::new(
+                CigarRunSchema::REF_START.into(),
                 std::mem::take(&mut run_ref_start[index]),
             ),
-            Column::new("op_len".into(), std::mem::take(&mut run_op_len[index])),
+            Column::new(
+                CigarRunSchema::OP_LEN.into(),
+                std::mem::take(&mut run_op_len[index]),
+            ),
         ];
         if kind.consumes_read() {
             columns.push(Column::new(
-                "seq".into(),
+                SequenceCigarRunSchema::SEQ.into(),
                 std::mem::take(&mut run_seq[index]),
             ));
-            columns.push(binary_column("qual", &run_qual[index]));
+            columns.push(binary_column(
+                SequenceCigarRunSchema::QUAL,
+                &run_qual[index],
+            ));
         }
         Ok(DataFrame::new(height, columns)?)
     });
@@ -363,10 +380,10 @@ fn build_batch(
     let unmapped = DataFrame::new(
         unmapped_read_id.len(),
         vec![
-            Column::new("read_id".into(), unmapped_read_id),
-            Column::new("base_count".into(), base_count),
-            Column::new("seq".into(), unmapped_seq),
-            binary_column("qual", &unmapped_qual),
+            Column::new(UnmappedReadSchema::READ_ID.into(), unmapped_read_id),
+            Column::new(UnmappedReadSchema::BASE_COUNT.into(), base_count),
+            Column::new(UnmappedReadSchema::SEQ.into(), unmapped_seq),
+            binary_column(UnmappedReadSchema::QUAL, &unmapped_qual),
         ],
     )?;
     let reference_mismatches = reference_mismatches(&r#match, reference_sequence, contig_index)?;
@@ -573,77 +590,166 @@ pub const fn run_table_name(kind: Kind) -> &'static str {
 /// Missing names and mapping qualities are null, rather than SAM sentinel values.
 /// `stacking_start` and `stacking_end` are nullable, one-based, inclusive
 /// display bounds, including soft clips. Both are null for unpositioned reads.
-pub fn reads_schema() -> SchemaRef {
-    let mut schema = Schema::with_capacity(24);
-    schema.insert("read_id".into(), DataType::UInt64);
-    schema.insert("qname".into(), DataType::String);
-    schema.insert("ref_id".into(), DataType::UInt32);
-    schema.insert("pos".into(), DataType::UInt32);
-    schema.insert("mapq".into(), DataType::UInt8);
-    schema.insert("next_ref_id".into(), DataType::UInt32);
-    schema.insert("next_pos".into(), DataType::UInt32);
-    schema.insert("tlen".into(), DataType::Int32);
-    schema.insert("stacking_start".into(), DataType::UInt64);
-    schema.insert("stacking_end".into(), DataType::UInt64);
-    schema.insert("paired".into(), DataType::Boolean);
-    schema.insert("proper_pair".into(), DataType::Boolean);
-    schema.insert("unmapped".into(), DataType::Boolean);
-    schema.insert("mate_unmapped".into(), DataType::Boolean);
-    schema.insert("reverse".into(), DataType::Boolean);
-    schema.insert("mate_reverse".into(), DataType::Boolean);
-    schema.insert("first_segment".into(), DataType::Boolean);
-    schema.insert("last_segment".into(), DataType::Boolean);
-    schema.insert("secondary".into(), DataType::Boolean);
-    schema.insert("qc_failed".into(), DataType::Boolean);
-    schema.insert("duplicate".into(), DataType::Boolean);
-    schema.insert("supplementary".into(), DataType::Boolean);
-    schema.insert("show".into(), DataType::Boolean);
-    schema.insert("y".into(), DataType::UInt64);
-    Arc::new(schema)
+pub struct ReadSchema;
+
+impl ReadSchema {
+    pub const READ_ID: &'static str = "read_id";
+    pub const QNAME: &'static str = "qname";
+    pub const REF_ID: &'static str = "ref_id";
+    pub const POS: &'static str = "pos";
+    pub const MAPQ: &'static str = "mapq";
+    pub const NEXT_REF_ID: &'static str = "next_ref_id";
+    pub const NEXT_POS: &'static str = "next_pos";
+    pub const TLEN: &'static str = "tlen";
+    pub const STACKING_START: &'static str = "stacking_start";
+    pub const STACKING_END: &'static str = "stacking_end";
+    pub const PAIRED: &'static str = "paired";
+    pub const PROPER_PAIR: &'static str = "proper_pair";
+    pub const UNMAPPED: &'static str = "unmapped";
+    pub const MATE_UNMAPPED: &'static str = "mate_unmapped";
+    pub const REVERSE: &'static str = "reverse";
+    pub const MATE_REVERSE: &'static str = "mate_reverse";
+    pub const FIRST_SEGMENT: &'static str = "first_segment";
+    pub const LAST_SEGMENT: &'static str = "last_segment";
+    pub const SECONDARY: &'static str = "secondary";
+    pub const QC_FAILED: &'static str = "qc_failed";
+    pub const DUPLICATE: &'static str = "duplicate";
+    pub const SUPPLEMENTARY: &'static str = "supplementary";
+    pub const SHOW: &'static str = "show";
+    pub const Y: &'static str = "y";
 }
 
-/// The schema for one CIGAR operation kind.
+impl TableSchema for ReadSchema {
+    fn schema() -> SchemaRef {
+        let mut schema = Schema::with_capacity(24);
+        schema.insert(Self::READ_ID.into(), DataType::UInt64);
+        schema.insert(Self::QNAME.into(), DataType::String);
+        schema.insert(Self::REF_ID.into(), DataType::UInt32);
+        schema.insert(Self::POS.into(), DataType::UInt32);
+        schema.insert(Self::MAPQ.into(), DataType::UInt8);
+        schema.insert(Self::NEXT_REF_ID.into(), DataType::UInt32);
+        schema.insert(Self::NEXT_POS.into(), DataType::UInt32);
+        schema.insert(Self::TLEN.into(), DataType::Int32);
+        schema.insert(Self::STACKING_START.into(), DataType::UInt64);
+        schema.insert(Self::STACKING_END.into(), DataType::UInt64);
+        schema.insert(Self::PAIRED.into(), DataType::Boolean);
+        schema.insert(Self::PROPER_PAIR.into(), DataType::Boolean);
+        schema.insert(Self::UNMAPPED.into(), DataType::Boolean);
+        schema.insert(Self::MATE_UNMAPPED.into(), DataType::Boolean);
+        schema.insert(Self::REVERSE.into(), DataType::Boolean);
+        schema.insert(Self::MATE_REVERSE.into(), DataType::Boolean);
+        schema.insert(Self::FIRST_SEGMENT.into(), DataType::Boolean);
+        schema.insert(Self::LAST_SEGMENT.into(), DataType::Boolean);
+        schema.insert(Self::SECONDARY.into(), DataType::Boolean);
+        schema.insert(Self::QC_FAILED.into(), DataType::Boolean);
+        schema.insert(Self::DUPLICATE.into(), DataType::Boolean);
+        schema.insert(Self::SUPPLEMENTARY.into(), DataType::Boolean);
+        schema.insert(Self::SHOW.into(), DataType::Boolean);
+        schema.insert(Self::Y.into(), DataType::UInt64);
+        Arc::new(schema)
+    }
+}
+
+/// Common columns for CIGAR runs, including reference-only operations.
 ///
 /// `ref_start` is one-based. For reference-consuming operations, the exclusive
 /// end is `ref_start + op_len`; other operations retain the reference cursor
 /// without advancing it. Each `read_id` indexes the original loaded reads table.
-/// Read-consuming operations store their ASCII SEQ substring as a UTF-8 string.
-/// Missing SEQ and quality scores are null.
-pub fn run_schema(kind: Kind) -> SchemaRef {
-    let mut schema = Schema::with_capacity(if kind.consumes_read() { 7 } else { 5 });
-    schema.insert("read_id".into(), DataType::UInt64);
-    schema.insert("op_index".into(), DataType::UInt32);
-    schema.insert("ref_id".into(), DataType::UInt32);
-    schema.insert("ref_start".into(), DataType::UInt64);
-    schema.insert("op_len".into(), DataType::UInt32);
-    if kind.consumes_read() {
-        schema.insert("seq".into(), DataType::String);
-        schema.insert("qual".into(), DataType::Binary);
+pub struct CigarRunSchema;
+
+impl CigarRunSchema {
+    pub const READ_ID: &'static str = ReadSchema::READ_ID;
+    pub const OP_INDEX: &'static str = "op_index";
+    pub const REF_ID: &'static str = "ref_id";
+    pub const REF_START: &'static str = "ref_start";
+    pub const OP_LEN: &'static str = "op_len";
+
+    // Temporary columns used while deriving query results.
+    pub const FIRST_OP_INDEX: &'static str = "first_op_index";
+    pub const DISPLAY_START: &'static str = "display_start";
+    pub const DISPLAY_END: &'static str = "display_end";
+    pub const RUN_OFFSET: &'static str = "run_offset";
+}
+
+impl TableSchema for CigarRunSchema {
+    fn schema() -> SchemaRef {
+        let mut schema = Schema::with_capacity(5);
+        schema.insert(Self::READ_ID.into(), DataType::UInt64);
+        schema.insert(Self::OP_INDEX.into(), DataType::UInt32);
+        schema.insert(Self::REF_ID.into(), DataType::UInt32);
+        schema.insert(Self::REF_START.into(), DataType::UInt64);
+        schema.insert(Self::OP_LEN.into(), DataType::UInt32);
+        Arc::new(schema)
     }
-    Arc::new(schema)
+}
+
+/// CIGAR runs that consume read bases (`M`, `=`, `X`, `I`, and `S`).
+/// SEQ strings and quality scores are nullable payload columns.
+pub struct SequenceCigarRunSchema;
+
+impl SequenceCigarRunSchema {
+    pub const READ_ID: &'static str = CigarRunSchema::READ_ID;
+    pub const OP_INDEX: &'static str = CigarRunSchema::OP_INDEX;
+    pub const REF_ID: &'static str = CigarRunSchema::REF_ID;
+    pub const REF_START: &'static str = CigarRunSchema::REF_START;
+    pub const OP_LEN: &'static str = CigarRunSchema::OP_LEN;
+    pub const SEQ: &'static str = "seq";
+    pub const QUAL: &'static str = "qual";
+}
+
+impl TableSchema for SequenceCigarRunSchema {
+    fn schema() -> SchemaRef {
+        let mut schema = CigarRunSchema::schema().as_ref().clone();
+        schema.insert(Self::SEQ.into(), DataType::String);
+        schema.insert(Self::QUAL.into(), DataType::Binary);
+        Arc::new(schema)
+    }
 }
 
 /// The schema for records without CIGAR operations.
 ///
 /// Missing SEQ and quality scores are null.
-pub fn unmapped_schema() -> SchemaRef {
-    let mut schema = Schema::with_capacity(4);
-    schema.insert("read_id".into(), DataType::UInt64);
-    schema.insert("base_count".into(), DataType::UInt32);
-    schema.insert("seq".into(), DataType::String);
-    schema.insert("qual".into(), DataType::Binary);
-    Arc::new(schema)
+pub struct UnmappedReadSchema;
+
+impl UnmappedReadSchema {
+    pub const READ_ID: &'static str = ReadSchema::READ_ID;
+    pub const BASE_COUNT: &'static str = "base_count";
+    pub const SEQ: &'static str = "seq";
+    pub const QUAL: &'static str = "qual";
+}
+
+impl TableSchema for UnmappedReadSchema {
+    fn schema() -> SchemaRef {
+        let mut schema = Schema::with_capacity(4);
+        schema.insert(Self::READ_ID.into(), DataType::UInt64);
+        schema.insert(Self::BASE_COUNT.into(), DataType::UInt32);
+        schema.insert(Self::SEQ.into(), DataType::String);
+        schema.insert(Self::QUAL.into(), DataType::Binary);
+        Arc::new(schema)
+    }
 }
 
 /// Sparse reference mismatches within M runs.
-pub fn reference_mismatches_schema() -> SchemaRef {
-    let mut schema = Schema::with_capacity(5);
-    schema.insert("read_id".into(), DataType::UInt64);
-    schema.insert("op_index".into(), DataType::UInt32);
-    schema.insert("run_offset".into(), DataType::UInt32);
-    schema.insert("ref_pos".into(), DataType::UInt64);
-    schema.insert("base".into(), DataType::UInt8);
-    Arc::new(schema)
+pub struct ReferenceMismatchSchema;
+
+impl ReferenceMismatchSchema {
+    pub const READ_ID: &'static str = ReadSchema::READ_ID;
+    pub const OP_INDEX: &'static str = CigarRunSchema::OP_INDEX;
+    pub const RUN_OFFSET: &'static str = CigarRunSchema::RUN_OFFSET;
+    pub const REF_POS: &'static str = "ref_pos";
+    pub const BASE: &'static str = "base";
+}
+
+impl TableSchema for ReferenceMismatchSchema {
+    fn schema() -> SchemaRef {
+        let mut schema = Schema::with_capacity(5);
+        schema.insert(Self::READ_ID.into(), DataType::UInt64);
+        schema.insert(Self::OP_INDEX.into(), DataType::UInt32);
+        schema.insert(Self::RUN_OFFSET.into(), DataType::UInt32);
+        schema.insert(Self::REF_POS.into(), DataType::UInt64);
+        schema.insert(Self::BASE.into(), DataType::UInt8);
+        Arc::new(schema)
+    }
 }
 
 /// Sparse MM/ML annotations, with exactly one of code and ChEBI ID populated.
@@ -651,17 +757,32 @@ pub fn reference_mismatches_schema() -> SchemaRef {
 /// Positions are one-based display coordinates, including projected soft clips.
 /// `source_order` preserves MM/ML order for deterministic probability ties.
 /// Missing ML probabilities are null; a recorded probability of 255 remains 255.
-pub fn base_modifications_schema() -> SchemaRef {
-    let mut schema = Schema::with_capacity(8);
-    schema.insert("read_id".into(), DataType::UInt64);
-    schema.insert("op_index".into(), DataType::UInt32);
-    schema.insert("run_offset".into(), DataType::UInt32);
-    schema.insert("display_pos".into(), DataType::UInt64);
-    schema.insert("code".into(), DataType::UInt8);
-    schema.insert("chebi_id".into(), DataType::UInt32);
-    schema.insert("probability".into(), DataType::UInt8);
-    schema.insert("source_order".into(), DataType::UInt64);
-    Arc::new(schema)
+pub struct BaseModificationSchema;
+
+impl BaseModificationSchema {
+    pub const READ_ID: &'static str = ReadSchema::READ_ID;
+    pub const OP_INDEX: &'static str = CigarRunSchema::OP_INDEX;
+    pub const RUN_OFFSET: &'static str = CigarRunSchema::RUN_OFFSET;
+    pub const DISPLAY_POS: &'static str = "display_pos";
+    pub const CODE: &'static str = "code";
+    pub const CHEBI_ID: &'static str = "chebi_id";
+    pub const PROBABILITY: &'static str = "probability";
+    pub const SOURCE_ORDER: &'static str = "source_order";
+}
+
+impl TableSchema for BaseModificationSchema {
+    fn schema() -> SchemaRef {
+        let mut schema = Schema::with_capacity(8);
+        schema.insert(Self::READ_ID.into(), DataType::UInt64);
+        schema.insert(Self::OP_INDEX.into(), DataType::UInt32);
+        schema.insert(Self::RUN_OFFSET.into(), DataType::UInt32);
+        schema.insert(Self::DISPLAY_POS.into(), DataType::UInt64);
+        schema.insert(Self::CODE.into(), DataType::UInt8);
+        schema.insert(Self::CHEBI_ID.into(), DataType::UInt32);
+        schema.insert(Self::PROBABILITY.into(), DataType::UInt8);
+        schema.insert(Self::SOURCE_ORDER.into(), DataType::UInt64);
+        Arc::new(schema)
+    }
 }
 
 pub(crate) fn reference_mismatches(
@@ -670,13 +791,13 @@ pub(crate) fn reference_mismatches(
     contig_index: usize,
 ) -> Result<DataFrame, TGVError> {
     if reference.contig_index != contig_index || reference.sequence.is_empty() {
-        return Ok(DataFrame::full_null(&reference_mismatches_schema(), 0));
+        return Ok(ReferenceMismatchSchema::empty());
     }
-    let ids = runs.column("read_id")?.u64()?;
-    let indexes = runs.column("op_index")?.u32()?;
-    let starts = runs.column("ref_start")?.u64()?;
-    let lengths = runs.column("op_len")?.u32()?;
-    let sequences = runs.column("seq")?.str()?;
+    let ids = runs.column(CigarRunSchema::READ_ID)?.u64()?;
+    let indexes = runs.column(CigarRunSchema::OP_INDEX)?.u32()?;
+    let starts = runs.column(CigarRunSchema::REF_START)?.u64()?;
+    let lengths = runs.column(CigarRunSchema::OP_LEN)?.u32()?;
+    let sequences = runs.column(SequenceCigarRunSchema::SEQ)?.str()?;
     let mut read_id = Vec::new();
     let mut op_index = Vec::new();
     let mut run_offset = Vec::new();
@@ -711,11 +832,11 @@ pub(crate) fn reference_mismatches(
     Ok(DataFrame::new(
         read_id.len(),
         vec![
-            Column::new("read_id".into(), read_id),
-            Column::new("op_index".into(), op_index),
-            Column::new("run_offset".into(), run_offset),
-            Column::new("ref_pos".into(), ref_pos),
-            Column::new("base".into(), base),
+            Column::new(ReferenceMismatchSchema::READ_ID.into(), read_id),
+            Column::new(ReferenceMismatchSchema::OP_INDEX.into(), op_index),
+            Column::new(ReferenceMismatchSchema::RUN_OFFSET.into(), run_offset),
+            Column::new(ReferenceMismatchSchema::REF_POS.into(), ref_pos),
+            Column::new(ReferenceMismatchSchema::BASE.into(), base),
         ],
     )?)
 }
@@ -866,14 +987,14 @@ pub(super) fn base_modifications(
     Ok(DataFrame::new(
         read_id.len(),
         vec![
-            Column::new("read_id".into(), read_id),
-            Column::new("op_index".into(), op_index),
-            Column::new("run_offset".into(), run_offset),
-            Column::new("display_pos".into(), display_pos),
-            Column::new("code".into(), code),
-            Column::new("chebi_id".into(), chebi_id),
-            Column::new("probability".into(), probability),
-            Column::new("source_order".into(), source_order),
+            Column::new(BaseModificationSchema::READ_ID.into(), read_id),
+            Column::new(BaseModificationSchema::OP_INDEX.into(), op_index),
+            Column::new(BaseModificationSchema::RUN_OFFSET.into(), run_offset),
+            Column::new(BaseModificationSchema::DISPLAY_POS.into(), display_pos),
+            Column::new(BaseModificationSchema::CODE.into(), code),
+            Column::new(BaseModificationSchema::CHEBI_ID.into(), chebi_id),
+            Column::new(BaseModificationSchema::PROBABILITY.into(), probability),
+            Column::new(BaseModificationSchema::SOURCE_ORDER.into(), source_order),
         ],
     )?)
 }
@@ -909,7 +1030,7 @@ mod tests {
     };
 
     use crate::{
-        alignment::{Alignment, CoverageTable, tables},
+        alignment::{Alignment, CoverageSchema, alignment::BaseEventSchema, tables},
         sequence::Sequence,
     };
     use noodles::sam::alignment::{
@@ -1007,7 +1128,7 @@ mod tests {
             alignment
                 .base_events(pos)
                 .unwrap()
-                .column("base")
+                .column(ReferenceMismatchSchema::BASE)
                 .unwrap()
                 .str()
                 .unwrap()
@@ -1054,7 +1175,7 @@ mod tests {
             alignment
                 .base_events(pos)
                 .unwrap()
-                .column("sort_key")
+                .column(BaseEventSchema::SORT_KEY)
                 .unwrap()
                 .u8()
                 .unwrap()
@@ -1101,7 +1222,7 @@ mod tests {
             alignment
                 .tables
                 .insertion
-                .column("ref_start")
+                .column(CigarRunSchema::REF_START)
                 .unwrap()
                 .u64()
                 .unwrap()
@@ -1264,7 +1385,7 @@ mod tests {
         let table = &alignment.tables.base_modifications;
         assert_eq!(
             table
-                .column("display_pos")
+                .column(BaseModificationSchema::DISPLAY_POS)
                 .unwrap()
                 .u64()
                 .unwrap()
@@ -1274,7 +1395,7 @@ mod tests {
         );
         assert_eq!(
             table
-                .column("probability")
+                .column(BaseModificationSchema::PROBABILITY)
                 .unwrap()
                 .u8()
                 .unwrap()
@@ -1284,7 +1405,7 @@ mod tests {
         );
         assert_eq!(
             table
-                .column("code")
+                .column(BaseModificationSchema::CODE)
                 .unwrap()
                 .u8()
                 .unwrap()
@@ -1294,7 +1415,7 @@ mod tests {
         );
         assert_eq!(
             table
-                .column("op_index")
+                .column(BaseModificationSchema::OP_INDEX)
                 .unwrap()
                 .u32()
                 .unwrap()
@@ -1304,7 +1425,7 @@ mod tests {
         );
         assert_eq!(
             table
-                .column("run_offset")
+                .column(BaseModificationSchema::RUN_OFFSET)
                 .unwrap()
                 .u32()
                 .unwrap()
@@ -1383,7 +1504,7 @@ mod tests {
             alignment
                 .tables
                 .reads
-                .column("pos")
+                .column(ReadSchema::POS)
                 .unwrap()
                 .u32()
                 .unwrap()
@@ -1395,20 +1516,20 @@ mod tests {
             alignment
                 .tables
                 .run(first_kind)
-                .column("ref_start")
+                .column(CigarRunSchema::REF_START)
                 .unwrap()
                 .u64()
                 .unwrap()
                 .get(0),
             Some(reference_start)
         );
-        assert_eq!(alignment.coverage.data.schema(), &CoverageTable::schema());
+        assert_eq!(alignment.coverage.data.schema(), &CoverageSchema::schema());
         assert_eq!(
             alignment
                 .coverage
                 .query(reference_start, reference_start)
                 .unwrap()
-                .column("total")
+                .column(CoverageSchema::TOTAL)
                 .unwrap()
                 .u64()
                 .unwrap()
@@ -1421,7 +1542,7 @@ mod tests {
                 .coverage
                 .query(100, 100)
                 .unwrap()
-                .column("total")
+                .column(CoverageSchema::TOTAL)
                 .unwrap()
                 .u64()
                 .unwrap()
@@ -1437,21 +1558,21 @@ mod tests {
             }
             for row in 0..frame.height() {
                 let start = frame
-                    .column("display_start")
+                    .column(CigarRunSchema::DISPLAY_START)
                     .unwrap()
                     .u64()
                     .unwrap()
                     .get(row)
                     .unwrap();
                 let end = frame
-                    .column("display_end")
+                    .column(CigarRunSchema::DISPLAY_END)
                     .unwrap()
                     .u64()
                     .unwrap()
                     .get(row)
                     .unwrap();
                 let index = frame
-                    .column("op_index")
+                    .column(CigarRunSchema::OP_INDEX)
                     .unwrap()
                     .u32()
                     .unwrap()
@@ -1461,7 +1582,7 @@ mod tests {
                 for annotation in 0..viewport.reference_mismatches.height() {
                     let table = &viewport.reference_mismatches;
                     if table
-                        .column("op_index")
+                        .column(ReferenceMismatchSchema::OP_INDEX)
                         .unwrap()
                         .u32()
                         .unwrap()
@@ -1470,14 +1591,14 @@ mod tests {
                     {
                         mismatches.push((
                             table
-                                .column("ref_pos")
+                                .column(ReferenceMismatchSchema::REF_POS)
                                 .unwrap()
                                 .u64()
                                 .unwrap()
                                 .get(annotation)
                                 .unwrap(),
                             table
-                                .column("base")
+                                .column(ReferenceMismatchSchema::BASE)
                                 .unwrap()
                                 .u8()
                                 .unwrap()
@@ -1488,7 +1609,7 @@ mod tests {
                 }
                 let sequence = if kind.consumes_read() {
                     frame
-                        .column("seq")
+                        .column(SequenceCigarRunSchema::SEQ)
                         .unwrap()
                         .str()
                         .unwrap()
@@ -1533,7 +1654,7 @@ mod tests {
             alignment
                 .tables
                 .reads
-                .column("reverse")
+                .column(ReadSchema::REVERSE)
                 .unwrap()
                 .bool()
                 .unwrap()

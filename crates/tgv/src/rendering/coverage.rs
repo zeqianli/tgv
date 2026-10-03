@@ -9,7 +9,10 @@ use ratatui::{
 
 use ratatui::symbols::bar::{NINE_LEVELS, Set};
 
-use gv_core::{alignment::CoverageTable, prelude::*};
+use gv_core::{
+    alignment::{CoverageSchema, CoverageTable},
+    prelude::*,
+};
 
 use crate::{layout::AlignmentView, rendering::Palette};
 const MIN_AREA_WIDTH: u16 = 2;
@@ -134,12 +137,12 @@ fn calculate_binned_coverage(
 ) -> Result<Vec<Vec<usize>>, TGVError> {
     let linear_space = get_linear_space(left, right, n_bins)?;
     let table = coverage.query(left, right)?;
-    let positions = table.column("pos")?.u64()?;
-    let totals = table.column("total")?.u64()?;
-    let a = table.column("A")?.u64()?;
-    let t = table.column("T")?.u64()?;
-    let c = table.column("C")?.u64()?;
-    let reference_bases = table.column("reference_base")?.u8()?;
+    let positions = table.column(CoverageSchema::POS)?.u64()?;
+    let totals = table.column(CoverageSchema::TOTAL)?.u64()?;
+    let a = table.column(CoverageSchema::A)?.u64()?;
+    let t = table.column(CoverageSchema::T)?.u64()?;
+    let c = table.column(CoverageSchema::C)?.u64()?;
+    let reference_bases = table.column(CoverageSchema::REFERENCE_BASE)?.u8()?;
     let mut output = vec![vec![0; n_bins]; 2];
     let single_base_bins = right - left + 1 == n_bins as u64;
     let mut bin = 0;

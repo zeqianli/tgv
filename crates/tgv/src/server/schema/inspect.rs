@@ -2,7 +2,11 @@
 
 use crate::track_registry::TrackId;
 use gv_core::{
-    alignment::Alignment, bed::BedTable, gene::GeneTable, prelude::*, variant::VariantTable,
+    alignment::{Alignment, CoverageSchema, tables::ReadSchema},
+    bed::{BedSchema, BedTable},
+    gene::{GeneSchema, GeneTable},
+    prelude::*,
+    variant::{VariantSchema, VariantTable},
 };
 use polars::prelude::*;
 use schemars::JsonSchema;
@@ -87,28 +91,28 @@ impl TrackSummary {
                     .clone()
                     .lazy()
                     .filter(
-                        col("stacking_start")
+                        col(ReadSchema::STACKING_START)
                             .lt_eq(lit(region.end))
-                            .and(col("stacking_end").gt_eq(lit(region.start))),
+                            .and(col(ReadSchema::STACKING_END).gt_eq(lit(region.start))),
                     )
-                    .select([col("read_id")])
+                    .select([col(ReadSchema::READ_ID)])
                     .collect()?
                     .height()
             };
         let coverage = alignment.coverage.query(region.start, region.end)?;
         let mut rows = coverage
-            .column("pos")?
+            .column(CoverageSchema::POS)?
             .u64()?
             .into_no_null_iter()
             .enumerate()
             .peekable();
-        let a = coverage.column("A")?.u64()?;
-        let c = coverage.column("C")?.u64()?;
-        let g = coverage.column("G")?.u64()?;
-        let t = coverage.column("T")?.u64()?;
-        let n = coverage.column("N")?.u64()?;
-        let total = coverage.column("total")?.u64()?;
-        let softclip = coverage.column("softclip")?.u64()?;
+        let a = coverage.column(CoverageSchema::A)?.u64()?;
+        let c = coverage.column(CoverageSchema::C)?.u64()?;
+        let g = coverage.column(CoverageSchema::G)?.u64()?;
+        let t = coverage.column(CoverageSchema::T)?.u64()?;
+        let n = coverage.column(CoverageSchema::N)?.u64()?;
+        let total = coverage.column(CoverageSchema::TOTAL)?.u64()?;
+        let softclip = coverage.column(CoverageSchema::SOFTCLIP)?.u64()?;
         let positions = (region.start..=region.end)
             .map(|position| {
                 let row = if rows.peek().is_some_and(|(_, pos)| *pos == position) {
@@ -151,10 +155,10 @@ impl TrackSummary {
         region: &InspectInterval,
     ) -> Result<Self, TGVError> {
         let rows = variants.query(contig_index, region.start, region.end)?;
-        let starts = rows.column("start")?.u64()?;
-        let ends = rows.column("end")?.u64()?;
-        let reference = rows.column("reference")?.str()?;
-        let alternate = rows.column("alternate")?.list()?;
+        let starts = rows.column(VariantSchema::START)?.u64()?;
+        let ends = rows.column(VariantSchema::END)?.u64()?;
+        let reference = rows.column(VariantSchema::REFERENCE)?.str()?;
+        let alternate = rows.column(VariantSchema::ALTERNATE)?.list()?;
         let items = (0..rows.height().min(MAX_SUMMARY_ITEMS))
             .map(|row| {
                 let alleles = alternate.get_as_series(row);
@@ -194,10 +198,10 @@ impl TrackSummary {
     ) -> Result<Self, TGVError> {
         let rows = intervals.query(contig_index, region.start, region.end)?;
         let items = rows
-            .column("start")?
+            .column(BedSchema::START)?
             .u64()?
             .into_no_null_iter()
-            .zip(rows.column("end")?.u64()?.into_no_null_iter())
+            .zip(rows.column(BedSchema::END)?.u64()?.into_no_null_iter())
             .take(MAX_SUMMARY_ITEMS)
             .map(|(start, end)| BedRecord { start, end })
             .collect::<Vec<_>>();
@@ -247,15 +251,20 @@ impl GeneSummary {
             .query(contig_index, region.start, region.end)?
             .lazy()
             .sort(
-                ["start", "end", "id", "row_id"],
+                [
+                    GeneSchema::START,
+                    GeneSchema::END,
+                    GeneSchema::ID,
+                    GeneSchema::ROW_ID,
+                ],
                 SortMultipleOptions::default(),
             )
             .collect()?;
-        let ids = rows.column("id")?.str()?;
-        let names = rows.column("name")?.str()?;
-        let starts = rows.column("start")?.u64()?;
-        let ends = rows.column("end")?.u64()?;
-        let strands = rows.column("strand")?.str()?;
+        let ids = rows.column(GeneSchema::ID)?.str()?;
+        let names = rows.column(GeneSchema::NAME)?.str()?;
+        let starts = rows.column(GeneSchema::START)?.u64()?;
+        let ends = rows.column(GeneSchema::END)?.u64()?;
+        let strands = rows.column(GeneSchema::STRAND)?.str()?;
         let items = (0..rows.height().min(MAX_SUMMARY_ITEMS))
             .map(|row| GeneRecord {
                 id: ids.get(row).expect("gene IDs are non-null").to_owned(),

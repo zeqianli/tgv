@@ -1,6 +1,7 @@
 //! Batched viewport projections of CIGAR runs and sparse annotations.
 
 use super::AlignmentTables;
+use super::tables::{BaseModificationSchema, CigarRunSchema, ReadSchema, ReferenceMismatchSchema};
 use crate::error::TGVError;
 use noodles::sam::alignment::record::cigar::op::Kind;
 use polars::lazy::dsl::{max_horizontal, min_horizontal};
@@ -26,10 +27,10 @@ impl AlignmentTables {
         read_ids: &[usize],
     ) -> Result<AlignmentViewport, TGVError> {
         let selected = Series::new(
-            "selected".into(),
+            ReadSchema::READ_ID.into(),
             read_ids.iter().map(|id| *id as u64).collect::<Vec<_>>(),
         );
-        let membership = col("read_id").is_in(lit(selected).implode(true), false);
+        let membership = col(CigarRunSchema::READ_ID).is_in(lit(selected).implode(true), false);
         let reads = self
             .reads
             .clone()
@@ -51,12 +52,14 @@ impl AlignmentTables {
                     .clone()
                     .lazy()
                     .filter(membership.clone())
-                    .select([col("read_id"), col("op_index")])
+                    .select([col(CigarRunSchema::READ_ID), col(CigarRunSchema::OP_INDEX)])
             }),
             UnionArgs::default(),
         )?
-        .group_by([col("read_id")])
-        .agg([col("op_index").min().alias("first_op_index")]);
+        .group_by([col(CigarRunSchema::READ_ID)])
+        .agg([col(CigarRunSchema::OP_INDEX)
+            .min()
+            .alias(CigarRunSchema::FIRST_OP_INDEX)]);
         let mut runs = Vec::with_capacity(9);
         for (kind, table) in [
             (Kind::Match, &self.r#match),
@@ -70,11 +73,15 @@ impl AlignmentTables {
             (Kind::Pad, &self.padding),
         ] {
             let mut query = table.clone().lazy().filter(membership.clone());
-            let cursor = col("ref_start").cast(DataType::Int128);
-            let length = col("op_len").cast(DataType::Int128);
+            let cursor = col(CigarRunSchema::REF_START).cast(DataType::Int128);
+            let length = col(CigarRunSchema::OP_LEN).cast(DataType::Int128);
             let origin = if kind == Kind::SoftClip {
-                query = query.left_join(first_ops.clone(), col("read_id"), col("read_id"));
-                when(col("op_index").eq(col("first_op_index")))
+                query = query.left_join(
+                    first_ops.clone(),
+                    col(CigarRunSchema::READ_ID),
+                    col(CigarRunSchema::READ_ID),
+                );
+                when(col(CigarRunSchema::OP_INDEX).eq(col(CigarRunSchema::FIRST_OP_INDEX)))
                     .then(cursor.clone() - length.clone())
                     .otherwise(cursor.clone())
             } else {
@@ -85,9 +92,15 @@ impl AlignmentTables {
                     kind,
                     query
                         .with_columns([
-                            lit(NULL).cast(DataType::UInt64).alias("display_start"),
-                            lit(NULL).cast(DataType::UInt64).alias("display_end"),
-                            lit(NULL).cast(DataType::UInt32).alias("run_offset"),
+                            lit(NULL)
+                                .cast(DataType::UInt64)
+                                .alias(CigarRunSchema::DISPLAY_START),
+                            lit(NULL)
+                                .cast(DataType::UInt64)
+                                .alias(CigarRunSchema::DISPLAY_END),
+                            lit(NULL)
+                                .cast(DataType::UInt32)
+                                .alias(CigarRunSchema::RUN_OFFSET),
                         ])
                         .filter(lit(false))
                         .collect()?,
@@ -101,22 +114,31 @@ impl AlignmentTables {
             };
             let left = max_horizontal([origin.clone(), lit(start.max(1) as i128)])?;
             let right = min_horizontal([limit, lit(end as i128)])?;
-            let valid = col("ref_start")
+            let valid = col(CigarRunSchema::REF_START)
                 .is_not_null()
                 .and(left.clone().lt_eq(right.clone()));
             let valid = if kind == Kind::Insertion {
                 valid
             } else {
-                valid.and(col("op_len").gt(lit(0u32)))
+                valid.and(col(CigarRunSchema::OP_LEN).gt(lit(0u32)))
             };
             let frame = query
                 .filter(valid)
                 .with_columns([
-                    left.clone().cast(DataType::UInt64).alias("display_start"),
-                    right.cast(DataType::UInt64).alias("display_end"),
-                    (left - origin).cast(DataType::UInt32).alias("run_offset"),
+                    left.clone()
+                        .cast(DataType::UInt64)
+                        .alias(CigarRunSchema::DISPLAY_START),
+                    right
+                        .cast(DataType::UInt64)
+                        .alias(CigarRunSchema::DISPLAY_END),
+                    (left - origin)
+                        .cast(DataType::UInt32)
+                        .alias(CigarRunSchema::RUN_OFFSET),
                 ])
-                .sort(["read_id", "op_index"], SortMultipleOptions::default())
+                .sort(
+                    [CigarRunSchema::READ_ID, CigarRunSchema::OP_INDEX],
+                    SortMultipleOptions::default(),
+                )
                 .collect()?;
             runs.push((kind, frame));
         }
@@ -135,8 +157,14 @@ impl AlignmentTables {
         Ok(AlignmentViewport {
             reads,
             runs,
-            reference_mismatches: annotations(&self.reference_mismatches, "ref_pos")?,
-            base_modifications: annotations(&self.base_modifications, "display_pos")?,
+            reference_mismatches: annotations(
+                &self.reference_mismatches,
+                ReferenceMismatchSchema::REF_POS,
+            )?,
+            base_modifications: annotations(
+                &self.base_modifications,
+                BaseModificationSchema::DISPLAY_POS,
+            )?,
         })
     }
 }

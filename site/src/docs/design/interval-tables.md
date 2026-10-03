@@ -2,6 +2,14 @@
 
 Gene, BED, and variant data use Polars DataFrames as their persistent interval representation. `IntervalTable`, defined in `gv-core::intervals`, provides a single `query(contig_index, start, end)` operation that returns a DataFrame. It replaces `SortedIntervalCollection`; `GeneTable` also replaces the generic `Track<Gene>` and its boundary indexes.
 
+## Schema declarations
+
+`gv-core::table_schema::TableSchema` provides `schema() -> SchemaRef` and a default `empty() -> DataFrame`. Explicit, zero-sized declaration types implement the trait alongside their tables: `GeneSchema`, `GeneSegmentSchema`, `BedSchema`, `VariantSchema`, `ReadSchema`, `CigarRunSchema`, `SequenceCigarRunSchema`, `UnmappedReadSchema`, `ReferenceMismatchSchema`, `BaseModificationSchema`, `CoverageSchema`, and `PairSchema`.
+
+Declarations use handwritten Polars column names and data types, without schema macros or additional dependencies. Each column name is an associated constant on its schema, such as `GeneSchema::START` or `ReadSchema::READ_ID`. Schema construction, column builders, queries, rendering, and tests reference those constants. `IntervalSchema` defines the common interval column names, which gene, BED, and variant schemas reuse. Temporary projection and join columns also have named constants on their owning schema; `BaseEventSchema` describes the per-read base and sorting-priority query result. Table defaults use their declaration's `empty()` implementation so zero-row frames retain the intended types, including list element types. Sequence-bearing CIGAR runs extend the common CIGAR schema with SEQ and quality payload columns; paired singleton rows use `ReadSchema`.
+
+These declarations document stable table and query-result shapes. They do not validate frames, enforce nullability, or constrain the shapes of intermediate lazy expressions. Existing ingestion checks continue enforcing genomic rules, and optional values continue using Polars nulls.
+
 ## Coordinates, identity, and queries
 
 Each table exposes a public `data` field and has non-null `UInt64` columns `row_id`, `contig_index`, `start`, and `end`. Coordinates are one-based, with inclusive endpoints. Row IDs are zero-based and assigned before sorting. Stored rows use deterministic `(contig_index, start, end, row_id)` order, and overlap queries retain that order. Duplicate boundaries remain separate rows.

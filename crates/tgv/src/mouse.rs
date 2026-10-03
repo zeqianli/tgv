@@ -5,6 +5,7 @@ use crate::{
 };
 use crossterm::event::{MouseButton, MouseEvent, MouseEventKind};
 use gv_core::prelude::*;
+use gv_core::{alignment::CoverageSchema, bed::BedSchema, variant::VariantSchema};
 use itertools::Itertools;
 use polars::prelude::ChunkAgg;
 
@@ -198,12 +199,36 @@ impl MouseRegister {
                                 let coverage = alignment.coverage.query(left, right)?;
                                 let counts = format!(
                                     "A:{}, T:{}, C:{}, G:{}, N:{}, total:{}",
-                                    coverage.column("A")?.u64()?.sum().unwrap_or(0),
-                                    coverage.column("T")?.u64()?.sum().unwrap_or(0),
-                                    coverage.column("C")?.u64()?.sum().unwrap_or(0),
-                                    coverage.column("G")?.u64()?.sum().unwrap_or(0),
-                                    coverage.column("N")?.u64()?.sum().unwrap_or(0),
-                                    coverage.column("total")?.u64()?.sum().unwrap_or(0)
+                                    coverage
+                                        .column(CoverageSchema::A)?
+                                        .u64()?
+                                        .sum()
+                                        .unwrap_or(0),
+                                    coverage
+                                        .column(CoverageSchema::T)?
+                                        .u64()?
+                                        .sum()
+                                        .unwrap_or(0),
+                                    coverage
+                                        .column(CoverageSchema::C)?
+                                        .u64()?
+                                        .sum()
+                                        .unwrap_or(0),
+                                    coverage
+                                        .column(CoverageSchema::G)?
+                                        .u64()?
+                                        .sum()
+                                        .unwrap_or(0),
+                                    coverage
+                                        .column(CoverageSchema::N)?
+                                        .u64()?
+                                        .sum()
+                                        .unwrap_or(0),
+                                    coverage
+                                        .column(CoverageSchema::TOTAL)?
+                                        .u64()?
+                                        .sum()
+                                        .unwrap_or(0)
                                 );
                                 let description = if left == right {
                                     format!("{}: {}", left, counts)
@@ -224,11 +249,11 @@ impl MouseRegister {
                                     left,
                                     right,
                                 )?;
-                                let starts = rows.column("start")?.u64()?;
-                                let references = rows.column("reference")?.str()?;
-                                let alternates = rows.column("alternate")?.list()?;
-                                let qualities = rows.column("quality_score")?.f32()?;
-                                let ids = rows.column("row_id")?.u64()?;
+                                let starts = rows.column(VariantSchema::START)?.u64()?;
+                                let references = rows.column(VariantSchema::REFERENCE)?.str()?;
+                                let alternates = rows.column(VariantSchema::ALTERNATE)?.list()?;
+                                let qualities = rows.column(VariantSchema::QUALITY_SCORE)?.f32()?;
+                                let ids = rows.column(VariantSchema::ROW_ID)?.u64()?;
                                 for row in 0..rows.height() {
                                     let alleles = alternates.get_as_series(row);
                                     let alternate = match alleles {
@@ -269,9 +294,9 @@ impl MouseRegister {
                                     left,
                                     right,
                                 )?;
-                                let starts = rows.column("start")?.u64()?;
-                                let ends = rows.column("end")?.u64()?;
-                                let ids = rows.column("row_id")?.u64()?;
+                                let starts = rows.column(BedSchema::START)?.u64()?;
+                                let ends = rows.column(BedSchema::END)?.u64()?;
+                                let ids = rows.column(BedSchema::ROW_ID)?.u64()?;
                                 for row in 0..rows.height() {
                                     let record = &intervals.records
                                         [ids.get(row).expect("row IDs are non-null") as usize];

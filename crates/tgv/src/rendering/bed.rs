@@ -2,7 +2,10 @@ use crate::{
     layout::AlignmentView,
     rendering::{colors::Palette, intervals::render_simple_intervals},
 };
-use gv_core::{bed::BedTable, prelude::*};
+use gv_core::{
+    bed::{BedSchema, BedTable},
+    prelude::*,
+};
 use ratatui::{buffer::Buffer, layout::Rect};
 
 pub fn render_bed(
@@ -16,7 +19,7 @@ pub fn render_bed(
     let rows = bed.query(region.contig_index(), region.start(), region.end())?;
     if rows.height() > 0 {
         let first_color = rows
-            .column("row_id")?
+            .column(BedSchema::ROW_ID)?
             .u64()?
             .get(0)
             .expect("row IDs are non-null") as usize

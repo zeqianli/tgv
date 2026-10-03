@@ -7,7 +7,7 @@ use crate::{
     contig_header::ContigHeader,
     cytoband::Cytoband,
     error::TGVError,
-    gene::GeneTable,
+    gene::{GeneSchema, GeneTable},
     intervals::{Focus, GenomeInterval, Region},
     message::{AlignmentDisplayOption, AlignmentFilter, AlignmentSort, Movement},
     reference::Reference,
@@ -544,12 +544,12 @@ impl State {
 
         Ok(Focus {
             contig_index: gene
-                .column("contig_index")?
+                .column(GeneSchema::CONTIG_INDEX)?
                 .u64()?
                 .get(0)
                 .expect("selected contigs are non-null") as usize,
             position: gene
-                .column("start")?
+                .column(GeneSchema::START)?
                 .u64()?
                 .get(0)
                 .expect("selected starts are non-null"),
@@ -582,12 +582,12 @@ impl State {
 
         Ok(Focus {
             contig_index: gene
-                .column("contig_index")?
+                .column(GeneSchema::CONTIG_INDEX)?
                 .u64()?
                 .get(0)
                 .expect("selected contigs are non-null") as usize,
             position: gene
-                .column("end")?
+                .column(GeneSchema::END)?
                 .u64()?
                 .get(0)
                 .expect("selected ends are non-null")
@@ -621,12 +621,12 @@ impl State {
 
         Ok(Focus {
             contig_index: gene
-                .column("contig_index")?
+                .column(GeneSchema::CONTIG_INDEX)?
                 .u64()?
                 .get(0)
                 .expect("selected contigs are non-null") as usize,
             position: gene
-                .column("start")?
+                .column(GeneSchema::START)?
                 .u64()?
                 .get(0)
                 .expect("selected starts are non-null")
@@ -660,12 +660,12 @@ impl State {
 
         Ok(Focus {
             contig_index: gene
-                .column("contig_index")?
+                .column(GeneSchema::CONTIG_INDEX)?
                 .u64()?
                 .get(0)
                 .expect("selected contigs are non-null") as usize,
             position: gene
-                .column("end")?
+                .column(GeneSchema::END)?
                 .u64()?
                 .get(0)
                 .expect("selected ends are non-null")
@@ -699,12 +699,12 @@ impl State {
 
         Ok(Focus {
             contig_index: exon
-                .column("contig_index")?
+                .column(GeneSchema::CONTIG_INDEX)?
                 .u64()?
                 .get(0)
                 .expect("selected contigs are non-null") as usize,
             position: exon
-                .column("start")?
+                .column(GeneSchema::START)?
                 .u64()?
                 .get(0)
                 .expect("selected starts are non-null")
@@ -738,12 +738,12 @@ impl State {
 
         Ok(Focus {
             contig_index: exon
-                .column("contig_index")?
+                .column(GeneSchema::CONTIG_INDEX)?
                 .u64()?
                 .get(0)
                 .expect("selected contigs are non-null") as usize,
             position: exon
-                .column("end")?
+                .column(GeneSchema::END)?
                 .u64()?
                 .get(0)
                 .expect("selected ends are non-null")
@@ -777,12 +777,12 @@ impl State {
 
         Ok(Focus {
             contig_index: exon
-                .column("contig_index")?
+                .column(GeneSchema::CONTIG_INDEX)?
                 .u64()?
                 .get(0)
                 .expect("selected contigs are non-null") as usize,
             position: exon
-                .column("start")?
+                .column(GeneSchema::START)?
                 .u64()?
                 .get(0)
                 .expect("selected starts are non-null")
@@ -816,12 +816,12 @@ impl State {
 
         Ok(Focus {
             contig_index: exon
-                .column("contig_index")?
+                .column(GeneSchema::CONTIG_INDEX)?
                 .u64()?
                 .get(0)
                 .expect("selected contigs are non-null") as usize,
             position: exon
-                .column("end")?
+                .column(GeneSchema::END)?
                 .u64()?
                 .get(0)
                 .expect("selected ends are non-null")
@@ -841,13 +841,13 @@ impl State {
             .and_then(|gene| {
                 Ok(Focus {
                     contig_index: gene
-                        .column("contig_index")?
+                        .column(GeneSchema::CONTIG_INDEX)?
                         .u64()?
                         .get(0)
                         .expect("selected contigs are non-null")
                         as usize,
                     position: gene
-                        .column("start")?
+                        .column(GeneSchema::START)?
                         .u64()?
                         .get(0)
                         .expect("selected starts are non-null")
@@ -893,13 +893,13 @@ impl State {
                         // Found a gene, go to its start (using 1-based coordinates for Goto)
                         return Ok(Focus {
                             contig_index: gene
-                                .column("contig_index")?
+                                .column(GeneSchema::CONTIG_INDEX)?
                                 .u64()?
                                 .get(0)
                                 .expect("selected contigs are non-null")
                                 as usize,
                             position: gene
-                                .column("start")?
+                                .column(GeneSchema::START)?
                                 .u64()?
                                 .get(0)
                                 .expect("selected starts are non-null")
@@ -1025,7 +1025,7 @@ mod tests {
             state.alignments[0]
                 .tables
                 .reads
-                .column("y")
+                .column(tables::ReadSchema::Y)
                 .unwrap()
                 .u64()
                 .unwrap()
@@ -1047,7 +1047,7 @@ mod tests {
         let original_y = alignment
             .tables
             .reads
-            .column("y")
+            .column(tables::ReadSchema::Y)
             .unwrap()
             .u64()
             .unwrap()
@@ -1077,7 +1077,7 @@ mod tests {
             state.alignments[0]
                 .tables
                 .reads
-                .column("y")
+                .column(tables::ReadSchema::Y)
                 .unwrap()
                 .u64()
                 .unwrap()

@@ -1,6 +1,8 @@
+use crate::table_schema::TableSchema;
 use crate::{contig_header::ContigHeader, error::TGVError};
 use noodles;
-use polars::prelude::DataFrame;
+use polars::prelude::{DataFrame, DataType, Schema, SchemaRef};
+use std::sync::Arc;
 
 pub trait GenomeInterval {
     fn contig_index(&self) -> usize;
@@ -8,6 +10,27 @@ pub trait GenomeInterval {
     fn end(&self) -> u64;
     fn length(&self) -> u64 {
         self.end() - self.start() + 1
+    }
+}
+
+/// The common columns shared by genomic interval tables.
+pub struct IntervalSchema;
+
+impl IntervalSchema {
+    pub const ROW_ID: &'static str = "row_id";
+    pub const CONTIG_INDEX: &'static str = "contig_index";
+    pub const START: &'static str = "start";
+    pub const END: &'static str = "end";
+}
+
+impl TableSchema for IntervalSchema {
+    fn schema() -> SchemaRef {
+        let mut schema = Schema::with_capacity(4);
+        schema.insert(Self::ROW_ID.into(), DataType::UInt64);
+        schema.insert(Self::CONTIG_INDEX.into(), DataType::UInt64);
+        schema.insert(Self::START.into(), DataType::UInt64);
+        schema.insert(Self::END.into(), DataType::UInt64);
+        Arc::new(schema)
     }
 }
 

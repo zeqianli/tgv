@@ -2,7 +2,11 @@ use crate::{
     layout::{AlignmentView, OnScreenCoordinate},
     rendering::colors::Palette,
 };
-use gv_core::{gene::query_segments, prelude::*, strand::Strand};
+use gv_core::{
+    gene::{GeneSchema, GeneSegmentSchema, query_segments},
+    prelude::*,
+    strand::Strand,
+};
 use polars::prelude::DataFrame;
 use ratatui::{buffer::Buffer, layout::Rect, style::Style};
 use std::{collections::HashMap, ops::Range};
@@ -43,7 +47,7 @@ pub fn render_track(
         .track
         .query(region.contig_index(), region.start(), region.end())?;
     let segments = query_segments(rows.clone(), region.start(), region.end())?;
-    let segment_gene_ids = segments.column("gene_row_id")?.u64()?;
+    let segment_gene_ids = segments.column(GeneSegmentSchema::GENE_ROW_ID)?.u64()?;
     let mut segment_ranges: HashMap<u64, Range<usize>> = HashMap::new();
     for (row, id) in segment_gene_ids.into_no_null_iter().enumerate() {
         segment_ranges
@@ -51,7 +55,7 @@ pub fn render_track(
             .and_modify(|range| range.end = row + 1)
             .or_insert(row..row + 1);
     }
-    let gene_ids = rows.column("row_id")?.u64()?;
+    let gene_ids = rows.column(GeneSchema::ROW_ID)?.u64()?;
     for (row, id) in gene_ids.into_no_null_iter().enumerate() {
         let segment_rows = segment_ranges.get(&id).cloned().unwrap_or(0..0);
         for context in get_rendering_info(
@@ -101,30 +105,30 @@ fn get_rendering_info(
     pallete: &Palette,
 ) -> Result<Vec<TrackRenderContext>, TGVError> {
     let start = genes
-        .column("start")?
+        .column(GeneSchema::START)?
         .u64()?
         .get(row)
         .expect("gene starts are non-null");
     let end = genes
-        .column("end")?
+        .column(GeneSchema::END)?
         .u64()?
         .get(row)
         .expect("gene ends are non-null");
     let name = genes
-        .column("name")?
+        .column(GeneSchema::NAME)?
         .str()?
         .get(row)
         .expect("gene names are non-null");
     let strand = Strand::from_str(
         genes
-            .column("strand")?
+            .column(GeneSchema::STRAND)?
             .str()?
             .get(row)
             .expect("gene strands are non-null")
             .to_owned(),
     )?;
     let has_exons = genes
-        .column("has_exons")?
+        .column(GeneSchema::HAS_EXONS)?
         .bool()?
         .get(row)
         .expect("exon availability is non-null");
@@ -160,10 +164,10 @@ fn get_rendering_info(
         let mut non_cds_exons_info: Vec<TrackRenderContext> = Vec::new();
         let mut introns_info: Vec<TrackRenderContext> = Vec::new();
         let mut right_most_label_onscreen_x = 0;
-        let starts = segments.column("start")?.u64()?;
-        let ends = segments.column("end")?.u64()?;
-        let kinds = segments.column("kind")?.str()?;
-        let indexes = segments.column("feature_index")?.u64()?;
+        let starts = segments.column(GeneSegmentSchema::START)?.u64()?;
+        let ends = segments.column(GeneSegmentSchema::END)?.u64()?;
+        let kinds = segments.column(GeneSegmentSchema::KIND)?.str()?;
+        let indexes = segments.column(GeneSegmentSchema::FEATURE_INDEX)?.u64()?;
         for row in segment_rows {
             let feature_start = starts.get(row).expect("segment starts are non-null");
             let feature_end = ends.get(row).expect("segment ends are non-null");

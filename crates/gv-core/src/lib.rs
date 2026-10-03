@@ -18,6 +18,7 @@ pub mod prelude {
         repository::{Repository, RepositoryFileIndex},
         settings::FilePath,
         state::State,
+        table_schema::TableSchema,
     };
 }
 pub mod gene;
@@ -27,5 +28,6 @@ pub mod sequence;
 pub mod settings;
 pub mod state;
 pub mod strand;
+pub mod table_schema;
 pub mod tracks;
 pub mod variant;

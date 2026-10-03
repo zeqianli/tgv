@@ -1,6 +1,9 @@
 //! Independent columnar coverage storage, construction, and queries.
 
-use crate::{alignment::AlignmentViewport, error::TGVError, sequence::Sequence};
+use super::tables::{CigarRunSchema, SequenceCigarRunSchema};
+use crate::{
+    alignment::AlignmentViewport, error::TGVError, sequence::Sequence, table_schema::TableSchema,
+};
 use noodles::sam::alignment::record::cigar::op::Kind;
 use polars::prelude::*;
 use std::{collections::BTreeMap, sync::Arc};
@@ -15,7 +18,7 @@ pub struct CoverageTable {
 impl Default for CoverageTable {
     fn default() -> Self {
         Self {
-            data: DataFrame::full_null(&Self::schema(), 0),
+            data: CoverageSchema::empty(),
         }
     }
 }
@@ -35,10 +38,10 @@ impl CoverageTable {
             ) {
                 continue;
             }
-            let starts = runs.column("display_start")?.u64()?;
-            let ends = runs.column("display_end")?.u64()?;
-            let offsets = runs.column("run_offset")?.u32()?;
-            let sequences = runs.column("seq")?.str()?;
+            let starts = runs.column(CigarRunSchema::DISPLAY_START)?.u64()?;
+            let ends = runs.column(CigarRunSchema::DISPLAY_END)?.u64()?;
+            let offsets = runs.column(CigarRunSchema::RUN_OFFSET)?.u32()?;
+            let sequences = runs.column(SequenceCigarRunSchema::SEQ)?.str()?;
             for row in 0..runs.height() {
                 let start = starts.get(row).expect("queried runs have display bounds");
                 let end = ends.get(row).expect("queried runs have display bounds");
@@ -93,15 +96,15 @@ impl CoverageTable {
         let data = DataFrame::new(
             positions.len(),
             vec![
-                Column::new("pos".into(), positions),
-                Column::new("A".into(), a),
-                Column::new("T".into(), t),
-                Column::new("C".into(), c),
-                Column::new("G".into(), g),
-                Column::new("N".into(), n),
-                Column::new("total".into(), total),
-                Column::new("softclip".into(), softclip),
-                Column::new("reference_base".into(), reference_base),
+                Column::new(CoverageSchema::POS.into(), positions),
+                Column::new(CoverageSchema::A.into(), a),
+                Column::new(CoverageSchema::T.into(), t),
+                Column::new(CoverageSchema::C.into(), c),
+                Column::new(CoverageSchema::G.into(), g),
+                Column::new(CoverageSchema::N.into(), n),
+                Column::new(CoverageSchema::TOTAL.into(), total),
+                Column::new(CoverageSchema::SOFTCLIP.into(), softclip),
+                Column::new(CoverageSchema::REFERENCE_BASE.into(), reference_base),
             ],
         )?;
 
@@ -114,25 +117,45 @@ impl CoverageTable {
             .data
             .clone()
             .lazy()
-            .filter(col("pos").gt_eq(lit(start)).and(col("pos").lt_eq(lit(end))))
+            .filter(
+                col(CoverageSchema::POS)
+                    .gt_eq(lit(start))
+                    .and(col(CoverageSchema::POS).lt_eq(lit(end))),
+            )
             .collect()?)
     }
+}
 
-    /// Sparse per-position counts, positions, and reference bases.
-    ///
-    /// `pos` is one-based. Rows are sorted by position and contain no null values.
-    /// Positions without read or soft-clip coverage have no row.
-    pub fn schema() -> SchemaRef {
+/// Sparse per-position counts, positions, and reference bases.
+///
+/// `pos` is one-based. Rows are sorted by position and contain no null values.
+/// Positions without read or soft-clip coverage have no row.
+pub struct CoverageSchema;
+
+impl CoverageSchema {
+    pub const POS: &'static str = "pos";
+    pub const A: &'static str = "A";
+    pub const T: &'static str = "T";
+    pub const C: &'static str = "C";
+    pub const G: &'static str = "G";
+    pub const N: &'static str = "N";
+    pub const TOTAL: &'static str = "total";
+    pub const SOFTCLIP: &'static str = "softclip";
+    pub const REFERENCE_BASE: &'static str = "reference_base";
+}
+
+impl TableSchema for CoverageSchema {
+    fn schema() -> SchemaRef {
         let mut schema = Schema::with_capacity(9);
-        schema.insert("pos".into(), DataType::UInt64);
-        schema.insert("A".into(), DataType::UInt64);
-        schema.insert("T".into(), DataType::UInt64);
-        schema.insert("C".into(), DataType::UInt64);
-        schema.insert("G".into(), DataType::UInt64);
-        schema.insert("N".into(), DataType::UInt64);
-        schema.insert("total".into(), DataType::UInt64);
-        schema.insert("softclip".into(), DataType::UInt64);
-        schema.insert("reference_base".into(), DataType::UInt8);
+        schema.insert(Self::POS.into(), DataType::UInt64);
+        schema.insert(Self::A.into(), DataType::UInt64);
+        schema.insert(Self::T.into(), DataType::UInt64);
+        schema.insert(Self::C.into(), DataType::UInt64);
+        schema.insert(Self::G.into(), DataType::UInt64);
+        schema.insert(Self::N.into(), DataType::UInt64);
+        schema.insert(Self::TOTAL.into(), DataType::UInt64);
+        schema.insert(Self::SOFTCLIP.into(), DataType::UInt64);
+        schema.insert(Self::REFERENCE_BASE.into(), DataType::UInt8);
         Arc::new(schema)
     }
 }

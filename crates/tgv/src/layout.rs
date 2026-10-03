@@ -919,17 +919,18 @@ mod tests {
 
     fn alignment_with_depth(depth: usize) -> Alignment {
         let mut alignment = Alignment::default();
+        use gv_core::alignment::tables::ReadSchema;
         use polars::prelude::*;
         alignment.tables.reads =
-            DataFrame::full_null(&gv_core::alignment::tables::reads_schema(), depth)
+            DataFrame::full_null(&gv_core::alignment::tables::ReadSchema::schema(), depth)
                 .lazy()
                 .with_columns([
                     lit(Series::new(
-                        "y".into(),
+                        ReadSchema::Y.into(),
                         (0..depth as u64).collect::<Vec<_>>(),
                     ))
-                    .alias("y"),
-                    lit(true).alias("show"),
+                    .alias(ReadSchema::Y),
+                    lit(true).alias(ReadSchema::SHOW),
                 ])
                 .collect()
                 .unwrap();
