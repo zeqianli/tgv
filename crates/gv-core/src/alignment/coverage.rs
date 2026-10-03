@@ -1,6 +1,6 @@
 //! Independent columnar coverage storage, construction, and queries.
 
-use super::tables::{CigarRunSchema, SequenceCigarRunSchema};
+use super::tables::CigarRunSchema;
 use crate::{
     alignment::AlignmentViewport, error::TGVError, sequence::Sequence, table_schema::TableSchema,
 };
@@ -31,41 +31,48 @@ impl CoverageTable {
         reference_sequence: &Sequence,
     ) -> Result<Self, TGVError> {
         let mut coverage: BTreeMap<u64, [u64; 7]> = BTreeMap::new();
-        for (kind, runs) in &viewport.runs {
-            if !matches!(
-                kind,
-                Kind::Match | Kind::SequenceMatch | Kind::SequenceMismatch | Kind::SoftClip
-            ) {
+        let kind = col(CigarRunSchema::KIND);
+        let runs = viewport
+            .runs
+            .clone()
+            .lazy()
+            .filter(
+                kind.clone()
+                    .eq(lit(Kind::Match as u8))
+                    .or(kind.clone().eq(lit(Kind::SequenceMatch as u8)))
+                    .or(kind.clone().eq(lit(Kind::SequenceMismatch as u8)))
+                    .or(kind.eq(lit(Kind::SoftClip as u8))),
+            )
+            .collect()?;
+        let kinds = runs.column(CigarRunSchema::KIND)?.u8()?;
+        let starts = runs.column(CigarRunSchema::DISPLAY_START)?.u64()?;
+        let ends = runs.column(CigarRunSchema::DISPLAY_END)?.u64()?;
+        let offsets = runs.column(CigarRunSchema::RUN_OFFSET)?.u32()?;
+        let sequences = runs.column(CigarRunSchema::SEQ)?.str()?;
+        for row in 0..runs.height() {
+            let kind = kinds.get(row).expect("CIGAR kinds are non-null");
+            let start = starts.get(row).expect("queried runs have display bounds");
+            let end = ends.get(row).expect("queried runs have display bounds");
+            let offset = offsets.get(row).expect("queried runs have offsets") as usize;
+            let Some(sequence) = sequences.get(row) else {
                 continue;
-            }
-            let starts = runs.column(CigarRunSchema::DISPLAY_START)?.u64()?;
-            let ends = runs.column(CigarRunSchema::DISPLAY_END)?.u64()?;
-            let offsets = runs.column(CigarRunSchema::RUN_OFFSET)?.u32()?;
-            let sequences = runs.column(SequenceCigarRunSchema::SEQ)?.str()?;
-            for row in 0..runs.height() {
-                let start = starts.get(row).expect("queried runs have display bounds");
-                let end = ends.get(row).expect("queried runs have display bounds");
-                let offset = offsets.get(row).expect("queried runs have offsets") as usize;
-                let Some(sequence) = sequences.get(row) else {
-                    continue;
-                };
-                let sequence = sequence.as_bytes();
-                for position in start..=end {
-                    let base = sequence[offset + (position - start) as usize];
-                    let counts = coverage.entry(position).or_default();
-                    if *kind == Kind::SoftClip {
-                        counts[6] += 1;
-                    } else {
-                        let index = match base {
-                            b'A' | b'a' => 0,
-                            b'T' | b't' => 1,
-                            b'C' | b'c' => 2,
-                            b'G' | b'g' => 3,
-                            _ => 4,
-                        };
-                        counts[index] += 1;
-                        counts[5] += 1;
-                    }
+            };
+            let sequence = sequence.as_bytes();
+            for position in start..=end {
+                let base = sequence[offset + (position - start) as usize];
+                let counts = coverage.entry(position).or_default();
+                if kind == Kind::SoftClip as u8 {
+                    counts[6] += 1;
+                } else {
+                    let index = match base {
+                        b'A' | b'a' => 0,
+                        b'T' | b't' => 1,
+                        b'C' | b'c' => 2,
+                        b'G' | b'g' => 3,
+                        _ => 4,
+                    };
+                    counts[index] += 1;
+                    counts[5] += 1;
                 }
             }
         }

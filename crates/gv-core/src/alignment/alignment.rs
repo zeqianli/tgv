@@ -1,6 +1,6 @@
 use crate::alignment::{
     coverage::CoverageTable,
-    tables::{AlignmentTables, CigarRunSchema, ReadSchema, SequenceCigarRunSchema},
+    tables::{AlignmentTables, CigarRunSchema, ReadSchema},
     viewport::AlignmentViewport,
 };
 use crate::error::TGVError;
@@ -239,13 +239,14 @@ impl Alignment {
             AlignmentFilter::BaseSoftclip(position) => {
                 let ids = (0..self.records.len()).collect::<Vec<_>>();
                 let viewport = self.tables.viewport(position, position, &ids)?;
-                let (_, clips) = viewport
+                let clips = viewport
                     .runs
-                    .iter()
-                    .find(|(kind, _)| {
-                        *kind == noodles::sam::alignment::record::cigar::op::Kind::SoftClip
-                    })
-                    .expect("viewport includes the soft-clip table");
+                    .lazy()
+                    .filter(col(CigarRunSchema::KIND).eq(lit(
+                        noodles::sam::alignment::record::cigar::op::Kind::SoftClip as u8,
+                    )))
+                    .select([col(CigarRunSchema::READ_ID)])
+                    .collect()?;
                 clips
                     .column(CigarRunSchema::READ_ID)?
                     .u64()?
@@ -320,68 +321,62 @@ impl Alignment {
     /// Query aligned bases and event priorities at a one-based position.
     pub(super) fn base_events(&self, position: u64) -> Result<DataFrame, TGVError> {
         use noodles::sam::alignment::record::cigar::op::Kind;
-        let mut queries = Vec::new();
-        for kind in [
-            Kind::Insertion,
-            Kind::Deletion,
-            Kind::Skip,
-            Kind::Match,
-            Kind::SequenceMatch,
-            Kind::SequenceMismatch,
-        ] {
-            let query = self.tables.run(kind).clone().lazy();
-            let hit = if kind == Kind::Insertion {
-                col(CigarRunSchema::REF_START).eq(lit(position))
-            } else {
+        let kind = col(CigarRunSchema::KIND);
+        let aligned = kind
+            .clone()
+            .eq(lit(Kind::Match as u8))
+            .or(kind.clone().eq(lit(Kind::SequenceMatch as u8)))
+            .or(kind.clone().eq(lit(Kind::SequenceMismatch as u8)));
+        let insertion = kind.clone().eq(lit(Kind::Insertion as u8));
+        let deletion = kind
+            .clone()
+            .eq(lit(Kind::Deletion as u8))
+            .or(kind.eq(lit(Kind::Skip as u8)));
+        let hit = when(insertion.clone())
+            .then(col(CigarRunSchema::REF_START).eq(lit(position)))
+            .otherwise(
                 col(CigarRunSchema::REF_START).lt_eq(lit(position)).and(
                     (col(CigarRunSchema::REF_START)
                         + col(CigarRunSchema::OP_LEN).cast(DataType::UInt64))
                     .gt(lit(position)),
-                )
-            };
-            let base = if matches!(
-                kind,
-                Kind::Match | Kind::SequenceMatch | Kind::SequenceMismatch
-            ) {
-                col(SequenceCigarRunSchema::SEQ).str().slice(
-                    (lit(position) - col(CigarRunSchema::REF_START)).cast(DataType::Int64),
-                    lit(1u64),
-                )
-            } else {
-                lit(NULL).cast(DataType::String)
-            };
-            let rank = match kind {
-                Kind::Insertion => lit(7u8),
-                Kind::Deletion | Kind::Skip => lit(6u8),
-                _ => {
-                    let upper = col(BaseEventSchema::BASE).str().to_uppercase();
-                    when(col(BaseEventSchema::BASE).is_null())
-                        .then(lit(NULL).cast(DataType::UInt8))
-                        .when(upper.clone().eq(lit("A")))
-                        .then(lit(0u8))
-                        .when(upper.clone().eq(lit("T")))
-                        .then(lit(1u8))
-                        .when(upper.clone().eq(lit("C")))
-                        .then(lit(2u8))
-                        .when(upper.clone().eq(lit("G")))
-                        .then(lit(3u8))
-                        .when(upper.eq(lit("N")))
-                        .then(lit(4u8))
-                        .otherwise(lit(5u8))
-                }
-            };
-            queries.push(
-                query
-                    .filter(hit)
-                    .with_columns([base.alias(BaseEventSchema::BASE)])
-                    .select([
-                        col(BaseEventSchema::READ_ID),
-                        col(BaseEventSchema::BASE),
-                        rank.cast(DataType::UInt8).alias(BaseEventSchema::SORT_KEY),
-                    ]),
+                ),
             );
-        }
-        let events = concat(queries, UnionArgs::default())?
+        let base = when(aligned.clone())
+            .then(col(CigarRunSchema::SEQ).str().slice(
+                (lit(position) - col(CigarRunSchema::REF_START)).cast(DataType::Int64),
+                lit(1u64),
+            ))
+            .otherwise(lit(NULL).cast(DataType::String));
+        let upper = col(BaseEventSchema::BASE).str().to_uppercase();
+        let rank = when(insertion.clone())
+            .then(lit(7u8))
+            .when(deletion.clone())
+            .then(lit(6u8))
+            .when(col(BaseEventSchema::BASE).is_null())
+            .then(lit(NULL).cast(DataType::UInt8))
+            .when(upper.clone().eq(lit("A")))
+            .then(lit(0u8))
+            .when(upper.clone().eq(lit("T")))
+            .then(lit(1u8))
+            .when(upper.clone().eq(lit("C")))
+            .then(lit(2u8))
+            .when(upper.clone().eq(lit("G")))
+            .then(lit(3u8))
+            .when(upper.eq(lit("N")))
+            .then(lit(4u8))
+            .otherwise(lit(5u8));
+        let events = self
+            .tables
+            .cigar_runs
+            .clone()
+            .lazy()
+            .filter(aligned.or(insertion).or(deletion).and(hit))
+            .with_columns([base.alias(BaseEventSchema::BASE)])
+            .select([
+                col(BaseEventSchema::READ_ID),
+                col(BaseEventSchema::BASE),
+                rank.cast(DataType::UInt8).alias(BaseEventSchema::SORT_KEY),
+            ])
             .group_by([col(BaseEventSchema::READ_ID)])
             .agg([
                 col(BaseEventSchema::BASE).drop_nulls().first(),

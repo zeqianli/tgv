@@ -271,7 +271,7 @@ impl State {
             .iter()
             .map(|alignment| {
                 tables::reference_mismatches(
-                    &alignment.tables.r#match,
+                    &alignment.tables.cigar_runs,
                     &sequence,
                     alignment.contig_index,
                 )

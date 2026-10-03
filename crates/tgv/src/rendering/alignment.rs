@@ -9,7 +9,7 @@ use gv_core::{
         Alignment, AlignmentViewport, PairSchema, PairedAlignment,
         tables::{
             BaseModificationSchema, CigarRunSchema, ReadSchema, ReferenceMismatchSchema,
-            SequenceCigarRunSchema,
+            decode_cigar_kind,
         },
     },
     prelude::*,
@@ -277,46 +277,27 @@ fn paint_runs(
         .into_no_null_iter()
         .map(|id| (id as usize, vec![None; usize::from(area.width)]))
         .collect::<HashMap<_, _>>();
-    let columns = viewport
-        .runs
-        .iter()
-        .filter(|(kind, _)| !matches!(kind, Kind::Insertion | Kind::HardClip | Kind::Pad))
-        .map(|(kind, frame)| {
-            Ok((
-                *kind,
-                frame.column(CigarRunSchema::READ_ID)?.u64()?,
-                frame.column(CigarRunSchema::OP_INDEX)?.u32()?,
-                frame.column(CigarRunSchema::DISPLAY_START)?.u64()?,
-                frame.column(CigarRunSchema::DISPLAY_END)?.u64()?,
-                frame.column(CigarRunSchema::RUN_OFFSET)?.u32()?,
-                if kind.consumes_read() {
-                    Some(frame.column(SequenceCigarRunSchema::SEQ)?.str()?)
-                } else {
-                    None
-                },
-            ))
-        })
-        .collect::<PolarsResult<Vec<_>>>()?;
-    let mut order = Vec::new();
-    for (table, (_, ids, indexes, _, _, _, _)) in columns.iter().enumerate() {
-        order.extend((0..ids.len()).map(|row| {
-            (
-                ids.get(row).expect("run IDs are non-null") as usize,
-                indexes.get(row).expect("run indexes are non-null"),
-                table,
-                row,
-            )
-        }));
-    }
-    // CIGAR order determines which operation wins when zoom projects several runs onto one cell.
-    order.sort_unstable_by_key(|(id, index, _, _)| (*id, *index));
-    for (id, index, table, row) in order {
-        let (kind, _, _, starts, ends, offsets, sequences) = columns[table];
+    let runs = &viewport.runs;
+    let kinds = runs.column(CigarRunSchema::KIND)?.u8()?;
+    let ids = runs.column(CigarRunSchema::READ_ID)?.u64()?;
+    let indexes = runs.column(CigarRunSchema::OP_INDEX)?.u32()?;
+    let starts = runs.column(CigarRunSchema::DISPLAY_START)?.u64()?;
+    let ends = runs.column(CigarRunSchema::DISPLAY_END)?.u64()?;
+    let offsets = runs.column(CigarRunSchema::RUN_OFFSET)?.u32()?;
+    let sequences = runs.column(CigarRunSchema::SEQ)?.str()?;
+    // Viewport rows retain CIGAR order, which decides overlapping terminal cells.
+    for row in 0..runs.height() {
+        let kind = decode_cigar_kind(kinds.get(row).expect("CIGAR kinds are non-null"))?;
+        if matches!(kind, Kind::Insertion | Kind::HardClip | Kind::Pad) {
+            continue;
+        }
+        let id = ids.get(row).expect("run IDs are non-null") as usize;
+        let index = indexes.get(row).expect("run indexes are non-null");
         let start = starts.get(row).expect("queried runs have display bounds");
         let end = ends.get(row).expect("queried runs have display bounds");
         let offset = offsets.get(row).expect("queried runs have offsets") as usize;
-        let sequence = sequences.and_then(|sequences| sequences.get(row).map(str::as_bytes));
-        if sequences.is_some() && sequence.is_none() {
+        let sequence = sequences.get(row).map(str::as_bytes);
+        if kind.consumes_read() && sequence.is_none() {
             continue;
         }
         let target = cells
@@ -352,19 +333,19 @@ fn paint_runs(
         }
     }
     let reads = &viewport.reads;
-    let ids = reads.column(ReadSchema::READ_ID)?.u64()?;
-    let starts = reads.column(ReadSchema::STACKING_START)?.u64()?;
-    let ends = reads.column(ReadSchema::STACKING_END)?.u64()?;
+    let read_ids = reads.column(ReadSchema::READ_ID)?.u64()?;
+    let read_starts = reads.column(ReadSchema::STACKING_START)?.u64()?;
+    let read_ends = reads.column(ReadSchema::STACKING_END)?.u64()?;
     let reverse = reads.column(ReadSchema::REVERSE)?.bool()?;
     for row in 0..reads.height() {
         let is_reverse = reverse.get(row).expect("read flags are non-null");
         let position = if is_reverse {
-            starts.get(row)
+            read_starts.get(row)
         } else {
-            ends.get(row)
+            read_ends.get(row)
         };
         if let Some(x) = position.and_then(|position| pixel(position, view, area)) {
-            let id = ids.get(row).expect("read IDs are non-null") as usize;
+            let id = read_ids.get(row).expect("read IDs are non-null") as usize;
             if let Some(paint) = &mut cells
                 .get_mut(&id)
                 .expect("selected reads have scratch cells")[x]
@@ -373,40 +354,35 @@ fn paint_runs(
             }
         }
     }
-    for (kind, frame) in &viewport.runs {
-        if *kind != Kind::Insertion {
+    let lengths = runs.column(CigarRunSchema::OP_LEN)?.u32()?;
+    for row in 0..runs.height() {
+        if kinds.get(row) != Some(Kind::Insertion as u8) {
             continue;
         }
-        let ids = frame.column(CigarRunSchema::READ_ID)?.u64()?;
-        let indexes = frame.column(CigarRunSchema::OP_INDEX)?.u32()?;
-        let starts = frame.column(CigarRunSchema::DISPLAY_START)?.u64()?;
-        let lengths = frame.column(CigarRunSchema::OP_LEN)?.u32()?;
-        for row in 0..frame.height() {
-            let Some(x) = pixel(
-                starts.get(row).expect("insertions have anchors"),
-                view,
-                area,
-            ) else {
-                continue;
-            };
-            let id = ids.get(row).expect("run IDs are non-null") as usize;
-            let target = &mut cells
-                .get_mut(&id)
-                .expect("queried runs belong to selected reads")[x];
-            target
-                .get_or_insert_with(|| {
-                    Paint::new(
-                        Kind::Insertion,
-                        indexes.get(row).expect("run indexes are non-null"),
-                        starts.get(row).expect("insertions have anchors"),
-                        starts.get(row).expect("insertions have anchors"),
-                    )
-                })
-                .insertion = Some((
-                starts.get(row).expect("insertions have anchors"),
-                lengths.get(row).expect("run lengths are non-null"),
-            ));
-        }
+        let Some(x) = pixel(
+            starts.get(row).expect("insertions have anchors"),
+            view,
+            area,
+        ) else {
+            continue;
+        };
+        let id = ids.get(row).expect("run IDs are non-null") as usize;
+        let target = &mut cells
+            .get_mut(&id)
+            .expect("queried runs belong to selected reads")[x];
+        target
+            .get_or_insert_with(|| {
+                Paint::new(
+                    Kind::Insertion,
+                    indexes.get(row).expect("run indexes are non-null"),
+                    starts.get(row).expect("insertions have anchors"),
+                    starts.get(row).expect("insertions have anchors"),
+                )
+            })
+            .insertion = Some((
+            starts.get(row).expect("insertions have anchors"),
+            lengths.get(row).expect("run lengths are non-null"),
+        ));
     }
     let frame = &viewport.reference_mismatches;
     let ids = frame.column(ReferenceMismatchSchema::READ_ID)?.u64()?;

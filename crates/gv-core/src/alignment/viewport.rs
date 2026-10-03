@@ -3,18 +3,17 @@
 use super::AlignmentTables;
 use super::tables::{BaseModificationSchema, CigarRunSchema, ReadSchema, ReferenceMismatchSchema};
 use crate::error::TGVError;
-use noodles::sam::alignment::record::cigar::op::Kind;
 use polars::lazy::dsl::{max_horizontal, min_horizontal};
 use polars::prelude::*;
 
-/// Query results retain run payloads and add clipped, one-based, inclusive display bounds.
+/// Query results contain selected reads, clipped CIGAR runs, and sparse annotations.
 ///
-/// `run_offset` is the offset into the original run SEQ string at
-/// `display_start`. Insertions have equal display bounds at their reference cursor.
+/// Run rows include read display state (`y` and `reverse`). `run_offset` indexes
+/// the original run SEQ string at the clipped, one-based `display_start`.
 #[derive(Debug)]
 pub struct AlignmentViewport {
     pub reads: DataFrame,
-    pub runs: Vec<(Kind, DataFrame)>,
+    pub runs: DataFrame,
     pub reference_mismatches: DataFrame,
     pub base_modifications: DataFrame,
 }
@@ -30,118 +29,42 @@ impl AlignmentTables {
             ReadSchema::READ_ID.into(),
             read_ids.iter().map(|id| *id as u64).collect::<Vec<_>>(),
         );
-        let membership = col(CigarRunSchema::READ_ID).is_in(lit(selected).implode(true), false);
-        let reads = self
-            .reads
+        let membership = col(ReadSchema::READ_ID).is_in(lit(selected).implode(true), false);
+        let reads = self.reads.clone().lazy().filter(membership.clone());
+        let left = max_horizontal([col(CigarRunSchema::DISPLAY_START), lit(start.max(1))])?;
+        let right = min_horizontal([col(CigarRunSchema::DISPLAY_END), lit(end)])?;
+        let runs = self
+            .cigar_runs
             .clone()
             .lazy()
-            .filter(membership.clone())
+            .filter(
+                col(CigarRunSchema::DISPLAY_START)
+                    .lt_eq(lit(end))
+                    .and(col(CigarRunSchema::DISPLAY_END).gt_eq(lit(start.max(1))))
+                    .and(lit(start.max(1) <= end)),
+            )
+            .inner_join(
+                reads.clone().select([
+                    col(ReadSchema::READ_ID),
+                    col(ReadSchema::Y),
+                    col(ReadSchema::REVERSE),
+                ]),
+                col(CigarRunSchema::READ_ID),
+                col(ReadSchema::READ_ID),
+            )
+            .with_columns([
+                (left.clone() - col(CigarRunSchema::DISPLAY_START)
+                    + col(CigarRunSchema::RUN_OFFSET).cast(DataType::UInt64))
+                .cast(DataType::UInt32)
+                .alias(CigarRunSchema::RUN_OFFSET),
+                left.alias(CigarRunSchema::DISPLAY_START),
+                right.alias(CigarRunSchema::DISPLAY_END),
+            ])
+            .sort(
+                [CigarRunSchema::READ_ID, CigarRunSchema::OP_INDEX],
+                SortMultipleOptions::default(),
+            )
             .collect()?;
-        let first_ops = concat(
-            [
-                &self.r#match,
-                &self.sequence_match,
-                &self.mismatch,
-                &self.insertion,
-                &self.deletion,
-                &self.reference_skip,
-                &self.soft_clip,
-            ]
-            .map(|table| {
-                table
-                    .clone()
-                    .lazy()
-                    .filter(membership.clone())
-                    .select([col(CigarRunSchema::READ_ID), col(CigarRunSchema::OP_INDEX)])
-            }),
-            UnionArgs::default(),
-        )?
-        .group_by([col(CigarRunSchema::READ_ID)])
-        .agg([col(CigarRunSchema::OP_INDEX)
-            .min()
-            .alias(CigarRunSchema::FIRST_OP_INDEX)]);
-        let mut runs = Vec::with_capacity(9);
-        for (kind, table) in [
-            (Kind::Match, &self.r#match),
-            (Kind::SequenceMatch, &self.sequence_match),
-            (Kind::SequenceMismatch, &self.mismatch),
-            (Kind::Insertion, &self.insertion),
-            (Kind::Deletion, &self.deletion),
-            (Kind::Skip, &self.reference_skip),
-            (Kind::SoftClip, &self.soft_clip),
-            (Kind::HardClip, &self.hard_clip),
-            (Kind::Pad, &self.padding),
-        ] {
-            let mut query = table.clone().lazy().filter(membership.clone());
-            let cursor = col(CigarRunSchema::REF_START).cast(DataType::Int128);
-            let length = col(CigarRunSchema::OP_LEN).cast(DataType::Int128);
-            let origin = if kind == Kind::SoftClip {
-                query = query.left_join(
-                    first_ops.clone(),
-                    col(CigarRunSchema::READ_ID),
-                    col(CigarRunSchema::READ_ID),
-                );
-                when(col(CigarRunSchema::OP_INDEX).eq(col(CigarRunSchema::FIRST_OP_INDEX)))
-                    .then(cursor.clone() - length.clone())
-                    .otherwise(cursor.clone())
-            } else {
-                cursor.clone()
-            };
-            if matches!(kind, Kind::HardClip | Kind::Pad) {
-                runs.push((
-                    kind,
-                    query
-                        .with_columns([
-                            lit(NULL)
-                                .cast(DataType::UInt64)
-                                .alias(CigarRunSchema::DISPLAY_START),
-                            lit(NULL)
-                                .cast(DataType::UInt64)
-                                .alias(CigarRunSchema::DISPLAY_END),
-                            lit(NULL)
-                                .cast(DataType::UInt32)
-                                .alias(CigarRunSchema::RUN_OFFSET),
-                        ])
-                        .filter(lit(false))
-                        .collect()?,
-                ));
-                continue;
-            }
-            let limit = if kind == Kind::Insertion {
-                origin.clone()
-            } else {
-                origin.clone() + length.clone() - lit(1i128)
-            };
-            let left = max_horizontal([origin.clone(), lit(start.max(1) as i128)])?;
-            let right = min_horizontal([limit, lit(end as i128)])?;
-            let valid = col(CigarRunSchema::REF_START)
-                .is_not_null()
-                .and(left.clone().lt_eq(right.clone()));
-            let valid = if kind == Kind::Insertion {
-                valid
-            } else {
-                valid.and(col(CigarRunSchema::OP_LEN).gt(lit(0u32)))
-            };
-            let frame = query
-                .filter(valid)
-                .with_columns([
-                    left.clone()
-                        .cast(DataType::UInt64)
-                        .alias(CigarRunSchema::DISPLAY_START),
-                    right
-                        .cast(DataType::UInt64)
-                        .alias(CigarRunSchema::DISPLAY_END),
-                    (left - origin)
-                        .cast(DataType::UInt32)
-                        .alias(CigarRunSchema::RUN_OFFSET),
-                ])
-                .sort(
-                    [CigarRunSchema::READ_ID, CigarRunSchema::OP_INDEX],
-                    SortMultipleOptions::default(),
-                )
-                .collect()?;
-            runs.push((kind, frame));
-        }
         let annotations = |table: &DataFrame, position: &str| {
             table
                 .clone()
@@ -155,7 +78,7 @@ impl AlignmentTables {
                 .collect()
         };
         Ok(AlignmentViewport {
-            reads,
+            reads: reads.collect()?,
             runs,
             reference_mismatches: annotations(
                 &self.reference_mismatches,
