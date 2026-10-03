@@ -1,6 +1,6 @@
 use crate::{contig_header::ContigHeader, error::TGVError};
 use noodles;
-use std::collections::HashMap;
+use polars::prelude::DataFrame;
 
 pub trait GenomeInterval {
     fn contig_index(&self) -> usize;
@@ -37,77 +37,11 @@ pub trait GenomeInterval {
     }
 }
 
-#[derive(Debug, Clone)]
-pub struct SortedIntervalCollection<T: GenomeInterval> {
-    /// Assumption: sorted by (contig, start, end)
-    pub intervals: Vec<T>,
-
-    /// {contig_name: [variant_indexes,... ]}
-    contig_lookup: HashMap<usize, Vec<usize>>,
-}
-
-impl<T> Default for SortedIntervalCollection<T>
-where
-    T: GenomeInterval,
-{
-    fn default() -> Self {
-        Self {
-            intervals: Vec::new(),
-            contig_lookup: HashMap::new(),
-        }
-    }
-}
-
-/// This is now O(N) for overlapping lookup. There are data structures for faster lookup, but TGV doesn't work with large interval collections.
-/// So O(N) might be ok or even faster.
-/// The interval tree data structure:
-/// - https://github.com/dcjones/coitrees
-/// - https://github.com/sstadick/rust-lapper
-/// - https://crates.io/crates/intervaltree
-/// - https://github.com/rust-bio/rust-bio/blob/master/src/data_structures/interval_tree/avl_interval_tree.rs
-impl<T> SortedIntervalCollection<T>
-where
-    T: GenomeInterval,
-{
-    pub fn new(intervals: Vec<T>) -> Result<Self, TGVError> {
-        let mut contig_lookup: HashMap<usize, Vec<usize>> = HashMap::new();
-
-        for (i, interval) in intervals.iter().enumerate() {
-            contig_lookup
-                .entry(interval.contig_index())
-                .and_modify(|indexes| indexes.push(i))
-                .or_insert(vec![i]);
-        }
-
-        Ok(SortedIntervalCollection {
-            intervals,
-            contig_lookup,
-        })
-    }
-
-    /// Get intervals overlapping a region.
-    pub fn overlapping(
-        &self,
-        contig_index: usize,
-        start: u64,
-        end: u64,
-    ) -> Result<Vec<&T>, TGVError> {
-        let indexes = match self.contig_lookup.get(&contig_index) {
-            Some(indexes) => indexes,
-            None => return Ok(Vec::new()),
-        };
-
-        Ok(indexes
-            .iter()
-            .filter_map(|i| {
-                if self.intervals[*i].overlaps(contig_index, start, end) {
-                    Some(&self.intervals[*i])
-                } else {
-                    None
-                }
-            })
-            .collect::<Vec<&T>>())
-    }
+/// A columnar collection of one-based, inclusive genomic intervals.
+pub trait IntervalTable {
+    /// Select overlapping rows in deterministic genomic order.
+    /// Unknown contigs and reversed bounds yield an empty frame; a zero start is invalid.
+    fn query(&self, contig_index: usize, start: u64, end: u64) -> Result<DataFrame, TGVError>;
 }
 
 /// A genomic region.

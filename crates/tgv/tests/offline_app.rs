@@ -36,7 +36,7 @@ fn offline_case_args(bam_path: Option<&str>, args: &str) -> String {
 #[case("-g ecoli --offline --cache-dir tests/data/cache")]
 #[case("covid.sorted.bam --no-reference -r MN908947.3:100 --offline")]
 #[case("covid.sorted.bam -g tests/data/covid.fa --offline")]
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn offline_initialization_succeeds(#[case] args: &str) {
     let args = if args.contains(".bam") {
         offline_case_args(
@@ -52,7 +52,7 @@ async fn offline_initialization_succeeds(#[case] args: &str) {
     harness.close().await.unwrap();
 }
 
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn offline_sequence_navigates_and_zooms() {
     let args = offline_case_args(
         Some("ncbi.sorted.bam"),
@@ -86,7 +86,7 @@ async fn offline_sequence_navigates_and_zooms() {
     harness.close().await.unwrap();
 }
 
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn offline_sequence_updates_tracks_and_scenes() {
     let args = offline_case_args(
         Some("ncbi.sorted.bam"),
@@ -265,7 +265,7 @@ async fn offline_sequence_updates_tracks_and_scenes() {
     harness.close().await.unwrap();
 }
 
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn offline_sequence_handles_sorting_command() {
     let args = offline_case_args(
         Some("ncbi.sorted.bam"),
@@ -289,7 +289,7 @@ async fn offline_sequence_handles_sorting_command() {
     harness.close().await.unwrap();
 }
 
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn offline_sequence_saves_session_and_save_and_quit() {
     let args = offline_case_args(
         Some("ncbi.sorted.bam"),

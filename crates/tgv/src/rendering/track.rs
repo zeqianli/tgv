@@ -4,6 +4,7 @@ use crate::{
 };
 use gv_core::{
     feature::{Gene, SubGeneFeatureType},
+    gene::genes_from_rows,
     prelude::*,
     strand::Strand,
 };
@@ -35,7 +36,11 @@ pub fn render_track(
     }
 
     let mut right_most_label_onscreen_x = 0;
-    for feature in state.track.genes().iter() {
+    let region = alignment_view.region(area);
+    let rows = state
+        .track
+        .query(region.contig_index(), region.start(), region.end())?;
+    for feature in &genes_from_rows(&rows)? {
         for context in get_rendering_info(alignment_view, area, feature, pallete) {
             buf.set_string(
                 context.x + area.x,

@@ -3,10 +3,10 @@ use crate::{
     cytoband::{Cytoband, CytobandSegment},
     error::TGVError,
     feature::{Gene, SubGeneFeature},
+    gene::GeneTable,
     intervals::GenomeInterval,
     intervals::Region,
     reference::Reference,
-    track::Track,
     tracks::UcscHost,
     tracks::schema::*,
 };
@@ -585,9 +585,8 @@ impl TrackService for UcscDbTrackService {
             started.elapsed().as_millis()
         );
 
-        Track::from_gene_rows(gene_rows, contig_index, contig_header)?
-            .get_saturating_k_genes_after(coord, k)
-            .cloned()
+        GeneTable::from_gene_rows(gene_rows, contig_index, contig_header)?
+            .get_saturating_k_genes_after(coord, k)?
             .ok_or(TGVError::IOError("No genes found".to_string()))
     }
 
@@ -645,9 +644,8 @@ impl TrackService for UcscDbTrackService {
             started.elapsed().as_millis()
         );
 
-        Track::from_gene_rows(gene_rows, contig_index, contig_header)?
-            .get_saturating_k_genes_before(coord, k)
-            .cloned()
+        GeneTable::from_gene_rows(gene_rows, contig_index, contig_header)?
+            .get_saturating_k_genes_before(coord, k)?
             .ok_or(TGVError::IOError("No genes found".to_string()))
     }
 
@@ -706,8 +704,8 @@ impl TrackService for UcscDbTrackService {
             started.elapsed().as_millis()
         );
 
-        Track::from_gene_rows(gene_rows, contig_index, contig_header)?
-            .get_saturating_k_exons_after(coord, k)
+        GeneTable::from_gene_rows(gene_rows, contig_index, contig_header)?
+            .get_saturating_k_exons_after(coord, k)?
             .ok_or(TGVError::IOError("No exons found".to_string()))
     }
 
@@ -765,8 +763,8 @@ impl TrackService for UcscDbTrackService {
             started.elapsed().as_millis()
         );
 
-        Track::from_gene_rows(gene_rows, contig_index, contig_header)?
-            .get_saturating_k_exons_before(coord, k)
+        GeneTable::from_gene_rows(gene_rows, contig_index, contig_header)?
+            .get_saturating_k_exons_before(coord, k)?
             .ok_or(TGVError::IOError("No exons found".to_string()))
     }
 }

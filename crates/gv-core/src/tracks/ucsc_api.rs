@@ -4,10 +4,10 @@ use crate::{
     cytoband::Cytoband,
     error::TGVError,
     feature::{Gene, SubGeneFeature},
-    intervals::GenomeInterval,
+    gene::{GeneTable, genes_from_rows},
     intervals::Region,
+    intervals::{GenomeInterval, IntervalTable},
     reference::Reference,
-    track::Track,
     tracks::schema::*,
 };
 use async_trait::async_trait;
@@ -125,7 +125,7 @@ impl UcscApiTrackService {
 
         self.cache.add_track(
             contig_index,
-            Track::from_genes(
+            GeneTable::from_genes(
                 response
                     .into_iter()
                     .map(|response| response.to_gene(contig_index))
@@ -371,18 +371,17 @@ impl TrackService for UcscApiTrackService {
 
         // TODO: now I don't really handle empty query results
 
-        Ok(self
+        let table = self
             .cache
             .tracks
             .get(&region.contig_index())
-            .ok_or(TGVError::IOError(format!(
-                "Track not found for contig index {}",
-                region.contig_index()
-            )))?
-            .get_features_overlapping(region)
-            .iter()
-            .map(|g| (*g).clone())
-            .collect())
+            .ok_or_else(|| {
+                TGVError::IOError(format!(
+                    "Track not found for contig index {}",
+                    region.contig_index()
+                ))
+            })?;
+        genes_from_rows(&table.query(region.contig_index(), region.start(), region.end())?)
     }
 
     async fn query_gene_covering(
@@ -408,8 +407,7 @@ impl TrackService for UcscApiTrackService {
                 "Track not found for contig index {}",
                 contig_index
             )))?
-            .get_gene_at(position)
-            .cloned())
+            .get_gene_at(position)?)
     }
 
     async fn query_gene_name(
@@ -425,8 +423,8 @@ impl TrackService for UcscApiTrackService {
                     self.query_track_if_not_cached(reference, contig_name, contig_index)
                         .await?;
 
-                    if let Some(gene) = self.cache.get_gene(gene_name) {
-                        return Ok(gene.clone());
+                    if let Some(gene) = self.cache.get_gene(gene_name)? {
+                        return Ok(gene);
                     }
                 }
             }
@@ -464,9 +462,8 @@ impl TrackService for UcscApiTrackService {
                 "Track not found for contig {}",
                 contig_index
             )))?
-            .get_saturating_k_genes_after(coord, k)
+            .get_saturating_k_genes_after(coord, k)?
             .ok_or(TGVError::IOError("No genes found".to_string()))
-            .cloned()
     }
 
     async fn query_k_genes_before(
@@ -498,9 +495,8 @@ impl TrackService for UcscApiTrackService {
                 "Track not found for contig {}",
                 contig_index
             )))?
-            .get_saturating_k_genes_before(coord, k)
+            .get_saturating_k_genes_before(coord, k)?
             .ok_or(TGVError::IOError("No genes found".to_string()))
-            .cloned()
     }
 
     async fn query_k_exons_after(
@@ -533,7 +529,7 @@ impl TrackService for UcscApiTrackService {
                 "Track not found for contig {}",
                 contig_index
             )))?
-            .get_saturating_k_exons_after(coord, k)
+            .get_saturating_k_exons_after(coord, k)?
             .ok_or(TGVError::IOError("No exons found".to_string()))
     }
 
@@ -566,7 +562,7 @@ impl TrackService for UcscApiTrackService {
                 "Track not found for contig {}",
                 contig_index
             )))?
-            .get_saturating_k_exons_before(coord, k)
+            .get_saturating_k_exons_before(coord, k)?
             .ok_or(TGVError::IOError("No exons found".to_string()))
     }
 }

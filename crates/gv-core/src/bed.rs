@@ -1,105 +1,125 @@
-use crate::{
-    contig_header::ContigHeader,
-    error::TGVError,
-    intervals::{GenomeInterval, SortedIntervalCollection},
-};
-use noodles::bed::{self};
+//! Columnar BED intervals with the original noodles records in source order.
 
-pub type BedTrack = SortedIntervalCollection<BedInterval>;
+use crate::{contig_header::ContigHeader, error::TGVError, intervals::IntervalTable};
+use noodles::bed;
+use polars::prelude::*;
+use std::sync::Arc;
 
-#[derive(Debug, Clone)]
-pub struct BedInterval {
-    contig_index: usize,
-
-    pub index: usize,
-
-    start: u64,
-    end: u64,
-
-    record: bed::Record<3>,
+#[derive(Debug)]
+pub struct BedTable {
+    pub data: DataFrame,
+    pub records: Vec<bed::Record<3>>,
 }
 
-impl BedInterval {
-    pub fn new(
-        record: bed::Record<3>,
-        index: usize,
+impl Default for BedTable {
+    fn default() -> Self {
+        let mut schema = Schema::with_capacity(4);
+        schema.insert("row_id".into(), DataType::UInt64);
+        schema.insert("contig_index".into(), DataType::UInt64);
+        schema.insert("start".into(), DataType::UInt64);
+        schema.insert("end".into(), DataType::UInt64);
+        Self {
+            data: DataFrame::full_null(&Arc::new(schema), 0),
+            records: Vec::new(),
+        }
+    }
+}
+
+impl IntervalTable for BedTable {
+    fn query(&self, contig_index: usize, start: u64, end: u64) -> Result<DataFrame, TGVError> {
+        if start == 0 {
+            return Err(TGVError::ValueError(
+                "Interval queries require a positive start.".into(),
+            ));
+        }
+        if start > end {
+            return Ok(DataFrame::full_null(self.data.schema(), 0));
+        }
+        Ok(self
+            .data
+            .clone()
+            .lazy()
+            .filter(
+                col("contig_index")
+                    .eq(lit(contig_index as u64))
+                    .and(col("start").lt_eq(lit(end)))
+                    .and(col("end").gt_eq(lit(start))),
+            )
+            .collect()?)
+    }
+}
+
+impl BedTable {
+    pub fn add_records(
+        mut self,
+        records: &[bed::Record<3>],
         contig_header: &ContigHeader,
     ) -> Result<Self, TGVError> {
-        let start = record.feature_start()?.get() as u64; // Noodles already converted to 1-based, inclusive
-        Ok(Self {
-            contig_index: contig_header
-                .try_get_index_by_str(&record.reference_sequence_name().to_string())?,
-            index,
-            start, // BED start is 0-based, inclusive
-            end: match record.feature_end() {
-                Some(end) => end?.get() as u64,
-                None => start, // BED end is 0-based, exclusive
-            },
-            record,
-        })
-    }
-
-    pub fn describe(&self) -> String {
-        format!(
-            "BED interval: {}:{}-{}",
-            self.record.reference_sequence_name(),
-            self.start,
-            self.end
-        )
+        if records.is_empty() {
+            return Ok(self);
+        }
+        let offset = self.records.len() as u64;
+        let mut ids = Vec::with_capacity(records.len());
+        let mut contigs = Vec::with_capacity(records.len());
+        let mut starts = Vec::with_capacity(records.len());
+        let mut ends = Vec::with_capacity(records.len());
+        for (index, record) in records.iter().enumerate() {
+            let id = offset + index as u64;
+            let contig = contig_header
+                .try_get_index_by_str(&record.reference_sequence_name().to_string())?;
+            let start = record.feature_start()?.get() as u64;
+            let end = record
+                .feature_end()
+                .transpose()?
+                .map_or(start, |p| p.get() as u64);
+            if start == 0 || end < start {
+                return Err(TGVError::ValueError(format!(
+                    "Invalid BED interval [{start}, {end}] at row {id}."
+                )));
+            }
+            ids.push(id);
+            contigs.push(contig as u64);
+            starts.push(start);
+            ends.push(end);
+        }
+        let batch = DataFrame::new(
+            records.len(),
+            vec![
+                Column::new("row_id".into(), ids),
+                Column::new("contig_index".into(), contigs),
+                Column::new("start".into(), starts),
+                Column::new("end".into(), ends),
+            ],
+        )?;
+        self.data = concat([self.data.lazy(), batch.lazy()], UnionArgs::default())?
+            .sort(
+                ["contig_index", "start", "end", "row_id"],
+                SortMultipleOptions::default(),
+            )
+            .collect()?;
+        self.records.extend_from_slice(records);
+        Ok(self)
     }
 }
 
-impl GenomeInterval for BedInterval {
-    fn contig_index(&self) -> usize {
-        self.contig_index
-    }
-
-    fn start(&self) -> u64 {
-        self.start
-    }
-
-    fn end(&self) -> u64 {
-        self.end
-    }
-}
 #[derive(Debug, Clone)]
 pub struct BedRepository {
     pub bed_path: String,
 }
 
 impl BedRepository {
-    // pub fn read_contigs(&self) -> Result<Vec<(String, Option<u64>)>, TGVError> {
-    //     let mut reader = bed::io::reader::Builder::<3>.build_from_path(self.bed_path.as_str())?;
-    //     let mut record = bed::Record::default();
-    //     let mut seen = HashSet::new();
-    //     let mut contigs = Vec::new();
-
-    //     while reader.read_record(&mut record)? != 0 {
-    //         let name = record.reference_sequence_name().to_string();
-    //         if seen.insert(name.clone()) {
-    //             contigs.push((name, None));
-    //         }
-    //     }
-
-    //     Ok(contigs)
-    // }
-
-    pub fn read_bed(
-        &self,
-        contig_header: &ContigHeader,
-    ) -> Result<SortedIntervalCollection<BedInterval>, TGVError> {
-        let mut reader = bed::io::reader::Builder::<3>.build_from_path(self.bed_path.as_str())?;
+    pub fn read_bed(&self, contig_header: &ContigHeader) -> Result<BedTable, TGVError> {
+        let mut reader = bed::io::reader::Builder::<3>.build_from_path(&self.bed_path)?;
         let mut record = bed::Record::default();
-
-        let mut records = Vec::new();
-
-        let mut index = 0;
-
+        let mut batch = Vec::with_capacity(1024);
+        let mut table = BedTable::default();
         while reader.read_record(&mut record)? != 0 {
-            records.push(BedInterval::new(record.clone(), index, contig_header)?);
-            index += 1;
+            batch.push(record.clone());
+            if batch.len() == 1024 {
+                table = table.add_records(&batch, contig_header)?;
+                batch.clear();
+            }
         }
-
-        SortedIntervalCollection::new(records)
+        table.add_records(&batch, contig_header)
     }
 }

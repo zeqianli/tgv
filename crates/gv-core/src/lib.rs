@@ -14,19 +14,19 @@ pub mod prelude {
     pub use crate::{
         contig_header::ContigHeader,
         error::TGVError,
-        intervals::{Focus, GenomeInterval, Region},
+        intervals::{Focus, GenomeInterval, IntervalTable, Region},
         reference::Reference,
         repository::{Repository, RepositoryFileIndex},
         settings::FilePath,
         state::State,
     };
 }
+pub mod gene;
 pub mod reference;
 pub mod repository;
 pub mod sequence;
 pub mod settings;
 pub mod state;
 pub mod strand;
-pub mod track;
 pub mod tracks;
 pub mod variant;

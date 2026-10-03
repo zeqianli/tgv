@@ -263,11 +263,11 @@ impl DatasetState {
         let summary = InspectSummary {
             tracks: track_summaries,
             genes: GeneSummary::from_genes(
-                &self.state.track.features,
+                &self.state.track,
                 self.repository.track_service.is_some(),
                 contig_index,
                 &region,
-            ),
+            )?,
         };
         super::as_json(&InspectResponse {
             region,

@@ -69,6 +69,7 @@ If someone has experience in this, please help.
 For now, I don't interprete sub-gene features for API responses with this format.
 
 */
+/// A temporary gene value for ingestion, navigation results, and drawing.
 #[derive(Debug, Clone)]
 pub struct Gene {
     pub id: String,
@@ -114,23 +115,6 @@ enum ExonPosition {
 }
 
 impl Gene {
-    pub fn get_exon(&self, idx: usize) -> Option<SubGeneFeature> {
-        if idx >= self.exon_starts.len() {
-            return None;
-        }
-
-        Some(SubGeneFeature {
-            contig_index: self.contig_index,
-            start: self.exon_starts[idx],
-            end: self.exon_ends[idx],
-            feature_type: SubGeneFeatureType::Exon,
-        })
-    }
-
-    pub fn n_exons(&self) -> usize {
-        self.exon_starts.len()
-    }
-
     pub fn features(&self) -> Vec<(u64, u64, SubGeneFeatureType, usize)> {
         // TODO: prevent labeling overlap.
         let mut features: Vec<(u64, u64, SubGeneFeatureType)> = Vec::new();

@@ -219,12 +219,42 @@ impl MouseRegister {
                                 alignment_view.coordinates_of_onscreen_x(event.column, area)
                                 && let Some(variants) = state.variants.get(index)
                             {
-                                for variant in variants.overlapping(
+                                let rows = variants.query(
                                     alignment_view.focus.contig_index,
                                     left,
                                     right,
-                                )? {
-                                    messages.push(Message::message(variant.describe()));
+                                )?;
+                                let starts = rows.column("start")?.u64()?;
+                                let references = rows.column("reference")?.str()?;
+                                let alternates = rows.column("alternate")?.list()?;
+                                let qualities = rows.column("quality_score")?.f32()?;
+                                let ids = rows.column("row_id")?.u64()?;
+                                for row in 0..rows.height() {
+                                    let alleles = alternates.get_as_series(row);
+                                    let alternate = match alleles {
+                                        Some(alleles) => alleles
+                                            .str()?
+                                            .iter()
+                                            .map(|allele| {
+                                                allele.expect("alternate alleles are non-null")
+                                            })
+                                            .join(","),
+                                        None => String::new(),
+                                    };
+                                    let quality = qualities
+                                        .get(row)
+                                        .map(|q| q.to_string())
+                                        .unwrap_or_else(|| "?".into());
+                                    let record = &variants.records
+                                        [ids.get(row).expect("row IDs are non-null") as usize];
+                                    messages.push(Message::message(format!(
+                                        "Variant: {}:{} {}>{} QUAL={}",
+                                        record.reference_sequence_name(),
+                                        starts.get(row).expect("variant starts are non-null"),
+                                        references.get(row).expect("reference bases are non-null"),
+                                        alternate,
+                                        quality
+                                    )));
                                 }
                             }
                         }
@@ -234,12 +264,23 @@ impl MouseRegister {
                                 alignment_view.coordinates_of_onscreen_x(event.column, area)
                                 && let Some(intervals) = state.bed_intervals.get(index)
                             {
-                                for interval in intervals.overlapping(
+                                let rows = intervals.query(
                                     alignment_view.focus.contig_index,
                                     left,
                                     right,
-                                )? {
-                                    messages.push(Message::message(interval.describe()));
+                                )?;
+                                let starts = rows.column("start")?.u64()?;
+                                let ends = rows.column("end")?.u64()?;
+                                let ids = rows.column("row_id")?.u64()?;
+                                for row in 0..rows.height() {
+                                    let record = &intervals.records
+                                        [ids.get(row).expect("row IDs are non-null") as usize];
+                                    messages.push(Message::message(format!(
+                                        "BED interval: {}:{}-{}",
+                                        record.reference_sequence_name(),
+                                        starts.get(row).expect("BED starts are non-null"),
+                                        ends.get(row).expect("BED ends are non-null")
+                                    )));
                                 }
                             }
                         }

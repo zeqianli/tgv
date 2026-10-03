@@ -3,11 +3,12 @@ use crate::tracks::{TrackService, TrackServiceEnum};
 use crate::variant::VariantRepository;
 use crate::{
     alignment::{Alignment, AlignmentRepositoryEnum, PairedAlignment, tables},
-    bed::{BedRepository, BedTrack},
+    bed::{BedRepository, BedTable},
     contig_header::ContigHeader,
     cytoband::Cytoband,
     error::TGVError,
     feature::Gene,
+    gene::GeneTable,
     intervals::{Focus, GenomeInterval, Region},
     message::{AlignmentDisplayOption, AlignmentFilter, AlignmentSort, Movement},
     reference::Reference,
@@ -15,8 +16,7 @@ use crate::{
     //rendering::{MainLayout, layout::resize_node},
     repository::Repository,
     sequence::Sequence,
-    track::Track,
-    variant::VariantTrack,
+    variant::VariantTable,
 };
 use itertools::Itertools;
 use std::time::Instant;
@@ -36,15 +36,15 @@ pub struct State {
 
     /// Variant track data.
     /// Index always matches with VariantRepository index
-    pub variants: Vec<VariantTrack>,
+    pub variants: Vec<VariantTable>,
     pub variant_loaded: Vec<bool>, // Temporary hack before proper implemetation for the indexed VCF IO
 
     /// Bed track data
     /// Index always matches with BedRepository index
-    pub bed_intervals: Vec<BedTrack>,
+    pub bed_intervals: Vec<BedTable>,
     pub bed_loaded: Vec<bool>, // Temporary hack before proper implemetation for large bed file io
 
-    pub track: Track<Gene>,
+    pub track: GeneTable,
 
     pub sequence: Sequence,
 }
@@ -65,7 +65,7 @@ impl State {
             alignment_options: Vec::new(),
             paired_alignments: Vec::new(),
 
-            track: Track::<Gene>::default(),
+            track: GeneTable::default(),
             sequence: Sequence::default(),
             variants: Vec::new(),
             variant_loaded: Vec::new(),
@@ -233,7 +233,7 @@ impl State {
                 return Err(e);
             }
         };
-        let feature_count = track.features.len();
+        let feature_count = track.data.height();
         self.track = track;
         log::debug!(
             "Loaded reference track data: region={:?} features={} elapsed_ms={}",
@@ -293,7 +293,7 @@ impl State {
     }
 
     pub fn add_variant_track(&mut self) {
-        self.variants.push(VariantTrack::default());
+        self.variants.push(VariantTable::default());
         self.variant_loaded.push(false);
     }
 
@@ -317,7 +317,7 @@ impl State {
                 return Err(e);
             }
         };
-        let record_count = variants.intervals.len();
+        let record_count = variants.data.height();
         let Some(variant_track) = self.variants.get_mut(index) else {
             let e = TGVError::StateError(format!("Variant index out of bounds: {index}"));
             log::warn!(
@@ -351,7 +351,7 @@ impl State {
     }
 
     pub fn add_bed_track(&mut self) {
-        self.bed_intervals.push(BedTrack::default());
+        self.bed_intervals.push(BedTable::default());
         self.bed_loaded.push(false);
     }
 
@@ -375,7 +375,7 @@ impl State {
                 return Err(e);
             }
         };
-        let record_count = bed_intervals.intervals.len();
+        let record_count = bed_intervals.data.height();
         let Some(bed_track) = self.bed_intervals.get_mut(index) else {
             let e = TGVError::StateError(format!("BED index out of bounds: {index}"));
             log::warn!(
@@ -530,7 +530,7 @@ impl State {
         }
 
         // The gene is in the track.
-        if let Some(gene) = self.track.get_k_genes_after(focus.position, n) {
+        if let Some(gene) = self.track.get_k_genes_after(focus.position, n)? {
             return Ok(Focus {
                 contig_index: gene.contig_index,
                 position: gene.start(),
@@ -565,7 +565,7 @@ impl State {
             return Ok(focus);
         }
 
-        if let Some(gene) = self.track.get_k_genes_after(focus.position, n) {
+        if let Some(gene) = self.track.get_k_genes_after(focus.position, n)? {
             return Ok(Focus {
                 contig_index: gene.contig_index,
                 position: gene.end() + 1,
@@ -600,7 +600,7 @@ impl State {
             return Ok(focus);
         }
 
-        if let Some(gene) = self.track.get_k_genes_before(focus.position, n) {
+        if let Some(gene) = self.track.get_k_genes_before(focus.position, n)? {
             return Ok(Focus {
                 contig_index: gene.contig_index,
                 position: gene.start() - 1,
@@ -635,7 +635,7 @@ impl State {
             return Ok(focus);
         }
 
-        if let Some(gene) = self.track.get_k_genes_before(focus.position, n) {
+        if let Some(gene) = self.track.get_k_genes_before(focus.position, n)? {
             return Ok(Focus {
                 contig_index: gene.contig_index,
                 position: gene.end() - 1,
@@ -670,7 +670,7 @@ impl State {
             return Ok(focus);
         }
 
-        if let Some(exon) = self.track.get_k_exons_after(focus.position, n) {
+        if let Some(exon) = self.track.get_k_exons_after(focus.position, n)? {
             return Ok(Focus {
                 contig_index: exon.contig_index,
                 position: exon.start() + 1,
@@ -705,7 +705,7 @@ impl State {
             return Ok(focus);
         }
 
-        if let Some(exon) = self.track.get_k_exons_after(focus.position, n) {
+        if let Some(exon) = self.track.get_k_exons_after(focus.position, n)? {
             return Ok(Focus {
                 contig_index: exon.contig_index,
                 position: exon.end() + 1,
@@ -740,7 +740,7 @@ impl State {
             return Ok(focus);
         }
 
-        if let Some(exon) = self.track.get_k_exons_before(focus.position, n) {
+        if let Some(exon) = self.track.get_k_exons_before(focus.position, n)? {
             return Ok(Focus {
                 contig_index: exon.contig_index,
                 position: exon.start() - 1,
@@ -775,7 +775,7 @@ impl State {
             return Ok(focus);
         }
 
-        let exon = self.track.get_k_exons_before(focus.position, n);
+        let exon = self.track.get_k_exons_before(focus.position, n)?;
         if let Some(exon) = exon {
             return Ok(Focus {
                 contig_index: exon.contig_index,

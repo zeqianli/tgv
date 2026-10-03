@@ -9,10 +9,10 @@ use crate::{
     cytoband::Cytoband,
     error::TGVError,
     feature::{Gene, SubGeneFeature},
+    gene::GeneTable,
     intervals::{GenomeInterval, Region},
     reference::Reference,
     settings::{BackendType, Settings},
-    track::Track,
 };
 use async_trait::async_trait;
 use chrono::Local;
@@ -37,15 +37,11 @@ const TRACK_PREFERENCES: [&str; 5] = [
 /// Can be returned or pass into queries.
 #[derive(Debug, Default)]
 pub struct TrackCache {
-    /// Contig name/aliases -> Track
-    pub tracks: HashMap<usize, Track<Gene>>,
+    /// Cached gene tables keyed by contig index.
+    pub tracks: HashMap<usize, GeneTable>,
 
     /// Contig index -> whether the track has been quried
     contig_queried: HashSet<usize>,
-
-    /// Gene name -> index in tracks.
-    /// If the gene name is not found, the value is None.
-    gene_name_lookup: HashMap<String, usize>,
 
     gene_name_quried: HashSet<String>,
 
@@ -69,22 +65,18 @@ impl TrackCache {
     //     self.gene_by_name.contains_key(gene_name)
     // }
 
-    /// Note that this returns None both when the gene is not queried,
-    ///    and returns Some(None) when the gene is queried but the gene data is not found.
-    pub fn get_gene(&self, gene_name: &str) -> Option<&Gene> {
-        match self.gene_name_lookup.get(gene_name) {
-            None => None,
-            Some(index) => match self.tracks.get(index) {
-                None => None,
-                Some(track) => track.gene_by_name(gene_name),
-            },
+    pub fn get_gene(&self, gene_name: &str) -> Result<Option<Gene>, TGVError> {
+        let mut contigs = self.tracks.keys().copied().collect::<Vec<_>>();
+        contigs.sort_unstable();
+        for contig in contigs {
+            if let Some(gene) = self.tracks[&contig].gene_by_name(gene_name)? {
+                return Ok(Some(gene));
+            }
         }
+        Ok(None)
     }
 
-    pub fn add_track(&mut self, contig_index: usize, track: Track<Gene>) {
-        for (i, gene) in track.genes().iter().enumerate() {
-            self.gene_name_lookup.insert(gene.name.clone(), i);
-        }
+    pub fn add_track(&mut self, contig_index: usize, track: GeneTable) {
         self.tracks.insert(contig_index, track);
         self.contig_queried.insert(contig_index);
     }
@@ -112,17 +104,17 @@ pub trait TrackService {
         contig_header: &ContigHeader,
     ) -> Result<Option<Cytoband>, TGVError>;
 
-    /// Return a Track<Gene> that covers a region.
+    /// Return a GeneTable that covers a region.
     async fn query_gene_track(
         &mut self,
         reference: &Reference,
         region: &Region,
         contig_header: &ContigHeader,
-    ) -> Result<Track<Gene>, TGVError> {
+    ) -> Result<GeneTable, TGVError> {
         let genes = self
             .query_genes_overlapping(reference, region, contig_header)
             .await?;
-        Track::from_genes(genes, region.contig_index(), (region.start(), region.end()))
+        GeneTable::from_genes(genes, region.contig_index(), (region.start(), region.end()))
     }
 
     /// Given a reference, return the prefered track name.
@@ -510,7 +502,7 @@ impl TrackService for TrackServiceEnum {
         reference: &Reference,
         region: &Region,
         contig_header: &ContigHeader,
-    ) -> Result<Track<Gene>, TGVError> {
+    ) -> Result<GeneTable, TGVError> {
         match self {
             TrackServiceEnum::Api(service) => {
                 service

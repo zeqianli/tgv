@@ -1,152 +1,178 @@
-use crate::contig_header::ContigHeader;
-use crate::error::TGVError;
-use crate::intervals::{GenomeInterval, SortedIntervalCollection};
-use itertools::Itertools;
-use noodles::vcf::{self, variant::record::AlternateBases};
+//! Queryable VCF core fields with the original records and header preserved.
 
-pub type VariantTrack = SortedIntervalCollection<Variant>;
+use crate::{contig_header::ContigHeader, error::TGVError, intervals::IntervalTable};
+use noodles::vcf::{
+    self,
+    variant::record::{AlternateBases as _, Filters as _, Ids as _},
+};
+use polars::prelude::*;
+use std::sync::Arc;
 
-pub struct Variant {
-    /// Contig id name. This is not stored in the record.
-    pub contig_index: usize,
-
-    /// Variant start. 1-based, inclusive.
-    start: u64,
-
-    /// Index in the VCF file
-    pub index: usize,
-
-    /// VCF record
-    pub record: vcf::Record,
+#[derive(Debug)]
+pub struct VariantTable {
+    pub data: DataFrame,
+    pub records: Vec<vcf::Record>,
+    pub header: vcf::Header,
 }
 
-impl Variant {
-    pub fn new(
-        record: vcf::Record,
-        index: usize,
+impl Default for VariantTable {
+    fn default() -> Self {
+        let mut schema = Schema::with_capacity(9);
+        schema.insert("row_id".into(), DataType::UInt64);
+        schema.insert("contig_index".into(), DataType::UInt64);
+        schema.insert("start".into(), DataType::UInt64);
+        schema.insert("end".into(), DataType::UInt64);
+        schema.insert("ids".into(), DataType::List(Box::new(DataType::String)));
+        schema.insert("reference".into(), DataType::String);
+        schema.insert(
+            "alternate".into(),
+            DataType::List(Box::new(DataType::String)),
+        );
+        schema.insert("quality_score".into(), DataType::Float32);
+        schema.insert("filters".into(), DataType::List(Box::new(DataType::String)));
+        Self {
+            data: DataFrame::full_null(&Arc::new(schema), 0),
+            records: Vec::new(),
+            header: vcf::Header::default(),
+        }
+    }
+}
+
+impl IntervalTable for VariantTable {
+    fn query(&self, contig_index: usize, start: u64, end: u64) -> Result<DataFrame, TGVError> {
+        if start == 0 {
+            return Err(TGVError::ValueError(
+                "Interval queries require a positive start.".into(),
+            ));
+        }
+        if start > end {
+            return Ok(DataFrame::full_null(self.data.schema(), 0));
+        }
+        Ok(self
+            .data
+            .clone()
+            .lazy()
+            .filter(
+                col("contig_index")
+                    .eq(lit(contig_index as u64))
+                    .and(col("start").lt_eq(lit(end)))
+                    .and(col("end").gt_eq(lit(start))),
+            )
+            .collect()?)
+    }
+}
+
+impl VariantTable {
+    pub fn add_records(
+        mut self,
+        records: &[vcf::Record],
         contig_header: &ContigHeader,
     ) -> Result<Self, TGVError> {
-        let contig_str = record.reference_sequence_name();
-        let contig_index = contig_header.try_get_index_by_str(contig_str)?;
-
-        let start = record
-            .variant_start()
-            .ok_or(TGVError::ValueError("VCF record parsing error".to_string()))??
-            .get() as u64;
-
-        Ok(Self {
-            contig_index,
-            start,
-            index,
-            record,
-        })
+        if records.is_empty() {
+            return Ok(self);
+        }
+        let offset = self.records.len() as u64;
+        let mut row_ids = Vec::with_capacity(records.len());
+        let mut contigs = Vec::with_capacity(records.len());
+        let mut starts = Vec::with_capacity(records.len());
+        let mut ends = Vec::with_capacity(records.len());
+        let mut reference = Vec::with_capacity(records.len());
+        let mut quality = Vec::with_capacity(records.len());
+        let mut ids = ListStringChunkedBuilder::new("ids".into(), records.len(), records.len());
+        let mut alternate =
+            ListStringChunkedBuilder::new("alternate".into(), records.len(), records.len());
+        let mut filters =
+            ListStringChunkedBuilder::new("filters".into(), records.len(), records.len());
+        for (index, record) in records.iter().enumerate() {
+            let id = offset + index as u64;
+            let contig = contig_header.try_get_index_by_str(record.reference_sequence_name())?;
+            let start = record
+                .variant_start()
+                .transpose()?
+                .ok_or_else(|| {
+                    TGVError::ValueError(format!("VCF row {id} has no positive start."))
+                })?
+                .get() as u64;
+            let bases = record.reference_bases();
+            if bases.is_empty() {
+                return Err(TGVError::ValueError(format!(
+                    "VCF row {id} has no reference bases."
+                )));
+            }
+            row_ids.push(id);
+            contigs.push(contig as u64);
+            starts.push(start);
+            ends.push(start + bases.len() as u64 - 1);
+            reference.push(bases);
+            quality.push(record.quality_score().transpose()?);
+            let record_ids = record.ids();
+            if record_ids.is_empty() {
+                ids.append_null();
+            } else {
+                ids.append_values_iter(record_ids.iter());
+            }
+            let record_alternates = record.alternate_bases();
+            let alleles = record_alternates.iter().collect::<Result<Vec<_>, _>>()?;
+            if alleles.is_empty() {
+                alternate.append_null();
+            } else {
+                alternate.append_values_iter(alleles.into_iter());
+            }
+            let record_filters = record.filters();
+            if record_filters.is_empty() {
+                filters.append_null();
+            } else {
+                let values = record_filters
+                    .iter(&self.header)
+                    .collect::<Result<Vec<_>, _>>()?;
+                filters.append_values_iter(values.into_iter());
+            }
+        }
+        let batch = DataFrame::new(
+            records.len(),
+            vec![
+                Column::new("row_id".into(), row_ids),
+                Column::new("contig_index".into(), contigs),
+                Column::new("start".into(), starts),
+                Column::new("end".into(), ends),
+                ids.finish().into_series().into(),
+                Column::new("reference".into(), reference),
+                alternate.finish().into_series().into(),
+                Column::new("quality_score".into(), quality),
+                filters.finish().into_series().into(),
+            ],
+        )?;
+        self.data = concat([self.data.lazy(), batch.lazy()], UnionArgs::default())?
+            .sort(
+                ["contig_index", "start", "end", "row_id"],
+                SortMultipleOptions::default(),
+            )
+            .collect()?;
+        self.records.extend_from_slice(records);
+        Ok(self)
     }
 }
 
-impl Variant {
-    pub fn describe(&self) -> String {
-        // FIXME: display more fields.
-        // Note that other fields (filter, info, sample) requires the VCF header.
-        format!(
-            "Variant: {}:{} {}>{} QUAL={}",
-            self.record.reference_sequence_name(),
-            self.start,
-            self.record.reference_bases(),
-            self.record
-                .alternate_bases()
-                .iter()
-                .collect::<Result<Vec<&str>, _>>()
-                .unwrap_or(vec!["?"; 1])
-                .iter()
-                .join(","),
-            self.record
-                .quality_score()
-                .map(|score_result| match score_result {
-                    Ok(score) => format!("{}", score),
-                    _ => "?".to_string(),
-                })
-                .unwrap_or("?".to_string()),
-        )
-    }
-}
-
-impl GenomeInterval for Variant {
-    fn contig_index(&self) -> usize {
-        self.contig_index
-    }
-
-    fn start(&self) -> u64 {
-        self.start
-    }
-
-    fn end(&self) -> u64 {
-        self.start + self.record.reference_bases().len() as u64 - 1
-    }
-}
 pub struct VariantRepository {
     pub vcf_path: String,
-    // FIXME: save VCF header. This is needed for retrieving VCF FILTER, INFO, SAMPLE fields.
 }
 
 impl VariantRepository {
-    // VCFs are not always well formatted. Don't use VCF header to build contigs for now.
-    // pub fn read_contigs(&self) -> Result<Vec<(String, Option<u64>)>, TGVError> {
-    //     let mut vcf =
-    //         vcf::io::reader::Builder::default().build_from_path(self.vcf_path.as_str())?;
-    //     let header = vcf.read_header()?;
-
-    //     let contigs = header
-    //         .contigs()
-    //         .iter()
-    //         .map(|(name, contig)| (name.clone(), contig.length().map(|length| length as u64)))
-    //         .collect::<Vec<_>>();
-
-    //     if !contigs.is_empty() {
-    //         return Ok(contigs);
-    //     }
-
-    //     let mut seen = HashSet::new();
-    //     let mut contigs = Vec::new();
-    //     for record in vcf.records() {
-    //         let name = record?.reference_sequence_name().to_string();
-    //         if seen.insert(name.clone()) {
-    //             contigs.push((name, None));
-    //         }
-    //     }
-
-    //     Ok(contigs)
-    // }
-
-    pub fn read_variants(
-        &self,
-        contig_header: &ContigHeader,
-    ) -> Result<SortedIntervalCollection<Variant>, TGVError> {
-        let mut vcf =
-            vcf::io::reader::Builder::default().build_from_path(self.vcf_path.as_str())?;
-        vcf.read_header()?;
-
-        let variants: Vec<Variant> = vcf
-            .records()
-            .enumerate()
-            .map(|(index, record)| Variant::new(record?, index, contig_header))
-            .collect::<Result<Vec<Variant>, _>>()?;
-
-        // lookup
-        // contig_index -> {varaiant start -> variant ids}
-
-        // let mut variant_lookup: HashMap<usize, BTreeMap<u64, Vec<usize>>> = HashMap::new();
-
-        // for (i, variant) in variants.iter().enumerate() {
-        //     variant_lookup
-        //         .entry(variant.contig_index)
-        //         .and_modify(|vs| {
-        //             vs.entry(variant.start())
-        //                 .and_modify(|vvs| vvs.push(i))
-        //                 .or_insert(vec![i]);
-        //         })
-        //         .or_insert(BTreeMap::from([(variant.start(), vec![i])]));
-        // }
-
-        SortedIntervalCollection::new(variants)
+    pub fn read_variants(&self, contig_header: &ContigHeader) -> Result<VariantTable, TGVError> {
+        let mut reader = vcf::io::reader::Builder::default().build_from_path(&self.vcf_path)?;
+        let header = reader.read_header()?;
+        let mut table = VariantTable {
+            header,
+            ..VariantTable::default()
+        };
+        let mut batch = Vec::with_capacity(1024);
+        for record in reader.records() {
+            batch.push(record?);
+            if batch.len() == 1024 {
+                table = table.add_records(&batch, contig_header)?;
+                batch.clear();
+            }
+        }
+        table.add_records(&batch, contig_header)
     }
 }

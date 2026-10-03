@@ -2,13 +2,8 @@
 
 use crate::track_registry::TrackId;
 use gv_core::{
-    alignment::Alignment,
-    bed::{BedInterval, BedTrack},
-    feature::Gene,
-    prelude::*,
-    variant::{Variant, VariantTrack},
+    alignment::Alignment, bed::BedTable, gene::GeneTable, prelude::*, variant::VariantTable,
 };
-use noodles::vcf::variant::record::AlternateBases;
 use polars::prelude::*;
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
@@ -151,22 +146,41 @@ impl TrackSummary {
     /// Summarizes overlapping variants and includes up to the response item limit.
     pub fn from_variants(
         track_id: TrackId,
-        variants: &VariantTrack,
+        variants: &VariantTable,
         contig_index: usize,
         region: &InspectInterval,
     ) -> Result<Self, TGVError> {
-        let mut records = variants.overlapping(contig_index, region.start, region.end)?;
-        records.sort_by_key(|record| (record.start(), record.end(), record.index));
-        let items = records
-            .iter()
-            .take(MAX_SUMMARY_ITEMS)
-            .copied()
-            .map(VariantRecord::try_from)
+        let rows = variants.query(contig_index, region.start, region.end)?;
+        let starts = rows.column("start")?.u64()?;
+        let ends = rows.column("end")?.u64()?;
+        let reference = rows.column("reference")?.str()?;
+        let alternate = rows.column("alternate")?.list()?;
+        let items = (0..rows.height().min(MAX_SUMMARY_ITEMS))
+            .map(|row| {
+                let alleles = alternate.get_as_series(row);
+                Ok(VariantRecord {
+                    start: starts.get(row).expect("variant starts are non-null"),
+                    end: ends.get(row).expect("variant ends are non-null"),
+                    reference: reference
+                        .get(row)
+                        .expect("reference bases are non-null")
+                        .to_owned(),
+                    alternate: match alleles {
+                        Some(alleles) => alleles
+                            .str()?
+                            .iter()
+                            .map(|allele| allele.expect("alternate alleles are non-null"))
+                            .map(str::to_owned)
+                            .collect(),
+                        None => Vec::new(),
+                    },
+                })
+            })
             .collect::<Result<Vec<_>, TGVError>>()?;
         Ok(Self::Variant {
             track_id,
-            overlapping_records: records.len(),
-            truncated: records.len() > items.len(),
+            overlapping_records: rows.height(),
+            truncated: rows.height() > items.len(),
             items,
         })
     }
@@ -174,22 +188,23 @@ impl TrackSummary {
     /// Summarizes overlapping BED intervals and includes up to the response item limit.
     pub fn from_bed(
         track_id: TrackId,
-        intervals: &BedTrack,
+        intervals: &BedTable,
         contig_index: usize,
         region: &InspectInterval,
     ) -> Result<Self, TGVError> {
-        let mut records = intervals.overlapping(contig_index, region.start, region.end)?;
-        records.sort_by_key(|record| (record.start(), record.end(), record.index));
-        let items: Vec<_> = records
-            .iter()
+        let rows = intervals.query(contig_index, region.start, region.end)?;
+        let items = rows
+            .column("start")?
+            .u64()?
+            .into_no_null_iter()
+            .zip(rows.column("end")?.u64()?.into_no_null_iter())
             .take(MAX_SUMMARY_ITEMS)
-            .copied()
-            .map(BedRecord::from)
-            .collect();
+            .map(|(start, end)| BedRecord { start, end })
+            .collect::<Vec<_>>();
         Ok(Self::Bed {
             track_id,
-            overlapping_records: records.len(),
-            truncated: records.len() > items.len(),
+            overlapping_records: rows.height(),
+            truncated: rows.height() > items.len(),
             items,
         })
     }
@@ -204,42 +219,11 @@ pub(in crate::server) struct VariantRecord {
     pub alternate: Vec<String>,
 }
 
-impl TryFrom<&Variant> for VariantRecord {
-    type Error = TGVError;
-
-    /// Extracts variant coordinates and alleles from a VCF record.
-    fn try_from(variant: &Variant) -> Result<Self, Self::Error> {
-        let alternate = variant
-            .record
-            .alternate_bases()
-            .iter()
-            .map(|allele| allele.map(str::to_owned))
-            .collect::<Result<Vec<_>, _>>()?;
-
-        Ok(Self {
-            start: variant.start(),
-            end: variant.end(),
-            reference: variant.record.reference_bases().to_owned(),
-            alternate,
-        })
-    }
-}
-
 /// Describes one BED interval returned in an inspection summary.
 #[derive(Serialize)]
 pub(in crate::server) struct BedRecord {
     pub start: u64,
     pub end: u64,
-}
-
-impl From<&BedInterval> for BedRecord {
-    /// Copies the genomic coordinates of a BED interval.
-    fn from(interval: &BedInterval) -> Self {
-        Self {
-            start: interval.start(),
-            end: interval.end(),
-        }
-    }
 }
 
 /// Summarizes overlapping genes and whether annotations are available.
@@ -254,28 +238,42 @@ pub(in crate::server) struct GeneSummary {
 impl GeneSummary {
     /// Summarizes overlapping genes while preserving annotation availability.
     pub fn from_genes(
-        genes: &[Gene],
+        genes: &GeneTable,
         available: bool,
         contig_index: usize,
         region: &InspectInterval,
-    ) -> Self {
-        let mut records: Vec<_> = genes
-            .iter()
-            .filter(|gene| gene.overlaps(contig_index, region.start, region.end))
-            .collect();
-        records.sort_by(|a, b| (a.start(), a.end(), &a.id).cmp(&(b.start(), b.end(), &b.id)));
-        let items: Vec<_> = records
-            .iter()
-            .take(MAX_SUMMARY_ITEMS)
-            .copied()
-            .map(GeneRecord::from)
-            .collect();
-        Self {
+    ) -> Result<Self, TGVError> {
+        let rows = genes
+            .query(contig_index, region.start, region.end)?
+            .lazy()
+            .sort(
+                ["start", "end", "id", "row_id"],
+                SortMultipleOptions::default(),
+            )
+            .collect()?;
+        let ids = rows.column("id")?.str()?;
+        let names = rows.column("name")?.str()?;
+        let starts = rows.column("start")?.u64()?;
+        let ends = rows.column("end")?.u64()?;
+        let strands = rows.column("strand")?.str()?;
+        let items = (0..rows.height().min(MAX_SUMMARY_ITEMS))
+            .map(|row| GeneRecord {
+                id: ids.get(row).expect("gene IDs are non-null").to_owned(),
+                name: names.get(row).expect("gene names are non-null").to_owned(),
+                start: starts.get(row).expect("gene starts are non-null"),
+                end: ends.get(row).expect("gene ends are non-null"),
+                strand: strands
+                    .get(row)
+                    .expect("gene strands are non-null")
+                    .to_owned(),
+            })
+            .collect::<Vec<_>>();
+        Ok(Self {
             available,
-            overlapping_records: records.len(),
-            truncated: records.len() > items.len(),
+            overlapping_records: rows.height(),
+            truncated: rows.height() > items.len(),
             items,
-        }
+        })
     }
 }
 
@@ -287,19 +285,6 @@ pub(in crate::server) struct GeneRecord {
     pub start: u64,
     pub end: u64,
     pub strand: String,
-}
-
-impl From<&Gene> for GeneRecord {
-    /// Copies the fields exposed by the inspection response.
-    fn from(gene: &Gene) -> Self {
-        Self {
-            id: gene.id.clone(),
-            name: gene.name.clone(),
-            start: gene.start(),
-            end: gene.end(),
-            strand: gene.strand.to_string(),
-        }
-    }
 }
 
 /// Reports per-position coverage for one alignment track.

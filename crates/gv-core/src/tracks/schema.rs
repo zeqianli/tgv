@@ -3,10 +3,10 @@ use crate::{
     cytoband::{Cytoband, CytobandSegment, Stain},
     error::TGVError,
     feature::Gene,
+    gene::GeneTable,
     intervals::GenomeInterval,
     reference::Reference,
     strand::Strand,
-    track::Track,
 };
 use serde::Deserialize;
 use sqlx::{FromRow, Row, mysql::MySqlRow, sqlite::SqliteRow};
@@ -71,19 +71,32 @@ impl FromRow<'_, MySqlRow> for UcscGeneRow {
 
 #[allow(non_snake_case)]
 impl UcscGeneRow {
-    // Helper function to parse BLOB of comma-separated coordinates
-    fn parse_blob_to_coords(blob: &[u8]) -> Vec<u64> {
-        let coords_str = String::from_utf8_lossy(blob);
-        coords_str
-            .trim_end_matches(',')
-            .split(',')
-            .filter_map(|s| s.parse::<u64>().ok())
-            .collect()
+    fn parse_blob_to_coords(blob: &[u8]) -> Result<Vec<u64>, TGVError> {
+        let coords = std::str::from_utf8(blob)?.trim_end_matches(',');
+        if coords.is_empty() {
+            return Ok(Vec::new());
+        }
+        coords.split(',').map(|v| Ok(v.parse::<u64>()?)).collect()
     }
 
     pub fn to_gene(self, contig_header: &ContigHeader) -> Result<Gene, TGVError> {
-        // USCS coordinates are 0-based, half-open
-        // https://genome-blog.gi.ucsc.edu/blog/2016/12/12/the-ucsc-genome-browser-coordinate-counting-systems/
+        if self.txStart >= self.txEnd
+            || self.cdsStart > self.cdsEnd
+            || self.cdsEnd > self.txEnd
+            || self.cdsStart == u64::MAX
+        {
+            return Err(TGVError::ValueError(format!(
+                "Invalid UCSC bounds for gene {}.",
+                self.name
+            )));
+        }
+        let exon_starts = Self::parse_blob_to_coords(&self.exonStarts)?;
+        if exon_starts.iter().any(|&start| start >= self.txEnd) {
+            return Err(TGVError::ValueError(format!(
+                "Invalid UCSC exon start for gene {}.",
+                self.name
+            )));
+        }
         Ok(Gene {
             id: self.name.clone(),
             name: self.name2.unwrap_or(self.name.clone()),
@@ -93,17 +106,14 @@ impl UcscGeneRow {
             transcription_end: self.txEnd,
             cds_start: self.cdsStart + 1,
             cds_end: self.cdsEnd,
-            exon_starts: Self::parse_blob_to_coords(&self.exonStarts)
-                .iter()
-                .map(|v| v + 1)
-                .collect(),
-            exon_ends: Self::parse_blob_to_coords(&self.exonEnds),
+            exon_starts: exon_starts.iter().map(|v| v + 1).collect(),
+            exon_ends: Self::parse_blob_to_coords(&self.exonEnds)?,
             has_exons: true,
         })
     }
 }
 
-impl Track<Gene> {
+impl GeneTable {
     pub fn from_gene_rows(
         gene_rows: Vec<UcscGeneRow>,
         contig_index: usize,
@@ -127,7 +137,7 @@ impl Track<Gene> {
             .map(|gene| gene.end())
             .max()
             .ok_or_else(|| TGVError::IOError("No genes found".to_string()))?;
-        Track::from_genes(
+        GeneTable::from_genes(
             genes,
             contig_index,
             (data_complete_left_bound, data_complete_right_bound),
@@ -282,7 +292,7 @@ pub enum UcscGeneResponse {
 
 #[allow(non_snake_case)]
 impl UcscGeneResponse {
-    /// Custom deserializer for strand field
+    /// Convert UCSC coordinates to one-based, inclusive gene values.
     pub fn to_gene(self, contig_index: usize) -> Result<Gene, TGVError> {
         match self {
             UcscGeneResponse::GeneResponse1 {
@@ -295,19 +305,32 @@ impl UcscGeneResponse {
                 cdsEnd,
                 exonStarts,
                 exonEnds,
-            } => Ok(Gene {
-                id: name.clone(),
-                name: name2.unwrap_or(name.clone()),
-                strand: Strand::from_str(strand)?,
-                contig_index,
-                transcription_start: txStart,
-                transcription_end: txEnd,
-                cds_start: cdsStart,
-                cds_end: cdsEnd,
-                exon_starts: Self::parse_comma_separated_list(&exonStarts)?,
-                exon_ends: Self::parse_comma_separated_list(&exonEnds)?,
-                has_exons: true,
-            }),
+            } => {
+                if txStart >= txEnd || cdsStart > cdsEnd || cdsEnd > txEnd || cdsStart == u64::MAX {
+                    return Err(TGVError::ValueError(format!(
+                        "Invalid UCSC bounds for gene {name}."
+                    )));
+                }
+                let exon_starts = Self::parse_comma_separated_list(&exonStarts)?;
+                if exon_starts.iter().any(|&start| start >= txEnd) {
+                    return Err(TGVError::ValueError(format!(
+                        "Invalid UCSC exon start for gene {name}."
+                    )));
+                }
+                Ok(Gene {
+                    id: name.clone(),
+                    name: name2.unwrap_or(name.clone()),
+                    strand: Strand::from_str(strand)?,
+                    contig_index,
+                    transcription_start: txStart + 1,
+                    transcription_end: txEnd,
+                    cds_start: cdsStart + 1,
+                    cds_end: cdsEnd,
+                    exon_starts: exon_starts.into_iter().map(|v| v + 1).collect(),
+                    exon_ends: Self::parse_comma_separated_list(&exonEnds)?,
+                    has_exons: true,
+                })
+            }
 
             UcscGeneResponse::GeneResponse2 {
                 chromStart,
@@ -316,22 +339,33 @@ impl UcscGeneResponse {
                 strand,
                 thickStart,
                 thickEnd,
-            } => Ok(Gene {
-                id: name.clone(),
-                name,
-                strand: Strand::from_str(strand)?,
-                contig_index,
-                transcription_start: chromStart,
-                transcription_end: chromEnd,
-                cds_start: thickStart,
-                cds_end: thickEnd,
-                exon_starts: vec![],
-                exon_ends: vec![],
-                has_exons: false,
-            }),
+            } => {
+                if chromStart >= chromEnd
+                    || thickStart > thickEnd
+                    || thickEnd > chromEnd
+                    || thickStart == u64::MAX
+                {
+                    return Err(TGVError::ValueError(format!(
+                        "Invalid UCSC bounds for gene {name}."
+                    )));
+                }
+                Ok(Gene {
+                    id: name.clone(),
+                    name,
+                    strand: Strand::from_str(strand)?,
+                    contig_index,
+                    transcription_start: chromStart + 1,
+                    transcription_end: chromEnd,
+                    cds_start: thickStart + 1,
+                    cds_end: thickEnd,
+                    exon_starts: vec![],
+                    exon_ends: vec![],
+                    has_exons: false,
+                })
+            }
         }
     }
-    /// Custom deserializer for comma-separated lists in UCSC response
+    /// Parse comma-separated lists in a UCSC response.
     fn parse_comma_separated_list(s: &str) -> Result<Vec<u64>, TGVError> {
         s.trim_end_matches(',')
             .split(',')

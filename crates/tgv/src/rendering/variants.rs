@@ -1,29 +1,33 @@
-use gv_core::{prelude::*, variant::VariantTrack};
-
 use crate::{
     layout::AlignmentView,
     rendering::{colors::Palette, intervals::render_simple_intervals},
 };
+use gv_core::{prelude::*, variant::VariantTable};
 use ratatui::{buffer::Buffer, layout::Rect};
 
 pub fn render_variants(
     area: &Rect,
     buf: &mut Buffer,
-    variants: &VariantTrack,
+    variants: &VariantTable,
     alignment_view: &AlignmentView,
-    pallete: &Palette,
+    palette: &Palette,
 ) -> Result<(), TGVError> {
     let region = alignment_view.region(area);
-    let variants = variants.overlapping(region.contig_index(), region.start(), region.end())?;
-    if !variants.is_empty() {
-        let first_color_index = variants[0].index % 2;
+    let rows = variants.query(region.contig_index(), region.start(), region.end())?;
+    if rows.height() > 0 {
+        let first_color = rows
+            .column("row_id")?
+            .u64()?
+            .get(0)
+            .expect("row IDs are non-null") as usize
+            % 2;
         render_simple_intervals(
             area,
             buf,
-            variants,
+            &rows,
             alignment_view,
-            vec![pallete.VCF1, pallete.VCF2],
-            first_color_index,
+            &[palette.VCF1, palette.VCF2],
+            first_color,
         )?;
     }
     Ok(())
