@@ -1,7 +1,7 @@
 use crate::{
     alignment::{
-        alignment::{Alignment, BaseEventSchema, stack_tracks_by_sort_key},
-        tables::ReadSchema,
+        alignment::{Alignment, base_sort_key_at, stack_tracks_by_sort_key},
+        tables::{CigarSchema, ReadSchema},
     },
     error::TGVError,
     message::AlignmentSort,
@@ -32,6 +32,7 @@ impl PairSchema {
     pub const STACKING_END: &'static str = ReadSchema::STACKING_END;
     pub const SHOW: &'static str = ReadSchema::SHOW;
     pub const Y: &'static str = ReadSchema::Y;
+    pub const SORT_KEY: &'static str = ReadSchema::SORT_KEY;
 
     // Temporary columns used while deriving query results.
     pub const ITEM_ID: &'static str = "item_id";
@@ -94,17 +95,13 @@ impl PairedAlignment {
             .with_row_index(PairSchema::PAIR_ID, None)
             .with_columns([
                 col(PairSchema::PAIR_ID).cast(DataType::UInt64),
-                lit(NULL)
-                    .cast(DataType::UInt8)
-                    .alias(BaseEventSchema::SORT_KEY),
+                lit(NULL).cast(DataType::UInt8).alias(PairSchema::SORT_KEY),
             ])
             .collect()?;
         let singles = reads
             .filter(eligible.not())
             .sort([ReadSchema::READ_ID], SortMultipleOptions::default())
-            .with_columns([lit(NULL)
-                .cast(DataType::UInt8)
-                .alias(BaseEventSchema::SORT_KEY)])
+            .with_columns([lit(NULL).cast(DataType::UInt8).alias(ReadSchema::SORT_KEY)])
             .collect()?;
         let mut result = Self { pairs, singles };
         result.assign_rows()?;
@@ -130,13 +127,13 @@ impl PairedAlignment {
                     col(PairSchema::SHOW),
                     col(PairSchema::STACKING_START),
                     col(PairSchema::STACKING_END),
-                    col(BaseEventSchema::SORT_KEY),
+                    col(PairSchema::SORT_KEY),
                 ]),
                 self.singles.clone().lazy().select([
                     col(ReadSchema::SHOW),
                     col(ReadSchema::STACKING_START),
                     col(ReadSchema::STACKING_END),
-                    col(BaseEventSchema::SORT_KEY),
+                    col(ReadSchema::SORT_KEY),
                 ]),
             ],
             UnionArgs::default(),
@@ -151,14 +148,14 @@ impl PairedAlignment {
             .clone()
             .lazy()
             .with_columns([lit(Series::new(PairSchema::Y.into(), pair_y)).alias(PairSchema::Y)])
-            .drop(cols([BaseEventSchema::SORT_KEY]))
+            .drop(cols([PairSchema::SORT_KEY]))
             .collect()?;
         let singles = self
             .singles
             .clone()
             .lazy()
             .with_columns([lit(Series::new(ReadSchema::Y.into(), single_y)).alias(ReadSchema::Y)])
-            .drop(cols([BaseEventSchema::SORT_KEY]))
+            .drop(cols([ReadSchema::SORT_KEY]))
             .collect()?;
         self.pairs = pairs;
         self.singles = singles;
@@ -244,18 +241,36 @@ impl PairedAlignment {
     fn sort_by_base_at(&mut self, alignment: &Alignment, position: u64) -> Result<(), TGVError> {
         alignment.ensure_position_has_complete_data(position)?;
 
-        let events = alignment.base_events(position)?;
+        let kind = col(CigarSchema::KIND);
+        let keys = alignment
+            .tables
+            .cigar_runs
+            .clone()
+            .lazy()
+            .filter(
+                kind.clone()
+                    .eq(lit(CigarSchema::MATCH))
+                    .or(kind.clone().eq(lit(CigarSchema::SEQUENCE_MATCH)))
+                    .or(kind.clone().eq(lit(CigarSchema::SEQUENCE_MISMATCH)))
+                    .or(kind.clone().eq(lit(CigarSchema::INSERTION)))
+                    .or(kind.clone().eq(lit(CigarSchema::DELETION)))
+                    .or(kind.eq(lit(CigarSchema::REFERENCE_SKIP)))
+                    .and(col(CigarSchema::DISPLAY_START).lt_eq(lit(position)))
+                    .and(col(CigarSchema::DISPLAY_END).gt_eq(lit(position))),
+            )
+            .group_by([col(CigarSchema::READ_ID)])
+            .agg([base_sort_key_at(position).min().alias(ReadSchema::SORT_KEY)]);
         let reads = alignment.tables.reads.clone().lazy().left_join(
-            events.lazy(),
+            keys,
             col(ReadSchema::READ_ID),
-            col(ReadSchema::READ_ID),
+            col(CigarSchema::READ_ID),
         );
         let mate = |[id, show, key, start, end]: [&str; 5]| {
             reads.clone().select([
                 col(ReadSchema::READ_ID).alias(id),
                 col(ReadSchema::SHOW).alias(show),
                 when(col(ReadSchema::SHOW))
-                    .then(col(BaseEventSchema::SORT_KEY))
+                    .then(col(ReadSchema::SORT_KEY))
                     .otherwise(lit(NULL).cast(DataType::UInt8))
                     .alias(key),
                 col(ReadSchema::STACKING_START).alias(start),
@@ -308,12 +323,10 @@ impl PairedAlignment {
                         .then(lit(8u8))
                         .otherwise(lit(NULL).cast(DataType::UInt8)),
                 ])
-                .alias(BaseEventSchema::SORT_KEY),
+                .alias(PairSchema::SORT_KEY),
             ])
-            .sort([PairSchema::PAIR_ID], SortMultipleOptions::default())
-            .collect()?;
+            .sort([PairSchema::PAIR_ID], SortMultipleOptions::default());
         let pairs = items
-            .lazy()
             .select([
                 col(PairSchema::PAIR_ID),
                 col(PairSchema::READ_1_ID),
@@ -321,7 +334,7 @@ impl PairedAlignment {
                 col(PairSchema::STACKING_START),
                 col(PairSchema::STACKING_END),
                 col(PairSchema::SHOW),
-                col(BaseEventSchema::SORT_KEY),
+                col(PairSchema::SORT_KEY),
             ])
             .collect()?;
         let singles = self
@@ -330,7 +343,6 @@ impl PairedAlignment {
             .lazy()
             .select([col(ReadSchema::READ_ID)])
             .left_join(reads, col(ReadSchema::READ_ID), col(ReadSchema::READ_ID))
-            .drop(cols([BaseEventSchema::BASE]))
             .sort([ReadSchema::READ_ID], SortMultipleOptions::default())
             .collect()?;
         let mut replacement = Self { pairs, singles };

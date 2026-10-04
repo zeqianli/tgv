@@ -1,10 +1,9 @@
 //! Independent columnar coverage storage, construction, and queries.
 
-use super::tables::CigarRunSchema;
+use super::tables::CigarSchema;
 use crate::{
     alignment::AlignmentViewport, error::TGVError, sequence::Sequence, table_schema::TableSchema,
 };
-use noodles::sam::alignment::record::cigar::op::Kind;
 use polars::prelude::*;
 use std::{collections::BTreeMap, sync::Arc};
 
@@ -31,24 +30,24 @@ impl CoverageTable {
         reference_sequence: &Sequence,
     ) -> Result<Self, TGVError> {
         let mut coverage: BTreeMap<u64, [u64; 7]> = BTreeMap::new();
-        let kind = col(CigarRunSchema::KIND);
+        let kind = col(CigarSchema::KIND);
         let runs = viewport
             .runs
             .clone()
             .lazy()
             .filter(
                 kind.clone()
-                    .eq(lit(Kind::Match as u8))
-                    .or(kind.clone().eq(lit(Kind::SequenceMatch as u8)))
-                    .or(kind.clone().eq(lit(Kind::SequenceMismatch as u8)))
-                    .or(kind.eq(lit(Kind::SoftClip as u8))),
+                    .eq(lit(CigarSchema::MATCH))
+                    .or(kind.clone().eq(lit(CigarSchema::SEQUENCE_MATCH)))
+                    .or(kind.clone().eq(lit(CigarSchema::SEQUENCE_MISMATCH)))
+                    .or(kind.eq(lit(CigarSchema::SOFT_CLIP))),
             )
             .collect()?;
-        let kinds = runs.column(CigarRunSchema::KIND)?.u8()?;
-        let starts = runs.column(CigarRunSchema::DISPLAY_START)?.u64()?;
-        let ends = runs.column(CigarRunSchema::DISPLAY_END)?.u64()?;
-        let offsets = runs.column(CigarRunSchema::RUN_OFFSET)?.u32()?;
-        let sequences = runs.column(CigarRunSchema::SEQ)?.str()?;
+        let kinds = runs.column(CigarSchema::KIND)?.u8()?;
+        let starts = runs.column(CigarSchema::DISPLAY_START)?.u64()?;
+        let ends = runs.column(CigarSchema::DISPLAY_END)?.u64()?;
+        let offsets = runs.column(CigarSchema::RUN_OFFSET)?.u32()?;
+        let sequences = runs.column(CigarSchema::SEQ)?.str()?;
         for row in 0..runs.height() {
             let kind = kinds.get(row).expect("CIGAR kinds are non-null");
             let start = starts.get(row).expect("queried runs have display bounds");
@@ -61,7 +60,7 @@ impl CoverageTable {
             for position in start..=end {
                 let base = sequence[offset + (position - start) as usize];
                 let counts = coverage.entry(position).or_default();
-                if kind == Kind::SoftClip as u8 {
+                if kind == CigarSchema::SOFT_CLIP {
                     counts[6] += 1;
                 } else {
                     let index = match base {

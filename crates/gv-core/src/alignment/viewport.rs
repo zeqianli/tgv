@@ -1,7 +1,7 @@
 //! Batched viewport projections of CIGAR runs and sparse annotations.
 
 use super::AlignmentTables;
-use super::tables::{BaseModificationSchema, CigarRunSchema, ReadSchema, ReferenceMismatchSchema};
+use super::tables::{BaseModificationSchema, CigarSchema, ReadSchema, ReferenceMismatchSchema};
 use crate::error::TGVError;
 use polars::lazy::dsl::{max_horizontal, min_horizontal};
 use polars::prelude::*;
@@ -31,16 +31,16 @@ impl AlignmentTables {
         );
         let membership = col(ReadSchema::READ_ID).is_in(lit(selected).implode(true), false);
         let reads = self.reads.clone().lazy().filter(membership.clone());
-        let left = max_horizontal([col(CigarRunSchema::DISPLAY_START), lit(start.max(1))])?;
-        let right = min_horizontal([col(CigarRunSchema::DISPLAY_END), lit(end)])?;
+        let left = max_horizontal([col(CigarSchema::DISPLAY_START), lit(start.max(1))])?;
+        let right = min_horizontal([col(CigarSchema::DISPLAY_END), lit(end)])?;
         let runs = self
             .cigar_runs
             .clone()
             .lazy()
             .filter(
-                col(CigarRunSchema::DISPLAY_START)
+                col(CigarSchema::DISPLAY_START)
                     .lt_eq(lit(end))
-                    .and(col(CigarRunSchema::DISPLAY_END).gt_eq(lit(start.max(1))))
+                    .and(col(CigarSchema::DISPLAY_END).gt_eq(lit(start.max(1))))
                     .and(lit(start.max(1) <= end)),
             )
             .inner_join(
@@ -49,19 +49,19 @@ impl AlignmentTables {
                     col(ReadSchema::Y),
                     col(ReadSchema::REVERSE),
                 ]),
-                col(CigarRunSchema::READ_ID),
+                col(CigarSchema::READ_ID),
                 col(ReadSchema::READ_ID),
             )
             .with_columns([
-                (left.clone() - col(CigarRunSchema::DISPLAY_START)
-                    + col(CigarRunSchema::RUN_OFFSET).cast(DataType::UInt64))
+                (left.clone() - col(CigarSchema::DISPLAY_START)
+                    + col(CigarSchema::RUN_OFFSET).cast(DataType::UInt64))
                 .cast(DataType::UInt32)
-                .alias(CigarRunSchema::RUN_OFFSET),
-                left.alias(CigarRunSchema::DISPLAY_START),
-                right.alias(CigarRunSchema::DISPLAY_END),
+                .alias(CigarSchema::RUN_OFFSET),
+                left.alias(CigarSchema::DISPLAY_START),
+                right.alias(CigarSchema::DISPLAY_END),
             ])
             .sort(
-                [CigarRunSchema::READ_ID, CigarRunSchema::OP_INDEX],
+                [CigarSchema::READ_ID, CigarSchema::OP_INDEX],
                 SortMultipleOptions::default(),
             )
             .collect()?;

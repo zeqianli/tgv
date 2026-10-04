@@ -7,17 +7,11 @@ use crate::{
 use gv_core::{
     alignment::{
         Alignment, AlignmentViewport, PairSchema, PairedAlignment,
-        tables::{
-            BaseModificationSchema, CigarRunSchema, ReadSchema, ReferenceMismatchSchema,
-            decode_cigar_kind,
-        },
+        tables::{BaseModificationSchema, CigarSchema, ReadSchema, ReferenceMismatchSchema},
     },
     prelude::*,
 };
-use noodles::sam::{
-    alignment::record::cigar::op::Kind,
-    record::data::field::value::base_modifications::group::Modification,
-};
+use noodles::sam::record::data::field::value::base_modifications::group::Modification;
 use polars::prelude::*;
 use ratatui::{
     buffer::Buffer,
@@ -29,7 +23,7 @@ use std::collections::HashMap;
 /// A scratch terminal cell for the current frame, never retained by an alignment.
 #[derive(Clone, Copy)]
 struct Paint {
-    kind: Kind,
+    kind: u8,
     op_index: u32,
     start: u64,
     end: u64,
@@ -42,7 +36,7 @@ struct Paint {
 }
 
 impl Paint {
-    fn new(kind: Kind, op_index: u32, start: u64, end: u64) -> Self {
+    fn new(kind: u8, op_index: u32, start: u64, end: u64) -> Self {
         Self {
             kind,
             op_index,
@@ -278,17 +272,26 @@ fn paint_runs(
         .map(|id| (id as usize, vec![None; usize::from(area.width)]))
         .collect::<HashMap<_, _>>();
     let runs = &viewport.runs;
-    let kinds = runs.column(CigarRunSchema::KIND)?.u8()?;
-    let ids = runs.column(CigarRunSchema::READ_ID)?.u64()?;
-    let indexes = runs.column(CigarRunSchema::OP_INDEX)?.u32()?;
-    let starts = runs.column(CigarRunSchema::DISPLAY_START)?.u64()?;
-    let ends = runs.column(CigarRunSchema::DISPLAY_END)?.u64()?;
-    let offsets = runs.column(CigarRunSchema::RUN_OFFSET)?.u32()?;
-    let sequences = runs.column(CigarRunSchema::SEQ)?.str()?;
+    let kinds = runs.column(CigarSchema::KIND)?.u8()?;
+    let ids = runs.column(CigarSchema::READ_ID)?.u64()?;
+    let indexes = runs.column(CigarSchema::OP_INDEX)?.u32()?;
+    let starts = runs.column(CigarSchema::DISPLAY_START)?.u64()?;
+    let ends = runs.column(CigarSchema::DISPLAY_END)?.u64()?;
+    let offsets = runs.column(CigarSchema::RUN_OFFSET)?.u32()?;
+    let sequences = runs.column(CigarSchema::SEQ)?.str()?;
     // Viewport rows retain CIGAR order, which decides overlapping terminal cells.
     for row in 0..runs.height() {
-        let kind = decode_cigar_kind(kinds.get(row).expect("CIGAR kinds are non-null"))?;
-        if matches!(kind, Kind::Insertion | Kind::HardClip | Kind::Pad) {
+        let kind = kinds.get(row).expect("CIGAR kinds are non-null");
+        if !(CigarSchema::MATCH..=CigarSchema::SEQUENCE_MISMATCH).contains(&kind) {
+            return Err(PolarsError::ComputeError(
+                format!("Invalid CIGAR kind code: {kind}.").into(),
+            )
+            .into());
+        }
+        if matches!(
+            kind,
+            CigarSchema::INSERTION | CigarSchema::HARD_CLIP | CigarSchema::PADDING
+        ) {
             continue;
         }
         let id = ids.get(row).expect("run IDs are non-null") as usize;
@@ -297,13 +300,23 @@ fn paint_runs(
         let end = ends.get(row).expect("queried runs have display bounds");
         let offset = offsets.get(row).expect("queried runs have offsets") as usize;
         let sequence = sequences.get(row).map(str::as_bytes);
-        if kind.consumes_read() && sequence.is_none() {
+        if matches!(
+            kind,
+            CigarSchema::MATCH
+                | CigarSchema::SOFT_CLIP
+                | CigarSchema::SEQUENCE_MATCH
+                | CigarSchema::SEQUENCE_MISMATCH
+        ) && sequence.is_none()
+        {
             continue;
         }
         let target = cells
             .get_mut(&id)
             .expect("queried runs belong to selected reads");
-        if matches!(kind, Kind::SoftClip | Kind::SequenceMismatch) {
+        if matches!(
+            kind,
+            CigarSchema::SOFT_CLIP | CigarSchema::SEQUENCE_MISMATCH
+        ) {
             for position in start..=end {
                 let Some(x) = pixel(position, view, area) else {
                     continue;
@@ -311,7 +324,7 @@ fn paint_runs(
                 let base = sequence.expect("base-bearing CIGAR kinds have SEQ strings")
                     [offset + (position - start) as usize];
                 let mut paint = Paint::new(kind, index, position, position);
-                if kind == Kind::SoftClip {
+                if kind == CigarSchema::SOFT_CLIP {
                     paint.softclip = Some(base)
                 } else {
                     paint.mismatch = Some((position, base))
@@ -354,9 +367,9 @@ fn paint_runs(
             }
         }
     }
-    let lengths = runs.column(CigarRunSchema::OP_LEN)?.u32()?;
+    let lengths = runs.column(CigarSchema::OP_LEN)?.u32()?;
     for row in 0..runs.height() {
-        if kinds.get(row) != Some(Kind::Insertion as u8) {
+        if kinds.get(row) != Some(CigarSchema::INSERTION) {
             continue;
         }
         let Some(x) = pixel(
@@ -373,7 +386,7 @@ fn paint_runs(
         target
             .get_or_insert_with(|| {
                 Paint::new(
-                    Kind::Insertion,
+                    CigarSchema::INSERTION,
                     indexes.get(row).expect("run indexes are non-null"),
                     starts.get(row).expect("insertions have anchors"),
                     starts.get(row).expect("insertions have anchors"),
@@ -467,8 +480,10 @@ fn merge_pair_cell(first: Paint, second: Paint) -> Paint {
         return first;
     }
     let class = |kind| match kind {
-        Kind::Match | Kind::SequenceMatch | Kind::SequenceMismatch => Kind::Match,
-        Kind::Deletion | Kind::Skip => Kind::Deletion,
+        CigarSchema::MATCH | CigarSchema::SEQUENCE_MATCH | CigarSchema::SEQUENCE_MISMATCH => {
+            CigarSchema::MATCH
+        }
+        CigarSchema::DELETION | CigarSchema::REFERENCE_SKIP => CigarSchema::DELETION,
         kind => kind,
     };
     let mut result = first;
@@ -509,13 +524,15 @@ fn draw_cell(paint: Paint, x: usize, y: usize, buf: &mut Buffer, area: &Rect, pa
         return;
     };
     let style = match paint.kind {
-        Kind::Match | Kind::SequenceMatch | Kind::SequenceMismatch => Style::default()
-            .bg(palette.MATCH_COLOR)
-            .fg(palette.MATCH_FG_COLOR),
-        Kind::Deletion | Kind::Skip => Style::default()
+        CigarSchema::MATCH | CigarSchema::SEQUENCE_MATCH | CigarSchema::SEQUENCE_MISMATCH => {
+            Style::default()
+                .bg(palette.MATCH_COLOR)
+                .fg(palette.MATCH_FG_COLOR)
+        }
+        CigarSchema::DELETION | CigarSchema::REFERENCE_SKIP => Style::default()
             .bg(palette.background)
             .fg(palette.DELETION_COLOR),
-        Kind::SoftClip => Style::default()
+        CigarSchema::SOFT_CLIP => Style::default()
             .bg(palette.softclip_color(paint.softclip.expect("soft-clip cells have a base"))),
         _ => Style::default().bg(palette.background),
     };

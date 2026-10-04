@@ -1,34 +1,14 @@
 use crate::alignment::{
     coverage::CoverageTable,
-    tables::{AlignmentTables, CigarRunSchema, ReadSchema},
+    tables::{AlignmentTables, CigarSchema, ReadSchema},
     viewport::AlignmentViewport,
 };
 use crate::error::TGVError;
 use crate::intervals::{GenomeInterval, Region};
 use crate::message::{AlignmentFilter, AlignmentSort};
 use crate::sequence::Sequence;
-use crate::table_schema::TableSchema;
 use noodles::sam::alignment::RecordBuf;
 use polars::prelude::*;
-
-/// Per-read bases and sorting priorities at one reference position.
-pub(super) struct BaseEventSchema;
-
-impl BaseEventSchema {
-    pub const READ_ID: &'static str = ReadSchema::READ_ID;
-    pub const BASE: &'static str = "base";
-    pub const SORT_KEY: &'static str = "sort_key";
-}
-
-impl TableSchema for BaseEventSchema {
-    fn schema() -> SchemaRef {
-        let mut schema = Schema::with_capacity(3);
-        schema.insert(Self::READ_ID.into(), DataType::UInt64);
-        schema.insert(Self::BASE.into(), DataType::String);
-        schema.insert(Self::SORT_KEY.into(), DataType::UInt8);
-        std::sync::Arc::new(schema)
-    }
-}
 
 /// An alignment stack
 #[derive(Debug)]
@@ -221,54 +201,65 @@ impl Alignment {
         filter: AlignmentFilter,
         reference_sequence: &Sequence,
     ) -> Result<(), TGVError> {
-        let selected = match filter {
+        let predicate = match filter {
             AlignmentFilter::Base(position, base) => {
-                let events = self
-                    .base_events(position)?
-                    .lazy()
-                    .filter(col(BaseEventSchema::BASE).eq(lit(base.to_string())))
-                    .select([col(ReadSchema::READ_ID)])
-                    .collect()?;
-                events
-                    .column(ReadSchema::READ_ID)?
-                    .u64()?
-                    .into_no_null_iter()
-                    .map(|id| id as usize)
-                    .collect::<Vec<_>>()
+                let kind = col(CigarSchema::KIND);
+                Some(
+                    kind.clone()
+                        .eq(lit(CigarSchema::MATCH))
+                        .or(kind.clone().eq(lit(CigarSchema::SEQUENCE_MATCH)))
+                        .or(kind.eq(lit(CigarSchema::SEQUENCE_MISMATCH)))
+                        .and(col(CigarSchema::DISPLAY_START).lt_eq(lit(position)))
+                        .and(col(CigarSchema::DISPLAY_END).gt_eq(lit(position)))
+                        .and(
+                            col(CigarSchema::SEQ)
+                                .str()
+                                .slice(
+                                    (lit(position as i128)
+                                        - col(CigarSchema::REF_START).cast(DataType::Int128))
+                                    .cast(DataType::Int64),
+                                    lit(1u64),
+                                )
+                                .eq(lit(base.to_string())),
+                        ),
+                )
             }
-            AlignmentFilter::BaseSoftclip(position) => {
-                let ids = (0..self.records.len()).collect::<Vec<_>>();
-                let viewport = self.tables.viewport(position, position, &ids)?;
-                let clips = viewport
-                    .runs
-                    .lazy()
-                    .filter(col(CigarRunSchema::KIND).eq(lit(
-                        noodles::sam::alignment::record::cigar::op::Kind::SoftClip as u8,
-                    )))
-                    .select([col(CigarRunSchema::READ_ID)])
-                    .collect()?;
-                clips
-                    .column(CigarRunSchema::READ_ID)?
-                    .u64()?
-                    .into_no_null_iter()
-                    .map(|id| id as usize)
-                    .collect()
-            }
-            _ => (0..self.records.len()).collect(),
+            AlignmentFilter::BaseSoftclip(position) => Some(
+                col(CigarSchema::KIND)
+                    .eq(lit(CigarSchema::SOFT_CLIP))
+                    .and(col(CigarSchema::DISPLAY_START).lt_eq(lit(position)))
+                    .and(col(CigarSchema::DISPLAY_END).gt_eq(lit(position))),
+            ),
+            _ => None,
         };
-        let selected = Series::new(
-            ReadSchema::READ_ID.into(),
-            selected.into_iter().map(|id| id as u64).collect::<Vec<_>>(),
-        );
-        let reads = self
-            .tables
-            .reads
-            .clone()
-            .lazy()
-            .with_columns([col(ReadSchema::READ_ID)
-                .is_in(lit(selected).implode(true), false)
-                .and(col(ReadSchema::STACKING_START).is_not_null())
+        let reads = self.tables.reads.clone().lazy();
+        let reads = if let Some(predicate) = predicate {
+            let selected = self
+                .tables
+                .cigar_runs
+                .clone()
+                .lazy()
+                .filter(predicate)
+                .group_by([col(CigarSchema::READ_ID)])
+                .agg([lit(true).alias(ReadSchema::SHOW)]);
+            reads
+                .drop(cols([ReadSchema::SHOW]))
+                .left_join(
+                    selected,
+                    col(ReadSchema::READ_ID),
+                    col(CigarSchema::READ_ID),
+                )
+                .with_columns([col(ReadSchema::SHOW)
+                    .fill_null(lit(false))
+                    .and(col(ReadSchema::STACKING_START).is_not_null())
+                    .alias(ReadSchema::SHOW)])
+        } else {
+            reads.with_columns([col(ReadSchema::STACKING_START)
+                .is_not_null()
                 .alias(ReadSchema::SHOW)])
+        };
+        let reads = reads
+            .sort([ReadSchema::READ_ID], SortMultipleOptions::default())
             .collect()?;
         let y = stack_tracks(&reads, 3)?;
         self.tables.reads = reads
@@ -292,19 +283,31 @@ impl Alignment {
     fn sort_by_base_at(&mut self, position: u64) -> Result<(), TGVError> {
         self.ensure_position_has_complete_data(position)?;
 
-        let events = self.base_events(position)?;
+        let kind = col(CigarSchema::KIND);
+        let keys = self
+            .tables
+            .cigar_runs
+            .clone()
+            .lazy()
+            .filter(
+                kind.clone()
+                    .eq(lit(CigarSchema::MATCH))
+                    .or(kind.clone().eq(lit(CigarSchema::SEQUENCE_MATCH)))
+                    .or(kind.clone().eq(lit(CigarSchema::SEQUENCE_MISMATCH)))
+                    .or(kind.clone().eq(lit(CigarSchema::INSERTION)))
+                    .or(kind.clone().eq(lit(CigarSchema::DELETION)))
+                    .or(kind.eq(lit(CigarSchema::REFERENCE_SKIP)))
+                    .and(col(CigarSchema::DISPLAY_START).lt_eq(lit(position)))
+                    .and(col(CigarSchema::DISPLAY_END).gt_eq(lit(position))),
+            )
+            .group_by([col(CigarSchema::READ_ID)])
+            .agg([base_sort_key_at(position).min().alias(ReadSchema::SORT_KEY)]);
         let items = self
             .tables
             .reads
             .clone()
             .lazy()
-            .left_join(
-                events
-                    .lazy()
-                    .select([col(ReadSchema::READ_ID), col(BaseEventSchema::SORT_KEY)]),
-                col(ReadSchema::READ_ID),
-                col(ReadSchema::READ_ID),
-            )
+            .left_join(keys, col(ReadSchema::READ_ID), col(CigarSchema::READ_ID))
             .sort([ReadSchema::READ_ID], SortMultipleOptions::default())
             .collect()?;
         let y = stack_tracks_by_sort_key(&items, ReadSchema::READ_ID, 3)?;
@@ -317,81 +320,41 @@ impl Alignment {
             .collect()?;
         Ok(())
     }
+}
 
-    /// Query aligned bases and event priorities at a one-based position.
-    pub(super) fn base_events(&self, position: u64) -> Result<DataFrame, TGVError> {
-        use noodles::sam::alignment::record::cigar::op::Kind;
-        let kind = col(CigarRunSchema::KIND);
-        let aligned = kind
-            .clone()
-            .eq(lit(Kind::Match as u8))
-            .or(kind.clone().eq(lit(Kind::SequenceMatch as u8)))
-            .or(kind.clone().eq(lit(Kind::SequenceMismatch as u8)));
-        let insertion = kind.clone().eq(lit(Kind::Insertion as u8));
-        let deletion = kind
-            .clone()
-            .eq(lit(Kind::Deletion as u8))
-            .or(kind.eq(lit(Kind::Skip as u8)));
-        let hit = when(insertion.clone())
-            .then(col(CigarRunSchema::REF_START).eq(lit(position)))
-            .otherwise(
-                col(CigarRunSchema::REF_START).lt_eq(lit(position)).and(
-                    (col(CigarRunSchema::REF_START)
-                        + col(CigarRunSchema::OP_LEN).cast(DataType::UInt64))
-                    .gt(lit(position)),
-                ),
-            );
-        let base = when(aligned.clone())
-            .then(col(CigarRunSchema::SEQ).str().slice(
-                (lit(position) - col(CigarRunSchema::REF_START)).cast(DataType::Int64),
-                lit(1u64),
-            ))
-            .otherwise(lit(NULL).cast(DataType::String));
-        let upper = col(BaseEventSchema::BASE).str().to_uppercase();
-        let rank = when(insertion.clone())
-            .then(lit(7u8))
-            .when(deletion.clone())
-            .then(lit(6u8))
-            .when(col(BaseEventSchema::BASE).is_null())
-            .then(lit(NULL).cast(DataType::UInt8))
-            .when(upper.clone().eq(lit("A")))
-            .then(lit(0u8))
-            .when(upper.clone().eq(lit("T")))
-            .then(lit(1u8))
-            .when(upper.clone().eq(lit("C")))
-            .then(lit(2u8))
-            .when(upper.clone().eq(lit("G")))
-            .then(lit(3u8))
-            .when(upper.eq(lit("N")))
-            .then(lit(4u8))
-            .otherwise(lit(5u8));
-        let events = self
-            .tables
-            .cigar_runs
-            .clone()
-            .lazy()
-            .filter(aligned.or(insertion).or(deletion).and(hit))
-            .with_columns([base.alias(BaseEventSchema::BASE)])
-            .select([
-                col(BaseEventSchema::READ_ID),
-                col(BaseEventSchema::BASE),
-                rank.cast(DataType::UInt8).alias(BaseEventSchema::SORT_KEY),
-            ])
-            .group_by([col(BaseEventSchema::READ_ID)])
-            .agg([
-                col(BaseEventSchema::BASE).drop_nulls().first(),
-                col(BaseEventSchema::SORT_KEY).min(),
-            ]);
-        Ok(self
-            .tables
-            .reads
-            .clone()
-            .lazy()
-            .select([col(ReadSchema::READ_ID)])
-            .left_join(events, col(ReadSchema::READ_ID), col(ReadSchema::READ_ID))
-            .sort([ReadSchema::READ_ID], SortMultipleOptions::default())
-            .collect()?)
-    }
+/// Rank CIGAR events in a query without collecting a separate base-event table.
+pub(super) fn base_sort_key_at(position: u64) -> Expr {
+    let kind = col(CigarSchema::KIND);
+    let base = col(CigarSchema::SEQ)
+        .str()
+        .slice(
+            (lit(position as i128) - col(CigarSchema::REF_START).cast(DataType::Int128))
+                .cast(DataType::Int64),
+            lit(1u64),
+        )
+        .str()
+        .to_uppercase();
+    when(kind.clone().eq(lit(CigarSchema::INSERTION)))
+        .then(lit(7u8))
+        .when(
+            kind.clone()
+                .eq(lit(CigarSchema::DELETION))
+                .or(kind.eq(lit(CigarSchema::REFERENCE_SKIP))),
+        )
+        .then(lit(6u8))
+        .when(base.clone().is_null())
+        .then(lit(NULL).cast(DataType::UInt8))
+        .when(base.clone().eq(lit("A")))
+        .then(lit(0u8))
+        .when(base.clone().eq(lit("T")))
+        .then(lit(1u8))
+        .when(base.clone().eq(lit("C")))
+        .then(lit(2u8))
+        .when(base.clone().eq(lit("G")))
+        .then(lit(3u8))
+        .when(base.eq(lit("N")))
+        .then(lit(4u8))
+        .otherwise(lit(5u8))
 }
 
 pub(super) fn stack_tracks(items: &DataFrame, min_gap: u64) -> Result<Vec<u64>, TGVError> {
@@ -422,33 +385,28 @@ pub(super) fn stack_tracks_by_sort_key(
     id_column: &str,
     min_gap: u64,
 ) -> Result<Vec<u64>, TGVError> {
-    let visible = items.clone().lazy().filter(col(ReadSchema::SHOW));
-    let sorted = visible
+    let sorted = items
         .clone()
-        .filter(col(BaseEventSchema::SORT_KEY).is_not_null())
+        .lazy()
+        .filter(col(ReadSchema::SHOW))
         .sort(
-            [BaseEventSchema::SORT_KEY, id_column],
-            SortMultipleOptions::default(),
+            [ReadSchema::SORT_KEY, id_column],
+            SortMultipleOptions::default().with_nulls_last(true),
         )
         .collect()?;
+    let ranked = sorted.height() - sorted.column(ReadSchema::SORT_KEY)?.null_count();
     let mut ys = vec![0; items.height()];
-    let mut track_left_bounds = Vec::with_capacity(sorted.height());
-    let mut track_right_bounds = Vec::with_capacity(sorted.height());
+    let mut track_left_bounds = Vec::with_capacity(ranked);
+    let mut track_right_bounds = Vec::with_capacity(ranked);
     let ids = sorted.column(id_column)?.u64()?;
     let starts = sorted.column(ReadSchema::STACKING_START)?.u64()?;
     let ends = sorted.column(ReadSchema::STACKING_END)?.u64()?;
-    for row in 0..sorted.height() {
+    for row in 0..ranked {
         ys[ids.get(row).expect("item IDs are non-null") as usize] = row as u64;
         track_left_bounds.push(starts.get(row).expect("visible items have bounds"));
         track_right_bounds.push(ends.get(row).expect("visible items have bounds"));
     }
-    let remaining = visible
-        .filter(col(BaseEventSchema::SORT_KEY).is_null())
-        .collect()?;
-    let ids = remaining.column(id_column)?.u64()?;
-    let starts = remaining.column(ReadSchema::STACKING_START)?.u64()?;
-    let ends = remaining.column(ReadSchema::STACKING_END)?.u64()?;
-    for row in 0..remaining.height() {
+    for row in ranked..sorted.height() {
         let id = ids.get(row).expect("item IDs are non-null") as usize;
         ys[id] = find_track(
             starts.get(row).expect("visible items have bounds"),

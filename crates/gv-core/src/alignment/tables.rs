@@ -42,7 +42,7 @@ impl Default for AlignmentTables {
     fn default() -> Self {
         Self {
             reads: ReadSchema::empty(),
-            cigar_runs: CigarRunSchema::empty(),
+            cigar_runs: CigarSchema::empty(),
             unmapped: UnmappedReadSchema::empty(),
             reference_mismatches: ReferenceMismatchSchema::empty(),
             base_modifications: BaseModificationSchema::empty(),
@@ -244,17 +244,17 @@ fn build_batch(
     let cigar_runs = DataFrame::new(
         run_read_id.len(),
         vec![
-            Column::new(CigarRunSchema::READ_ID.into(), run_read_id),
-            Column::new(CigarRunSchema::OP_INDEX.into(), run_op_index),
-            Column::new(CigarRunSchema::KIND.into(), run_kind),
-            Column::new(CigarRunSchema::REF_ID.into(), run_ref_id),
-            Column::new(CigarRunSchema::REF_START.into(), run_ref_start),
-            Column::new(CigarRunSchema::OP_LEN.into(), run_op_len),
-            Column::new(CigarRunSchema::SEQ.into(), run_seq),
-            binary_column(CigarRunSchema::QUAL, &run_qual),
-            Column::new(CigarRunSchema::DISPLAY_START.into(), run_display_start),
-            Column::new(CigarRunSchema::DISPLAY_END.into(), run_display_end),
-            Column::new(CigarRunSchema::RUN_OFFSET.into(), run_offset),
+            Column::new(CigarSchema::READ_ID.into(), run_read_id),
+            Column::new(CigarSchema::OP_INDEX.into(), run_op_index),
+            Column::new(CigarSchema::KIND.into(), run_kind),
+            Column::new(CigarSchema::REF_ID.into(), run_ref_id),
+            Column::new(CigarSchema::REF_START.into(), run_ref_start),
+            Column::new(CigarSchema::OP_LEN.into(), run_op_len),
+            Column::new(CigarSchema::SEQ.into(), run_seq),
+            binary_column(CigarSchema::QUAL, &run_qual),
+            Column::new(CigarSchema::DISPLAY_START.into(), run_display_start),
+            Column::new(CigarSchema::DISPLAY_END.into(), run_display_end),
+            Column::new(CigarSchema::RUN_OFFSET.into(), run_offset),
         ],
     )?;
     let unmapped = DataFrame::new(
@@ -378,7 +378,17 @@ fn append_runs(
         let len = op.len();
         run_read_id.push(id);
         run_op_index.push(op_idx as u32);
-        run_kind.push(kind as u8);
+        run_kind.push(match kind {
+            Kind::Match => CigarSchema::MATCH,
+            Kind::Insertion => CigarSchema::INSERTION,
+            Kind::Deletion => CigarSchema::DELETION,
+            Kind::Skip => CigarSchema::REFERENCE_SKIP,
+            Kind::SoftClip => CigarSchema::SOFT_CLIP,
+            Kind::HardClip => CigarSchema::HARD_CLIP,
+            Kind::Pad => CigarSchema::PADDING,
+            Kind::SequenceMatch => CigarSchema::SEQUENCE_MATCH,
+            Kind::SequenceMismatch => CigarSchema::SEQUENCE_MISMATCH,
+        });
         run_ref_id.push(reference_id);
         run_ref_start.push(reference_cursor);
         run_op_len.push(len as u32);
@@ -462,24 +472,6 @@ fn append_unmapped(
     unmapped_qual.push((!quality.is_empty()).then(|| quality.to_vec()));
 }
 
-/// Decode an in-memory CIGAR kind code using noodles' operation variants.
-pub fn decode_cigar_kind(code: u8) -> PolarsResult<Kind> {
-    match code {
-        code if code == Kind::Match as u8 => Ok(Kind::Match),
-        code if code == Kind::Insertion as u8 => Ok(Kind::Insertion),
-        code if code == Kind::Deletion as u8 => Ok(Kind::Deletion),
-        code if code == Kind::Skip as u8 => Ok(Kind::Skip),
-        code if code == Kind::SoftClip as u8 => Ok(Kind::SoftClip),
-        code if code == Kind::HardClip as u8 => Ok(Kind::HardClip),
-        code if code == Kind::Pad as u8 => Ok(Kind::Pad),
-        code if code == Kind::SequenceMatch as u8 => Ok(Kind::SequenceMatch),
-        code if code == Kind::SequenceMismatch as u8 => Ok(Kind::SequenceMismatch),
-        _ => Err(PolarsError::ComputeError(
-            format!("Invalid CIGAR kind code: {code}.").into(),
-        )),
-    }
-}
-
 /// The read-level table schema.
 ///
 /// `read_id` is the zero-based row index in the original loaded reads table.
@@ -516,6 +508,9 @@ impl ReadSchema {
     pub const SUPPLEMENTARY: &'static str = "supplementary";
     pub const SHOW: &'static str = "show";
     pub const Y: &'static str = "y";
+
+    /// Temporary column used while sorting reads and pairs.
+    pub const SORT_KEY: &'static str = "sort_key";
 }
 
 impl TableSchema for ReadSchema {
@@ -551,14 +546,33 @@ impl TableSchema for ReadSchema {
 
 /// All CIGAR runs, with nullable SEQ, qualities, and one-based reference and display bounds.
 ///
-/// `kind` stores the in-memory discriminant of noodles' `Kind`, not an interchange encoding.
+/// `kind` uses the explicit BAM operation codes declared on this schema.
 /// `ref_start` retains the reference cursor. Insertions have equal display bounds;
 /// hard clips, padding, and unpositioned operations have null display bounds.
 /// Stored `run_offset` accounts for leading soft-clip bases before coordinate 1.
 /// Viewport queries clip the display bounds further and advance this offset.
-pub struct CigarRunSchema;
+pub struct CigarSchema;
 
-impl CigarRunSchema {
+impl CigarSchema {
+    /// CIGAR `M`.
+    pub const MATCH: u8 = 0;
+    /// CIGAR `I`.
+    pub const INSERTION: u8 = 1;
+    /// CIGAR `D`.
+    pub const DELETION: u8 = 2;
+    /// CIGAR `N`.
+    pub const REFERENCE_SKIP: u8 = 3;
+    /// CIGAR `S`.
+    pub const SOFT_CLIP: u8 = 4;
+    /// CIGAR `H`.
+    pub const HARD_CLIP: u8 = 5;
+    /// CIGAR `P`.
+    pub const PADDING: u8 = 6;
+    /// CIGAR `=`.
+    pub const SEQUENCE_MATCH: u8 = 7;
+    /// CIGAR `X`.
+    pub const SEQUENCE_MISMATCH: u8 = 8;
+
     pub const READ_ID: &'static str = ReadSchema::READ_ID;
     pub const OP_INDEX: &'static str = "op_index";
     pub const KIND: &'static str = "kind";
@@ -572,7 +586,7 @@ impl CigarRunSchema {
     pub const RUN_OFFSET: &'static str = "run_offset";
 }
 
-impl TableSchema for CigarRunSchema {
+impl TableSchema for CigarSchema {
     fn schema() -> SchemaRef {
         let mut schema = Schema::with_capacity(11);
         schema.insert(Self::READ_ID.into(), DataType::UInt64);
@@ -618,8 +632,8 @@ pub struct ReferenceMismatchSchema;
 
 impl ReferenceMismatchSchema {
     pub const READ_ID: &'static str = ReadSchema::READ_ID;
-    pub const OP_INDEX: &'static str = CigarRunSchema::OP_INDEX;
-    pub const RUN_OFFSET: &'static str = CigarRunSchema::RUN_OFFSET;
+    pub const OP_INDEX: &'static str = CigarSchema::OP_INDEX;
+    pub const RUN_OFFSET: &'static str = CigarSchema::RUN_OFFSET;
     pub const REF_POS: &'static str = "ref_pos";
     pub const BASE: &'static str = "base";
 }
@@ -645,8 +659,8 @@ pub struct BaseModificationSchema;
 
 impl BaseModificationSchema {
     pub const READ_ID: &'static str = ReadSchema::READ_ID;
-    pub const OP_INDEX: &'static str = CigarRunSchema::OP_INDEX;
-    pub const RUN_OFFSET: &'static str = CigarRunSchema::RUN_OFFSET;
+    pub const OP_INDEX: &'static str = CigarSchema::OP_INDEX;
+    pub const RUN_OFFSET: &'static str = CigarSchema::RUN_OFFSET;
     pub const DISPLAY_POS: &'static str = "display_pos";
     pub const CODE: &'static str = "code";
     pub const CHEBI_ID: &'static str = "chebi_id";
@@ -680,13 +694,13 @@ pub(crate) fn reference_mismatches(
     let runs = runs
         .clone()
         .lazy()
-        .filter(col(CigarRunSchema::KIND).eq(lit(Kind::Match as u8)))
+        .filter(col(CigarSchema::KIND).eq(lit(CigarSchema::MATCH)))
         .collect()?;
-    let ids = runs.column(CigarRunSchema::READ_ID)?.u64()?;
-    let indexes = runs.column(CigarRunSchema::OP_INDEX)?.u32()?;
-    let starts = runs.column(CigarRunSchema::REF_START)?.u64()?;
-    let lengths = runs.column(CigarRunSchema::OP_LEN)?.u32()?;
-    let sequences = runs.column(CigarRunSchema::SEQ)?.str()?;
+    let ids = runs.column(CigarSchema::READ_ID)?.u64()?;
+    let indexes = runs.column(CigarSchema::OP_INDEX)?.u32()?;
+    let starts = runs.column(CigarSchema::REF_START)?.u64()?;
+    let lengths = runs.column(CigarSchema::OP_LEN)?.u32()?;
+    let sequences = runs.column(CigarSchema::SEQ)?.str()?;
     let mut read_id = Vec::new();
     let mut op_index = Vec::new();
     let mut run_offset = Vec::new();
@@ -919,7 +933,7 @@ mod tests {
     };
 
     use crate::{
-        alignment::{Alignment, CoverageSchema, alignment::BaseEventSchema, tables},
+        alignment::{Alignment, CoverageSchema, tables},
         sequence::Sequence,
     };
     use noodles::sam::alignment::{
@@ -1013,15 +1027,36 @@ mod tests {
         )
         .unwrap();
 
-        let base_at = |pos| {
-            alignment
-                .base_events(pos)
-                .unwrap()
-                .column(ReferenceMismatchSchema::BASE)
+        let base_at = |pos: u64| {
+            let kind = col(CigarSchema::KIND);
+            let bases = alignment
+                .tables
+                .cigar_runs
+                .clone()
+                .lazy()
+                .filter(
+                    kind.clone()
+                        .eq(lit(CigarSchema::MATCH))
+                        .or(kind.clone().eq(lit(CigarSchema::SEQUENCE_MATCH)))
+                        .or(kind.eq(lit(CigarSchema::SEQUENCE_MISMATCH)))
+                        .and(col(CigarSchema::DISPLAY_START).lt_eq(lit(pos)))
+                        .and(col(CigarSchema::DISPLAY_END).gt_eq(lit(pos))),
+                )
+                .select([col(CigarSchema::SEQ).str().slice(
+                    (lit(pos as i128) - col(CigarSchema::REF_START).cast(DataType::Int128))
+                        .cast(DataType::Int64),
+                    lit(1u64),
+                )])
+                .collect()
+                .unwrap();
+            bases
+                .column(CigarSchema::SEQ)
                 .unwrap()
                 .str()
                 .unwrap()
-                .get(0)
+                .iter()
+                .next()
+                .flatten()
                 .map(|base| base.as_bytes()[0])
         };
 
@@ -1060,16 +1095,24 @@ mod tests {
         )
         .unwrap();
 
-        let is_deletion_at = |pos| {
+        let is_deletion_at = |pos: u64| {
+            let kind = col(CigarSchema::KIND);
             alignment
-                .base_events(pos)
+                .tables
+                .cigar_runs
+                .clone()
+                .lazy()
+                .filter(
+                    kind.clone()
+                        .eq(lit(CigarSchema::DELETION))
+                        .or(kind.eq(lit(CigarSchema::REFERENCE_SKIP)))
+                        .and(col(CigarSchema::DISPLAY_START).lt_eq(lit(pos)))
+                        .and(col(CigarSchema::DISPLAY_END).gt_eq(lit(pos))),
+                )
+                .collect()
                 .unwrap()
-                .column(BaseEventSchema::SORT_KEY)
-                .unwrap()
-                .u8()
-                .unwrap()
-                .get(0)
-                == Some(6)
+                .height()
+                > 0
         };
 
         assert!(!is_deletion_at(9));
@@ -1114,9 +1157,9 @@ mod tests {
                 .clone()
                 .lazy()
                 .filter(
-                    col(CigarRunSchema::KIND)
-                        .eq(lit(Kind::Insertion as u8))
-                        .and(col(CigarRunSchema::REF_START).eq(lit(pos))),
+                    col(CigarSchema::KIND)
+                        .eq(lit(CigarSchema::INSERTION))
+                        .and(col(CigarSchema::REF_START).eq(lit(pos))),
                 )
                 .collect()
                 .unwrap()
@@ -1156,7 +1199,7 @@ mod tests {
                 .unwrap()
                 .runs
                 .lazy()
-                .filter(col(CigarRunSchema::KIND).eq(lit(Kind::SoftClip as u8)))
+                .filter(col(CigarSchema::KIND).eq(lit(CigarSchema::SOFT_CLIP)))
                 .collect()
                 .unwrap()
                 .height()
@@ -1409,7 +1452,7 @@ mod tests {
             alignment
                 .tables
                 .cigar_runs
-                .column(CigarRunSchema::REF_START)
+                .column(CigarSchema::REF_START)
                 .unwrap()
                 .u64()
                 .unwrap()
@@ -1446,28 +1489,31 @@ mod tests {
         let viewport = alignment.tables.viewport(1, 100, &[0]).unwrap();
         let mut actual = Vec::new();
         let frame = &viewport.runs;
-        let kinds = frame.column(CigarRunSchema::KIND).unwrap().u8().unwrap();
+        let kinds = frame.column(CigarSchema::KIND).unwrap().u8().unwrap();
         for row in 0..frame.height() {
-            let kind = decode_cigar_kind(kinds.get(row).unwrap()).unwrap();
-            if matches!(kind, Kind::Insertion | Kind::HardClip | Kind::Pad) {
+            let kind = kinds.get(row).unwrap();
+            if matches!(
+                kind,
+                CigarSchema::INSERTION | CigarSchema::HARD_CLIP | CigarSchema::PADDING
+            ) {
                 continue;
             }
             let start = frame
-                .column(CigarRunSchema::DISPLAY_START)
+                .column(CigarSchema::DISPLAY_START)
                 .unwrap()
                 .u64()
                 .unwrap()
                 .get(row)
                 .unwrap();
             let end = frame
-                .column(CigarRunSchema::DISPLAY_END)
+                .column(CigarSchema::DISPLAY_END)
                 .unwrap()
                 .u64()
                 .unwrap()
                 .get(row)
                 .unwrap();
             let index = frame
-                .column(CigarRunSchema::OP_INDEX)
+                .column(CigarSchema::OP_INDEX)
                 .unwrap()
                 .u32()
                 .unwrap()
@@ -1503,15 +1549,22 @@ mod tests {
                 }
             }
             let offset = frame
-                .column(CigarRunSchema::RUN_OFFSET)
+                .column(CigarSchema::RUN_OFFSET)
                 .unwrap()
                 .u32()
                 .unwrap()
                 .get(row)
                 .unwrap() as usize;
-            let sequence = if kind.consumes_read() {
+            let sequence = if matches!(
+                kind,
+                CigarSchema::MATCH
+                    | CigarSchema::INSERTION
+                    | CigarSchema::SOFT_CLIP
+                    | CigarSchema::SEQUENCE_MATCH
+                    | CigarSchema::SEQUENCE_MISMATCH
+            ) {
                 frame
-                    .column(CigarRunSchema::SEQ)
+                    .column(CigarSchema::SEQ)
                     .unwrap()
                     .str()
                     .unwrap()
@@ -1521,12 +1574,12 @@ mod tests {
             } else {
                 &[]
             };
-            if kind == Kind::SequenceMismatch {
+            if kind == CigarSchema::SEQUENCE_MISMATCH {
                 mismatches.extend(
                     (start..=end).map(|pos| (pos, sequence[offset + (pos - start) as usize])),
                 );
             }
-            if kind == Kind::SoftClip {
+            if kind == CigarSchema::SOFT_CLIP {
                 for pos in start..=end {
                     actual.push((
                         Kind::SoftClip,
@@ -1538,7 +1591,7 @@ mod tests {
                 }
             } else {
                 actual.push((
-                    if matches!(kind, Kind::Deletion | Kind::Skip) {
+                    if matches!(kind, CigarSchema::DELETION | CigarSchema::REFERENCE_SKIP) {
                         Kind::Deletion
                     } else {
                         Kind::Match
