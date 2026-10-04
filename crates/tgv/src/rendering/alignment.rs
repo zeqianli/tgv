@@ -6,7 +6,7 @@ use crate::{
 };
 use gv_core::{
     alignment::{
-        Alignment, AlignmentViewport, PairSchema, PairedAlignment,
+        Alignment, AlignmentTables, PairSchema, PairedAlignment,
         tables::{BaseModificationSchema, CigarSchema, ReadSchema, ReferenceMismatchSchema},
     },
     prelude::*,
@@ -18,7 +18,7 @@ use ratatui::{
     layout::{Position, Rect},
     style::Style,
 };
-use std::collections::HashMap;
+use std::collections::BTreeMap;
 
 /// A scratch terminal cell for the current frame, never retained by an alignment.
 #[derive(Clone, Copy)]
@@ -75,37 +75,16 @@ pub fn render_alignment(
     if region.contig_index() != alignment.contig_index {
         return Ok(());
     }
-    let rows = alignment
-        .tables
-        .reads
-        .clone()
-        .lazy()
-        .filter(
-            col(ReadSchema::SHOW)
-                .and(col(ReadSchema::STACKING_START).lt_eq(lit(region.end())))
-                .and(col(ReadSchema::STACKING_END).gt_eq(lit(region.start())))
-                .and(col(ReadSchema::Y).gt_eq(lit(view.top(index) as u64)))
-                .and(col(ReadSchema::Y).lt(lit(view.bottom(index, area) as u64))),
-        )
-        .select([col(ReadSchema::READ_ID), col(ReadSchema::Y)])
-        .collect()?;
-    let visible = rows
-        .column(ReadSchema::READ_ID)?
-        .u64()?
-        .into_no_null_iter()
-        .zip(rows.column(ReadSchema::Y)?.u64()?.into_no_null_iter())
-        .map(|(id, y)| (id as usize, y as usize - view.top(index)))
-        .collect::<Vec<_>>();
-    let ids = visible.iter().map(|(id, _)| *id).collect::<Vec<_>>();
-    if ids.is_empty() {
-        return Ok(());
-    }
-    let viewport = alignment.query_viewport(&region, &ids)?;
-    let cells = paint_runs(&viewport, view, area)?;
-    for (id, y) in visible {
-        for (x, paint) in cells[&id].iter().enumerate() {
+    let reads_filter = col(ReadSchema::SHOW)
+        .and(col(ReadSchema::STACKING_START).lt_eq(lit(region.end())))
+        .and(col(ReadSchema::STACKING_END).gt_eq(lit(region.start())))
+        .and(col(ReadSchema::Y).gt_eq(lit(view.top(index) as u64)))
+        .and(col(ReadSchema::Y).lt(lit(view.bottom(index, area) as u64)));
+    let cells = paint_runs(&alignment.tables, reads, view, area)?;
+    for (_, (y, cells)) in cells {
+        for (x, paint) in cells.iter().enumerate() {
             if let Some(paint) = paint {
-                draw_cell(*paint, x, y, buf, area, palette)
+                draw_cell(*paint, x, y as usize - view.top(index), buf, area, palette)
             }
         }
     }
@@ -150,8 +129,32 @@ pub fn render_paired_alignment(
             ]),
         ],
         UnionArgs::default(),
-    )?
-    .collect()?;
+    )?;
+    let members = concat(
+        [
+            rows.clone().select([
+                col(PairSchema::READ_1_ID).alias(ReadSchema::READ_ID),
+                col(PairSchema::Y),
+            ]),
+            rows.clone()
+                .filter(col(PairSchema::READ_2_ID).is_not_null())
+                .select([
+                    col(PairSchema::READ_2_ID).alias(ReadSchema::READ_ID),
+                    col(PairSchema::Y),
+                ]),
+        ],
+        UnionArgs::default(),
+    )?;
+    let reads = alignment
+        .tables
+        .reads
+        .clone()
+        .lazy()
+        .filter(col(ReadSchema::SHOW))
+        .drop(cols([ReadSchema::Y]))
+        .inner_join(members, col(ReadSchema::READ_ID), col(ReadSchema::READ_ID));
+    let cells = paint_runs(&alignment.tables, reads, view, area)?;
+    let rows = rows.collect()?;
     let visible = rows
         .column(PairSchema::READ_1_ID)?
         .u64()?
@@ -164,39 +167,7 @@ pub fn render_paired_alignment(
                 second.map(|id| id as usize),
                 y as usize - view.top(index),
             )
-        })
-        .collect::<Vec<_>>();
-    let selected = Series::new(
-        ReadSchema::READ_ID.into(),
-        visible
-            .iter()
-            .flat_map(|(first, second, _)| {
-                std::iter::once(*first as u64).chain(second.map(|id| id as u64))
-            })
-            .collect::<Vec<_>>(),
-    );
-    let reads = alignment
-        .tables
-        .reads
-        .clone()
-        .lazy()
-        .filter(
-            col(ReadSchema::SHOW)
-                .and(col(ReadSchema::READ_ID).is_in(lit(selected).implode(true), false)),
-        )
-        .select([col(ReadSchema::READ_ID)])
-        .collect()?;
-    let ids = reads
-        .column(ReadSchema::READ_ID)?
-        .u64()?
-        .into_no_null_iter()
-        .map(|id| id as usize)
-        .collect::<Vec<_>>();
-    if ids.is_empty() {
-        return Ok(());
-    }
-    let viewport = alignment.query_viewport(&region, &ids)?;
-    let cells = paint_runs(&viewport, view, area)?;
+        });
     let stacking_starts = alignment
         .tables
         .reads
@@ -208,8 +179,8 @@ pub fn render_paired_alignment(
         .column(ReadSchema::STACKING_END)?
         .u64()?;
     for (first, second, y) in visible {
-        let first_cells = cells.get(&first);
-        let second_cells = second.and_then(|id| cells.get(&id));
+        let first_cells = cells.get(&first).map(|(_, cells)| cells);
+        let second_cells = second.and_then(|id| cells.get(&id)).map(|(_, cells)| cells);
         let gap = first_cells.zip(second_cells).and_then(|_| {
             let second = second?;
             let first_start = stacking_starts.get(first)?;
@@ -260,18 +231,44 @@ pub fn render_paired_alignment(
 }
 
 fn paint_runs(
-    viewport: &AlignmentViewport,
+    tables: &AlignmentTables,
+    reads_filter: Expr,
     view: &AlignmentView,
     area: &Rect,
-) -> PolarsResult<HashMap<usize, Vec<Option<Paint>>>> {
-    let mut cells = viewport
+) -> PolarsResult<BTreeMap<usize, (u64, Vec<Option<Paint>>)>> {
+    let region = view.region(area);
+    let runs = tables
         .reads
-        .column(ReadSchema::READ_ID)?
-        .u64()?
-        .into_no_null_iter()
-        .map(|id| (id as usize, vec![None; usize::from(area.width)]))
-        .collect::<HashMap<_, _>>();
-    let runs = &viewport.runs;
+        .clone()
+        .lazy()
+        .filter(reads_filter)
+        .select([
+            col(ReadSchema::READ_ID),
+            col(ReadSchema::Y),
+            col(ReadSchema::REVERSE),
+            col(ReadSchema::STACKING_START),
+            col(ReadSchema::STACKING_END),
+        ])
+        .left_join(
+            tables.cigar_runs.clone().lazy().filter(
+                col(CigarSchema::DISPLAY_START)
+                    .lt_eq(lit(region.end()))
+                    .and(col(CigarSchema::DISPLAY_END).gt_eq(lit(region.start()))),
+            ),
+            col(ReadSchema::READ_ID),
+            col(CigarSchema::READ_ID),
+        )
+        .sort(
+            [ReadSchema::READ_ID, CigarSchema::OP_INDEX],
+            SortMultipleOptions::default(),
+        )
+        .collect()?;
+    // Read-ID order preserves which read wins when separate spans share a zoomed cell.
+    let mut cells = BTreeMap::new();
+    if runs.height() == 0 {
+        return Ok(cells);
+    }
+    let ys = runs.column(ReadSchema::Y)?.u64()?;
     let kinds = runs.column(CigarSchema::KIND)?.u8()?;
     let ids = runs.column(CigarSchema::READ_ID)?.u64()?;
     let indexes = runs.column(CigarSchema::OP_INDEX)?.u32()?;
@@ -281,7 +278,17 @@ fn paint_runs(
     let sequences = runs.column(CigarSchema::SEQ)?.str()?;
     // Viewport rows retain CIGAR order, which decides overlapping terminal cells.
     for row in 0..runs.height() {
-        let kind = kinds.get(row).expect("CIGAR kinds are non-null");
+        let id = ids.get(row).expect("read IDs are non-null") as usize;
+        let (_, target) = cells.entry(id).or_insert_with(|| {
+            (
+                ys.get(row).expect("read rows are non-null"),
+                vec![None; usize::from(area.width)],
+            )
+        });
+        // A left join retains mates without visible runs so their pair gap can still be drawn.
+        let Some(kind) = kinds.get(row) else {
+            continue;
+        };
         if !(CigarSchema::MATCH..=CigarSchema::SEQUENCE_MISMATCH).contains(&kind) {
             return Err(PolarsError::ComputeError(
                 format!("Invalid CIGAR kind code: {kind}.").into(),
@@ -294,11 +301,15 @@ fn paint_runs(
         ) {
             continue;
         }
-        let id = ids.get(row).expect("run IDs are non-null") as usize;
         let index = indexes.get(row).expect("run indexes are non-null");
-        let start = starts.get(row).expect("queried runs have display bounds");
-        let end = ends.get(row).expect("queried runs have display bounds");
-        let offset = offsets.get(row).expect("queried runs have offsets") as usize;
+        let run_start = starts.get(row).expect("queried runs have display bounds");
+        let start = run_start.max(region.start());
+        let end = ends
+            .get(row)
+            .expect("queried runs have display bounds")
+            .min(region.end());
+        let offset = offsets.get(row).expect("queried runs have offsets") as usize
+            + (start - run_start) as usize;
         let sequence = sequences.get(row).map(str::as_bytes);
         if matches!(
             kind,
@@ -310,9 +321,6 @@ fn paint_runs(
         {
             continue;
         }
-        let target = cells
-            .get_mut(&id)
-            .expect("queried runs belong to selected reads");
         if matches!(
             kind,
             CigarSchema::SOFT_CLIP | CigarSchema::SEQUENCE_MISMATCH
@@ -345,12 +353,25 @@ fn paint_runs(
             }
         }
     }
-    let reads = &viewport.reads;
+
+    // Paint
+    let reads_query = runs
+        .clone()
+        .lazy()
+        .select([col(ReadSchema::READ_ID)])
+        .unique(None, UniqueKeepStrategy::Any);
+    let reads = &runs;
     let read_ids = reads.column(ReadSchema::READ_ID)?.u64()?;
     let read_starts = reads.column(ReadSchema::STACKING_START)?.u64()?;
     let read_ends = reads.column(ReadSchema::STACKING_END)?.u64()?;
     let reverse = reads.column(ReadSchema::REVERSE)?.bool()?;
+    let mut previous_read = None;
     for row in 0..reads.height() {
+        let id = read_ids.get(row).expect("read IDs are non-null") as usize;
+        if previous_read == Some(id) {
+            continue;
+        }
+        previous_read = Some(id);
         let is_reverse = reverse.get(row).expect("read flags are non-null");
         let position = if is_reverse {
             read_starts.get(row)
@@ -358,10 +379,10 @@ fn paint_runs(
             read_ends.get(row)
         };
         if let Some(x) = position.and_then(|position| pixel(position, view, area)) {
-            let id = read_ids.get(row).expect("read IDs are non-null") as usize;
             if let Some(paint) = &mut cells
                 .get_mut(&id)
-                .expect("selected reads have scratch cells")[x]
+                .expect("selected reads have scratch cells")
+                .1[x]
             {
                 paint.reverse_arrow = Some(is_reverse);
             }
@@ -382,7 +403,8 @@ fn paint_runs(
         let id = ids.get(row).expect("run IDs are non-null") as usize;
         let target = &mut cells
             .get_mut(&id)
-            .expect("queried runs belong to selected reads")[x];
+            .expect("queried runs belong to selected reads")
+            .1[x];
         target
             .get_or_insert_with(|| {
                 Paint::new(
@@ -397,7 +419,31 @@ fn paint_runs(
             lengths.get(row).expect("run lengths are non-null"),
         ));
     }
-    let frame = &viewport.reference_mismatches;
+
+    // Paint mismatches
+    let frame = tables
+        .reference_mismatches
+        .clone()
+        .lazy()
+        .filter(
+            col(ReferenceMismatchSchema::REF_POS)
+                .gt_eq(lit(region.start()))
+                .and(col(ReferenceMismatchSchema::REF_POS).lt_eq(lit(region.end()))),
+        )
+        .inner_join(
+            reads_query.clone(),
+            col(ReferenceMismatchSchema::READ_ID),
+            col(ReadSchema::READ_ID),
+        )
+        .sort(
+            [
+                ReferenceMismatchSchema::READ_ID,
+                ReferenceMismatchSchema::OP_INDEX,
+                ReferenceMismatchSchema::REF_POS,
+            ],
+            SortMultipleOptions::default(),
+        )
+        .collect()?;
     let ids = frame.column(ReferenceMismatchSchema::READ_ID)?.u64()?;
     let indexes = frame.column(ReferenceMismatchSchema::OP_INDEX)?.u32()?;
     let positions = frame.column(ReferenceMismatchSchema::REF_POS)?.u64()?;
@@ -413,7 +459,8 @@ fn paint_runs(
         let id = ids.get(row).expect("annotation IDs are non-null") as usize;
         if let Some(paint) = &mut cells
             .get_mut(&id)
-            .expect("annotations belong to selected reads")[x]
+            .expect("annotations belong to selected reads")
+            .1[x]
             && Some(paint.op_index) == indexes.get(row)
         {
             paint.mismatch = Some((
@@ -422,7 +469,28 @@ fn paint_runs(
             ));
         }
     }
-    let frame = &viewport.base_modifications;
+
+    // Paint base modifications
+
+    let frame = tables
+        .base_modifications
+        .clone()
+        .lazy()
+        .filter(
+            col(BaseModificationSchema::DISPLAY_POS)
+                .gt_eq(lit(region.start()))
+                .and(col(BaseModificationSchema::DISPLAY_POS).lt_eq(lit(region.end()))),
+        )
+        .inner_join(
+            reads_query,
+            col(BaseModificationSchema::READ_ID),
+            col(ReadSchema::READ_ID),
+        )
+        .sort(
+            [BaseModificationSchema::SOURCE_ORDER],
+            SortMultipleOptions::default(),
+        )
+        .collect()?;
     let ids = frame.column(BaseModificationSchema::READ_ID)?.u64()?;
     let indexes = frame.column(BaseModificationSchema::OP_INDEX)?.u32()?;
     let positions = frame.column(BaseModificationSchema::DISPLAY_POS)?.u64()?;
@@ -440,7 +508,8 @@ fn paint_runs(
         let id = ids.get(row).expect("annotation IDs are non-null") as usize;
         if let Some(paint) = &mut cells
             .get_mut(&id)
-            .expect("annotations belong to selected reads")[x]
+            .expect("annotations belong to selected reads")
+            .1[x]
             && Some(paint.op_index) == indexes.get(row)
         {
             let modification = match (codes.get(row), chebi.get(row)) {

@@ -1,7 +1,6 @@
 use crate::alignment::{
     coverage::CoverageTable,
     tables::{AlignmentTables, CigarSchema, ReadSchema},
-    viewport::AlignmentViewport,
 };
 use crate::error::TGVError;
 use crate::intervals::{GenomeInterval, Region};
@@ -116,17 +115,6 @@ impl Alignment {
             .map(|id| id as usize))
     }
 
-    pub fn query_viewport(
-        &self,
-        region: &Region,
-        read_ids: &[usize],
-    ) -> Result<AlignmentViewport, TGVError> {
-        if region.contig_index() != self.contig_index || region.start() > region.end() {
-            return self.tables.viewport(1, 1, &[]);
-        }
-        self.tables.viewport(region.start(), region.end(), read_ids)
-    }
-
     pub fn from_records(
         records: Vec<RecordBuf>,
         contig_index: usize,
@@ -176,22 +164,18 @@ impl Alignment {
     }
 
     pub fn build_coverage(&mut self, reference_sequence: &Sequence) -> Result<&mut Self, TGVError> {
-        let visible = self
-            .tables
-            .reads
-            .clone()
-            .lazy()
-            .filter(col(ReadSchema::SHOW))
-            .select([col(ReadSchema::READ_ID)])
-            .collect()?;
-        let selected = visible
-            .column(ReadSchema::READ_ID)?
-            .u64()?
-            .into_no_null_iter()
-            .map(|id| id as usize)
-            .collect::<Vec<_>>();
-        let viewport = self.tables.viewport(1, u64::MAX, &selected)?;
-        self.coverage = CoverageTable::from_runs(&viewport, self.contig_index, reference_sequence)?;
+        // PERF: this is built base-by-base.
+        let runs = self.tables.cigar_runs.clone().lazy().inner_join(
+            self.tables
+                .reads
+                .clone()
+                .lazy()
+                .filter(col(ReadSchema::SHOW))
+                .select([col(ReadSchema::READ_ID)]),
+            col(CigarSchema::READ_ID),
+            col(ReadSchema::READ_ID),
+        );
+        self.coverage = CoverageTable::from_runs(runs, self.contig_index, reference_sequence)?;
 
         Ok(self)
     }

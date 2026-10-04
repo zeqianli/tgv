@@ -1,9 +1,7 @@
 //! Independent columnar coverage storage, construction, and queries.
 
 use super::tables::CigarSchema;
-use crate::{
-    alignment::AlignmentViewport, error::TGVError, sequence::Sequence, table_schema::TableSchema,
-};
+use crate::{error::TGVError, sequence::Sequence, table_schema::TableSchema};
 use polars::prelude::*;
 use std::{collections::BTreeMap, sync::Arc};
 
@@ -23,24 +21,24 @@ impl Default for CoverageTable {
 }
 
 impl CoverageTable {
-    /// Construct coverage from projected, visible CIGAR runs.
+    /// Construct coverage from a lazy query of visible CIGAR runs.
     pub fn from_runs(
-        viewport: &AlignmentViewport,
+        runs: LazyFrame,
         contig_index: usize,
         reference_sequence: &Sequence,
     ) -> Result<Self, TGVError> {
+        // TODO: used only once. Consolidate.
         let mut coverage: BTreeMap<u64, [u64; 7]> = BTreeMap::new();
         let kind = col(CigarSchema::KIND);
-        let runs = viewport
-            .runs
-            .clone()
-            .lazy()
+        let runs = runs
             .filter(
                 kind.clone()
                     .eq(lit(CigarSchema::MATCH))
                     .or(kind.clone().eq(lit(CigarSchema::SEQUENCE_MATCH)))
                     .or(kind.clone().eq(lit(CigarSchema::SEQUENCE_MISMATCH)))
-                    .or(kind.eq(lit(CigarSchema::SOFT_CLIP))),
+                    .or(kind.eq(lit(CigarSchema::SOFT_CLIP)))
+                    .and(col(CigarSchema::DISPLAY_START).is_not_null())
+                    .and(col(CigarSchema::DISPLAY_END).is_not_null()),
             )
             .collect()?;
         let kinds = runs.column(CigarSchema::KIND)?.u8()?;

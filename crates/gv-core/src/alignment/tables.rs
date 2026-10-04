@@ -33,7 +33,10 @@ pub struct AlignmentTables {
     pub reads: DataFrame,
     /// All CIGAR operations in read and operation order, with nullable SEQ and qualities.
     pub cigar_runs: DataFrame,
+
+    /// Reads without CIGAR
     pub unmapped: DataFrame,
+
     pub reference_mismatches: DataFrame,
     pub base_modifications: DataFrame,
 }
@@ -1195,11 +1198,15 @@ mod tests {
         let is_softclip_at = |pos| {
             alignment
                 .tables
-                .viewport(pos, pos, &[0])
-                .unwrap()
-                .runs
+                .cigar_runs
+                .clone()
                 .lazy()
-                .filter(col(CigarSchema::KIND).eq(lit(CigarSchema::SOFT_CLIP)))
+                .filter(
+                    col(CigarSchema::KIND)
+                        .eq(lit(CigarSchema::SOFT_CLIP))
+                        .and(col(CigarSchema::DISPLAY_START).lt_eq(lit(pos)))
+                        .and(col(CigarSchema::DISPLAY_END).gt_eq(lit(pos))),
+                )
                 .collect()
                 .unwrap()
                 .height()
@@ -1486,9 +1493,8 @@ mod tests {
                 .unwrap_or(0),
             0
         );
-        let viewport = alignment.tables.viewport(1, 100, &[0]).unwrap();
         let mut actual = Vec::new();
-        let frame = &viewport.runs;
+        let frame = &alignment.tables.cigar_runs;
         let kinds = frame.column(CigarSchema::KIND).unwrap().u8().unwrap();
         for row in 0..frame.height() {
             let kind = kinds.get(row).unwrap();
@@ -1520,8 +1526,8 @@ mod tests {
                 .get(row)
                 .unwrap();
             let mut mismatches = Vec::new();
-            for annotation in 0..viewport.reference_mismatches.height() {
-                let table = &viewport.reference_mismatches;
+            for annotation in 0..alignment.tables.reference_mismatches.height() {
+                let table = &alignment.tables.reference_mismatches;
                 if table
                     .column(ReferenceMismatchSchema::OP_INDEX)
                     .unwrap()
