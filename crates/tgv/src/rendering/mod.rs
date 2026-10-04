@@ -152,6 +152,7 @@ pub fn render_main(
             AreaType::Alignment(id) => {
                 let index = layout.track_registry.alignment_index(*id)?;
                 if alignment_view.zoom <= AlignmentView::MAX_ZOOM_TO_DISPLAY_ALIGNMENTS {
+                    let top = alignment_view.top(index);
                     if state.alignment_options[index].contains(&AlignmentDisplayOption::ViewAsPairs)
                     {
                         let paired_alignment =
@@ -165,7 +166,7 @@ pub fn render_main(
                                 ))?;
 
                         render_paired_alignment(
-                            index,
+                            top,
                             rect,
                             buf,
                             &state.alignments[index],
@@ -175,7 +176,7 @@ pub fn render_main(
                         )?;
                     } else {
                         render_alignment(
-                            index,
+                            top,
                             rect,
                             buf,
                             &state.alignments[index],
