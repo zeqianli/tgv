@@ -345,16 +345,13 @@ pub(super) fn stack_tracks(items: &DataFrame, min_gap: u64) -> Result<Vec<u64>, 
     let starts = items.column(ReadSchema::STACKING_START)?.u64()?;
     let ends = items.column(ReadSchema::STACKING_END)?.u64()?;
     let show = items.column(ReadSchema::SHOW)?.bool()?;
-    let mut left = Vec::new();
-    let mut right = Vec::new();
+    let mut tracks = TrackBounds::default();
     Ok((0..items.height())
         .map(|id| {
             if show.get(id).expect("visibility is non-null") {
-                find_track(
+                tracks.place(
                     starts.get(id).expect("visible items have bounds"),
                     ends.get(id).expect("visible items have bounds"),
-                    &mut left,
-                    &mut right,
                     min_gap,
                 ) as u64
             } else {
@@ -380,54 +377,81 @@ pub(super) fn stack_tracks_by_sort_key(
         .collect()?;
     let ranked = sorted.height() - sorted.column(ReadSchema::SORT_KEY)?.null_count();
     let mut ys = vec![0; items.height()];
-    let mut track_left_bounds = Vec::with_capacity(ranked);
-    let mut track_right_bounds = Vec::with_capacity(ranked);
+    let mut tracks = TrackBounds::with_capacity(ranked);
     let ids = sorted.column(id_column)?.u64()?;
     let starts = sorted.column(ReadSchema::STACKING_START)?.u64()?;
     let ends = sorted.column(ReadSchema::STACKING_END)?.u64()?;
     for row in 0..ranked {
-        ys[ids.get(row).expect("item IDs are non-null") as usize] = row as u64;
-        track_left_bounds.push(starts.get(row).expect("visible items have bounds"));
-        track_right_bounds.push(ends.get(row).expect("visible items have bounds"));
+        ys[ids.get(row).expect("item IDs are non-null") as usize] = tracks.push(
+            starts.get(row).expect("visible items have bounds"),
+            ends.get(row).expect("visible items have bounds"),
+        ) as u64;
     }
     for row in ranked..sorted.height() {
         let id = ids.get(row).expect("item IDs are non-null") as usize;
-        ys[id] = find_track(
+        ys[id] = tracks.place(
             starts.get(row).expect("visible items have bounds"),
             ends.get(row).expect("visible items have bounds"),
-            &mut track_left_bounds,
-            &mut track_right_bounds,
             min_gap,
         ) as u64;
     }
     Ok(ys)
 }
 
-pub(super) fn find_track(
-    start: u64,
-    end: u64,
-    track_left_bounds: &mut Vec<u64>,
-    track_right_bounds: &mut Vec<u64>,
-    min_gap: u64,
-) -> usize {
-    for (y, left_bound) in track_left_bounds.iter_mut().enumerate() {
-        if end + min_gap < *left_bound {
-            *left_bound = start;
+/// One-based, inclusive occupied bounds of each zero-based stacking row.
+#[derive(Debug, Default)]
+pub(super) struct TrackBounds {
+    left: Vec<u64>,
+    right: Vec<u64>,
 
-            return y;
+    /// The largest left bound across rows.
+    ///
+    /// Coordinate-sorted items never end before an existing row starts, so this lets them
+    /// skip the left pass instead of scanning every row twice.
+    max_left: u64,
+}
+
+impl TrackBounds {
+    pub(super) fn with_capacity(capacity: usize) -> Self {
+        Self {
+            left: Vec::with_capacity(capacity),
+            right: Vec::with_capacity(capacity),
+            max_left: 0,
         }
     }
 
-    for (y, right_bound) in track_right_bounds.iter_mut().enumerate() {
-        if start > *right_bound + min_gap {
-            *right_bound = end;
-            return y;
-        }
+    /// Open a new row holding [start, end], and return its index.
+    pub(super) fn push(&mut self, start: u64, end: u64) -> usize {
+        self.left.push(start);
+        self.right.push(end);
+        self.max_left = self.max_left.max(start);
+        self.left.len() - 1
     }
 
-    track_left_bounds.push(start);
-    track_right_bounds.push(end);
-    track_left_bounds.len() - 1
+    /// Place [start, end] in the first row it fits before, then in the first row it fits
+    /// after, or else in a new row. Returns the row index.
+    pub(super) fn place(&mut self, start: u64, end: u64, min_gap: u64) -> usize {
+        if end + min_gap < self.max_left
+            && let Some(y) = self.left.iter().position(|&left| end + min_gap < left)
+        {
+            let previous = std::mem::replace(&mut self.left[y], start);
+            if previous == self.max_left {
+                self.max_left = self.left.iter().copied().max().unwrap_or(0);
+            }
+            return y;
+        }
+
+        if let Some(y) = self
+            .right
+            .iter()
+            .position(|&right| start > right + min_gap)
+        {
+            self.right[y] = end;
+            return y;
+        }
+
+        self.push(start, end)
+    }
 }
 
 #[cfg(test)]
@@ -574,21 +598,11 @@ mod tests {
     }
 
     #[test]
-    fn find_track_returns_zero_based_new_and_reused_tracks() {
-        let mut track_left_bounds = Vec::new();
-        let mut track_right_bounds = Vec::new();
+    fn track_bounds_place_returns_zero_based_new_and_reused_tracks() {
+        let mut tracks = TrackBounds::default();
 
-        assert_eq!(
-            find_track(10, 20, &mut track_left_bounds, &mut track_right_bounds, 3),
-            0
-        );
-        assert_eq!(
-            find_track(21, 25, &mut track_left_bounds, &mut track_right_bounds, 3),
-            1
-        );
-        assert_eq!(
-            find_track(1, 5, &mut track_left_bounds, &mut track_right_bounds, 3),
-            0
-        );
+        assert_eq!(tracks.place(10, 20, 3), 0);
+        assert_eq!(tracks.place(21, 25, 3), 1);
+        assert_eq!(tracks.place(1, 5, 3), 0);
     }
 }

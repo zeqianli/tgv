@@ -116,6 +116,9 @@ pub enum TGVError {
     #[error("Polars error: {0}")]
     PolarsError(#[from] polars::error::PolarsError),
 
+    #[error("A background task failed: {0}")]
+    TaskJoinError(#[from] tokio::task::JoinError),
+
     #[error("Failed to parse base modifications for alignment read {read_id}: {message}")]
     AlignmentBaseModifications { read_id: u64, message: String },
 

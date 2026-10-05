@@ -15,7 +15,7 @@ use crate::{
 };
 use std::path::Path;
 /// Sequences of a genome region.
-#[derive(Debug, Default)]
+#[derive(Debug, Default, Clone)]
 pub struct Sequence {
     /// 1-based genome coordinate of sequence[0].
     /// 1-based, inclusive.

@@ -3,7 +3,8 @@
 use super::tables::CigarSchema;
 use crate::{error::TGVError, sequence::Sequence, table_schema::TableSchema};
 use polars::prelude::*;
-use std::{collections::BTreeMap, sync::Arc};
+use itertools::izip;
+use std::sync::Arc;
 
 /// Sparse coverage by one-based position, independent of the alignment tables.
 #[derive(Debug)]
@@ -28,7 +29,6 @@ impl CoverageTable {
         reference_sequence: &Sequence,
     ) -> Result<Self, TGVError> {
         // TODO: used only once. Consolidate.
-        let mut coverage: BTreeMap<u64, [u64; 7]> = BTreeMap::new();
         let kind = col(CigarSchema::KIND);
         let runs = runs
             .filter(
@@ -46,21 +46,27 @@ impl CoverageTable {
         let ends = runs.column(CigarSchema::DISPLAY_END)?.u64()?;
         let offsets = runs.column(CigarSchema::RUN_OFFSET)?.u32()?;
         let sequences = runs.column(CigarSchema::SEQ)?.str()?;
-        for row in 0..runs.height() {
-            let kind = kinds.get(row).expect("CIGAR kinds are non-null");
-            let start = starts.get(row).expect("queried runs have display bounds");
-            let end = ends.get(row).expect("queried runs have display bounds");
-            let offset = offsets.get(row).expect("queried runs have offsets") as usize;
-            let Some(sequence) = sequences.get(row) else {
+        // Count into a dense array over the span of the runs. A map lookup per aligned base
+        // dominates alignment loads at high depth.
+        let first = starts.min().unwrap_or(1);
+        let span = ends.max().map_or(0, |last| (last + 1 - first) as usize);
+        let mut coverage: Vec<[u64; 7]> = vec![[0; 7]; span];
+        for (kind, start, end, offset, sequence) in izip!(
+            kinds.into_no_null_iter(),
+            starts.into_no_null_iter(),
+            ends.into_no_null_iter(),
+            offsets.into_no_null_iter(),
+            sequences.iter(),
+        ) {
+            let Some(sequence) = sequence else {
                 continue;
             };
-            let sequence = sequence.as_bytes();
-            for position in start..=end {
-                let base = sequence[offset + (position - start) as usize];
-                let counts = coverage.entry(position).or_default();
-                if kind == CigarSchema::SOFT_CLIP {
-                    counts[6] += 1;
-                } else {
+            let counts = &mut coverage[(start - first) as usize..=(end - first) as usize];
+            if kind == CigarSchema::SOFT_CLIP {
+                counts.iter_mut().for_each(|counts| counts[6] += 1);
+            } else {
+                let bases = &sequence.as_bytes()[offset as usize..][..counts.len()];
+                for (counts, base) in counts.iter_mut().zip(bases) {
                     let index = match base {
                         b'A' | b'a' => 0,
                         b'T' | b't' => 1,
@@ -73,16 +79,25 @@ impl CoverageTable {
                 }
             }
         }
-        let mut positions = Vec::with_capacity(coverage.len());
-        let mut a = Vec::with_capacity(coverage.len());
-        let mut t = Vec::with_capacity(coverage.len());
-        let mut c = Vec::with_capacity(coverage.len());
-        let mut g = Vec::with_capacity(coverage.len());
-        let mut n = Vec::with_capacity(coverage.len());
-        let mut total = Vec::with_capacity(coverage.len());
-        let mut softclip = Vec::with_capacity(coverage.len());
-        let mut reference_base = Vec::with_capacity(coverage.len());
-        for (position, coverage) in coverage {
+        // The table stays sparse, so positions without read or soft-clip coverage get no row.
+        let covered = coverage
+            .iter()
+            .filter(|counts| counts[5] > 0 || counts[6] > 0)
+            .count();
+        let mut positions = Vec::with_capacity(covered);
+        let mut a = Vec::with_capacity(covered);
+        let mut t = Vec::with_capacity(covered);
+        let mut c = Vec::with_capacity(covered);
+        let mut g = Vec::with_capacity(covered);
+        let mut n = Vec::with_capacity(covered);
+        let mut total = Vec::with_capacity(covered);
+        let mut softclip = Vec::with_capacity(covered);
+        let mut reference_base = Vec::with_capacity(covered);
+        for (index, coverage) in coverage.into_iter().enumerate() {
+            if coverage[5] == 0 && coverage[6] == 0 {
+                continue;
+            }
+            let position = first + index as u64;
             positions.push(position);
             a.push(coverage[0]);
             t.push(coverage[1]);
