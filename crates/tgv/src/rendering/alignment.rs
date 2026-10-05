@@ -1,6 +1,5 @@
 //! Draw visible runs and annotations directly into the buffer in layer order.
-
-use std::io::Read;
+//! Each stage preserves source-table order, so later records overwrite earlier ones.
 
 use crate::{
     layout::{AlignmentView, OnScreenCoordinate},
@@ -14,7 +13,7 @@ use gv_core::{
     prelude::*,
 };
 use itertools::izip;
-use noodles::sam::record::{Cigar, data::field::value::base_modifications::group::Modification};
+use noodles::sam::record::data::field::value::base_modifications::group::Modification;
 use polars::prelude::*;
 use ratatui::{
     buffer::Buffer,
@@ -158,7 +157,15 @@ pub fn render_paired_alignment(
         .lazy()
         .filter(col(ReadSchema::SHOW))
         .drop(cols([ReadSchema::Y]))
-        .inner_join(members, col(ReadSchema::READ_ID), col(ReadSchema::READ_ID));
+        .join(
+            members,
+            [col(ReadSchema::READ_ID)],
+            [col(ReadSchema::READ_ID)],
+            JoinArgs {
+                maintain_order: MaintainOrderJoin::Left,
+                ..JoinArgs::new(JoinType::Inner)
+            },
+        );
     draw_reads(top, area, buf, &alignment.tables, reads, view, palette)?;
     Ok(())
 }
@@ -174,65 +181,76 @@ fn draw_reads(
 ) -> PolarsResult<()> {
     let region = view.region(area);
 
-    // steps:
-    // 1. Get match / mismatch / sequence_match / softclip runs.
-    //     1.1 draw the main body
-    //     1.2 draw the softclips
-
-    let runs = tables
-        .cigar_runs
-        .clone()
-        .lazy()
-        .filter(
-            col(CigarSchema::DISPLAY_START)
-                .lt_eq(lit(region.end()))
-                .and(col(CigarSchema::DISPLAY_END).gt_eq(lit(region.start()))),
-        )
-        .join(
-            reads.clone(),
-            [col(ReadSchema::READ_ID)],
-            [col(ReadSchema::READ_ID)],
-            JoinArgs::new(JoinType::Inner),
-        )
+    let reads = reads
         .select([
             col(ReadSchema::READ_ID),
             col(ReadSchema::Y),
             col(ReadSchema::REVERSE),
             col(ReadSchema::STACKING_START),
             col(ReadSchema::STACKING_END),
-            col(CigarSchema::KIND),
-            col(CigarSchema::DISPLAY_START),
-            col(CigarSchema::DISPLAY_END),
-            col(CigarSchema::RUN_OFFSET),
-            col(CigarSchema::SEQ),
         ])
         .collect()?;
+    if reads.height() == 0 {
+        return Ok(());
+    }
+    // Read IDs are row indexes into the reads table, so drawn rows are looked up directly
+    // instead of joining every annotation table with the drawn reads on each frame.
+    let mut read_rows = vec![None; tables.reads.height()];
+    for (id, y) in izip!(
+        reads.column(ReadSchema::READ_ID)?.u64()?.into_no_null_iter(),
+        reads.column(ReadSchema::Y)?.u64()?.into_no_null_iter(),
+    ) {
+        read_rows[id as usize] = Some(y);
+    }
+
+    // 1. Draw the main bodies and soft clips.
+
+    let runs = with_read_rows(
+        tables
+            .cigar_runs
+            .clone()
+            .lazy()
+            .filter(
+                col(CigarSchema::DISPLAY_START)
+                    .lt_eq(lit(region.end()))
+                    .and(col(CigarSchema::DISPLAY_END).gt_eq(lit(region.start()))),
+            )
+            .select([
+                col(CigarSchema::READ_ID),
+                col(CigarSchema::KIND),
+                col(CigarSchema::DISPLAY_START),
+                col(CigarSchema::DISPLAY_END),
+                col(CigarSchema::RUN_OFFSET),
+                col(CigarSchema::SEQ),
+            ])
+            .collect()?,
+        &read_rows,
+    )?;
 
     if runs.height() == 0 {
         return Ok(());
     }
 
-    // 1.1 Draw the main body, match bases
-    let match_runs = runs
-        .clone()
-        .lazy()
-        .filter(col(CigarSchema::KIND).neq(lit(CigarSchema::SOFT_CLIP)))
-        .collect()?;
+    let run_ys = runs.column(ReadSchema::Y)?.u64()?;
+    let run_kinds = runs.column(CigarSchema::KIND)?.u8()?;
+    let run_starts = runs.column(CigarSchema::DISPLAY_START)?.u64()?;
+    let run_ends = runs.column(CigarSchema::DISPLAY_END)?.u64()?;
+    let run_offsets = runs.column(CigarSchema::RUN_OFFSET)?.u32()?;
+    let run_sequences = runs.column(CigarSchema::SEQ)?.str()?;
 
-    for (y, start, end) in izip!(
-        match_runs.column(ReadSchema::Y)?.u64()?.into_no_null_iter(),
-        match_runs
-            .column(CigarSchema::DISPLAY_START)?
-            .u64()?
-            .into_no_null_iter(),
-        match_runs
-            .column(CigarSchema::DISPLAY_END)?
-            .u64()?
-            .into_no_null_iter(),
+    // 1.1 Draw the main bodies.
+    for (kind, y, start, end) in izip!(
+        run_kinds.into_no_null_iter(),
+        run_ys.into_no_null_iter(),
+        run_starts.into_no_null_iter(),
+        run_ends.into_no_null_iter(),
     ) {
+        if kind == CigarSchema::SOFT_CLIP {
+            continue;
+        }
         let (start, end) = (start.max(region.start()), end.min(region.end()));
         let Some(left) = pixel(start, view, area) else {
-            continue; // tODO: I don't think this is necessary?
+            continue;
         };
         let right = pixel(end, view, area).unwrap_or(area.width - 1);
 
@@ -242,95 +260,58 @@ fn draw_reads(
                 cell.set_symbol("-")
                     .set_bg(palette.MATCH_COLOR)
                     .set_fg(palette.MATCH_FG_COLOR);
-            } else {
-                continue;
             }
         }
     }
 
-    // 1.2 Draw softclips
-    let softclip_runs = runs
-        .clone()
-        .lazy()
-        .filter(col(CigarSchema::KIND).eq(lit(CigarSchema::SOFT_CLIP)))
-        .collect()?;
+    // 1.2 Draw the soft clips.
 
-    for (y, run_start, end, run_offset, seq) in izip!(
-        softclip_runs
-            .column(ReadSchema::Y)?
-            .u64()?
-            .into_no_null_iter(),
-        softclip_runs
-            .column(CigarSchema::DISPLAY_START)?
-            .u64()?
-            .into_no_null_iter(),
-        softclip_runs
-            .column(CigarSchema::DISPLAY_END)?
-            .u64()?
-            .into_no_null_iter(),
-        softclip_runs
-            .column(CigarSchema::RUN_OFFSET)?
-            .u32()?
-            .into_no_null_iter(),
-        softclip_runs.column(CigarSchema::SEQ)?.str()?.iter()
+    for (kind, y, run_start, end, run_offset, seq) in izip!(
+        run_kinds.into_no_null_iter(),
+        run_ys.into_no_null_iter(),
+        run_starts.into_no_null_iter(),
+        run_ends.into_no_null_iter(),
+        run_offsets.into_no_null_iter(),
+        run_sequences.iter(),
     ) {
+        if kind != CigarSchema::SOFT_CLIP {
+            continue;
+        }
+        let Some(seq) = seq.map(str::as_bytes) else {
+            continue;
+        };
         let (start, end) = (run_start.max(region.start()), end.min(region.end()));
         let Some(left) = pixel(start, view, area) else {
-            continue; // tODO: I don't think this is necessary?
+            continue;
         };
         let right = pixel(end, view, area).unwrap_or(area.width - 1);
         let y = area.y + (y as usize - top) as u16;
         for x in left..=right {
-            if let Some(cell) = buf.cell_mut(Position::new(area.x + x, y))
-                && let Some(seq) = seq.map(|s| s.as_bytes())
-            {
+            if let Some(cell) = buf.cell_mut(Position::new(area.x + x, y)) {
                 let position = (region.start() + u64::from(x) * view.zoom + view.zoom - 1).min(end);
                 let offset = run_offset as usize + (position - run_start) as usize;
                 let base = seq[offset];
                 cell.set_char(base as char);
                 cell.set_bg(palette.softclip_color(base))
                     .set_fg(Color::Reset);
-            } else {
-                continue;
             }
         }
     }
 
-    // 2. Get deletion runs / ref skip. Paint.
+    // 2. Draw the deletions and reference skips.
 
-    let deletion_runs = runs
-        .clone()
-        .lazy()
-        .filter(
-            col(CigarSchema::KIND)
-                .eq(lit(CigarSchema::DELETION))
-                .or(col(CigarSchema::KIND).eq(lit(CigarSchema::REFERENCE_SKIP))),
-        )
-        .select([
-            //col(ReadSchema::READ_ID),
-            col(ReadSchema::Y),
-            col(CigarSchema::DISPLAY_START),
-            col(CigarSchema::DISPLAY_END),
-        ])
-        .collect()?;
-
-    for (y, start, end) in izip!(
-        deletion_runs
-            .column(ReadSchema::Y)?
-            .u64()?
-            .into_no_null_iter(),
-        deletion_runs
-            .column(CigarSchema::DISPLAY_START)?
-            .u64()?
-            .into_no_null_iter(),
-        deletion_runs
-            .column(CigarSchema::DISPLAY_END)?
-            .u64()?
-            .into_no_null_iter(),
+    for (kind, y, start, end) in izip!(
+        run_kinds.into_no_null_iter(),
+        run_ys.into_no_null_iter(),
+        run_starts.into_no_null_iter(),
+        run_ends.into_no_null_iter(),
     ) {
+        if !matches!(kind, CigarSchema::DELETION | CigarSchema::REFERENCE_SKIP) {
+            continue;
+        }
         let (start, end) = (start.max(region.start()), end.min(region.end()));
         let Some(left) = pixel(start, view, area) else {
-            continue; // tODO: I don't think this is necessary?
+            continue;
         };
         let right = pixel(end, view, area).unwrap_or(area.width - 1);
 
@@ -340,44 +321,24 @@ fn draw_reads(
                 cell.set_symbol("-")
                     .set_bg(palette.background)
                     .set_fg(palette.DELETION_COLOR);
-            } else {
-                continue;
             }
         }
     }
 
     // Draw arrows after deletion bodies so terminal deletions retain their strand marker.
-    let arrow_positions = runs
-        .clone()
-        .lazy()
-        .group_by([col(ReadSchema::READ_ID)])
-        .agg([
-            col(ReadSchema::STACKING_START).first(),
-            col(ReadSchema::STACKING_END).first(),
-            col(ReadSchema::Y).first(),
-            col(ReadSchema::REVERSE).first(),
-        ])
-        .collect()?;
-
     for (y, reverse, start, end) in izip!(
-        arrow_positions
-            .column(ReadSchema::Y)?
-            .u64()?
-            .into_no_null_iter(),
-        arrow_positions
+        reads.column(ReadSchema::Y)?.u64()?.into_no_null_iter(),
+        reads
             .column(ReadSchema::REVERSE)?
             .bool()?
             .iter()
             .map(|reverse| reverse.expect("read flags are non-null")),
-        arrow_positions
-            .column(ReadSchema::STACKING_START)?
-            .u64()?
-            .into_no_null_iter(),
-        arrow_positions
-            .column(ReadSchema::STACKING_END)?
-            .u64()?
-            .into_no_null_iter(),
+        reads.column(ReadSchema::STACKING_START)?.u64()?.iter(),
+        reads.column(ReadSchema::STACKING_END)?.u64()?.iter(),
     ) {
+        let (Some(start), Some(end)) = (start, end) else {
+            continue;
+        };
         let position = if reverse { start } else { end };
         let Some(x) = pixel(position, view, area) else {
             continue;
@@ -388,31 +349,18 @@ fn draw_reads(
         }
     }
 
-    // 3. Get Insertion runs. Paint.
-    let insertion_runs = runs
-        .clone()
-        .lazy()
-        .filter(col(CigarSchema::KIND).eq(lit(CigarSchema::INSERTION)))
-        .select([
-            //col(ReadSchema::READ_ID),
-            col(ReadSchema::Y),
-            col(CigarSchema::DISPLAY_START),
-            //col(CigarSchema::DISPLAY_END),
-        ])
-        .collect()?;
+    // 3. Draw the insertions.
 
-    for (y, start) in izip!(
-        insertion_runs
-            .column(ReadSchema::Y)?
-            .u64()?
-            .into_no_null_iter(),
-        insertion_runs
-            .column(CigarSchema::DISPLAY_START)?
-            .u64()?
-            .into_no_null_iter(),
+    for (kind, y, start) in izip!(
+        run_kinds.into_no_null_iter(),
+        run_ys.into_no_null_iter(),
+        run_starts.into_no_null_iter(),
     ) {
+        if kind != CigarSchema::INSERTION {
+            continue;
+        }
         let Some(x) = pixel(start, view, area) else {
-            continue; // TODO: I don't think this is necessary?
+            continue;
         };
 
         let y = area.y + (y as usize - top) as u16;
@@ -423,34 +371,17 @@ fn draw_reads(
     }
 
     // 4. Get sequence mismatch positions and draw the bases.
-    let sequence_mismatch_runs = runs
-        .clone()
-        .lazy()
-        .filter(col(CigarSchema::KIND).eq(lit(CigarSchema::SEQUENCE_MISMATCH)))
-        .collect()?;
-
-    for (y, run_start, end, run_offset, seq) in izip!(
-        sequence_mismatch_runs
-            .column(ReadSchema::Y)?
-            .u64()?
-            .into_no_null_iter(),
-        sequence_mismatch_runs
-            .column(CigarSchema::DISPLAY_START)?
-            .u64()?
-            .into_no_null_iter(),
-        sequence_mismatch_runs
-            .column(CigarSchema::DISPLAY_END)?
-            .u64()?
-            .into_no_null_iter(),
-        sequence_mismatch_runs
-            .column(CigarSchema::RUN_OFFSET)?
-            .u32()?
-            .into_no_null_iter(),
-        sequence_mismatch_runs
-            .column(CigarSchema::SEQ)?
-            .str()?
-            .iter(),
+    for (kind, y, run_start, end, run_offset, seq) in izip!(
+        run_kinds.into_no_null_iter(),
+        run_ys.into_no_null_iter(),
+        run_starts.into_no_null_iter(),
+        run_ends.into_no_null_iter(),
+        run_offsets.into_no_null_iter(),
+        run_sequences.iter(),
     ) {
+        if kind != CigarSchema::SEQUENCE_MISMATCH {
+            continue;
+        }
         let Some(seq) = seq.map(str::as_bytes) else {
             continue;
         };
@@ -471,30 +402,24 @@ fn draw_reads(
         }
     }
 
-    let mismatches = tables
-        .reference_mismatches
-        .clone()
-        .lazy()
-        .filter(
-            col(ReferenceMismatchSchema::REF_POS)
-                .lt_eq(lit(region.end()))
-                .and(col(ReferenceMismatchSchema::REF_POS).gt_eq(lit(region.start()))),
-        )
-        .join(
-            reads.clone(),
-            [col(ReadSchema::READ_ID)],
-            [col(ReadSchema::READ_ID)],
-            JoinArgs::new(JoinType::Inner),
-        )
-        .select([
-            //col(ReadSchema::READ_ID),
-            col(ReadSchema::Y),
-            col(ReferenceMismatchSchema::REF_POS),
-            col(ReferenceMismatchSchema::BASE),
-        ])
-        .collect()?;
-
-    // Mismatches
+    let mismatches = with_read_rows(
+        tables
+            .reference_mismatches
+            .clone()
+            .lazy()
+            .filter(
+                col(ReferenceMismatchSchema::REF_POS)
+                    .lt_eq(lit(region.end()))
+                    .and(col(ReferenceMismatchSchema::REF_POS).gt_eq(lit(region.start()))),
+            )
+            .select([
+                col(ReferenceMismatchSchema::READ_ID),
+                col(ReferenceMismatchSchema::REF_POS),
+                col(ReferenceMismatchSchema::BASE),
+            ])
+            .collect()?,
+        &read_rows,
+    )?;
 
     for (position, base, y) in izip!(
         mismatches
@@ -516,32 +441,27 @@ fn draw_reads(
         }
     }
 
-    // 5. Get BaseModification positions. paint.
-    //
-    let modifications = tables
-        .base_modifications
-        .clone()
-        .lazy()
-        .filter(
-            col(BaseModificationSchema::DISPLAY_POS)
-                .lt_eq(lit(region.end()))
-                .and(col(BaseModificationSchema::DISPLAY_POS).gt_eq(lit(region.start()))),
-        )
-        .join(
-            reads,
-            [col(ReadSchema::READ_ID)],
-            [col(ReadSchema::READ_ID)],
-            JoinArgs::new(JoinType::Inner),
-        )
-        .select([
-            //col(ReadSchema::READ_ID),
-            col(ReadSchema::Y),
-            col(BaseModificationSchema::DISPLAY_POS),
-            col(BaseModificationSchema::CODE),
-            col(BaseModificationSchema::CHEBI_ID),
-            col(BaseModificationSchema::PROBABILITY),
-        ])
-        .collect()?;
+    // 5. Draw the base modifications.
+    let modifications = with_read_rows(
+        tables
+            .base_modifications
+            .clone()
+            .lazy()
+            .filter(
+                col(BaseModificationSchema::DISPLAY_POS)
+                    .lt_eq(lit(region.end()))
+                    .and(col(BaseModificationSchema::DISPLAY_POS).gt_eq(lit(region.start()))),
+            )
+            .select([
+                col(BaseModificationSchema::READ_ID),
+                col(BaseModificationSchema::DISPLAY_POS),
+                col(BaseModificationSchema::CODE),
+                col(BaseModificationSchema::CHEBI_ID),
+                col(BaseModificationSchema::PROBABILITY),
+            ])
+            .collect()?,
+        &read_rows,
+    )?;
 
     for (position, code, chebi, probability, y) in izip!(
         modifications
@@ -579,4 +499,24 @@ fn draw_reads(
     }
 
     Ok(())
+}
+
+/// Keep annotation rows of drawn reads and attach each read's stacking row as `Y`.
+/// `read_rows` is indexed by read ID and holds the row of every drawn read.
+fn with_read_rows(frame: DataFrame, read_rows: &[Option<u64>]) -> PolarsResult<DataFrame> {
+    let mask: BooleanChunked = frame
+        .column(ReadSchema::READ_ID)?
+        .u64()?
+        .into_no_null_iter()
+        .map(|id| read_rows[id as usize].is_some())
+        .collect();
+    let mut frame = frame.filter(&mask)?;
+    let ys: Vec<u64> = frame
+        .column(ReadSchema::READ_ID)?
+        .u64()?
+        .into_no_null_iter()
+        .map(|id| read_rows[id as usize].expect("rows are filtered to drawn reads"))
+        .collect();
+    frame.with_column(Column::new(ReadSchema::Y.into(), ys))?;
+    Ok(frame)
 }

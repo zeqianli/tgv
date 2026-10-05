@@ -28,6 +28,12 @@ noodles.workspace = true
 polars.workspace = true
 unicode-width.workspace = true
 
+[[bench]]
+name = "render_bench"
+path = "bench/render_bench.rs"
+# A headless timing binary that takes its own arguments instead of using libtest.
+harness = false
+
 [dev-dependencies]
 insta = "1.42"
 rstest = "0.25.0"

@@ -19,6 +19,11 @@ pub struct MouseRegister {
     sidebar_resizing: bool,
     pub hovered_alignment: Option<TrackId>,
     pub hovered_divider: Option<(TrackId, TrackId)>,
+
+    /// The cell of the last handled motion event. Terminals can report several motion events
+    /// within one cell, which would otherwise repeat the hover lookup and redraw. Reset this
+    /// whenever the state under the cursor may have changed.
+    pub last_hover: Option<(u16, u16)>,
 }
 
 impl MouseRegister {
@@ -44,6 +49,16 @@ impl MouseRegister {
         alignment_view: &AlignmentView,
         event: MouseEvent,
     ) -> Result<Vec<Message>, TGVError> {
+        let cell = (event.column, event.row);
+        if event.kind == MouseEventKind::Moved {
+            if self.last_hover == Some(cell) {
+                return Ok(Vec::new());
+            }
+            self.last_hover = Some(cell);
+        } else {
+            self.last_hover = None;
+        }
+
         let mut messages = Vec::new();
         let hovered = layout.get_area_type_at_position(event.column, event.row);
         self.hovered_alignment = match hovered {
