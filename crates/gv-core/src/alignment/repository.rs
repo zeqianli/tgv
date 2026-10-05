@@ -8,46 +8,22 @@ use crate::{
 };
 
 use async_compat::CompatExt;
-use futures::{StreamExt, TryStreamExt, stream};
+use futures::TryStreamExt;
 use itertools::Itertools;
 use noodles::cram::{self as cram};
 use noodles::fasta::{self as fasta, repository::adapters::IndexedReader as FastaIndexedReader};
 use noodles::sam::Header;
 use noodles::{
     bam::{self, bai},
-    bgzf::{self, VirtualPosition},
-    core::region::Interval,
-    csi::{BinningIndex, binning_index::index::reference_sequence::bin::Chunk},
-    sam::alignment::{Record as _, RecordBuf},
+    sam::alignment::RecordBuf,
 };
 use opendal::{Operator, services};
 use std::fs;
-use std::io::{Cursor, SeekFrom};
-use std::num::NonZero;
-use std::ops::Range;
 use std::path::Path;
-use std::sync::Arc;
 use std::time::Instant;
 use tokio::fs::File;
-use tokio::io::{AsyncReadExt, AsyncSeekExt};
 
-/// Records per table-building task.
 const RECORD_BATCH_SIZE: usize = 1024;
-
-/// The largest BGZF block, including its header and footer.
-///
-/// A chunk's end virtual position names the block that holds its last record, so reading this
-/// far past that block's start covers the whole block.
-const MAX_BGZF_BLOCK_SIZE: u64 = 64 * 1024;
-
-/// The number of range requests in flight for one remote BAM query.
-const REMOTE_READ_CONCURRENCY: usize = 8;
-
-/// The size of each remote range request.
-///
-/// A region query usually maps to one chunk of a few megabytes, so smaller requests spread it
-/// across more connections. Object stores reach full per-connection throughput well below this.
-const REMOTE_READ_CHUNK_SIZE: usize = 512 * 1024;
 
 pub struct BamRepository {
     bam_path: String,
@@ -55,8 +31,7 @@ pub struct BamRepository {
 
     index: bai::Index,
 
-    /// Shared with the table-building tasks of a query.
-    header: Arc<Header>,
+    header: Header,
 }
 
 impl BamRepository {
@@ -82,7 +57,7 @@ impl BamRepository {
             bai_path: bai_path.to_string(),
 
             index,
-            header: Arc::new(header),
+            header,
         })
     }
 }
@@ -146,14 +121,10 @@ pub struct RemoteBamRepository {
 
     index: bai::Index,
 
-    /// Shared with the table-building tasks of a query.
-    header: Arc<Header>,
+    header: Header,
 
     operator: Operator,
     key: String,
-
-    /// The object size, which bounds range requests that extend past a chunk's last block.
-    content_length: u64,
 }
 
 impl RemoteBamRepository {
@@ -203,7 +174,6 @@ impl RemoteBamRepository {
         let mut reader = bam::r#async::io::Reader::new(stream.compat());
 
         let header = reader.read_header().await?;
-        let content_length = operator.stat(name).await?.content_length();
 
         Ok(Self {
             bam_path: s3_bam_path.to_string(),
@@ -211,10 +181,9 @@ impl RemoteBamRepository {
 
             index,
 
-            header: Arc::new(header),
+            header,
             operator,
             key: name.to_owned(),
-            content_length,
         })
     }
 }
@@ -314,78 +283,86 @@ impl AlignmentRepositoryEnum {
             }
         };
 
-        let contig_index = region.contig_index();
-        let (records, tables) = match query_region {
-            Some(query_region) => match self {
-                AlignmentRepositoryEnum::Bam(inner) => {
-                    let query = ChunkQuery::new(&inner.header, &inner.index, &query_region)?;
-                    let mut file = File::open(&inner.bam_path).await?;
-                    let ranges = query.byte_ranges(file.metadata().await?.len());
-                    let mut buffers = Vec::with_capacity(ranges.len());
-                    for range in &ranges {
-                        file.seek(SeekFrom::Start(range.start)).await?;
-                        let mut buffer = vec![0; (range.end - range.start) as usize];
-                        file.read_exact(&mut buffer).await?;
-                        buffers.push(buffer);
+        let mut records = Vec::new();
+        let mut batch = Vec::with_capacity(RECORD_BATCH_SIZE);
+        let mut tables = AlignmentTables::default();
+        match query_region {
+            Some(query_region) => {
+                match self {
+                    AlignmentRepositoryEnum::Bam(inner) => {
+                        // Reopen the reader because repeated queries at the same BGZF offset
+                        // can otherwise reuse a completed seek and return no records.
+                        let file = File::open(&inner.bam_path).await?;
+                        let mut reader = bam::r#async::io::Reader::new(file);
+                        let mut query = reader
+                            .query(&inner.header, &inner.index, &query_region)?
+                            .records();
+
+                        while let Some(record) = query.try_next().await? {
+                            batch.push(RecordBuf::try_from_alignment_record(
+                                &inner.header,
+                                &record,
+                            )?);
+                            if batch.len() == RECORD_BATCH_SIZE {
+                                tables = tables.add_records(
+                                    &batch,
+                                    reference_sequence,
+                                    region.contig_index(),
+                                )?;
+                                records.append(&mut batch);
+                            }
+                        }
                     }
-                    let records = query.read_records(&ranges, buffers).await?;
-                    let header = Arc::clone(&inner.header);
-                    build_tables(
-                        records,
-                        move |record| Ok(RecordBuf::try_from_alignment_record(&header, &record)?),
-                        reference_sequence,
-                        contig_index,
-                    )
-                    .await?
-                }
-                AlignmentRepositoryEnum::RemoteBam(inner) => {
-                    let query = ChunkQuery::new(&inner.header, &inner.index, &query_region)?;
-                    let ranges = query.byte_ranges(inner.content_length);
-                    log::info!(
-                        "Object storage request: operation=query object_url={} index_url={} region={:?} ranges={} bytes={} context=remote BAM records",
-                        inner.bam_path,
-                        inner.bai_path,
-                        region,
-                        ranges.len(),
-                        ranges.iter().map(|range| range.end - range.start).sum::<u64>(),
-                    );
-                    // `fetch` panics on an empty range list.
-                    let buffers = if ranges.is_empty() {
-                        Vec::new()
-                    } else {
-                        // Each range is split into concurrent chunk requests, and `fetch` also
-                        // merges nearby ranges, so a region costs a few round trips in parallel
-                        // instead of one sequential stream with a request per seek.
-                        inner
+                    AlignmentRepositoryEnum::RemoteBam(inner) => {
+                        log::info!(
+                            "Object storage request: operation=query object_url={} index_url={} region={:?} context=remote BAM records",
+                            inner.bam_path,
+                            inner.bai_path,
+                            region
+                        );
+                        let stream = inner
                             .operator
-                            .reader_with(&inner.key)
-                            .concurrent(REMOTE_READ_CONCURRENCY)
-                            .chunk(REMOTE_READ_CHUNK_SIZE)
+                            .reader(&inner.key)
                             .await?
-                            .fetch(ranges.clone())
-                            .await?
-                            .into_iter()
-                            .map(|buffer| buffer.to_vec())
-                            .collect()
-                    };
-                    let records = query.read_records(&ranges, buffers).await?;
-                    let header = Arc::clone(&inner.header);
-                    build_tables(
-                        records,
-                        move |record| Ok(RecordBuf::try_from_alignment_record(&header, &record)?),
-                        reference_sequence,
-                        contig_index,
-                    )
-                    .await?
-                }
-                AlignmentRepositoryEnum::Cram(inner) => {
-                    let records = inner
-                        .reader
-                        .query(&inner.header, &query_region)?
-                        .collect::<Result<Vec<_>, _>>()?;
-                    build_tables(records, Ok, reference_sequence, contig_index).await?
-                }
-            },
+                            .into_futures_async_read(..)
+                            .await?;
+                        let mut reader = bam::r#async::io::Reader::new(stream.compat());
+                        let mut query = reader
+                            .query(&inner.header, &inner.index, &query_region)?
+                            .records();
+
+                        while let Some(record) = query.try_next().await? {
+                            batch.push(RecordBuf::try_from_alignment_record(
+                                &inner.header,
+                                &record,
+                            )?);
+                            if batch.len() == RECORD_BATCH_SIZE {
+                                tables = tables.add_records(
+                                    &batch,
+                                    reference_sequence,
+                                    region.contig_index(),
+                                )?;
+                                records.append(&mut batch);
+                            }
+                        }
+                    }
+                    AlignmentRepositoryEnum::Cram(inner) => {
+                        let query = inner.reader.query(&inner.header, &query_region)?;
+
+                        for record in query {
+                            batch.push(record?);
+                            if batch.len() == RECORD_BATCH_SIZE {
+                                tables = tables.add_records(
+                                    &batch,
+                                    reference_sequence,
+                                    region.contig_index(),
+                                )?;
+                                records.append(&mut batch);
+                            }
+                        }
+                    }
+                };
+            }
             None => {
                 log::debug!(
                     "Skipped alignment record query because the region does not map to the alignment header: source_type={} path={} index={} region={:?} elapsed_ms={}",
@@ -395,15 +372,16 @@ impl AlignmentRepositoryEnum {
                     region,
                     started.elapsed().as_millis(),
                 );
-                (Vec::new(), AlignmentTables::default())
             }
         };
 
+        tables = tables.add_records(&batch, reference_sequence, region.contig_index())?;
+        records.append(&mut batch);
         let record_count = records.len();
         let alignment = match Alignment::from_tables(
             records,
             tables,
-            contig_index,
+            region.contig_index(),
             (region.start(), region.end()),
             reference_sequence,
         ) {
@@ -439,176 +417,12 @@ impl AlignmentRepositoryEnum {
     /// Note that this function does not interprete the contig name as contg vs chromosome.
     pub fn read_header(&self) -> Result<Vec<(String, Option<usize>)>, TGVError> {
         let header = match self {
-            AlignmentRepositoryEnum::Bam(inner) => inner.header.as_ref(),
-            AlignmentRepositoryEnum::RemoteBam(inner) => inner.header.as_ref(),
+            AlignmentRepositoryEnum::Bam(inner) => &inner.header,
+            AlignmentRepositoryEnum::RemoteBam(inner) => &inner.header,
             AlignmentRepositoryEnum::Cram(inner) => &inner.header,
         };
         get_contig_names_and_lengths_from_header(header)
     }
-}
-
-/// The index chunks of one BAM region query.
-struct ChunkQuery {
-    reference_sequence_id: usize,
-    interval: Interval,
-
-    /// Sorted, non-overlapping chunks, so every record is read at most once.
-    chunks: Vec<Chunk>,
-}
-
-impl ChunkQuery {
-    fn new(
-        header: &Header,
-        index: &bai::Index,
-        region: &noodles::core::Region,
-    ) -> Result<Self, TGVError> {
-        let reference_sequence_id = header
-            .reference_sequences()
-            .get_index_of(region.name())
-            .ok_or_else(|| {
-                TGVError::IOError(format!(
-                    "Reference sequence {} is not in the BAM header",
-                    region.name()
-                ))
-            })?;
-        let chunks = index.query(reference_sequence_id, region.interval())?;
-        Ok(Self {
-            reference_sequence_id,
-            interval: region.interval(),
-            chunks,
-        })
-    }
-
-    /// Return the compressed byte range that holds each chunk, in chunk order.
-    fn byte_ranges(&self, file_length: u64) -> Vec<Range<u64>> {
-        self.chunks
-            .iter()
-            .map(|chunk| {
-                chunk.start().compressed()
-                    ..(chunk.end().compressed() + MAX_BGZF_BLOCK_SIZE).min(file_length)
-            })
-            .collect()
-    }
-
-    /// Decode the region's records from the bytes of each chunk's range, in file order.
-    async fn read_records(
-        &self,
-        ranges: &[Range<u64>],
-        buffers: Vec<Vec<u8>>,
-    ) -> Result<Vec<bam::Record>, TGVError> {
-        let chunks = futures::future::try_join_all(
-            self.chunks
-                .iter()
-                .zip(ranges)
-                .zip(buffers)
-                .map(|((chunk, range), buffer)| self.read_chunk(*chunk, range.start, buffer)),
-        )
-        .await?;
-        Ok(chunks.into_iter().flatten().collect())
-    }
-
-    async fn read_chunk(
-        &self,
-        chunk: Chunk,
-        range_start: u64,
-        buffer: Vec<u8>,
-    ) -> Result<Vec<bam::Record>, TGVError> {
-        // The buffer starts at `range_start`, so chunk positions are rebased onto it.
-        let rebase = |position: VirtualPosition| {
-            VirtualPosition::try_from((position.compressed() - range_start, position.uncompressed()))
-                .map_err(|e| TGVError::IOError(format!("Invalid BAM chunk position: {e}")))
-        };
-        let (start, end) = (rebase(chunk.start())?, rebase(chunk.end())?);
-        // The BGZF reader inflates blocks on the blocking pool in parallel.
-        let mut reader =
-            bam::r#async::io::Reader::from(bgzf::r#async::io::Reader::new(Cursor::new(buffer)));
-        reader.get_mut().seek(start).await?;
-        let mut records = Vec::new();
-        while reader.get_ref().virtual_position() < end {
-            let mut record = bam::Record::default();
-            if reader.read_record(&mut record).await? == 0 {
-                break;
-            }
-            if self.intersects(&record)? {
-                records.push(record);
-            }
-        }
-        Ok(records)
-    }
-
-    /// Chunks cover whole bins, so drop the records outside the queried interval.
-    fn intersects(&self, record: &bam::Record) -> Result<bool, TGVError> {
-        if record.reference_sequence_id().transpose()? != Some(self.reference_sequence_id) {
-            return Ok(false);
-        }
-        Ok(
-            match (
-                record.alignment_start().transpose()?,
-                record.alignment_end().transpose()?,
-            ) {
-                (Some(start), Some(end)) => self.interval.intersects((start..=end).into()),
-                _ => false,
-            },
-        )
-    }
-}
-
-/// Build the tables of record batches on the blocking pool, then join them in read ID order.
-///
-/// Batches are independent once their read ID offsets are known, so converting records and
-/// building their tables runs on all cores instead of in sequence on the async task.
-async fn build_tables<T, F>(
-    records: Vec<T>,
-    to_record_buf: F,
-    reference_sequence: &Sequence,
-    contig_index: usize,
-) -> Result<(Vec<RecordBuf>, AlignmentTables), TGVError>
-where
-    T: Send + 'static,
-    F: Fn(T) -> Result<RecordBuf, TGVError> + Clone + Send + 'static,
-{
-    let record_count = records.len();
-    let reference_sequence = Arc::new(reference_sequence.clone());
-    let batches = records
-        .into_iter()
-        .chunks(RECORD_BATCH_SIZE)
-        .into_iter()
-        .map(Iterator::collect::<Vec<_>>)
-        .collect::<Vec<_>>();
-    // Bound the tasks in flight so a large region does not grow the blocking pool past the core
-    // count while BGZF inflation shares it.
-    let parallelism = std::thread::available_parallelism().map_or(1, NonZero::get);
-    let built = stream::iter(batches.into_iter().enumerate().map(|(index, batch)| {
-        let to_record_buf = to_record_buf.clone();
-        let reference_sequence = Arc::clone(&reference_sequence);
-        async move {
-            tokio::task::spawn_blocking(move || {
-                let records = batch
-                    .into_iter()
-                    .map(to_record_buf)
-                    .collect::<Result<Vec<_>, _>>()?;
-                let tables = AlignmentTables::from_batch(
-                    &records,
-                    &reference_sequence,
-                    contig_index,
-                    (index * RECORD_BATCH_SIZE) as u64,
-                )?;
-                Ok::<_, TGVError>((records, tables))
-            })
-            .await?
-        }
-    }))
-    .buffered(parallelism)
-    .try_collect::<Vec<_>>()
-    .await?;
-
-    let mut records = Vec::with_capacity(record_count);
-    let mut batches = Vec::with_capacity(built.len());
-    for (mut batch_records, tables) in built {
-        records.append(&mut batch_records);
-        batches.push(tables);
-    }
-    Ok((records, AlignmentTables::concat(batches)?))
 }
 
 pub fn is_url(path: &str) -> bool {

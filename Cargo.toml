@@ -17,7 +17,7 @@ itertools = "0"
 log = { version = "0.4", features = ["std"] }
 miette = { version = "7", features = ["fancy"] }
 nom = "8"
-noodles = { version = "0", features = ["async", "bam", "bed", "bgzf", "core", "cram", "csi", "fasta", "sam", "vcf"] }
+noodles = { version = "0", features = ["async", "bam", "bed", "bgzf", "core", "cram", "fasta", "sam", "vcf"] }
 opendal = { version = "0.53.3", default-features = false, features = ["services-s3"] }
 # Polars 0.55 string expressions also require its temporal support.
 polars = { version = "0.55.2", default-features = false, features = ["dtype-u8", "dtype-u16", "lazy", "strings", "is_in", "cum_agg", "dtype-i128", "temporal", "round_series"] }

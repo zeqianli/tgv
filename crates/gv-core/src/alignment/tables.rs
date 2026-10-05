@@ -60,7 +60,7 @@ impl AlignmentTables {
     /// reference IDs from the same source header.
     /// The consuming builder returns only fully appended tables.
     pub fn add_records(
-        self,
+        mut self,
         records: &[RecordBuf],
         reference_sequence: &Sequence,
         contig_index: usize,
@@ -69,48 +69,39 @@ impl AlignmentTables {
             return Ok(self);
         }
         let offset = self.reads.height() as u64;
-        let batch = Self::from_batch(records, reference_sequence, contig_index, offset)?;
-        Self::concat([self, batch])
-    }
-
-    /// Build tables for one record batch whose read IDs start at `read_id_offset`.
-    ///
-    /// Batches are independent, so a region can build them in parallel and join them with
-    /// [`AlignmentTables::concat`].
-    pub(crate) fn from_batch(
-        records: &[RecordBuf],
-        reference_sequence: &Sequence,
-        contig_index: usize,
-        read_id_offset: u64,
-    ) -> Result<Self, TGVError> {
-        build_batch(records, reference_sequence, contig_index, read_id_offset)
-    }
-
-    /// Concatenate batches in read ID order.
-    ///
-    /// Joining all batches at once copies each table a single time, instead of once per
-    /// appended batch.
-    pub(crate) fn concat(batches: impl IntoIterator<Item = Self>) -> Result<Self, TGVError> {
-        let mut reads = vec![ReadSchema::empty().lazy()];
-        let mut cigar_runs = vec![CigarSchema::empty().lazy()];
-        let mut unmapped = vec![UnmappedReadSchema::empty().lazy()];
-        let mut reference_mismatches = vec![ReferenceMismatchSchema::empty().lazy()];
-        let mut base_modifications = vec![BaseModificationSchema::empty().lazy()];
-        for batch in batches {
-            reads.push(batch.reads.lazy());
-            cigar_runs.push(batch.cigar_runs.lazy());
-            unmapped.push(batch.unmapped.lazy());
-            reference_mismatches.push(batch.reference_mismatches.lazy());
-            base_modifications.push(batch.base_modifications.lazy());
-        }
-        Ok(Self {
-            reads: concat(reads, UnionArgs::default())?.collect()?,
-            cigar_runs: concat(cigar_runs, UnionArgs::default())?.collect()?,
-            unmapped: concat(unmapped, UnionArgs::default())?.collect()?,
-            reference_mismatches: concat(reference_mismatches, UnionArgs::default())?
-                .collect()?,
-            base_modifications: concat(base_modifications, UnionArgs::default())?.collect()?,
-        })
+        let batch = build_batch(records, reference_sequence, contig_index, offset)?;
+        self.reads = concat(
+            [self.reads.lazy(), batch.reads.lazy()],
+            UnionArgs::default(),
+        )?
+        .collect()?;
+        self.cigar_runs = concat(
+            [self.cigar_runs.lazy(), batch.cigar_runs.lazy()],
+            UnionArgs::default(),
+        )?
+        .collect()?;
+        self.unmapped = concat(
+            [self.unmapped.lazy(), batch.unmapped.lazy()],
+            UnionArgs::default(),
+        )?
+        .collect()?;
+        self.reference_mismatches = concat(
+            [
+                self.reference_mismatches.lazy(),
+                batch.reference_mismatches.lazy(),
+            ],
+            UnionArgs::default(),
+        )?
+        .collect()?;
+        self.base_modifications = concat(
+            [
+                self.base_modifications.lazy(),
+                batch.base_modifications.lazy(),
+            ],
+            UnionArgs::default(),
+        )?
+        .collect()?;
+        Ok(self)
     }
 }
 
