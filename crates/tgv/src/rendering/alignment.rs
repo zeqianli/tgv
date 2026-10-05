@@ -1,5 +1,7 @@
 //! Draw visible runs and annotations directly into the buffer in layer order.
 
+use std::io::Read;
+
 use crate::{
     layout::{AlignmentView, OnScreenCoordinate},
     rendering::colors::Palette,
@@ -12,7 +14,7 @@ use gv_core::{
     prelude::*,
 };
 use itertools::izip;
-use noodles::sam::record::data::field::value::base_modifications::group::Modification;
+use noodles::sam::record::{Cigar, data::field::value::base_modifications::group::Modification};
 use polars::prelude::*;
 use ratatui::{
     buffer::Buffer,
@@ -171,212 +173,359 @@ fn draw_reads(
     palette: &Palette,
 ) -> PolarsResult<()> {
     let region = view.region(area);
-    let reads = reads.select([
-        col(ReadSchema::READ_ID),
-        col(ReadSchema::Y),
-        col(ReadSchema::REVERSE),
-        col(ReadSchema::STACKING_START),
-        col(ReadSchema::STACKING_END),
-    ]);
-    // The stored left-table order defines which event wins within each layer.
-    let query = |table: &DataFrame, start: &'static str, end: &'static str| {
-        table
-            .clone()
-            .lazy()
-            .filter(
-                col(start)
-                    .lt_eq(lit(region.end()))
-                    .and(col(end).gt_eq(lit(region.start()))),
-            )
-            .join(
-                reads.clone(),
-                [col(ReadSchema::READ_ID)],
-                [col(ReadSchema::READ_ID)],
-                JoinArgs {
-                    maintain_order: MaintainOrderJoin::Left,
-                    ..JoinArgs::new(JoinType::Inner)
-                },
-            )
-            .collect()
-    };
-    let runs = query(
-        &tables.cigar_runs,
-        CigarSchema::DISPLAY_START,
-        CigarSchema::DISPLAY_END,
-    )?;
-    let ys = runs.column(ReadSchema::Y)?.u64()?;
-    let kinds = runs.column(CigarSchema::KIND)?.u8()?;
-    let starts = runs.column(CigarSchema::DISPLAY_START)?.u64()?;
-    let ends = runs.column(CigarSchema::DISPLAY_END)?.u64()?;
-    let offsets = runs.column(CigarSchema::RUN_OFFSET)?.u32()?;
-    let sequences = runs.column(CigarSchema::SEQ)?.str()?;
-    let reverse = runs.column(ReadSchema::REVERSE)?.bool()?;
-    let read_starts = runs.column(ReadSchema::STACKING_START)?.u64()?;
-    let read_ends = runs.column(ReadSchema::STACKING_END)?.u64()?;
-    let run_rows = || {
-        izip!(
-            kinds.into_no_null_iter(),
-            starts.into_no_null_iter(),
-            ends.into_no_null_iter(),
-            offsets.into_no_null_iter(),
-            sequences.iter(),
-            ys.into_no_null_iter(),
-            reverse
-                .iter()
-                .map(|reverse| reverse.expect("read flags are non-null")),
-            read_starts.into_no_null_iter(),
-            read_ends.into_no_null_iter(),
+
+    // steps:
+    // 1. Get match / mismatch / sequence_match / softclip runs.
+    //     1.1 draw the main body
+    //     1.2 draw the softclips
+    //     1.3 Start / end arrow head: group by read id. display start or display end.
+
+    let runs = tables
+        .cigar_runs
+        .clone()
+        .lazy()
+        .filter(
+            col(CigarSchema::DISPLAY_START)
+                .lt_eq(lit(region.end()))
+                .and(col(CigarSchema::DISPLAY_END).gt_eq(lit(region.start()))),
         )
-    };
-    let screen_y = |y: u64| area.y + (y as usize - top) as u16;
-    let screen_position =
-        |position, y| pixel(position, view, area).map(|x| Position::new(area.x + x, screen_y(y)));
-    #[derive(Clone, Copy)]
-    enum Layer {
-        Body,
-        Arrow,
-        Insertion,
-        Mismatch,
-    }
-    for layer in [Layer::Body, Layer::Arrow, Layer::Insertion, Layer::Mismatch] {
-        for (kind, run_start, run_end, offset, sequence, y, reverse, read_start, read_end) in
-            run_rows()
-        {
-            if kind > CigarSchema::SEQUENCE_MISMATCH {
-                return Err(PolarsError::ComputeError(
-                    format!("Invalid CIGAR kind code: {kind}.").into(),
-                ));
-            }
-            if matches!(kind, CigarSchema::HARD_CLIP | CigarSchema::PADDING) {
-                continue;
-            }
-            match layer {
-                Layer::Body | Layer::Arrow if kind == CigarSchema::INSERTION => continue,
-                Layer::Insertion if kind != CigarSchema::INSERTION => continue,
-                Layer::Mismatch if kind != CigarSchema::SEQUENCE_MISMATCH => continue,
-                _ => {}
-            }
-            let sequence = sequence.map(str::as_bytes);
-            if matches!(
-                kind,
-                CigarSchema::MATCH
-                    | CigarSchema::SEQUENCE_MATCH
-                    | CigarSchema::SEQUENCE_MISMATCH
-                    | CigarSchema::SOFT_CLIP
-            ) && sequence.is_none()
-            {
-                continue;
-            }
-            let (start, end) = (run_start.max(region.start()), run_end.min(region.end()));
-            let Some(left) = pixel(start, view, area) else {
-                continue;
-            };
-            let right = pixel(end, view, area).unwrap_or(area.width - 1);
-            let (left, right) = if matches!(layer, Layer::Arrow) {
-                let endpoint = if reverse { read_start } else { read_end };
-                if endpoint != (if reverse { run_start } else { run_end }) {
-                    continue;
-                }
-                let Some(x) = pixel(endpoint, view, area) else {
-                    continue;
-                };
-                (x, x)
+        .join(
+            reads.clone(),
+            [col(ReadSchema::READ_ID)],
+            [col(ReadSchema::READ_ID)],
+            JoinArgs::new(JoinType::Inner),
+        )
+        .select([
+            col(ReadSchema::READ_ID),
+            col(ReadSchema::Y),
+            col(ReadSchema::REVERSE),
+            col(CigarSchema::KIND),
+            col(CigarSchema::DISPLAY_START),
+            col(CigarSchema::DISPLAY_END),
+            col(CigarSchema::SEQ),
+        ])
+        .collect()?;
+
+    // 1.1 Draw the main body, match bases
+    let match_runs = runs
+        .clone()
+        .lazy()
+        .filter(col(CigarSchema::KIND).neq(lit(CigarSchema::SOFT_CLIP)))
+        .collect()?;
+
+    for (y, start, end) in izip!(
+        match_runs.column(ReadSchema::Y)?.u64()?.into_no_null_iter(),
+        match_runs
+            .column(CigarSchema::DISPLAY_START)?
+            .u64()?
+            .into_no_null_iter(),
+        match_runs
+            .column(CigarSchema::DISPLAY_END)?
+            .u64()?
+            .into_no_null_iter(),
+    ) {
+        let (start, end) = (start.max(region.start()), end.min(region.end()));
+        let Some(left) = pixel(start, view, area) else {
+            continue; // tODO: I don't think this is necessary?
+        };
+        let right = pixel(end, view, area).unwrap_or(area.width - 1);
+
+        let y = area.y + (y as usize - top) as u16;
+        for x in left..=right {
+            if let Some(cell) = buf.cell_mut(Position::new(area.x + x, y)) {
+                cell.set_symbol("-")
+                    .set_bg(palette.MATCH_COLOR)
+                    .set_fg(palette.MATCH_FG_COLOR);
             } else {
-                (left, right)
-            };
-            let y = screen_y(y);
-            for x in left..=right {
-                let Some(cell) = buf.cell_mut(Position::new(area.x + x, y)) else {
-                    continue;
-                };
-                match (layer, kind) {
-                    (Layer::Body, CigarSchema::SOFT_CLIP) | (Layer::Mismatch, _) => {
-                        let position =
-                            (region.start() + u64::from(x) * view.zoom + view.zoom - 1).min(end);
-                        let offset = offset as usize + (position - run_start) as usize;
-                        let base = sequence.expect("base-bearing runs have SEQ")[offset];
-                        cell.set_char(base as char);
-                        if kind == CigarSchema::SOFT_CLIP {
-                            cell.set_bg(palette.softclip_color(base))
-                                .set_fg(Color::Reset);
-                        } else {
-                            cell.set_fg(palette.mismatch_color(base));
-                        }
-                    }
-                    (Layer::Body, _) => {
-                        let (bg, fg) = if matches!(
-                            kind,
-                            CigarSchema::DELETION | CigarSchema::REFERENCE_SKIP
-                        ) {
-                            (palette.background, palette.DELETION_COLOR)
-                        } else {
-                            (palette.MATCH_COLOR, palette.MATCH_FG_COLOR)
-                        };
-                        cell.set_symbol("-").set_bg(bg).set_fg(fg);
-                    }
-                    (Layer::Arrow, _) => {
-                        cell.set_symbol(if reverse { "◄" } else { "►" });
-                    }
-                    (Layer::Insertion, _) => {
-                        cell.set_symbol("▌").set_fg(palette.INSERTION_COLOR);
-                    }
-                }
+                continue;
             }
         }
     }
-    let mismatches = query(
-        &tables.reference_mismatches,
-        ReferenceMismatchSchema::REF_POS,
-        ReferenceMismatchSchema::REF_POS,
-    )?;
-    let positions = mismatches.column(ReferenceMismatchSchema::REF_POS)?.u64()?;
-    let bases = mismatches.column(ReferenceMismatchSchema::BASE)?.u8()?;
-    let ys = mismatches.column(ReadSchema::Y)?.u64()?;
-    for ((position, base), y) in positions
-        .into_no_null_iter()
-        .zip(bases.into_no_null_iter())
-        .zip(ys.into_no_null_iter())
-    {
-        if let Some(position) = screen_position(position, y)
+
+    // 1.2 Draw softclips
+    let softclip_runs = runs
+        .clone()
+        .lazy()
+        .filter(col(CigarSchema::KIND).eq(lit(CigarSchema::SOFT_CLIP)))
+        .collect()?;
+
+    for (y, kind, start, end, seq) in izip!(
+        softclip_runs
+            .column(ReadSchema::Y)?
+            .u64()?
+            .into_no_null_iter(),
+        softclip_runs
+            .column(CigarSchema::KIND)?
+            .u8()?
+            .into_no_null_iter(),
+        softclip_runs
+            .column(CigarSchema::DISPLAY_START)?
+            .u64()?
+            .into_no_null_iter(),
+        softclip_runs
+            .column(CigarSchema::DISPLAY_END)?
+            .u64()?
+            .into_no_null_iter(),
+        softclip_runs.column(CigarSchema::SEQ)?.str()?.iter()
+    ) {
+        let (start, end) = (start.max(region.start()), end.min(region.end()));
+        let Some(left) = pixel(start, view, area) else {
+            continue; // tODO: I don't think this is necessary?
+        };
+        let right = pixel(end, view, area).unwrap_or(area.width - 1);
+        // TODO: this is a mess
+
+        let y = area.y + (y as usize - top) as u16;
+        for x in left..=right {
+            if let Some(cell) = buf.cell_mut(Position::new(area.x + x, y))
+                && let Some(seq) = seq.map(|s| s.as_bytes())
+            {
+                let position = (region.start() + u64::from(x) * view.zoom + view.zoom - 1).min(end);
+                let offset = (position - start) as usize;
+                let base = seq[offset];
+                cell.set_char(base as char);
+                cell.set_bg(palette.softclip_color(base))
+                    .set_fg(Color::Reset);
+            } else {
+                continue;
+            }
+        }
+    }
+
+    // 1.3: Draw arrows
+    // TODO: the coordinate is not right yet
+    let arrow_positions = runs
+        .clone()
+        .lazy()
+        .group_by([col(ReadSchema::READ_ID)])
+        .agg([
+            when(col(ReadSchema::REVERSE))
+                .then(col(CigarSchema::DISPLAY_START).min())
+                .otherwise(col(CigarSchema::DISPLAY_END).max())
+                .first()
+                .alias("arrow_position"),
+            col(ReadSchema::Y).first(),
+            col(ReadSchema::REVERSE).first(),
+        ])
+        .collect()?;
+
+    for (y, reverse, arrow_position) in izip!(
+        arrow_positions
+            .column(ReadSchema::Y)?
+            .u64()?
+            .into_no_null_iter(),
+        arrow_positions
+            .column(ReadSchema::REVERSE)?
+            .bool()?
+            .iter()
+            .map(|reverse| reverse.expect("read flags are non-null")),
+        arrow_positions
+            .column("arrow_position")?
+            .u64()?
+            .into_no_null_iter(),
+    ) {
+        let Some(left) = pixel(arrow_position, view, area) else {
+            continue; // TODO: I don't think this is necessary?
+        };
+
+        let y = area.y + (y as usize - top) as u16;
+
+        if let Some(cell) = buf.cell_mut(Position::new(area.x + left, y)) {
+            cell.set_symbol(if reverse { "◄" } else { "►" });
+        }
+    }
+
+    // 2. Get deletion runs / ref skip. Paint.
+
+    let deletion_runs = runs
+        .clone()
+        .lazy()
+        .filter(
+            col(CigarSchema::KIND)
+                .eq(lit(CigarSchema::DELETION))
+                .or(col(CigarSchema::KIND).eq(lit(CigarSchema::REFERENCE_SKIP))),
+        )
+        .select([
+            //col(ReadSchema::READ_ID),
+            col(ReadSchema::Y),
+            col(CigarSchema::DISPLAY_START),
+            col(CigarSchema::DISPLAY_END),
+        ])
+        .collect()?;
+
+    for (y, start, end) in izip!(
+        deletion_runs
+            .column(ReadSchema::Y)?
+            .u64()?
+            .into_no_null_iter(),
+        deletion_runs
+            .column(CigarSchema::DISPLAY_START)?
+            .u64()?
+            .into_no_null_iter(),
+        deletion_runs
+            .column(CigarSchema::DISPLAY_END)?
+            .u64()?
+            .into_no_null_iter(),
+    ) {
+        let (start, end) = (start.max(region.start()), end.min(region.end()));
+        let Some(left) = pixel(start, view, area) else {
+            continue; // tODO: I don't think this is necessary?
+        };
+        let right = pixel(end, view, area).unwrap_or(area.width - 1);
+
+        let y = area.y + (y as usize - top) as u16;
+        for x in left..=right {
+            if let Some(cell) = buf.cell_mut(Position::new(area.x + x, y)) {
+                cell.set_symbol("-")
+                    .set_bg(palette.background)
+                    .set_fg(palette.DELETION_COLOR);
+            } else {
+                continue;
+            }
+        }
+    }
+
+    // 3. Get Insertion runs. Paint.
+    let insertion_runs = runs
+        .clone()
+        .lazy()
+        .filter(col(CigarSchema::KIND).eq(lit(CigarSchema::INSERTION)))
+        .select([
+            //col(ReadSchema::READ_ID),
+            col(ReadSchema::Y),
+            col(CigarSchema::DISPLAY_START),
+            //col(CigarSchema::DISPLAY_END),
+        ])
+        .collect()?;
+
+    for (y, start) in izip!(
+        insertion_runs
+            .column(ReadSchema::Y)?
+            .u64()?
+            .into_no_null_iter(),
+        insertion_runs
+            .column(CigarSchema::DISPLAY_START)?
+            .u64()?
+            .into_no_null_iter(),
+    ) {
+        let Some(x) = pixel(start, view, area) else {
+            continue; // TODO: I don't think this is necessary?
+        };
+
+        let y = area.y + (y as usize - top) as u16;
+
+        if let Some(cell) = buf.cell_mut(Position::new(area.x + x, y)) {
+            cell.set_symbol("▌").set_fg(palette.INSERTION_COLOR);
+        }
+    }
+
+    // 4. Ged sequence mismatch positons. paint.
+    let mismatches = tables
+        .reference_mismatches
+        .clone()
+        .lazy()
+        .filter(
+            col(ReferenceMismatchSchema::REF_POS)
+                .lt_eq(lit(region.end()))
+                .and(col(ReferenceMismatchSchema::REF_POS).gt_eq(lit(region.start()))),
+        )
+        .join(
+            tables.reads.clone().lazy(),
+            [col(ReadSchema::READ_ID)],
+            [col(ReadSchema::READ_ID)],
+            JoinArgs::new(JoinType::Inner),
+        )
+        .select([
+            //col(ReadSchema::READ_ID),
+            col(ReadSchema::Y),
+            col(ReferenceMismatchSchema::REF_POS),
+            col(ReferenceMismatchSchema::BASE),
+        ])
+        .collect()?;
+
+    // Mismatches
+
+    for (position, base, y) in izip!(
+        mismatches
+            .column(ReferenceMismatchSchema::REF_POS)?
+            .u64()?
+            .into_no_null_iter(),
+        mismatches
+            .column(ReferenceMismatchSchema::BASE)?
+            .u8()?
+            .into_no_null_iter(),
+        mismatches.column(ReadSchema::Y)?.u64()?.into_no_null_iter()
+    ) {
+        if let Some(position) = pixel(position, view, area)
+            .map(|x| Position::new(area.x + x, area.y + (y as usize - top) as u16))
             && let Some(cell) = buf.cell_mut(position)
         {
             cell.set_char(base as char)
                 .set_fg(palette.mismatch_color(base));
         }
     }
-    let modifications = query(
-        &tables.base_modifications,
-        BaseModificationSchema::DISPLAY_POS,
-        BaseModificationSchema::DISPLAY_POS,
-    )?;
-    let positions = modifications
-        .column(BaseModificationSchema::DISPLAY_POS)?
-        .u64()?;
-    let codes = modifications.column(BaseModificationSchema::CODE)?.u8()?;
-    let chebi = modifications
-        .column(BaseModificationSchema::CHEBI_ID)?
-        .u32()?;
-    let probabilities = modifications
-        .column(BaseModificationSchema::PROBABILITY)?
-        .u8()?;
-    let ys = modifications.column(ReadSchema::Y)?.u64()?;
+
+    // 5. Get BaseModification positions. paint.
+    //
+    let modifications = tables
+        .base_modifications
+        .clone()
+        .lazy()
+        .filter(
+            col(BaseModificationSchema::DISPLAY_POS)
+                .lt_eq(lit(region.end()))
+                .and(col(BaseModificationSchema::DISPLAY_POS).gt_eq(lit(region.start()))),
+        )
+        .join(
+            tables.reads.clone().lazy(),
+            [col(ReadSchema::READ_ID)],
+            [col(ReadSchema::READ_ID)],
+            JoinArgs::new(JoinType::Inner),
+        )
+        .select([
+            //col(ReadSchema::READ_ID),
+            col(ReadSchema::Y),
+            col(BaseModificationSchema::DISPLAY_POS),
+            col(BaseModificationSchema::CODE),
+            col(BaseModificationSchema::CHEBI_ID),
+            col(BaseModificationSchema::PROBABILITY),
+        ])
+        .collect()?;
+
     for (position, code, chebi, probability, y) in izip!(
-        positions.into_no_null_iter(),
-        codes.iter(),
-        chebi.iter(),
-        probabilities.iter(),
-        ys.into_no_null_iter(),
+        modifications
+            .column(BaseModificationSchema::DISPLAY_POS)?
+            .u64()?
+            .into_no_null_iter(),
+        modifications
+            .column(BaseModificationSchema::CODE)?
+            .u8()?
+            .iter(),
+        modifications
+            .column(BaseModificationSchema::CHEBI_ID)?
+            .u32()?
+            .iter(),
+        modifications
+            .column(BaseModificationSchema::PROBABILITY)?
+            .u8()?
+            .iter(),
+        modifications
+            .column(ReadSchema::Y)?
+            .u64()?
+            .into_no_null_iter(),
     ) {
         let modification = match (code, chebi) {
             (Some(code), None) => Modification::Code(code),
             (None, Some(id)) => Modification::ChebiId(id),
             _ => unreachable!("modifications contain exactly one noodles variant"),
         };
-        if let Some(position) = screen_position(position, y)
+        if let Some(position) = pixel(position, view, area)
+            .map(|x| Position::new(area.x + x, area.y + (y as usize - top) as u16))
             && let Some(cell) = buf.cell_mut(position)
         {
             cell.set_bg(palette.modification_color(&modification, probability.unwrap_or(255)));
         }
     }
+
     Ok(())
 }
