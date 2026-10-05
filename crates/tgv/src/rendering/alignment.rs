@@ -178,7 +178,6 @@ fn draw_reads(
     // 1. Get match / mismatch / sequence_match / softclip runs.
     //     1.1 draw the main body
     //     1.2 draw the softclips
-    //     1.3 Start / end arrow head: group by read id. display start or display end.
 
     let runs = tables
         .cigar_runs
@@ -199,12 +198,19 @@ fn draw_reads(
             col(ReadSchema::READ_ID),
             col(ReadSchema::Y),
             col(ReadSchema::REVERSE),
+            col(ReadSchema::STACKING_START),
+            col(ReadSchema::STACKING_END),
             col(CigarSchema::KIND),
             col(CigarSchema::DISPLAY_START),
             col(CigarSchema::DISPLAY_END),
+            col(CigarSchema::RUN_OFFSET),
             col(CigarSchema::SEQ),
         ])
         .collect()?;
+
+    if runs.height() == 0 {
+        return Ok(());
+    }
 
     // 1.1 Draw the main body, match bases
     let match_runs = runs
@@ -249,14 +255,10 @@ fn draw_reads(
         .filter(col(CigarSchema::KIND).eq(lit(CigarSchema::SOFT_CLIP)))
         .collect()?;
 
-    for (y, kind, start, end, seq) in izip!(
+    for (y, run_start, end, run_offset, seq) in izip!(
         softclip_runs
             .column(ReadSchema::Y)?
             .u64()?
-            .into_no_null_iter(),
-        softclip_runs
-            .column(CigarSchema::KIND)?
-            .u8()?
             .into_no_null_iter(),
         softclip_runs
             .column(CigarSchema::DISPLAY_START)?
@@ -266,22 +268,24 @@ fn draw_reads(
             .column(CigarSchema::DISPLAY_END)?
             .u64()?
             .into_no_null_iter(),
+        softclip_runs
+            .column(CigarSchema::RUN_OFFSET)?
+            .u32()?
+            .into_no_null_iter(),
         softclip_runs.column(CigarSchema::SEQ)?.str()?.iter()
     ) {
-        let (start, end) = (start.max(region.start()), end.min(region.end()));
+        let (start, end) = (run_start.max(region.start()), end.min(region.end()));
         let Some(left) = pixel(start, view, area) else {
             continue; // tODO: I don't think this is necessary?
         };
         let right = pixel(end, view, area).unwrap_or(area.width - 1);
-        // TODO: this is a mess
-
         let y = area.y + (y as usize - top) as u16;
         for x in left..=right {
             if let Some(cell) = buf.cell_mut(Position::new(area.x + x, y))
                 && let Some(seq) = seq.map(|s| s.as_bytes())
             {
                 let position = (region.start() + u64::from(x) * view.zoom + view.zoom - 1).min(end);
-                let offset = (position - start) as usize;
+                let offset = run_offset as usize + (position - run_start) as usize;
                 let base = seq[offset];
                 cell.set_char(base as char);
                 cell.set_bg(palette.softclip_color(base))
@@ -289,49 +293,6 @@ fn draw_reads(
             } else {
                 continue;
             }
-        }
-    }
-
-    // 1.3: Draw arrows
-    // TODO: the coordinate is not right yet
-    let arrow_positions = runs
-        .clone()
-        .lazy()
-        .group_by([col(ReadSchema::READ_ID)])
-        .agg([
-            when(col(ReadSchema::REVERSE))
-                .then(col(CigarSchema::DISPLAY_START).min())
-                .otherwise(col(CigarSchema::DISPLAY_END).max())
-                .first()
-                .alias("arrow_position"),
-            col(ReadSchema::Y).first(),
-            col(ReadSchema::REVERSE).first(),
-        ])
-        .collect()?;
-
-    for (y, reverse, arrow_position) in izip!(
-        arrow_positions
-            .column(ReadSchema::Y)?
-            .u64()?
-            .into_no_null_iter(),
-        arrow_positions
-            .column(ReadSchema::REVERSE)?
-            .bool()?
-            .iter()
-            .map(|reverse| reverse.expect("read flags are non-null")),
-        arrow_positions
-            .column("arrow_position")?
-            .u64()?
-            .into_no_null_iter(),
-    ) {
-        let Some(left) = pixel(arrow_position, view, area) else {
-            continue; // TODO: I don't think this is necessary?
-        };
-
-        let y = area.y + (y as usize - top) as u16;
-
-        if let Some(cell) = buf.cell_mut(Position::new(area.x + left, y)) {
-            cell.set_symbol(if reverse { "◄" } else { "►" });
         }
     }
 
@@ -385,6 +346,48 @@ fn draw_reads(
         }
     }
 
+    // Draw arrows after deletion bodies so terminal deletions retain their strand marker.
+    let arrow_positions = runs
+        .clone()
+        .lazy()
+        .group_by([col(ReadSchema::READ_ID)])
+        .agg([
+            col(ReadSchema::STACKING_START).first(),
+            col(ReadSchema::STACKING_END).first(),
+            col(ReadSchema::Y).first(),
+            col(ReadSchema::REVERSE).first(),
+        ])
+        .collect()?;
+
+    for (y, reverse, start, end) in izip!(
+        arrow_positions
+            .column(ReadSchema::Y)?
+            .u64()?
+            .into_no_null_iter(),
+        arrow_positions
+            .column(ReadSchema::REVERSE)?
+            .bool()?
+            .iter()
+            .map(|reverse| reverse.expect("read flags are non-null")),
+        arrow_positions
+            .column(ReadSchema::STACKING_START)?
+            .u64()?
+            .into_no_null_iter(),
+        arrow_positions
+            .column(ReadSchema::STACKING_END)?
+            .u64()?
+            .into_no_null_iter(),
+    ) {
+        let position = if reverse { start } else { end };
+        let Some(x) = pixel(position, view, area) else {
+            continue;
+        };
+        let y = area.y + (y as usize - top) as u16;
+        if let Some(cell) = buf.cell_mut(Position::new(area.x + x, y)) {
+            cell.set_symbol(if reverse { "◄" } else { "►" });
+        }
+    }
+
     // 3. Get Insertion runs. Paint.
     let insertion_runs = runs
         .clone()
@@ -419,7 +422,55 @@ fn draw_reads(
         }
     }
 
-    // 4. Ged sequence mismatch positons. paint.
+    // 4. Get sequence mismatch positions and draw the bases.
+    let sequence_mismatch_runs = runs
+        .clone()
+        .lazy()
+        .filter(col(CigarSchema::KIND).eq(lit(CigarSchema::SEQUENCE_MISMATCH)))
+        .collect()?;
+
+    for (y, run_start, end, run_offset, seq) in izip!(
+        sequence_mismatch_runs
+            .column(ReadSchema::Y)?
+            .u64()?
+            .into_no_null_iter(),
+        sequence_mismatch_runs
+            .column(CigarSchema::DISPLAY_START)?
+            .u64()?
+            .into_no_null_iter(),
+        sequence_mismatch_runs
+            .column(CigarSchema::DISPLAY_END)?
+            .u64()?
+            .into_no_null_iter(),
+        sequence_mismatch_runs
+            .column(CigarSchema::RUN_OFFSET)?
+            .u32()?
+            .into_no_null_iter(),
+        sequence_mismatch_runs
+            .column(CigarSchema::SEQ)?
+            .str()?
+            .iter(),
+    ) {
+        let Some(seq) = seq.map(str::as_bytes) else {
+            continue;
+        };
+        let (start, end) = (run_start.max(region.start()), end.min(region.end()));
+        let Some(left) = pixel(start, view, area) else {
+            continue;
+        };
+        let right = pixel(end, view, area).unwrap_or(area.width - 1);
+        let y = area.y + (y as usize - top) as u16;
+        for x in left..=right {
+            if let Some(cell) = buf.cell_mut(Position::new(area.x + x, y)) {
+                let position = (region.start() + u64::from(x) * view.zoom + view.zoom - 1).min(end);
+                let offset = run_offset as usize + (position - run_start) as usize;
+                let base = seq[offset];
+                cell.set_char(base as char)
+                    .set_fg(palette.mismatch_color(base));
+            }
+        }
+    }
+
     let mismatches = tables
         .reference_mismatches
         .clone()
@@ -430,7 +481,7 @@ fn draw_reads(
                 .and(col(ReferenceMismatchSchema::REF_POS).gt_eq(lit(region.start()))),
         )
         .join(
-            tables.reads.clone().lazy(),
+            reads.clone(),
             [col(ReadSchema::READ_ID)],
             [col(ReadSchema::READ_ID)],
             JoinArgs::new(JoinType::Inner),
@@ -477,7 +528,7 @@ fn draw_reads(
                 .and(col(BaseModificationSchema::DISPLAY_POS).gt_eq(lit(region.start()))),
         )
         .join(
-            tables.reads.clone().lazy(),
+            reads,
             [col(ReadSchema::READ_ID)],
             [col(ReadSchema::READ_ID)],
             JoinArgs::new(JoinType::Inner),
