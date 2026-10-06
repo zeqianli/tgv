@@ -118,10 +118,10 @@ fn build_batch(
     let mut read_id: Vec<u64> = Vec::with_capacity(records.len());
     let mut qname: Vec<Option<String>> = Vec::with_capacity(records.len());
     let mut ref_id: Vec<Option<u32>> = Vec::with_capacity(records.len());
-    let mut pos: Vec<Option<u32>> = Vec::with_capacity(records.len());
+    let mut pos: Vec<Option<u64>> = Vec::with_capacity(records.len());
     let mut mapq: Vec<Option<u8>> = Vec::with_capacity(records.len());
     let mut next_ref_id: Vec<Option<u32>> = Vec::with_capacity(records.len());
-    let mut next_pos: Vec<Option<u32>> = Vec::with_capacity(records.len());
+    let mut next_pos: Vec<Option<u64>> = Vec::with_capacity(records.len());
     let mut tlen: Vec<i32> = Vec::with_capacity(records.len());
     let mut stacking_start: Vec<Option<u64>> = Vec::with_capacity(records.len());
     let mut stacking_end: Vec<Option<u64>> = Vec::with_capacity(records.len());
@@ -290,10 +290,10 @@ fn append_read(
     read_id: &mut Vec<u64>,
     qname: &mut Vec<Option<String>>,
     ref_id: &mut Vec<Option<u32>>,
-    pos: &mut Vec<Option<u32>>,
+    pos: &mut Vec<Option<u64>>,
     mapq: &mut Vec<Option<u8>>,
     next_ref_id: &mut Vec<Option<u32>>,
-    next_pos: &mut Vec<Option<u32>>,
+    next_pos: &mut Vec<Option<u64>>,
     tlen: &mut Vec<i32>,
     stacking_start: &mut Vec<Option<u64>>,
     stacking_end: &mut Vec<Option<u64>>,
@@ -318,10 +318,10 @@ fn append_read(
             .transpose()?,
     );
     ref_id.push(record.reference_sequence_id().map(|id| id as u32));
-    pos.push(record.alignment_start().map(|p| p.get() as u32));
+    pos.push(record.alignment_start().map(|p| p.get() as u64));
     mapq.push(record.mapping_quality().map(|q| q.get()));
     next_ref_id.push(record.mate_reference_sequence_id().map(|id| id as u32));
-    next_pos.push(record.mate_alignment_start().map(|p| p.get() as u32));
+    next_pos.push(record.mate_alignment_start().map(|p| p.get() as u64));
     tlen.push(record.template_length());
     let flags = record.flags();
     paired.push(flags.contains(Flags::SEGMENTED));
@@ -526,10 +526,10 @@ impl TableSchema for ReadSchema {
         schema.insert(Self::READ_ID.into(), DataType::UInt64);
         schema.insert(Self::QNAME.into(), DataType::String);
         schema.insert(Self::REF_ID.into(), DataType::UInt32);
-        schema.insert(Self::POS.into(), DataType::UInt32);
+        schema.insert(Self::POS.into(), DataType::UInt64);
         schema.insert(Self::MAPQ.into(), DataType::UInt8);
         schema.insert(Self::NEXT_REF_ID.into(), DataType::UInt32);
-        schema.insert(Self::NEXT_POS.into(), DataType::UInt32);
+        schema.insert(Self::NEXT_POS.into(), DataType::UInt64);
         schema.insert(Self::TLEN.into(), DataType::Int32);
         schema.insert(Self::STACKING_START.into(), DataType::UInt64);
         schema.insert(Self::STACKING_END.into(), DataType::UInt64);
@@ -1610,10 +1610,10 @@ mod tests {
                 .reads
                 .column(ReadSchema::POS)
                 .unwrap()
-                .u32()
+                .u64()
                 .unwrap()
                 .get(0),
-            Some(reference_start as u32)
+            Some(reference_start)
         );
         assert_eq!(
             alignment

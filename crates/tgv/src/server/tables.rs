@@ -2,10 +2,13 @@
 //!
 //! Tables expose the documented columns of the core schemas under their core names, plus a
 //! few columns the server adds, such as `track_id` and contig names. Column descriptions come
-//! from [`TableSchema::column_docs`]. Before registration, every table goes through one
-//! conversion for SQL: integers become `i64`, so coordinate arithmetic cannot wrap around,
-//! floats become `f64`, and byte-coded columns become text. The catalog applies the same conversion to empty
-//! tables, so it cannot drift from what queries see.
+//! from [`TableSchema::column_docs`]. Columns keep their core types, except that byte-coded
+//! columns become text: CIGAR operations become letters, bases and modification codes become
+//! characters, and base qualities become Phred+33 text. The catalog resolves the same conversion
+//! on empty tables, so it cannot drift from what queries see.
+//!
+//! Tables stay lazy. The core frames are shared rather than copied, and Polars evaluates only
+//! the tables, columns, and rows that a query uses.
 
 use crate::track_registry::{TrackId, TrackRegistry};
 use gv_core::{
@@ -15,6 +18,7 @@ use gv_core::{
     },
     bed::BedSchema,
     gene::{GeneSchema, GeneSegmentSchema, query_segments},
+    intervals::IntervalSchema,
     prelude::*,
     sequence::Sequence,
     table_schema::ColumnDoc,
@@ -54,6 +58,24 @@ impl Decode {
         }
     }
 
+    /// Decodes a `u8` column lazily, when a query uses it.
+    fn expr(self, column: Expr) -> Expr {
+        column.map(
+            move |column| {
+                let values = column
+                    .u8()?
+                    .iter()
+                    .map(|code| code.map(|code| self.apply(code)));
+                Ok(
+                    StringChunked::from_iter_options(column.name().clone(), values)
+                        .into_series()
+                        .into_column(),
+                )
+            },
+            |_, field| Ok(Field::new(field.name().clone(), DataType::String)),
+        )
+    }
+
     fn apply(self, code: u8) -> String {
         match self {
             Self::CigarOp => match code {
@@ -76,20 +98,45 @@ impl Decode {
 
 const PHRED_NOTE: &str = "Encoded as Phred+33 text.";
 
-/// The type of a column that the server adds to a table.
+/// Encodes binary base qualities as Phred+33 text lazily, when a query uses them.
+fn phred(column: Expr) -> Expr {
+    column.map(
+        |column| {
+            let values = column.binary()?.iter().map(|scores| {
+                scores.map(|scores| {
+                    scores
+                        .iter()
+                        .map(|score| char::from(score.saturating_add(33)))
+                        .collect::<String>()
+                })
+            });
+            Ok(
+                StringChunked::from_iter_options(column.name().clone(), values)
+                    .into_series()
+                    .into_column(),
+            )
+        },
+        |_, field| Ok(Field::new(field.name().clone(), DataType::String)),
+    )
+}
+
+/// The type of a column that the server adds to a table, before decoding.
 #[derive(Clone, Copy)]
 enum AddedType {
-    Int64,
+    UInt64,
     String,
     Boolean,
+    /// A byte code that the table decodes to text.
+    Byte,
 }
 
 impl AddedType {
     fn dtype(self) -> DataType {
         match self {
-            Self::Int64 => DataType::Int64,
+            Self::UInt64 => DataType::UInt64,
             Self::String => DataType::String,
             Self::Boolean => DataType::Boolean,
+            Self::Byte => DataType::UInt8,
         }
     }
 }
@@ -136,10 +183,6 @@ pub(super) struct CatalogTable {
 }
 
 impl SqlTable {
-    fn added(&self) -> impl Iterator<Item = &'static AddedColumn> {
-        self.leading.iter().chain(self.trailing)
-    }
-
     fn column_names(&self) -> impl Iterator<Item = &'static str> {
         self.leading
             .iter()
@@ -148,21 +191,35 @@ impl SqlTable {
             .chain(self.trailing.iter().map(|column| column.name))
     }
 
-    /// Builds an empty table with the added and core column types, before conversion.
-    fn empty(&self) -> Result<LazyFrame, TGVError> {
-        let added: Vec<Column> = self
-            .added()
-            .map(|column| Column::new_empty(column.name.into(), &column.r#type.dtype()))
-            .collect();
+    /// Lists the table columns with their types before decoding.
+    fn raw_columns(&self) -> Result<Vec<(&'static str, DataType)>, TGVError> {
         let core = (self.core_empty)();
-        let core: Vec<Column> = (self.core_docs)()
-            .iter()
-            .map(|doc| core.column(doc.name).cloned())
-            .collect::<Result<_, _>>()?;
-        Ok(DataFrame::new(0, added.into_iter().chain(core).collect())?.lazy())
+        let added = |columns: &'static [AddedColumn]| {
+            columns
+                .iter()
+                .map(|column| Ok((column.name, column.r#type.dtype())))
+        };
+        added(self.leading)
+            .chain(
+                (self.core_docs)()
+                    .iter()
+                    .map(|doc| Ok((doc.name, core.column(doc.name)?.dtype().clone()))),
+            )
+            .chain(added(self.trailing))
+            .collect()
     }
 
-    /// Concatenates per-track frames, selects the table columns, and converts them for SQL.
+    /// Builds an empty table with the added and core column types, before decoding.
+    fn empty(&self) -> Result<LazyFrame, TGVError> {
+        let columns: Vec<Column> = self
+            .raw_columns()?
+            .into_iter()
+            .map(|(name, dtype)| Column::new_empty(name.into(), &dtype))
+            .collect();
+        Ok(DataFrame::new(0, columns)?.lazy())
+    }
+
+    /// Concatenates per-track frames, selects the table columns, and decodes byte codes.
     fn finish(&self, frames: Vec<LazyFrame>) -> Result<LazyFrame, TGVError> {
         let names: Vec<Expr> = self.column_names().map(col).collect();
         let frames = if frames.is_empty() {
@@ -176,9 +233,27 @@ impl SqlTable {
                 .map(|frame| frame.select(names.clone()))
                 .collect::<Vec<_>>(),
             UnionArgs::default(),
-        )?
-        .collect()?;
-        Ok(self.to_sql(frame)?.lazy())
+        )?;
+        let added: Vec<&'static str> = self
+            .leading
+            .iter()
+            .chain(self.trailing)
+            .map(|column| column.name)
+            .collect();
+        let conversions: Vec<Expr> = self
+            .raw_columns()?
+            .into_iter()
+            .map(|(name, dtype)| {
+                // Added columns can come from untyped literals, so they take their declared type.
+                let column = if added.contains(&name) {
+                    col(name).cast(dtype.clone())
+                } else {
+                    col(name)
+                };
+                self.sql_expr(name, column, &dtype)
+            })
+            .collect();
+        Ok(frame.select(conversions))
     }
 
     fn decoding(&self, name: &str) -> Option<Decode> {
@@ -188,50 +263,18 @@ impl SqlTable {
             .map(|(_, decode)| *decode)
     }
 
-    fn to_sql(&self, frame: DataFrame) -> Result<DataFrame, TGVError> {
-        let columns = frame
-            .columns()
-            .iter()
-            .map(|column| {
-                if let Some(decode) = self.decoding(column.name()) {
-                    let values: Vec<Option<String>> = column
-                        .u8()?
-                        .iter()
-                        .map(|code| code.map(|code| decode.apply(code)))
-                        .collect();
-                    return Ok(Column::new(column.name().clone(), values));
-                }
-                Ok(match column.dtype() {
-                    DataType::Binary => {
-                        let values: Vec<Option<String>> = column
-                            .binary()?
-                            .iter()
-                            .map(|scores| {
-                                scores.map(|scores| {
-                                    scores
-                                        .iter()
-                                        .map(|score| char::from(score.saturating_add(33)))
-                                        .collect()
-                                })
-                            })
-                            .collect();
-                        Column::new(column.name().clone(), values)
-                    }
-                    dtype if dtype.is_integer() => column.cast(&DataType::Int64)?,
-                    dtype if dtype.is_float() => column.cast(&DataType::Float64)?,
-                    DataType::List(inner) if inner.is_integer() => {
-                        column.cast(&DataType::List(Box::new(DataType::Int64)))?
-                    }
-                    _ => column.clone(),
-                })
-            })
-            .collect::<Result<Vec<_>, TGVError>>()?;
-        Ok(DataFrame::new(frame.height(), columns)?)
+    /// Decodes byte-coded columns to text and leaves other columns unchanged.
+    fn sql_expr(&self, name: &'static str, column: Expr, dtype: &DataType) -> Expr {
+        match (self.decoding(name), dtype) {
+            (Some(decode), _) => decode.expr(column),
+            (None, DataType::Binary) => phred(column),
+            (None, _) => column,
+        }
     }
 
     /// Describes the table's columns with their SQL types.
     pub fn catalog(&self) -> Result<CatalogTable, TGVError> {
-        let frame = self.finish(Vec::new())?.collect()?;
+        let schema = self.finish(Vec::new())?.collect_schema()?;
         let core = (self.core_empty)();
         let added = |columns: &'static [AddedColumn]| {
             columns
@@ -257,7 +300,10 @@ impl SqlTable {
             .map(|(name, description)| {
                 Ok(CatalogColumn {
                     name: name.to_owned(),
-                    dtype: frame.column(name)?.dtype().to_string(),
+                    dtype: schema
+                        .get(name)
+                        .ok_or_else(|| PolarsError::ColumnNotFound(name.into()))?
+                        .to_string(),
                     description,
                 })
             })
@@ -283,14 +329,14 @@ impl AddedColumns {
     pub const END: &'static str = "end";
     pub const MATE_SAME_CONTIG: &'static str = "mate_same_contig";
     pub const REF_END: &'static str = "ref_end";
-    pub const REFERENCE_BASE: &'static str = "reference_base";
+    pub const REFERENCE_BASE: &'static str = CoverageSchema::REFERENCE_BASE;
     pub const POS: &'static str = "pos";
     pub const BASE: &'static str = "base";
 }
 
 const TRACK_ID: AddedColumn = AddedColumn {
     name: AddedColumns::TRACK_ID,
-    r#type: AddedType::Int64,
+    r#type: AddedType::UInt64,
     description: "The track ID from `get_dataset`.",
 };
 
@@ -337,7 +383,7 @@ pub(super) const READS: SqlTable = SqlTable {
     trailing: &[
         AddedColumn {
             name: AddedColumns::END,
-            r#type: AddedType::Int64,
+            r#type: AddedType::UInt64,
             description: "The last aligned reference position, inclusive.",
         },
         AddedColumn {
@@ -363,7 +409,7 @@ pub(super) const CIGAR_OPS: SqlTable = SqlTable {
     leading: &[TRACK_ID],
     trailing: &[AddedColumn {
         name: AddedColumns::REF_END,
-        r#type: AddedType::Int64,
+        r#type: AddedType::UInt64,
         description: "The last reference position for `M`, `D`, `N`, `=`, and `X`; null for other operations.",
     }],
     core_docs: CigarSchema::column_docs,
@@ -383,12 +429,15 @@ pub(super) const MISMATCHES: SqlTable = SqlTable {
     leading: &[TRACK_ID],
     trailing: &[AddedColumn {
         name: AddedColumns::REFERENCE_BASE,
-        r#type: AddedType::String,
+        r#type: AddedType::Byte,
         description: "The reference base at `ref_pos`.",
     }],
     core_docs: ReferenceMismatchSchema::column_docs,
     core_empty: ReferenceMismatchSchema::empty,
-    decoded: &[(ReferenceMismatchSchema::BASE, Decode::Ascii)],
+    decoded: &[
+        (ReferenceMismatchSchema::BASE, Decode::Ascii),
+        (AddedColumns::REFERENCE_BASE, Decode::Ascii),
+    ],
 };
 
 pub(super) const BASE_MODS: SqlTable = SqlTable {
@@ -427,19 +476,19 @@ pub(super) const REFERENCE: SqlTable = SqlTable {
     leading: &[
         AddedColumn {
             name: AddedColumns::POS,
-            r#type: AddedType::Int64,
+            r#type: AddedType::UInt64,
             description: "The 1-based reference position.",
         },
         AddedColumn {
             name: AddedColumns::BASE,
-            r#type: AddedType::String,
+            r#type: AddedType::Byte,
             description: "The reference base; lowercase marks soft-masked sequence.",
         },
     ],
     trailing: &[],
     core_docs: no_docs,
     core_empty: DataFrame::empty,
-    decoded: &[],
+    decoded: &[(AddedColumns::BASE, Decode::Ascii)],
 };
 
 pub(super) const VARIANTS: SqlTable = SqlTable {
@@ -536,14 +585,15 @@ impl TableSources<'_> {
             (BED.name, self.bed_table()?),
         ];
         if let Some(region) = region {
-            let reads = self.read_frames(region)?;
+            let reference = self.loaded_reference(region)?;
+            let reads = self.read_frames(region, &reference)?;
             tables.extend([
                 (READS.name, READS.finish(reads.reads)?),
                 (CIGAR_OPS.name, CIGAR_OPS.finish(reads.cigar_ops)?),
                 (MISMATCHES.name, MISMATCHES.finish(reads.mismatches)?),
                 (BASE_MODS.name, BASE_MODS.finish(reads.base_mods)?),
-                (COVERAGE.name, self.coverage_table(region)?),
-                (REFERENCE.name, self.reference_table(region)?),
+                (COVERAGE.name, self.coverage_table(region, &reference)?),
+                (REFERENCE.name, self.reference_table(region, reference)?),
                 (GENES.name, self.genes_table(region)?),
                 (GENE_FEATURES.name, self.gene_features_table(region)?),
             ]);
@@ -563,27 +613,48 @@ impl TableSources<'_> {
             })
     }
 
-    /// Maps a contig index column to an added `contig` name column.
-    fn contig_names(&self, indexes: &Column) -> Result<Expr, TGVError> {
-        let names = &self.state.contig_header.contigs;
-        let values: Vec<Option<&str>> = indexes
-            .u64()?
-            .iter()
-            .map(|index| index.map(|index| names[index as usize].name.as_str()))
-            .collect();
-        Ok(lit(Series::new(AddedColumns::CONTIG.into(), values)))
+    /// Maps contig indexes to names, for joining onto whole-file tables.
+    fn contigs(&self) -> Result<LazyFrame, TGVError> {
+        let contigs = &self.state.contig_header.contigs;
+        let indexes: Vec<u64> = (0..contigs.len() as u64).collect();
+        let names: Vec<&str> = contigs.iter().map(|contig| contig.name.as_str()).collect();
+        Ok(DataFrame::new(
+            contigs.len(),
+            vec![
+                Column::new(IntervalSchema::CONTIG_INDEX.into(), indexes),
+                Column::new(AddedColumns::CONTIG.into(), names),
+            ],
+        )?
+        .lazy())
     }
 
-    fn base_at(&self, contig_index: usize, pos: u64) -> Option<u8> {
+    /// Lists the loaded reference bases on the region's contig, by position.
+    ///
+    /// This copies the loaded sequence, which covers at most the regions the server loads.
+    fn loaded_reference(&self, region: &QueryRegion) -> Result<LazyFrame, TGVError> {
         let sequence: &Sequence = &self.state.sequence;
-        (sequence.contig_index == contig_index)
-            .then(|| sequence.base_at(pos))
-            .flatten()
+        let (positions, bases): (Vec<u64>, Vec<u8>) =
+            if sequence.contig_index == region.contig_index {
+                (
+                    (sequence.start..sequence.start + sequence.len() as u64).collect(),
+                    sequence.sequence.clone(),
+                )
+            } else {
+                (Vec::new(), Vec::new())
+            };
+        Ok(DataFrame::new(
+            positions.len(),
+            vec![
+                Column::new(CoverageSchema::POS.into(), positions),
+                Column::new(CoverageSchema::REFERENCE_BASE.into(), bases),
+            ],
+        )?
+        .lazy())
     }
 
     fn tracks_table(&self) -> Result<LazyFrame, TGVError> {
         let entries = &self.tracks.entries;
-        let ids: Vec<i64> = entries.iter().map(|entry| entry.id as i64).collect();
+        let ids: Vec<u64> = entries.iter().map(|entry| entry.id as u64).collect();
         let types: Vec<&str> = entries
             .iter()
             .map(|entry| match entry.repository_index {
@@ -604,36 +675,58 @@ impl TableSources<'_> {
     }
 
     fn variants_table(&self) -> Result<LazyFrame, TGVError> {
+        let contigs = self.contigs()?;
         let mut frames = Vec::new();
         for entry in &self.tracks.entries {
             let RepositoryFileIndex::Variant(index) = entry.repository_index else {
                 continue;
             };
-            let data = &self.state.variants[index].data;
-            frames.push(data.clone().lazy().with_columns([
-                lit(entry.id as i64).alias(AddedColumns::TRACK_ID),
-                self.contig_names(data.column(VariantSchema::CONTIG_INDEX)?)?,
-            ]));
+            frames.push(
+                self.state.variants[index]
+                    .data
+                    .clone()
+                    .lazy()
+                    .join(
+                        contigs.clone(),
+                        [col(VariantSchema::CONTIG_INDEX)],
+                        [col(IntervalSchema::CONTIG_INDEX)],
+                        left_join(),
+                    )
+                    .with_columns([lit(entry.id as u64).alias(AddedColumns::TRACK_ID)]),
+            );
         }
         VARIANTS.finish(frames)
     }
 
     fn bed_table(&self) -> Result<LazyFrame, TGVError> {
+        let contigs = self.contigs()?;
         let mut frames = Vec::new();
         for entry in &self.tracks.entries {
             let RepositoryFileIndex::Bed(index) = entry.repository_index else {
                 continue;
             };
-            let data = &self.state.bed_intervals[index].data;
-            frames.push(data.clone().lazy().with_columns([
-                lit(entry.id as i64).alias(AddedColumns::TRACK_ID),
-                self.contig_names(data.column(BedSchema::CONTIG_INDEX)?)?,
-            ]));
+            frames.push(
+                self.state.bed_intervals[index]
+                    .data
+                    .clone()
+                    .lazy()
+                    .join(
+                        contigs.clone(),
+                        [col(BedSchema::CONTIG_INDEX)],
+                        [col(IntervalSchema::CONTIG_INDEX)],
+                        left_join(),
+                    )
+                    .with_columns([lit(entry.id as u64).alias(AddedColumns::TRACK_ID)]),
+            );
         }
         BED.finish(frames)
     }
 
-    fn read_frames(&self, region: &QueryRegion) -> Result<ReadFrames, TGVError> {
+    fn read_frames(
+        &self,
+        region: &QueryRegion,
+        reference: &LazyFrame,
+    ) -> Result<ReadFrames, TGVError> {
         let mut frames = ReadFrames::default();
         for (id, alignment) in self.alignments() {
             if alignment.contig_index != region.contig_index {
@@ -651,9 +744,8 @@ impl TableSources<'_> {
             .map(|kind| col(CigarSchema::KIND).eq(lit(*kind)))
             .reduce(Expr::or)
             .expect("the kind list is non-empty");
-            let run_end = col(CigarSchema::REF_START).cast(DataType::Int64)
-                + col(CigarSchema::OP_LEN).cast(DataType::Int64)
-                - lit(1i64);
+            // Reference-consuming operations start at 1 or later, so this cannot underflow.
+            let run_end = col(CigarSchema::REF_START) + col(CigarSchema::OP_LEN) - lit(1u64);
             let ends = tables
                 .cigar_runs
                 .clone()
@@ -661,7 +753,7 @@ impl TableSources<'_> {
                 .filter(consumes_reference.clone())
                 .group_by([col(CigarSchema::READ_ID)])
                 .agg([run_end.clone().max().alias(AddedColumns::END)]);
-            let pos = col(ReadSchema::POS).cast(DataType::Int64);
+            let pos = col(ReadSchema::POS);
             let reads = tables
                 .reads
                 .clone()
@@ -671,22 +763,21 @@ impl TableSources<'_> {
                     ends,
                     [col(ReadSchema::READ_ID)],
                     [col(CigarSchema::READ_ID)],
-                    JoinArgs::new(JoinType::Left),
+                    left_join(),
                 )
                 .with_columns([col(AddedColumns::END).fill_null(pos.clone())])
                 .filter(
-                    pos.lt_eq(lit(region.end as i64))
-                        .and(col(AddedColumns::END).gt_eq(lit(region.start as i64))),
+                    pos.lt_eq(lit(region.end))
+                        .and(col(AddedColumns::END).gt_eq(lit(region.start))),
                 )
                 .with_columns([
-                    lit(id as i64).alias(AddedColumns::TRACK_ID),
+                    lit(id as u64).alias(AddedColumns::TRACK_ID),
                     lit(region.contig).alias(AddedColumns::CONTIG),
                     col(ReadSchema::NEXT_REF_ID)
                         .eq(col(ReadSchema::REF_ID))
                         .alias(AddedColumns::MATE_SAME_CONTIG),
-                ])
-                .collect()?;
-            let selected = reads.select([ReadSchema::READ_ID])?.lazy();
+                ]);
+            let selected = reads.clone().select([col(ReadSchema::READ_ID)]);
             let of_selected_reads = |frame: &DataFrame, read_id: &str| {
                 frame.clone().lazy().join(
                     selected.clone(),
@@ -698,7 +789,7 @@ impl TableSources<'_> {
 
             frames.cigar_ops.push(
                 of_selected_reads(&tables.cigar_runs, CigarSchema::READ_ID).with_columns([
-                    lit(id as i64).alias(AddedColumns::TRACK_ID),
+                    lit(id as u64).alias(AddedColumns::TRACK_ID),
                     when(consumes_reference)
                         .then(run_end)
                         .otherwise(lit(NULL))
@@ -706,51 +797,47 @@ impl TableSources<'_> {
                 ]),
             );
 
-            let mismatches = of_selected_reads(
-                &tables.reference_mismatches,
-                ReferenceMismatchSchema::READ_ID,
-            )
-            .collect()?;
-            let reference_bases: Vec<Option<String>> = mismatches
-                .column(ReferenceMismatchSchema::REF_POS)?
-                .u64()?
-                .iter()
-                .map(|pos| {
-                    pos.and_then(|pos| self.base_at(region.contig_index, pos))
-                        .map(|base| char::from(base).to_string())
-                })
-                .collect();
-            frames.mismatches.push(mismatches.lazy().with_columns([
-                lit(id as i64).alias(AddedColumns::TRACK_ID),
-                lit(Series::new(
-                    AddedColumns::REFERENCE_BASE.into(),
-                    reference_bases,
-                )),
-            ]));
+            frames.mismatches.push(
+                of_selected_reads(
+                    &tables.reference_mismatches,
+                    ReferenceMismatchSchema::READ_ID,
+                )
+                .join(
+                    reference.clone(),
+                    [col(ReferenceMismatchSchema::REF_POS)],
+                    [col(CoverageSchema::POS)],
+                    left_join(),
+                )
+                .with_columns([lit(id as u64).alias(AddedColumns::TRACK_ID)]),
+            );
 
             frames.base_mods.push(
                 of_selected_reads(&tables.base_modifications, BaseModificationSchema::READ_ID)
-                    .with_columns([lit(id as i64).alias(AddedColumns::TRACK_ID)]),
+                    .with_columns([lit(id as u64).alias(AddedColumns::TRACK_ID)]),
             );
 
-            frames.reads.push(reads.lazy());
+            frames.reads.push(reads);
         }
         Ok(frames)
     }
 
-    fn coverage_table(&self, region: &QueryRegion) -> Result<LazyFrame, TGVError> {
+    fn coverage_table(
+        &self,
+        region: &QueryRegion,
+        reference: &LazyFrame,
+    ) -> Result<LazyFrame, TGVError> {
         let positions: Vec<u64> = (region.start..=region.end).collect();
-        let reference_bases: Vec<Option<u8>> = positions
-            .iter()
-            .map(|&pos| self.base_at(region.contig_index, pos))
-            .collect();
         let dense = DataFrame::new(
             positions.len(),
-            vec![
-                Column::new(CoverageSchema::POS.into(), positions),
-                Column::new(CoverageSchema::REFERENCE_BASE.into(), reference_bases),
-            ],
-        )?;
+            vec![Column::new(CoverageSchema::POS.into(), positions)],
+        )?
+        .lazy()
+        .join(
+            reference.clone(),
+            [col(CoverageSchema::POS)],
+            [col(CoverageSchema::POS)],
+            left_join(),
+        );
         let counts = [
             CoverageSchema::A,
             CoverageSchema::T,
@@ -760,28 +847,32 @@ impl TableSources<'_> {
             CoverageSchema::TOTAL,
             CoverageSchema::SOFTCLIP,
         ];
+        let in_region = col(CoverageSchema::POS)
+            .gt_eq(lit(region.start))
+            .and(col(CoverageSchema::POS).lt_eq(lit(region.end)));
         let mut frames = Vec::new();
         for (id, alignment) in self.alignments() {
             let sparse = if alignment.contig_index == region.contig_index {
-                alignment.coverage.query(region.start, region.end)?
+                alignment.coverage.data.clone().lazy()
             } else {
-                CoverageSchema::empty()
+                CoverageSchema::empty().lazy()
             };
             frames.push(
                 dense
                     .clone()
-                    .lazy()
                     .join(
-                        sparse.lazy().drop(cols([CoverageSchema::REFERENCE_BASE])),
+                        sparse
+                            .filter(in_region.clone())
+                            .drop(cols([CoverageSchema::REFERENCE_BASE])),
                         [col(CoverageSchema::POS)],
                         [col(CoverageSchema::POS)],
-                        JoinArgs::new(JoinType::Left),
+                        left_join(),
                     )
                     .with_columns(
                         counts
                             .iter()
                             .map(|name| col(*name).fill_null(lit(0u64)))
-                            .chain([lit(id as i64).alias(AddedColumns::TRACK_ID)])
+                            .chain([lit(id as u64).alias(AddedColumns::TRACK_ID)])
                             .collect::<Vec<_>>(),
                     ),
             );
@@ -789,21 +880,23 @@ impl TableSources<'_> {
         COVERAGE.finish(frames)
     }
 
-    fn reference_table(&self, region: &QueryRegion) -> Result<LazyFrame, TGVError> {
-        let (positions, bases): (Vec<i64>, Vec<String>) = (region.start..=region.end)
-            .filter_map(|pos| {
-                self.base_at(region.contig_index, pos)
-                    .map(|base| (pos as i64, char::from(base).to_string()))
-            })
-            .unzip();
-        let frame = DataFrame::new(
-            positions.len(),
-            vec![
-                Column::new(AddedColumns::POS.into(), positions),
-                Column::new(AddedColumns::BASE.into(), bases),
-            ],
-        )?;
-        REFERENCE.finish(vec![frame.lazy()])
+    fn reference_table(
+        &self,
+        region: &QueryRegion,
+        reference: LazyFrame,
+    ) -> Result<LazyFrame, TGVError> {
+        REFERENCE.finish(vec![
+            reference
+                .filter(
+                    col(CoverageSchema::POS)
+                        .gt_eq(lit(region.start))
+                        .and(col(CoverageSchema::POS).lt_eq(lit(region.end))),
+                )
+                .select([
+                    col(CoverageSchema::POS).alias(AddedColumns::POS),
+                    col(CoverageSchema::REFERENCE_BASE).alias(AddedColumns::BASE),
+                ]),
+        ])
     }
 
     fn region_genes(&self, region: &QueryRegion) -> Result<DataFrame, TGVError> {
@@ -826,6 +919,14 @@ impl TableSources<'_> {
     }
 }
 
+/// Left-joins while keeping the left rows' order, so dense tables stay sorted by position.
+fn left_join() -> JoinArgs {
+    JoinArgs {
+        maintain_order: MaintainOrderJoin::Left,
+        ..JoinArgs::new(JoinType::Left)
+    }
+}
+
 /// Per-track frames of the read-level tables, before concatenation.
 #[derive(Default)]
 struct ReadFrames {
@@ -839,7 +940,8 @@ struct ReadFrames {
 mod tests {
     use super::*;
 
-    /// Every catalog column has a description and the type that queries see.
+    /// Every catalog column has a description and the type that queries see, and byte codes
+    /// and qualities are text.
     #[test]
     fn catalog_matches_tables() {
         for table in TABLES {
@@ -859,8 +961,9 @@ mod tests {
                     table.name,
                     column.name
                 );
+                let decoded = table.decoding(&column.name).is_some();
                 assert!(
-                    !column.dtype.starts_with('u') && column.dtype != "binary",
+                    column.dtype != "binary" && (!decoded || column.dtype == "str"),
                     "{}.{} has SQL type {}",
                     table.name,
                     column.name,

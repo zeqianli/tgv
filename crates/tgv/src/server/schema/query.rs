@@ -181,8 +181,9 @@ pub(in crate::server) struct QueryExample {
 }
 
 impl TablesResponse {
-    pub const NOTES: [&'static str; 6] = [
+    pub const NOTES: [&'static str; 7] = [
         "Coordinates are 1-based, and interval ends are inclusive.",
+        "Coordinates, counts, and IDs are unsigned, and unsigned arithmetic wraps around instead of going negative. Cast to BIGINT before subtracting, as in `CAST(pos AS BIGINT) - 88108`.",
         "Queries use Polars SQL. CTEs, subqueries, GROUP BY, window functions, and INNER, LEFT, RIGHT, FULL, CROSS, SEMI, and ANTI joins are supported.",
         "An ON clause with inequalities, such as an overlap test, runs as an efficient range join, but only as an inner join. For a left overlap join, aggregate the inner join in a CTE, then LEFT JOIN it back on the left table's key.",
         "Region tables hold data for the `region` argument, at most 100,000 bases. Whole-file and dataset tables are always available.",
@@ -263,6 +264,24 @@ mod tests {
             error,
             TGVError::McpInvalidInput { field: "sql", .. }
         ));
+    }
+
+    /// Tables concatenate per-track frames, and `count(*)` over a union needs 128-bit counts.
+    #[test]
+    fn counts_concatenated_tables() {
+        let base = tables().remove(0).1;
+        let doubled = concat([base.clone(), base], UnionArgs::default()).unwrap();
+        let (frame, _) = request("SELECT count(*) FROM coverage", None)
+            .execute(vec![("coverage", doubled)], 10)
+            .unwrap();
+        let counts: Vec<_> = frame.columns()[0]
+            .cast(&DataType::Int64)
+            .unwrap()
+            .i64()
+            .unwrap()
+            .into_no_null_iter()
+            .collect();
+        assert_eq!(counts, [8]);
     }
 
     #[rstest]

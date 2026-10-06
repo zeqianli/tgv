@@ -21,9 +21,10 @@ noodles = { version = "0", features = ["async", "bam", "bed", "bgzf", "core", "c
 opendal = { version = "0.53.3", default-features = false, features = ["services-s3"] }
 # Polars 0.55 string expressions also require its temporal support.
 # The MCP query tool uses `sql`, with joins (including inequality joins for genomic overlaps),
-# `abs`, and `log` for common read statistics. File I/O features stay disabled so SQL
+# `abs`, and `log` for common read statistics. `dtype-u128` lets `count(*)` run over
+# concatenated per-track tables, whose row counts Polars sums as 128-bit integers. File I/O features stay disabled so SQL
 # table functions cannot read files.
-polars = { version = "0.55.2", default-features = false, features = ["dtype-u8", "dtype-u16", "lazy", "strings", "is_in", "cum_agg", "dtype-i128", "temporal", "round_series", "sql", "semi_anti_join", "iejoin", "cross_join", "abs", "log"] }
+polars = { version = "0.55.2", default-features = false, features = ["dtype-u8", "dtype-u16", "lazy", "strings", "is_in", "cum_agg", "dtype-i128", "dtype-u128", "temporal", "round_series", "sql", "semi_anti_join", "iejoin", "cross_join", "abs", "log"] }
 ratatui = "0.29"
 rmcp = { version = "=3.5.0", default-features = false, features = ["server", "macros", "transport-io"] }
 schemars = "1"
