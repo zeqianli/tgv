@@ -1,6 +1,6 @@
 use crate::{
     layout::{AlignmentView, AreaType, HoveringAreaType, ResolvedMainLayout},
-    message::{Message, Movement, Scroll, UpdateLayoutMessage},
+    message::{Action, Movement, Scroll, UpdateLayoutAction},
 };
 use crossterm::event::{MouseButton, MouseEvent, MouseEventKind};
 use gv_core::prelude::*;
@@ -47,7 +47,7 @@ impl MouseRegister {
         layout: &ResolvedMainLayout,
         alignment_view: &AlignmentView,
         event: MouseEvent,
-    ) -> Result<Vec<Message>, TGVError> {
+    ) -> Result<Vec<Action>, TGVError> {
         let cell = (event.column, event.row);
         if event.kind == MouseEventKind::Moved {
             if self.last_hover == Some(cell) {
@@ -92,14 +92,14 @@ impl MouseRegister {
             }
             MouseEventKind::Drag(MouseButton::Left) => {
                 if self.sidebar_resizing {
-                    messages.push(Message::UpdateLayout(UpdateLayoutMessage::SetSidebarWidth(
+                    messages.push(Action::UpdateLayout(UpdateLayoutAction::SetSidebarWidth(
                         event.column,
                     )));
                 } else if let Some((upper, lower)) = self.active_divider {
                     let delta_rows = event.row as i32 - self.last_y as i32;
                     if delta_rows != 0 {
-                        messages.push(Message::UpdateLayout(
-                            UpdateLayoutMessage::ResizeAlignmentPair {
+                        messages.push(Action::UpdateLayout(
+                            UpdateLayoutAction::ResizeAlignmentPair {
                                 upper,
                                 lower,
                                 delta_rows,
@@ -180,7 +180,7 @@ impl MouseRegister {
                                     &mut cigar,
                                     record.cigar(),
                                 )?;
-                                messages.push(Message::message(format!(
+                                messages.push(Action::message(format!(
                                     "{}  Flags={}  MAPQ={}  Cigar={}",
                                     name,
                                     u16::from(record.flags()),
@@ -201,7 +201,7 @@ impl MouseRegister {
                                             .map(|base| format!("{}: {}", coordinate, base as char))
                                     })
                                     .join(", ");
-                                messages.push(Message::message(description));
+                                messages.push(Action::message(description));
                             }
                         }
                         AreaType::Coverage(id) => {
@@ -249,7 +249,7 @@ impl MouseRegister {
                                 } else {
                                     format!("{} - {}: {}", left, right, counts)
                                 };
-                                messages.push(Message::message(description));
+                                messages.push(Action::message(description));
                             }
                         }
                         AreaType::Variant(id) => {
@@ -286,7 +286,7 @@ impl MouseRegister {
                                         .unwrap_or_else(|| "?".into());
                                     let record = &variants.records
                                         [ids.get(row).expect("row IDs are non-null") as usize];
-                                    messages.push(Message::message(format!(
+                                    messages.push(Action::message(format!(
                                         "Variant: {}:{} {}>{} QUAL={}",
                                         record.reference_sequence_name(),
                                         starts.get(row).expect("variant starts are non-null"),
@@ -314,7 +314,7 @@ impl MouseRegister {
                                 for row in 0..rows.height() {
                                     let record = &intervals.records
                                         [ids.get(row).expect("row IDs are non-null") as usize];
-                                    messages.push(Message::message(format!(
+                                    messages.push(Action::message(format!(
                                         "BED interval: {}:{}-{}",
                                         record.reference_sequence_name(),
                                         starts.get(row).expect("BED starts are non-null"),

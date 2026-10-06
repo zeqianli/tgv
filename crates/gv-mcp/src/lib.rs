@@ -142,6 +142,8 @@ fn tool_result(result: Result<impl Serialize, SessionError>) -> CallToolResult {
     let (code, field) = match &error {
         SessionError::InvalidInput { field, .. } => ("invalid_input", Some(*field)),
         SessionError::NoDataset { .. } => ("no_dataset", None),
+        SessionError::NoViewer => ("no_viewer", None),
+        SessionError::DatasetFixed => ("dataset_fixed", None),
         SessionError::Unavailable | SessionError::Stopped | SessionError::Core(_) => {
             ("internal_error", None)
         }

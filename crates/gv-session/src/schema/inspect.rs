@@ -15,7 +15,7 @@ use serde::{Deserialize, Serialize};
 const MAX_SUMMARY_ITEMS: usize = 1000;
 
 /// Identifies an inclusive, 1-based interval for inspection.
-#[derive(Deserialize, Serialize, JsonSchema)]
+#[derive(Debug, Deserialize, Serialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct InspectInterval {
     pub contig: String,

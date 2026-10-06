@@ -18,6 +18,14 @@ pub enum SessionError {
     #[error("Load a dataset before {operation}.")]
     NoDataset { operation: &'static str },
 
+    /// The command acts on a viewer, but no viewer displays this session.
+    #[error("No viewer displays this session; open the dataset in TGV to show it.")]
+    NoViewer,
+
+    /// The host's dataset can't be replaced, for example because a viewer displays it.
+    #[error("This session's dataset is fixed; open other files in a new TGV window.")]
+    DatasetFixed,
+
     /// The worker no longer accepts commands.
     #[error("The session worker is unavailable.")]
     Unavailable,

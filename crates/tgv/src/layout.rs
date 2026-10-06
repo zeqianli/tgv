@@ -152,6 +152,7 @@ impl AlignmentView {
 
                 self.zoom.saturating_mul(r) // Will be bounded and self-corrected later.
             }
+            Zoom::Fit { bases } => bases.div_ceil(u64::from(area.width).max(1)).max(1),
         };
 
         self.self_correct(area, contig_length);

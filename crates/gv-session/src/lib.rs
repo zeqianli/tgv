@@ -11,5 +11,7 @@ mod tables;
 
 pub use error::SessionError;
 pub use schema::*;
-pub use session::{Session, SessionHandle};
+pub use session::{
+    DataRequest, Dataset, Request, Requests, Responder, Session, SessionHandle, ViewRequest,
+};
 pub use tables::{CatalogColumn, CatalogTable, TableScope};

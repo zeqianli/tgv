@@ -30,8 +30,8 @@ pub use track::render_track;
 pub use variants::render_variants;
 
 use crate::{
-    app::RenderEvent,
-    layout::{AlignmentView, AreaType, ResolvedMainLayout, wrap_sidebar_label},
+    app::{Highlight, RenderEvent},
+    layout::{AlignmentView, AreaType, OnScreenCoordinate, ResolvedMainLayout, wrap_sidebar_label},
     mouse::MouseRegister,
     register::{KeyRegisterType, Registers},
 };
@@ -51,6 +51,7 @@ pub fn render_main(
     layout: &ResolvedMainLayout,
     alignment_view: &AlignmentView,
     mouse_register: &MouseRegister,
+    highlights: &[Highlight],
     pallete: &Palette,
     render_events: &Vec<RenderEvent>,
 ) -> Result<(), TGVError> {
@@ -140,7 +141,10 @@ pub fn render_main(
 
         match area_type {
             AreaType::Cytoband => render_cytobands(rect, buf, state, alignment_view, pallete)?,
-            AreaType::Coordinate => render_coordinates(rect, buf, alignment_view, state)?,
+            AreaType::Coordinate => {
+                render_coordinates(rect, buf, alignment_view, state)?;
+                render_highlights(rect, buf, alignment_view, highlights, pallete);
+            }
             AreaType::Coverage(id) => {
                 let index = layout.track_registry.alignment_index(*id)?;
                 if alignment_view.zoom <= AlignmentView::MAX_ZOOM_TO_DISPLAY_ALIGNMENTS
@@ -259,4 +263,28 @@ pub fn get_abbreviated_length_string(length: u64) -> String {
             _ => "",
         }
     )
+}
+
+/// Tints the columns of highlighted intervals on the focused contig, keeping the ruler text.
+fn render_highlights(
+    area: &Rect,
+    buf: &mut Buffer,
+    alignment_view: &AlignmentView,
+    highlights: &[Highlight],
+    pallete: &Palette,
+) {
+    for highlight in highlights
+        .iter()
+        .filter(|highlight| highlight.contig_index == alignment_view.focus.contig_index)
+    {
+        let start = alignment_view.onscreen_x_coordinate(highlight.start, area);
+        let end = alignment_view.onscreen_x_coordinate(highlight.end, area);
+        if let Some((x, width)) = OnScreenCoordinate::onscreen_start_and_length(&start, &end, area)
+        {
+            buf.set_style(
+                Rect::new(area.x + x, area.y, width, area.height),
+                Style::default().bg(pallete.HIGHLIGHT),
+            );
+        }
+    }
 }

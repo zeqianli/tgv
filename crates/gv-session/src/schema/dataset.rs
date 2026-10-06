@@ -56,14 +56,14 @@ impl DatasetRequest {
 }
 
 /// Describes the reference and tracks in the loaded dataset.
-#[derive(Serialize)]
+#[derive(Debug, Serialize)]
 pub struct DatasetDescription {
     pub reference: String,
     pub tracks: Vec<TrackDescription>,
 }
 
 /// Identifies one loaded track and its source file.
-#[derive(Serialize)]
+#[derive(Debug, Serialize)]
 pub struct TrackDescription {
     pub id: gv_core::track_registry::TrackId,
     pub r#type: TrackType,
@@ -71,7 +71,7 @@ pub struct TrackDescription {
 }
 
 /// Classifies a track by the kind of repository that provides its data.
-#[derive(Clone, Copy, Serialize)]
+#[derive(Clone, Copy, Debug, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum TrackType {
     Alignment,

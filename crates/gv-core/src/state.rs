@@ -18,7 +18,7 @@ use crate::{
     variant::VariantTable,
 };
 use itertools::Itertools;
-use std::time::Instant;
+use std::{sync::Arc, time::Instant};
 
 /// Selects the data that [`State::ensure_loaded`] covers for a region.
 pub struct LoadRequest<'a> {
@@ -92,12 +92,12 @@ pub struct State {
 
     /// Variant track data.
     /// Index always matches with VariantRepository index
-    pub variants: Vec<VariantTable>,
+    pub variants: Vec<Arc<VariantTable>>,
     pub variant_loaded: Vec<bool>, // Temporary hack before proper implemetation for the indexed VCF IO
 
     /// Bed track data
     /// Index always matches with BedRepository index
-    pub bed_intervals: Vec<BedTable>,
+    pub bed_intervals: Vec<Arc<BedTable>>,
     pub bed_loaded: Vec<bool>, // Temporary hack before proper implemetation for large bed file io
 
     pub track: GeneTable,
@@ -349,7 +349,7 @@ impl State {
     }
 
     pub fn add_variant_track(&mut self) {
-        self.variants.push(VariantTable::default());
+        self.variants.push(Arc::default());
         self.variant_loaded.push(false);
     }
 
@@ -384,7 +384,7 @@ impl State {
             );
             return Err(e);
         };
-        *variant_track = variants;
+        *variant_track = Arc::new(variants);
         let Some(variant_loaded) = self.variant_loaded.get_mut(index) else {
             let e = TGVError::StateError(format!("Variant loaded index out of bounds: {index}"));
             log::warn!(
@@ -407,7 +407,7 @@ impl State {
     }
 
     pub fn add_bed_track(&mut self) {
-        self.bed_intervals.push(BedTable::default());
+        self.bed_intervals.push(Arc::default());
         self.bed_loaded.push(false);
     }
 
@@ -442,7 +442,7 @@ impl State {
             );
             return Err(e);
         };
-        *bed_track = bed_intervals;
+        *bed_track = Arc::new(bed_intervals);
         let Some(bed_loaded) = self.bed_loaded.get_mut(index) else {
             let e = TGVError::StateError(format!("BED loaded index out of bounds: {index}"));
             log::warn!(
@@ -543,6 +543,30 @@ impl State {
         }
 
         Ok(())
+    }
+
+    /// Reuses the whole-file variant and BED tables that `other` has loaded, without copying them.
+    ///
+    /// Both states must hold the same tracks, as states of one dataset do.
+    pub fn share_whole_file_tracks(&mut self, other: &State) {
+        let variants = self.variants.iter_mut().zip(&mut self.variant_loaded);
+        for ((table, loaded), (other_table, &other_loaded)) in
+            variants.zip(other.variants.iter().zip(&other.variant_loaded))
+        {
+            if other_loaded && !*loaded {
+                *table = Arc::clone(other_table);
+                *loaded = true;
+            }
+        }
+        let beds = self.bed_intervals.iter_mut().zip(&mut self.bed_loaded);
+        for ((table, loaded), (other_table, &other_loaded)) in
+            beds.zip(other.bed_intervals.iter().zip(&other.bed_loaded))
+        {
+            if other_loaded && !*loaded {
+                *table = Arc::clone(other_table);
+                *loaded = true;
+            }
+        }
     }
 
     pub async fn ensure_complete_cytoband_data(
@@ -1244,5 +1268,40 @@ mod tests {
             .unwrap_err();
 
         assert!(matches!(error, TGVError::ValueError(_)));
+    }
+
+    fn state_with_whole_file_tracks() -> State {
+        let mut state = State::new(
+            Reference::NoReference,
+            ContigHeader::new(Reference::NoReference),
+        )
+        .unwrap();
+        state.add_variant_track();
+        state.add_variant_track();
+        state.add_bed_track();
+        state
+    }
+
+    /// Loaded tables are shared without copying, and tables already loaded stay in place.
+    #[test]
+    fn test_share_whole_file_tracks() {
+        let mut source = state_with_whole_file_tracks();
+        source.variant_loaded[0] = true;
+        source.bed_loaded[0] = true;
+        let mut target = state_with_whole_file_tracks();
+        target.variant_loaded[1] = true;
+        let own_variants = Arc::clone(&target.variants[1]);
+        source.variant_loaded[1] = true;
+
+        target.share_whole_file_tracks(&source);
+
+        assert!(Arc::ptr_eq(&target.variants[0], &source.variants[0]));
+        assert!(Arc::ptr_eq(
+            &target.bed_intervals[0],
+            &source.bed_intervals[0]
+        ));
+        assert!(Arc::ptr_eq(&target.variants[1], &own_variants));
+        assert_eq!(target.variant_loaded, [true, true]);
+        assert_eq!(target.bed_loaded, [true]);
     }
 }

@@ -5,6 +5,7 @@
 - [Installation](./installation.md)
 - [Usage](./usage.md)
 - [Session files](./session.md)
+- [Architecture](./architecture.md)
 - [Local MCP server](./server.md)
   - [Load and describe a dataset](./server/dataset.md)
   - [Inspect an interval](./server/inspect.md)

@@ -190,7 +190,7 @@ pub enum ContigSource {
 }
 
 /// A collection of contigs. This helps relative contig movements.
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct ContigHeader {
     reference: Reference,
     pub contigs: Vec<Contig>,

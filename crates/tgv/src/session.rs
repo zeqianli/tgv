@@ -4,7 +4,7 @@
 //! restored on the next launch. The file format is documented in the tgv
 //! book under "Session files".
 
-use crate::{app::App, message::Message, settings::Settings};
+use crate::{app::App, message::Action, settings::Settings};
 use gv_core::{
     alignment::is_url,
     message::Movement,
@@ -126,16 +126,16 @@ impl SessionFile {
 // ─── Locus string parsing ────────────────────────────────────────────────────
 
 /// Parse a locus string (`"chr1:100"` or a gene name) into initial movement messages.
-pub fn parse_locus(locus: &str) -> Result<Vec<Message>, TGVError> {
+pub fn parse_locus(locus: &str) -> Result<Vec<Action>, TGVError> {
     let parts: Vec<&str> = locus.split(':').collect();
     match parts.len() {
-        1 => Ok(vec![Message::Core(gv_core::message::Message::Move(
+        1 => Ok(vec![Action::Core(gv_core::message::Message::Move(
             Movement::Gene(locus.to_string()),
         ))]),
         2 => parts[1]
             .parse::<u64>()
             .map(|n| {
-                vec![Message::Core(gv_core::message::Message::Move(
+                vec![Action::Core(gv_core::message::Message::Move(
                     Movement::ContigNamePosition(parts[0].to_string(), n),
                 ))]
             })
@@ -152,7 +152,7 @@ impl TryFrom<SessionFile> for Settings {
     type Error = TGVError;
 
     fn try_from(session: SessionFile) -> Result<Self, TGVError> {
-        let initial_state_messages = parse_locus(&session.locus)?;
+        let initial_actions = parse_locus(&session.locus)?;
 
         let mut file_paths = Vec::new();
 
@@ -203,7 +203,7 @@ impl TryFrom<SessionFile> for Settings {
                 ucsc_host: session.ucsc_host,
                 cache_dir: gv_core::settings::Settings::default().cache_dir,
             },
-            initial_state_messages,
+            initial_actions,
             zoom: Some(session.zoom),
             test_mode: false,
             debug: false,
@@ -218,7 +218,7 @@ impl TryFrom<SessionFile> for Settings {
 /// Snapshot the current [`App`] state into a [`SessionFile`].
 ///
 /// The locus is taken from `app.alignment_view.focus` (the live viewport position),
-/// not from `app.settings.initial_state_messages`.
+/// not from `app.settings.initial_actions`.
 impl TryFrom<&App> for SessionFile {
     type Error = TGVError;
 
@@ -226,7 +226,7 @@ impl TryFrom<&App> for SessionFile {
         let locus = app
             .alignment_view
             .focus
-            .to_locus_str(&app.state.contig_header)?;
+            .to_locus_str(&app.dataset.view.contig_header)?;
 
         let mut tracks = Vec::new();
 
