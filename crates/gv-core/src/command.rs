@@ -14,6 +14,8 @@ use nom::{
 
 /// Supported commands:
 /// :q: Quit.
+/// :w [name|path]: Save the session. Without an argument, save to the active session.
+/// :wq [name|path]: Save the session and quit.
 /// :h: Help.
 /// :1234: Go to position 1234 on the same contig.
 /// :12:1234: Go to position 1234 on contig 12.

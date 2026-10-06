@@ -96,7 +96,7 @@ pub struct Cli {
     #[arg(short = 'r', long = "region")]
     region: Option<String>,
 
-    /// Reference genome. Defaults to hg38 when not specified and no session is loaded.
+    /// Reference genome. Defaults to hg38 when not specified and no session is resumed.
     /// TGV supports all UCSC assemblies and accessions. See `tgv list` or `tgv list --all`.
     /// Custom FASTA and 2bit reference files are also supported.
     #[arg(short = 'g', long = "reference")]
@@ -127,9 +127,9 @@ pub struct Cli {
     #[arg(long)]
     cache_dir: Option<String>,
 
-    /// Session file to load. Accepts a full path, `~`, or a named session.
+    /// Resume a saved session: a name in `~/.tgv/sessions/` or a path to a session TOML file.
     #[arg(long)]
-    pub session: Option<String>,
+    pub resume: Option<String>,
 
     /// Subcommand
     #[command(subcommand)]
@@ -174,14 +174,13 @@ impl Cli {
         }
     }
 
-    pub fn session_path(&self) -> PathBuf {
-        self.session
+    pub fn resume_path(&self) -> Option<PathBuf> {
+        self.resume
             .as_deref()
             .map(crate::session::SessionFile::resolve_path)
-            .unwrap_or_else(crate::session::SessionFile::default_path)
     }
 
-    /// Apply CLI overrides on top of an existing [`Settings`] loaded from a session.
+    /// Apply CLI overrides on top of an existing [`Settings`] loaded from a resumed session.
     ///
     /// Only fields that were explicitly provided on the command line are overridden.
     pub fn apply_overrides(&self, settings: &mut Settings) -> Result<(), TGVError> {
@@ -317,6 +316,9 @@ pub struct Settings {
 
     /// Initial zoom level to restore from a session file. `None` uses the default zoom.
     pub zoom: Option<u64>,
+
+    /// The active session, set by `--resume` or the last `:w NAME`. `None` when no session is active.
+    pub session_path: Option<PathBuf>,
 }
 
 impl Default for Settings {
@@ -333,13 +335,15 @@ impl Default for Settings {
             palette: DARK_THEME,
 
             zoom: None,
+
+            session_path: None,
         }
     }
 }
 
 /// Build [`Settings`] directly from CLI args, without loading any session file.
 ///
-/// Used for the no-session path and for tests.
+/// Used when no session is resumed.
 impl TryFrom<Cli> for Settings {
     type Error = TGVError;
     fn try_from(cli: Cli) -> Result<Self, TGVError> {
@@ -413,6 +417,7 @@ impl TryFrom<Cli> for Settings {
             debug,
             palette: DARK_THEME,
             zoom: None,
+            session_path: None,
         })
     }
 }

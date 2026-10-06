@@ -8,7 +8,6 @@ use ratatui::{Terminal, backend::TestBackend};
 use tgv::{
     app::{App, RenderEvent},
     message::Message,
-    session::SessionFile,
     settings::{Cli, Settings},
 };
 
@@ -31,7 +30,7 @@ impl AppHarness {
         let mut settings: Settings = cli.try_into()?;
         settings.test_mode = true;
 
-        let app = App::new(settings, SessionFile::default_path()).await?;
+        let app = App::new(settings).await?;
         let terminal = Terminal::new(TestBackend::new(80, 24)).expect("test terminal");
         let mut harness = Self { app, terminal };
         harness.initialize().await?;

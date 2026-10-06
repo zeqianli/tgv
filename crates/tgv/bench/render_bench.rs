@@ -25,7 +25,6 @@ use tgv::{
     app::{App, RenderEvent},
     layout::AreaType,
     message::Message,
-    session::SessionFile,
     settings::{Cli, Settings},
 };
 
@@ -108,7 +107,7 @@ async fn main() {
     settings.zoom = zoom;
 
     let started = Instant::now();
-    let app = App::new(settings, SessionFile::default_path())
+    let app = App::new(settings)
         .await
         .expect("app");
     let mut bench = Bench {
