@@ -10,12 +10,10 @@ include = ["src/*", "!src/snapshots", "Cargo.toml", "./README.md"]
 [dependencies]
 clap.workspace = true
 crossterm.workspace = true
-futures.workspace = true
 gv-core.workspace = true
 itertools.workspace = true
 log.workspace = true
 miette.workspace = true
-nom.workspace = true
 ratatui.workspace = true
 rmcp.workspace = true
 schemars.workspace = true
@@ -27,10 +25,16 @@ thiserror.workspace = true
 tokio.workspace = true
 toml.workspace = true
 noodles.workspace = true
+polars.workspace = true
 unicode-width.workspace = true
 
+[[bench]]
+name = "render_bench"
+path = "bench/render_bench.rs"
+# A headless timing binary that takes its own arguments instead of using libtest.
+harness = false
+
 [dev-dependencies]
-cargo-insta = "1.42"
 insta = "1.42"
 rstest = "0.25.0"
 shlex = "1.3.0"

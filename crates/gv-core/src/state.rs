@@ -2,12 +2,12 @@ use crate::sequence::SequenceRepositoryEnum;
 use crate::tracks::{TrackService, TrackServiceEnum};
 use crate::variant::VariantRepository;
 use crate::{
-    alignment::{Alignment, AlignmentRepositoryEnum, PairedAlignment},
-    bed::{BedRepository, BedTrack},
+    alignment::{Alignment, AlignmentRepositoryEnum, PairedAlignment, tables},
+    bed::{BedRepository, BedTable},
     contig_header::ContigHeader,
     cytoband::Cytoband,
     error::TGVError,
-    feature::Gene,
+    gene::{GeneSchema, GeneTable},
     intervals::{Focus, GenomeInterval, Region},
     message::{AlignmentDisplayOption, AlignmentFilter, AlignmentSort, Movement},
     reference::Reference,
@@ -15,8 +15,7 @@ use crate::{
     //rendering::{MainLayout, layout::resize_node},
     repository::Repository,
     sequence::Sequence,
-    track::Track,
-    variant::VariantTrack,
+    variant::VariantTable,
 };
 use itertools::Itertools;
 use std::time::Instant;
@@ -36,15 +35,15 @@ pub struct State {
 
     /// Variant track data.
     /// Index always matches with VariantRepository index
-    pub variants: Vec<VariantTrack>,
+    pub variants: Vec<VariantTable>,
     pub variant_loaded: Vec<bool>, // Temporary hack before proper implemetation for the indexed VCF IO
 
     /// Bed track data
     /// Index always matches with BedRepository index
-    pub bed_intervals: Vec<BedTrack>,
+    pub bed_intervals: Vec<BedTable>,
     pub bed_loaded: Vec<bool>, // Temporary hack before proper implemetation for large bed file io
 
-    pub track: Track<Gene>,
+    pub track: GeneTable,
 
     pub sequence: Sequence,
 }
@@ -65,7 +64,7 @@ impl State {
             alignment_options: Vec::new(),
             paired_alignments: Vec::new(),
 
-            track: Track::<Gene>::default(),
+            track: GeneTable::default(),
             sequence: Sequence::default(),
             variants: Vec::new(),
             variant_loaded: Vec::new(),
@@ -179,8 +178,8 @@ impl State {
                 return Err(e);
             }
         };
-        let read_count = alignment.reads.len();
-        let depth = alignment.depth();
+        let read_count = alignment.records.len();
+        let depth = alignment.depth()?;
         self.alignments[index] = alignment;
 
         // Re-compute paired alignment later, if needed.
@@ -233,7 +232,7 @@ impl State {
                 return Err(e);
             }
         };
-        let feature_count = track.features.len();
+        let feature_count = track.data.height();
         self.track = track;
         log::debug!(
             "Loaded reference track data: region={:?} features={} elapsed_ms={}",
@@ -267,6 +266,20 @@ impl State {
             }
         };
         let base_count = sequence.len();
+        let mismatch_tables = self
+            .alignments
+            .iter()
+            .map(|alignment| {
+                tables::reference_mismatches(
+                    &alignment.tables.cigar_runs,
+                    &sequence,
+                    alignment.contig_index,
+                )
+            })
+            .collect::<Result<Vec<_>, _>>()?;
+        for (alignment, table) in self.alignments.iter_mut().zip(mismatch_tables) {
+            alignment.tables.reference_mismatches = table;
+        }
         self.sequence = sequence;
         log::debug!(
             "Loaded sequence data: region={:?} bases={} elapsed_ms={}",
@@ -279,7 +292,7 @@ impl State {
     }
 
     pub fn add_variant_track(&mut self) {
-        self.variants.push(VariantTrack::default());
+        self.variants.push(VariantTable::default());
         self.variant_loaded.push(false);
     }
 
@@ -303,7 +316,7 @@ impl State {
                 return Err(e);
             }
         };
-        let record_count = variants.intervals.len();
+        let record_count = variants.data.height();
         let Some(variant_track) = self.variants.get_mut(index) else {
             let e = TGVError::StateError(format!("Variant index out of bounds: {index}"));
             log::warn!(
@@ -337,7 +350,7 @@ impl State {
     }
 
     pub fn add_bed_track(&mut self) {
-        self.bed_intervals.push(BedTrack::default());
+        self.bed_intervals.push(BedTable::default());
         self.bed_loaded.push(false);
     }
 
@@ -361,7 +374,7 @@ impl State {
                 return Err(e);
             }
         };
-        let record_count = bed_intervals.intervals.len();
+        let record_count = bed_intervals.data.height();
         let Some(bed_track) = self.bed_intervals.get_mut(index) else {
             let e = TGVError::StateError(format!("BED index out of bounds: {index}"));
             log::warn!(
@@ -515,29 +528,31 @@ impl State {
             return Ok(focus);
         }
 
-        // The gene is in the track.
-        if let Some(gene) = self.track.get_k_genes_after(focus.position, n) {
-            return Ok(Focus {
-                contig_index: gene.contig_index,
-                position: gene.start(),
-            });
+        let mut gene = self.track.get_k_genes_after(focus.position, n)?;
+        if gene.height() == 0 {
+            gene = repository
+                .track_service_checked()?
+                .query_k_genes_after(
+                    &self.reference,
+                    focus.contig_index,
+                    focus.position,
+                    n,
+                    &self.contig_header,
+                )
+                .await?;
         }
 
-        // Query for the target gene
-        let gene = repository
-            .track_service_checked()?
-            .query_k_genes_after(
-                &self.reference,
-                focus.contig_index,
-                focus.position,
-                n,
-                &self.contig_header,
-            )
-            .await?;
-
         Ok(Focus {
-            contig_index: gene.contig_index,
-            position: gene.start(),
+            contig_index: gene
+                .column(GeneSchema::CONTIG_INDEX)?
+                .u64()?
+                .get(0)
+                .expect("selected contigs are non-null") as usize,
+            position: gene
+                .column(GeneSchema::START)?
+                .u64()?
+                .get(0)
+                .expect("selected starts are non-null"),
         })
     }
 
@@ -551,28 +566,32 @@ impl State {
             return Ok(focus);
         }
 
-        if let Some(gene) = self.track.get_k_genes_after(focus.position, n) {
-            return Ok(Focus {
-                contig_index: gene.contig_index,
-                position: gene.end() + 1,
-            });
+        let mut gene = self.track.get_k_genes_after(focus.position, n)?;
+        if gene.height() == 0 {
+            gene = repository
+                .track_service_checked()?
+                .query_k_genes_after(
+                    &self.reference,
+                    focus.contig_index,
+                    focus.position,
+                    n,
+                    &self.contig_header,
+                )
+                .await?;
         }
 
-        // Query for the target gene
-        let gene = repository
-            .track_service_checked()?
-            .query_k_genes_after(
-                &self.reference,
-                focus.contig_index,
-                focus.position,
-                n,
-                &self.contig_header,
-            )
-            .await?;
-
         Ok(Focus {
-            contig_index: gene.contig_index,
-            position: gene.end() + 1,
+            contig_index: gene
+                .column(GeneSchema::CONTIG_INDEX)?
+                .u64()?
+                .get(0)
+                .expect("selected contigs are non-null") as usize,
+            position: gene
+                .column(GeneSchema::END)?
+                .u64()?
+                .get(0)
+                .expect("selected ends are non-null")
+                + 1,
         })
     }
 
@@ -586,28 +605,32 @@ impl State {
             return Ok(focus);
         }
 
-        if let Some(gene) = self.track.get_k_genes_before(focus.position, n) {
-            return Ok(Focus {
-                contig_index: gene.contig_index,
-                position: gene.start() - 1,
-            });
+        let mut gene = self.track.get_k_genes_before(focus.position, n)?;
+        if gene.height() == 0 {
+            gene = repository
+                .track_service_checked()?
+                .query_k_genes_before(
+                    &self.reference,
+                    focus.contig_index,
+                    focus.position,
+                    n,
+                    &self.contig_header,
+                )
+                .await?;
         }
 
-        // Query for the target gene
-        let gene = repository
-            .track_service_checked()?
-            .query_k_genes_before(
-                &self.reference,
-                focus.contig_index,
-                focus.position,
-                n,
-                &self.contig_header,
-            )
-            .await?;
-
         Ok(Focus {
-            contig_index: gene.contig_index,
-            position: gene.start() - 1,
+            contig_index: gene
+                .column(GeneSchema::CONTIG_INDEX)?
+                .u64()?
+                .get(0)
+                .expect("selected contigs are non-null") as usize,
+            position: gene
+                .column(GeneSchema::START)?
+                .u64()?
+                .get(0)
+                .expect("selected starts are non-null")
+                - 1,
         })
     }
 
@@ -621,28 +644,32 @@ impl State {
             return Ok(focus);
         }
 
-        if let Some(gene) = self.track.get_k_genes_before(focus.position, n) {
-            return Ok(Focus {
-                contig_index: gene.contig_index,
-                position: gene.end() - 1,
-            });
+        let mut gene = self.track.get_k_genes_before(focus.position, n)?;
+        if gene.height() == 0 {
+            gene = repository
+                .track_service_checked()?
+                .query_k_genes_before(
+                    &self.reference,
+                    focus.contig_index,
+                    focus.position,
+                    n,
+                    &self.contig_header,
+                )
+                .await?;
         }
 
-        // Query for the target gene
-        let gene = repository
-            .track_service_checked()?
-            .query_k_genes_before(
-                &self.reference,
-                focus.contig_index,
-                focus.position,
-                n,
-                &self.contig_header,
-            )
-            .await?;
-
         Ok(Focus {
-            contig_index: gene.contig_index,
-            position: gene.end() - 1,
+            contig_index: gene
+                .column(GeneSchema::CONTIG_INDEX)?
+                .u64()?
+                .get(0)
+                .expect("selected contigs are non-null") as usize,
+            position: gene
+                .column(GeneSchema::END)?
+                .u64()?
+                .get(0)
+                .expect("selected ends are non-null")
+                - 1,
         })
     }
 
@@ -656,28 +683,32 @@ impl State {
             return Ok(focus);
         }
 
-        if let Some(exon) = self.track.get_k_exons_after(focus.position, n) {
-            return Ok(Focus {
-                contig_index: exon.contig_index,
-                position: exon.start() + 1,
-            });
+        let mut exon = self.track.get_k_exons_after(focus.position, n)?;
+        if exon.height() == 0 {
+            exon = repository
+                .track_service_checked()?
+                .query_k_exons_after(
+                    &self.reference,
+                    focus.contig_index,
+                    focus.position,
+                    n,
+                    &self.contig_header,
+                )
+                .await?;
         }
 
-        // Query for the target exon
-        let exon = repository
-            .track_service_checked()?
-            .query_k_exons_after(
-                &self.reference,
-                focus.contig_index,
-                focus.position,
-                n,
-                &self.contig_header,
-            )
-            .await?;
-
         Ok(Focus {
-            contig_index: exon.contig_index,
-            position: exon.start() + 1,
+            contig_index: exon
+                .column(GeneSchema::CONTIG_INDEX)?
+                .u64()?
+                .get(0)
+                .expect("selected contigs are non-null") as usize,
+            position: exon
+                .column(GeneSchema::START)?
+                .u64()?
+                .get(0)
+                .expect("selected starts are non-null")
+                + 1,
         })
     }
 
@@ -691,28 +722,32 @@ impl State {
             return Ok(focus);
         }
 
-        if let Some(exon) = self.track.get_k_exons_after(focus.position, n) {
-            return Ok(Focus {
-                contig_index: exon.contig_index,
-                position: exon.end() + 1,
-            });
+        let mut exon = self.track.get_k_exons_after(focus.position, n)?;
+        if exon.height() == 0 {
+            exon = repository
+                .track_service_checked()?
+                .query_k_exons_after(
+                    &self.reference,
+                    focus.contig_index,
+                    focus.position,
+                    n,
+                    &self.contig_header,
+                )
+                .await?;
         }
 
-        // Query for the target exon
-        let exon = repository
-            .track_service_checked()?
-            .query_k_exons_after(
-                &self.reference,
-                focus.contig_index,
-                focus.position,
-                n,
-                &self.contig_header,
-            )
-            .await?;
-
         Ok(Focus {
-            contig_index: exon.contig_index,
-            position: exon.end() + 1,
+            contig_index: exon
+                .column(GeneSchema::CONTIG_INDEX)?
+                .u64()?
+                .get(0)
+                .expect("selected contigs are non-null") as usize,
+            position: exon
+                .column(GeneSchema::END)?
+                .u64()?
+                .get(0)
+                .expect("selected ends are non-null")
+                + 1,
         })
     }
 
@@ -726,28 +761,32 @@ impl State {
             return Ok(focus);
         }
 
-        if let Some(exon) = self.track.get_k_exons_before(focus.position, n) {
-            return Ok(Focus {
-                contig_index: exon.contig_index,
-                position: exon.start() - 1,
-            });
+        let mut exon = self.track.get_k_exons_before(focus.position, n)?;
+        if exon.height() == 0 {
+            exon = repository
+                .track_service_checked()?
+                .query_k_exons_before(
+                    &self.reference,
+                    focus.contig_index,
+                    focus.position,
+                    n,
+                    &self.contig_header,
+                )
+                .await?;
         }
 
-        // Query for the target exon
-        let exon = repository
-            .track_service_checked()?
-            .query_k_exons_before(
-                &self.reference,
-                focus.contig_index,
-                focus.position,
-                n,
-                &self.contig_header,
-            )
-            .await?;
-
         Ok(Focus {
-            contig_index: exon.contig_index,
-            position: exon.start() - 1,
+            contig_index: exon
+                .column(GeneSchema::CONTIG_INDEX)?
+                .u64()?
+                .get(0)
+                .expect("selected contigs are non-null") as usize,
+            position: exon
+                .column(GeneSchema::START)?
+                .u64()?
+                .get(0)
+                .expect("selected starts are non-null")
+                - 1,
         })
     }
 
@@ -761,29 +800,32 @@ impl State {
             return Ok(focus);
         }
 
-        let exon = self.track.get_k_exons_before(focus.position, n);
-        if let Some(exon) = exon {
-            return Ok(Focus {
-                contig_index: exon.contig_index,
-                position: exon.end() - 1,
-            });
+        let mut exon = self.track.get_k_exons_before(focus.position, n)?;
+        if exon.height() == 0 {
+            exon = repository
+                .track_service_checked()?
+                .query_k_exons_before(
+                    &self.reference,
+                    focus.contig_index,
+                    focus.position,
+                    n,
+                    &self.contig_header,
+                )
+                .await?;
         }
 
-        // Query for the target exon
-        let exon = repository
-            .track_service_checked()?
-            .query_k_exons_before(
-                &self.reference,
-                focus.contig_index,
-                focus.position,
-                n,
-                &self.contig_header,
-            )
-            .await?;
-
         Ok(Focus {
-            contig_index: exon.contig_index,
-            position: exon.end() - 1,
+            contig_index: exon
+                .column(GeneSchema::CONTIG_INDEX)?
+                .u64()?
+                .get(0)
+                .expect("selected contigs are non-null") as usize,
+            position: exon
+                .column(GeneSchema::END)?
+                .u64()?
+                .get(0)
+                .expect("selected ends are non-null")
+                - 1,
         })
     }
 
@@ -796,9 +838,21 @@ impl State {
             .track_service_checked()?
             .query_gene_name(&self.reference, gene_name, &self.contig_header)
             .await
-            .map(|gene| Focus {
-                contig_index: gene.contig_index(),
-                position: gene.start() + 1,
+            .and_then(|gene| {
+                Ok(Focus {
+                    contig_index: gene
+                        .column(GeneSchema::CONTIG_INDEX)?
+                        .u64()?
+                        .get(0)
+                        .expect("selected contigs are non-null")
+                        as usize,
+                    position: gene
+                        .column(GeneSchema::START)?
+                        .u64()?
+                        .get(0)
+                        .expect("selected starts are non-null")
+                        + 1,
+                })
             })
     }
 
@@ -838,8 +892,18 @@ impl State {
                     Ok(gene) => {
                         // Found a gene, go to its start (using 1-based coordinates for Goto)
                         return Ok(Focus {
-                            contig_index: gene.contig_index,
-                            position: gene.start() + 1,
+                            contig_index: gene
+                                .column(GeneSchema::CONTIG_INDEX)?
+                                .u64()?
+                                .get(0)
+                                .expect("selected contigs are non-null")
+                                as usize,
+                            position: gene
+                                .column(GeneSchema::START)?
+                                .u64()?
+                                .get(0)
+                                .expect("selected starts are non-null")
+                                + 1,
                         });
                     }
                     Err(_) => {} // Gene not found. Handle later.
@@ -867,7 +931,6 @@ impl State {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::alignment::AlignedRead;
     use crate::contig_header::ContigHeader;
     use noodles::sam::{
         self,
@@ -885,7 +948,7 @@ mod tests {
         start: u64,
         cigar_ops: impl IntoIterator<Item = (Kind, usize)>,
         sequence: &[u8],
-    ) -> AlignedRead {
+    ) -> sam::alignment::RecordBuf {
         let cigar: Cigar = cigar_ops
             .into_iter()
             .map(|(kind, len)| Op::new(kind, len))
@@ -899,7 +962,7 @@ mod tests {
             .set_sequence(sam::alignment::record_buf::Sequence::from(sequence))
             .build();
 
-        AlignedRead::try_from(record).unwrap()
+        record
     }
 
     fn test_sequence() -> Sequence {
@@ -910,8 +973,11 @@ mod tests {
         }
     }
 
-    fn alignment_from_reads(reads: Vec<AlignedRead>, data_complete_bound: (u64, u64)) -> Alignment {
-        Alignment::from_aligned_reads(reads, 0, data_complete_bound, &test_sequence()).unwrap()
+    fn alignment_from_reads(
+        reads: Vec<sam::alignment::RecordBuf>,
+        data_complete_bound: (u64, u64),
+    ) -> Alignment {
+        Alignment::from_records(reads, 0, data_complete_bound, &test_sequence()).unwrap()
     }
 
     fn state_with_alignment(alignment: Alignment) -> State {
@@ -955,7 +1021,18 @@ mod tests {
             state.alignment_options[0],
             vec![AlignmentDisplayOption::Sort(AlignmentSort::BaseAt(12))]
         );
-        assert_eq!(state.alignments[0].ys, vec![1, 0]);
+        assert_eq!(
+            state.alignments[0]
+                .tables
+                .reads
+                .column(tables::ReadSchema::Y)
+                .unwrap()
+                .u64()
+                .unwrap()
+                .into_no_null_iter()
+                .collect::<Vec<_>>(),
+            vec![1, 0]
+        );
     }
 
     #[test]
@@ -967,7 +1044,15 @@ mod tests {
             ],
             (10, 20),
         );
-        let original_ys = alignment.ys.clone();
+        let original_y = alignment
+            .tables
+            .reads
+            .column(tables::ReadSchema::Y)
+            .unwrap()
+            .u64()
+            .unwrap()
+            .into_no_null_iter()
+            .collect::<Vec<_>>();
         let mut state = state_with_alignment(alignment);
         let focus = Focus {
             contig_index: 0,
@@ -988,7 +1073,18 @@ mod tests {
             state.alignment_options[0],
             vec![AlignmentDisplayOption::Sort(AlignmentSort::BaseAt(30))]
         );
-        assert_eq!(state.alignments[0].ys, original_ys);
+        assert_eq!(
+            state.alignments[0]
+                .tables
+                .reads
+                .column(tables::ReadSchema::Y)
+                .unwrap()
+                .u64()
+                .unwrap()
+                .into_no_null_iter()
+                .collect::<Vec<_>>(),
+            original_y
+        );
     }
 
     #[test]

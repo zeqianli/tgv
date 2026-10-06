@@ -1,21 +1,6 @@
 use crate::error::TGVError;
 use crate::message::{Message, Movement, Scroll, Zoom};
 
-#[derive(Clone, Debug, Default)]
-pub struct NormalModeRegister {
-    input: String,
-}
-
-impl NormalModeRegister {
-    pub fn add_char(&mut self, c: char) {
-        self.input.push(c);
-    }
-
-    pub fn clear(&mut self) {
-        self.input = String::new();
-    }
-}
-
 /// Normal mode command handling
 const SMALL_HORIZONTAL_STEP: u64 = 1;
 const LARGE_HORIZONTAL_STEP: u64 = 30;

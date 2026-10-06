@@ -4,8 +4,10 @@ use crate::{
     track_registry::TrackId,
 };
 use crossterm::event::{MouseButton, MouseEvent, MouseEventKind};
-use gv_core::{alignment::BaseCoverage, prelude::*};
+use gv_core::prelude::*;
+use gv_core::{alignment::CoverageSchema, bed::BedSchema, variant::VariantSchema};
 use itertools::Itertools;
+use polars::prelude::ChunkAgg;
 
 /// Mouse interaction state for the currently displayed layout.
 #[derive(Default)]
@@ -17,6 +19,11 @@ pub struct MouseRegister {
     sidebar_resizing: bool,
     pub hovered_alignment: Option<TrackId>,
     pub hovered_divider: Option<(TrackId, TrackId)>,
+
+    /// The cell of the last handled motion event. Terminals can report several motion events
+    /// within one cell, which would otherwise repeat the hover lookup and redraw. Reset this
+    /// whenever the state under the cursor may have changed.
+    pub last_hover: Option<(u16, u16)>,
 }
 
 impl MouseRegister {
@@ -42,6 +49,16 @@ impl MouseRegister {
         alignment_view: &AlignmentView,
         event: MouseEvent,
     ) -> Result<Vec<Message>, TGVError> {
+        let cell = (event.column, event.row);
+        if event.kind == MouseEventKind::Moved {
+            if self.last_hover == Some(cell) {
+                return Ok(Vec::new());
+            }
+            self.last_hover = Some(cell);
+        } else {
+            self.last_hover = None;
+        }
+
         let mut messages = Vec::new();
         let hovered = layout.get_area_type_at_position(event.column, event.row);
         self.hovered_alignment = match hovered {
@@ -134,13 +151,43 @@ impl MouseRegister {
                                 alignment_view.coordinates_of_onscreen_x(event.column, area),
                                 alignment_view.coordinate_of_onscreen_y(index, event.row, area),
                             ) && let Some(alignment) = state.alignments.get(index)
-                                && let Some(read) = alignment.read_overlapping(
-                                    left_coordinate,
-                                    right_coordinate,
-                                    y_coordinate,
-                                )
+                                && let Some(read_id) =
+                                    if let Some(paired) = &state.paired_alignments[index] {
+                                        paired.read_overlapping(
+                                            alignment,
+                                            left_coordinate,
+                                            right_coordinate,
+                                            y_coordinate,
+                                        )?
+                                    } else {
+                                        alignment.read_overlapping(
+                                            left_coordinate,
+                                            right_coordinate,
+                                            y_coordinate,
+                                        )?
+                                    }
                             {
-                                messages.push(Message::message(read.describe()?));
+                                let record = &alignment.records[read_id];
+                                let name = record
+                                    .name()
+                                    .map(|name| name.to_string())
+                                    .unwrap_or_else(|| "<missing>".into());
+                                let mapq = record
+                                    .mapping_quality()
+                                    .map(|quality| quality.get().to_string())
+                                    .unwrap_or_else(|| ".".into());
+                                let mut cigar = Vec::new();
+                                noodles::sam::io::writer::record::write_cigar(
+                                    &mut cigar,
+                                    record.cigar(),
+                                )?;
+                                messages.push(Message::message(format!(
+                                    "{}  Flags={}  MAPQ={}  Cigar={}",
+                                    name,
+                                    u16::from(record.flags()),
+                                    mapq,
+                                    String::from_utf8(cigar)?
+                                )));
                             }
                         }
                         AreaType::Sequence => {
@@ -164,14 +211,44 @@ impl MouseRegister {
                                 alignment_view.coordinates_of_onscreen_x(event.column, area)
                                 && let Some(alignment) = state.alignments.get(index)
                             {
-                                let mut coverage = BaseCoverage::default();
-                                for coordinate in left..=right {
-                                    coverage.add(alignment.coverage_at(coordinate));
-                                }
+                                let coverage = alignment.coverage.query(left, right)?;
+                                let counts = format!(
+                                    "A:{}, T:{}, C:{}, G:{}, N:{}, total:{}",
+                                    coverage
+                                        .column(CoverageSchema::A)?
+                                        .u64()?
+                                        .sum()
+                                        .unwrap_or(0),
+                                    coverage
+                                        .column(CoverageSchema::T)?
+                                        .u64()?
+                                        .sum()
+                                        .unwrap_or(0),
+                                    coverage
+                                        .column(CoverageSchema::C)?
+                                        .u64()?
+                                        .sum()
+                                        .unwrap_or(0),
+                                    coverage
+                                        .column(CoverageSchema::G)?
+                                        .u64()?
+                                        .sum()
+                                        .unwrap_or(0),
+                                    coverage
+                                        .column(CoverageSchema::N)?
+                                        .u64()?
+                                        .sum()
+                                        .unwrap_or(0),
+                                    coverage
+                                        .column(CoverageSchema::TOTAL)?
+                                        .u64()?
+                                        .sum()
+                                        .unwrap_or(0)
+                                );
                                 let description = if left == right {
-                                    format!("{}: {}", left, coverage.describe())
+                                    format!("{}: {}", left, counts)
                                 } else {
-                                    format!("{} - {}: {}", left, right, coverage.describe())
+                                    format!("{} - {}: {}", left, right, counts)
                                 };
                                 messages.push(Message::message(description));
                             }
@@ -182,12 +259,42 @@ impl MouseRegister {
                                 alignment_view.coordinates_of_onscreen_x(event.column, area)
                                 && let Some(variants) = state.variants.get(index)
                             {
-                                for variant in variants.overlapping(
+                                let rows = variants.query(
                                     alignment_view.focus.contig_index,
                                     left,
                                     right,
-                                )? {
-                                    messages.push(Message::message(variant.describe()));
+                                )?;
+                                let starts = rows.column(VariantSchema::START)?.u64()?;
+                                let references = rows.column(VariantSchema::REFERENCE)?.str()?;
+                                let alternates = rows.column(VariantSchema::ALTERNATE)?.list()?;
+                                let qualities = rows.column(VariantSchema::QUALITY_SCORE)?.f32()?;
+                                let ids = rows.column(VariantSchema::ROW_ID)?.u64()?;
+                                for row in 0..rows.height() {
+                                    let alleles = alternates.get_as_series(row);
+                                    let alternate = match alleles {
+                                        Some(alleles) => alleles
+                                            .str()?
+                                            .iter()
+                                            .map(|allele| {
+                                                allele.expect("alternate alleles are non-null")
+                                            })
+                                            .join(","),
+                                        None => String::new(),
+                                    };
+                                    let quality = qualities
+                                        .get(row)
+                                        .map(|q| q.to_string())
+                                        .unwrap_or_else(|| "?".into());
+                                    let record = &variants.records
+                                        [ids.get(row).expect("row IDs are non-null") as usize];
+                                    messages.push(Message::message(format!(
+                                        "Variant: {}:{} {}>{} QUAL={}",
+                                        record.reference_sequence_name(),
+                                        starts.get(row).expect("variant starts are non-null"),
+                                        references.get(row).expect("reference bases are non-null"),
+                                        alternate,
+                                        quality
+                                    )));
                                 }
                             }
                         }
@@ -197,12 +304,23 @@ impl MouseRegister {
                                 alignment_view.coordinates_of_onscreen_x(event.column, area)
                                 && let Some(intervals) = state.bed_intervals.get(index)
                             {
-                                for interval in intervals.overlapping(
+                                let rows = intervals.query(
                                     alignment_view.focus.contig_index,
                                     left,
                                     right,
-                                )? {
-                                    messages.push(Message::message(interval.describe()));
+                                )?;
+                                let starts = rows.column(BedSchema::START)?.u64()?;
+                                let ends = rows.column(BedSchema::END)?.u64()?;
+                                let ids = rows.column(BedSchema::ROW_ID)?.u64()?;
+                                for row in 0..rows.height() {
+                                    let record = &intervals.records
+                                        [ids.get(row).expect("row IDs are non-null") as usize];
+                                    messages.push(Message::message(format!(
+                                        "BED interval: {}:{}-{}",
+                                        record.reference_sequence_name(),
+                                        starts.get(row).expect("BED starts are non-null"),
+                                        ends.get(row).expect("BED ends are non-null")
+                                    )));
                                 }
                             }
                         }

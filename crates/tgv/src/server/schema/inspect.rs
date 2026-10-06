@@ -2,13 +2,13 @@
 
 use crate::track_registry::TrackId;
 use gv_core::{
-    alignment::{Alignment, BaseCoverage},
-    bed::{BedInterval, BedTrack},
-    feature::Gene,
+    alignment::{Alignment, CoverageSchema, tables::ReadSchema},
+    bed::{BedSchema, BedTable},
+    gene::{GeneSchema, GeneTable},
     prelude::*,
-    variant::{Variant, VariantTrack},
+    variant::{VariantSchema, VariantTable},
 };
-use noodles::vcf::variant::record::AlternateBases;
+use polars::prelude::*;
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
@@ -80,42 +80,111 @@ impl TrackSummary {
         alignment: &Alignment,
         contig_index: usize,
         region: &InspectInterval,
-    ) -> Self {
-        let overlapping_records = alignment
-            .overlapping_reads(contig_index, region.start, region.end)
-            .count();
+    ) -> Result<Self, TGVError> {
+        let overlapping_records =
+            if alignment.contig_index != contig_index || region.start > region.end {
+                0
+            } else {
+                alignment
+                    .tables
+                    .reads
+                    .clone()
+                    .lazy()
+                    .filter(
+                        col(ReadSchema::STACKING_START)
+                            .lt_eq(lit(region.end))
+                            .and(col(ReadSchema::STACKING_END).gt_eq(lit(region.start))),
+                    )
+                    .select([col(ReadSchema::READ_ID)])
+                    .collect()?
+                    .height()
+            };
+        let coverage = alignment.coverage.query(region.start, region.end)?;
+        let mut rows = coverage
+            .column(CoverageSchema::POS)?
+            .u64()?
+            .into_no_null_iter()
+            .enumerate()
+            .peekable();
+        let a = coverage.column(CoverageSchema::A)?.u64()?;
+        let c = coverage.column(CoverageSchema::C)?.u64()?;
+        let g = coverage.column(CoverageSchema::G)?.u64()?;
+        let t = coverage.column(CoverageSchema::T)?.u64()?;
+        let n = coverage.column(CoverageSchema::N)?.u64()?;
+        let total = coverage.column(CoverageSchema::TOTAL)?.u64()?;
+        let softclip = coverage.column(CoverageSchema::SOFTCLIP)?.u64()?;
         let positions = (region.start..=region.end)
-            .map(|position| PositionCoverage::from((position, alignment.coverage_at(position))))
+            .map(|position| {
+                let row = if rows.peek().is_some_and(|(_, pos)| *pos == position) {
+                    rows.next().map(|(row, _)| row)
+                } else {
+                    None
+                };
+                let count = |column: &polars::prelude::UInt64Chunked| {
+                    row.map_or(0, |row| {
+                        column.get(row).expect("coverage counts are non-null") as usize
+                    })
+                };
+                PositionCoverage {
+                    position,
+                    a: count(a),
+                    c: count(c),
+                    g: count(g),
+                    t: count(t),
+                    n: count(n),
+                    total: count(total),
+                    softclip: count(softclip),
+                }
+            })
             .collect();
-        Self::Alignment {
+        Ok(Self::Alignment {
             track_id,
             overlapping_records,
             coverage: CoverageSummary {
                 method: CoverageMethod::ViewerCurrent,
                 positions,
             },
-        }
+        })
     }
 
     /// Summarizes overlapping variants and includes up to the response item limit.
     pub fn from_variants(
         track_id: TrackId,
-        variants: &VariantTrack,
+        variants: &VariantTable,
         contig_index: usize,
         region: &InspectInterval,
     ) -> Result<Self, TGVError> {
-        let mut records = variants.overlapping(contig_index, region.start, region.end)?;
-        records.sort_by_key(|record| (record.start(), record.end(), record.index));
-        let items = records
-            .iter()
-            .take(MAX_SUMMARY_ITEMS)
-            .copied()
-            .map(VariantRecord::try_from)
+        let rows = variants.query(contig_index, region.start, region.end)?;
+        let starts = rows.column(VariantSchema::START)?.u64()?;
+        let ends = rows.column(VariantSchema::END)?.u64()?;
+        let reference = rows.column(VariantSchema::REFERENCE)?.str()?;
+        let alternate = rows.column(VariantSchema::ALTERNATE)?.list()?;
+        let items = (0..rows.height().min(MAX_SUMMARY_ITEMS))
+            .map(|row| {
+                let alleles = alternate.get_as_series(row);
+                Ok(VariantRecord {
+                    start: starts.get(row).expect("variant starts are non-null"),
+                    end: ends.get(row).expect("variant ends are non-null"),
+                    reference: reference
+                        .get(row)
+                        .expect("reference bases are non-null")
+                        .to_owned(),
+                    alternate: match alleles {
+                        Some(alleles) => alleles
+                            .str()?
+                            .iter()
+                            .map(|allele| allele.expect("alternate alleles are non-null"))
+                            .map(str::to_owned)
+                            .collect(),
+                        None => Vec::new(),
+                    },
+                })
+            })
             .collect::<Result<Vec<_>, TGVError>>()?;
         Ok(Self::Variant {
             track_id,
-            overlapping_records: records.len(),
-            truncated: records.len() > items.len(),
+            overlapping_records: rows.height(),
+            truncated: rows.height() > items.len(),
             items,
         })
     }
@@ -123,22 +192,23 @@ impl TrackSummary {
     /// Summarizes overlapping BED intervals and includes up to the response item limit.
     pub fn from_bed(
         track_id: TrackId,
-        intervals: &BedTrack,
+        intervals: &BedTable,
         contig_index: usize,
         region: &InspectInterval,
     ) -> Result<Self, TGVError> {
-        let mut records = intervals.overlapping(contig_index, region.start, region.end)?;
-        records.sort_by_key(|record| (record.start(), record.end(), record.index));
-        let items: Vec<_> = records
-            .iter()
+        let rows = intervals.query(contig_index, region.start, region.end)?;
+        let items = rows
+            .column(BedSchema::START)?
+            .u64()?
+            .into_no_null_iter()
+            .zip(rows.column(BedSchema::END)?.u64()?.into_no_null_iter())
             .take(MAX_SUMMARY_ITEMS)
-            .copied()
-            .map(BedRecord::from)
-            .collect();
+            .map(|(start, end)| BedRecord { start, end })
+            .collect::<Vec<_>>();
         Ok(Self::Bed {
             track_id,
-            overlapping_records: records.len(),
-            truncated: records.len() > items.len(),
+            overlapping_records: rows.height(),
+            truncated: rows.height() > items.len(),
             items,
         })
     }
@@ -153,42 +223,11 @@ pub(in crate::server) struct VariantRecord {
     pub alternate: Vec<String>,
 }
 
-impl TryFrom<&Variant> for VariantRecord {
-    type Error = TGVError;
-
-    /// Extracts variant coordinates and alleles from a VCF record.
-    fn try_from(variant: &Variant) -> Result<Self, Self::Error> {
-        let alternate = variant
-            .record
-            .alternate_bases()
-            .iter()
-            .map(|allele| allele.map(str::to_owned))
-            .collect::<Result<Vec<_>, _>>()?;
-
-        Ok(Self {
-            start: variant.start(),
-            end: variant.end(),
-            reference: variant.record.reference_bases().to_owned(),
-            alternate,
-        })
-    }
-}
-
 /// Describes one BED interval returned in an inspection summary.
 #[derive(Serialize)]
 pub(in crate::server) struct BedRecord {
     pub start: u64,
     pub end: u64,
-}
-
-impl From<&BedInterval> for BedRecord {
-    /// Copies the genomic coordinates of a BED interval.
-    fn from(interval: &BedInterval) -> Self {
-        Self {
-            start: interval.start(),
-            end: interval.end(),
-        }
-    }
 }
 
 /// Summarizes overlapping genes and whether annotations are available.
@@ -203,28 +242,47 @@ pub(in crate::server) struct GeneSummary {
 impl GeneSummary {
     /// Summarizes overlapping genes while preserving annotation availability.
     pub fn from_genes(
-        genes: &[Gene],
+        genes: &GeneTable,
         available: bool,
         contig_index: usize,
         region: &InspectInterval,
-    ) -> Self {
-        let mut records: Vec<_> = genes
-            .iter()
-            .filter(|gene| gene.overlaps(contig_index, region.start, region.end))
-            .collect();
-        records.sort_by(|a, b| (a.start(), a.end(), &a.id).cmp(&(b.start(), b.end(), &b.id)));
-        let items: Vec<_> = records
-            .iter()
-            .take(MAX_SUMMARY_ITEMS)
-            .copied()
-            .map(GeneRecord::from)
-            .collect();
-        Self {
+    ) -> Result<Self, TGVError> {
+        let rows = genes
+            .query(contig_index, region.start, region.end)?
+            .lazy()
+            .sort(
+                [
+                    GeneSchema::START,
+                    GeneSchema::END,
+                    GeneSchema::ID,
+                    GeneSchema::ROW_ID,
+                ],
+                SortMultipleOptions::default(),
+            )
+            .collect()?;
+        let ids = rows.column(GeneSchema::ID)?.str()?;
+        let names = rows.column(GeneSchema::NAME)?.str()?;
+        let starts = rows.column(GeneSchema::START)?.u64()?;
+        let ends = rows.column(GeneSchema::END)?.u64()?;
+        let strands = rows.column(GeneSchema::STRAND)?.str()?;
+        let items = (0..rows.height().min(MAX_SUMMARY_ITEMS))
+            .map(|row| GeneRecord {
+                id: ids.get(row).expect("gene IDs are non-null").to_owned(),
+                name: names.get(row).expect("gene names are non-null").to_owned(),
+                start: starts.get(row).expect("gene starts are non-null"),
+                end: ends.get(row).expect("gene ends are non-null"),
+                strand: strands
+                    .get(row)
+                    .expect("gene strands are non-null")
+                    .to_owned(),
+            })
+            .collect::<Vec<_>>();
+        Ok(Self {
             available,
-            overlapping_records: records.len(),
-            truncated: records.len() > items.len(),
+            overlapping_records: rows.height(),
+            truncated: rows.height() > items.len(),
             items,
-        }
+        })
     }
 }
 
@@ -236,19 +294,6 @@ pub(in crate::server) struct GeneRecord {
     pub start: u64,
     pub end: u64,
     pub strand: String,
-}
-
-impl From<&Gene> for GeneRecord {
-    /// Copies the fields exposed by the inspection response.
-    fn from(gene: &Gene) -> Self {
-        Self {
-            id: gene.id.clone(),
-            name: gene.name.clone(),
-            start: gene.start(),
-            end: gene.end(),
-            strand: gene.strand.to_string(),
-        }
-    }
 }
 
 /// Reports per-position coverage for one alignment track.
@@ -281,22 +326,6 @@ pub(in crate::server) struct PositionCoverage {
     pub n: usize,
     pub total: usize,
     pub softclip: usize,
-}
-
-impl From<(u64, &BaseCoverage)> for PositionCoverage {
-    /// Copies the current viewer coverage counts at a position.
-    fn from((position, coverage): (u64, &BaseCoverage)) -> Self {
-        Self {
-            position,
-            a: coverage.A,
-            c: coverage.C,
-            g: coverage.G,
-            t: coverage.T,
-            n: coverage.N,
-            total: coverage.total,
-            softclip: coverage.softclip,
-        }
-    }
 }
 
 /// Reports unavailable data in an inspection response.

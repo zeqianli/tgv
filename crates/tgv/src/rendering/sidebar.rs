@@ -18,8 +18,11 @@ fn alignment_depth_description(
     state: &State,
     alignment_view: &AlignmentView,
     index: usize,
-) -> String {
-    let depth = state.alignments[index].depth();
+) -> Result<String, TGVError> {
+    let depth = match &state.paired_alignments[index] {
+        Some(paired) => paired.depth()?,
+        None => state.alignments[index].depth()?,
+    };
     let mut description = if depth == 0 {
         "0% (0 / 0)".to_string()
     } else {
@@ -33,7 +36,7 @@ fn alignment_depth_description(
             .join(",");
         description.push_str(&format!(" ({options})"));
     }
-    description
+    Ok(description)
 }
 
 pub fn render_sidebar(
@@ -108,7 +111,7 @@ pub fn render_sidebar(
             buf.set_stringn(
                 area.x,
                 area.y,
-                alignment_depth_description(state, alignment_view, index),
+                alignment_depth_description(state, alignment_view, index)?,
                 area.width as usize,
                 sidebar_style,
             );

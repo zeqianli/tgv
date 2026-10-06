@@ -3,14 +3,14 @@ use crate::{
     contig_header::{Contig, ContigHeader},
     cytoband::{Cytoband, CytobandSegment},
     error::TGVError,
-    feature::{Gene, SubGeneFeature},
+    gene::GeneTable,
     intervals::GenomeInterval,
     intervals::Region,
     reference::Reference,
-    track::Track,
     tracks::schema::*,
 };
 use async_trait::async_trait;
+use polars::prelude::DataFrame;
 use sqlx::{
     Row,
     sqlite::{SqliteConnectOptions, SqlitePool, SqlitePoolOptions},
@@ -84,7 +84,7 @@ impl LocalDbTrackService {
         match &self.cache.preferred_track_name {
             None => {
                 let preferred_track = self.get_preferred_track_name(reference).await?;
-                self.cache.set_preferred_track_name(preferred_track.clone());
+                self.cache.preferred_track_name = Some(preferred_track.clone());
                 preferred_track
             }
             Some(track) => track.clone(),
@@ -302,18 +302,18 @@ impl TrackService for LocalDbTrackService {
         region: &Region,
 
         contig_header: &ContigHeader,
-    ) -> Result<Vec<Gene>, TGVError> {
+    ) -> Result<DataFrame, TGVError> {
         let contig_name = match contig_header
             .try_get(region.contig_index())?
             .get_track_name()
         {
             Some(contig_name) => contig_name,
-            None => return Ok(Vec::new()), // Contig doesn't have track data
+            None => return Ok(GeneTable::default().data), // Contig doesn't have track data
         };
         let track_name = self.get_preferred_track_name_with_cache(reference).await?;
         let sql = format!(
             "SELECT * FROM {}
-             WHERE chrom = ? AND (txStart <= ?) AND (txEnd >= ?)",
+             WHERE chrom = ? AND (txStart < ?) AND (txEnd >= ?)",
             track_name
         );
         log::info!(
@@ -329,8 +329,8 @@ impl TrackService for LocalDbTrackService {
         let started = Instant::now();
         let rows: Vec<UcscGeneRow> = sqlx::query_as(sql.as_str())
             .bind(contig_name)
-            .bind(region.end() as i64) // end is 1-based inclusive, UCSC is 0-based exclusive
-            .bind(region.start().saturating_sub(1) as i64) // start is 1-based inclusive, UCSC is 0-based inclusive
+            .bind(region.end() as i64) // A UCSC start must be strictly below the inclusive tgv end.
+            .bind(region.start() as i64) // UCSC ends are exclusive, while tgv starts are inclusive.
             .fetch_all(&*self.pool)
             .await?;
         log::info!(
@@ -339,60 +339,13 @@ impl TrackService for LocalDbTrackService {
             started.elapsed().as_millis()
         );
 
-        rows.into_iter()
-            .map(|row| row.to_gene(contig_header))
-            .collect::<Result<Vec<Gene>, TGVError>>()
-    }
-
-    async fn query_gene_covering(
-        &mut self,
-        reference: &Reference,
-        contig_index: usize,
-        coord: u64,
-
-        contig_header: &ContigHeader,
-    ) -> Result<Option<Gene>, TGVError> {
-        let contig_name = match contig_header.try_get(contig_index)?.get_track_name() {
-            Some(contig_name) => contig_name,
-            None => {
-                return Err(TGVError::StateError(format!(
-                    "Contig {} (index = {}, aliases = {}) does not have track data.",
-                    contig_header.contigs[contig_index].name,
-                    contig_index,
-                    contig_header.contigs[contig_index].aliases.join(",")
-                )));
-            }
-        };
-        let track_name = self.get_preferred_track_name_with_cache(reference).await?;
-        let sql = format!(
-            "SELECT *
-             FROM {}
-             WHERE chrom = ? AND txStart <= ? AND txEnd >= ?",
-            track_name,
-        );
-        log::info!(
-            "Database query: database=local-sqlite sql=\"{}\" context=query gene covering reference={} track={} contig={} contig_index={} coord={}",
-            sql,
-            reference,
-            track_name,
-            contig_name,
-            contig_index,
-            coord
-        );
-        let started = Instant::now();
-        let gene_row: Option<UcscGeneRow> = sqlx::query_as(sql.as_str())
-            .bind(contig_name)
-            .bind(coord.saturating_sub(1) as i64) // coord is 1-based inclusive, UCSC is 0-based inclusive
-            .bind(coord as i64) // coord is 1-based inclusive, UCSC is 0-based exclusive
-            .fetch_optional(&*self.pool)
-            .await?;
-        log::info!(
-            "Database query result: database=local-sqlite context=query gene covering found={} elapsed_ms={}",
-            gene_row.is_some(),
-            started.elapsed().as_millis()
-        );
-
-        gene_row.map(|row| row.to_gene(contig_header)).transpose()
+        Ok(GeneTable::from_gene_rows(
+            rows,
+            region.contig_index(),
+            contig_header,
+            Some((region.start(), region.end())),
+        )?
+        .data)
     }
 
     async fn query_gene_name(
@@ -401,7 +354,7 @@ impl TrackService for LocalDbTrackService {
         gene_name: &str,
 
         contig_header: &ContigHeader,
-    ) -> Result<Gene, TGVError> {
+    ) -> Result<DataFrame, TGVError> {
         let track_name = self.get_preferred_track_name_with_cache(reference).await?;
         let sql = format!(
             "SELECT *
@@ -427,12 +380,11 @@ impl TrackService for LocalDbTrackService {
             started.elapsed().as_millis()
         );
 
-        gene_row
-            .ok_or(TGVError::IOError(format!(
-                "Failed to query gene: {}",
-                gene_name
-            )))?
-            .to_gene(contig_header)
+        let row = gene_row.ok_or(TGVError::IOError(format!(
+            "Failed to query gene: {gene_name}"
+        )))?;
+        let contig_index = contig_header.try_get_index_by_str(&row.chrom)?;
+        Ok(GeneTable::from_gene_rows(vec![row], contig_index, contig_header, None)?.data)
     }
 
     async fn query_k_genes_after(
@@ -443,7 +395,7 @@ impl TrackService for LocalDbTrackService {
         k: usize,
 
         contig_header: &ContigHeader,
-    ) -> Result<Gene, TGVError> {
+    ) -> Result<DataFrame, TGVError> {
         let contig_name = match contig_header.try_get(contig_index)?.get_track_name() {
             Some(contig_name) => contig_name,
             None => {
@@ -490,10 +442,13 @@ impl TrackService for LocalDbTrackService {
             started.elapsed().as_millis()
         );
 
-        Track::from_gene_rows(gene_rows, contig_index, contig_header)?
-            .get_saturating_k_genes_after(coord, k)
-            .cloned()
-            .ok_or(TGVError::IOError("No genes found".to_string()))
+        let rows = GeneTable::from_gene_rows(gene_rows, contig_index, contig_header, None)?
+            .get_saturating_k_genes_after(coord, k)?;
+        if rows.height() == 0 {
+            Err(TGVError::IOError("No genes found".to_string()))
+        } else {
+            Ok(rows)
+        }
     }
 
     async fn query_k_genes_before(
@@ -504,7 +459,7 @@ impl TrackService for LocalDbTrackService {
         k: usize,
 
         contig_header: &ContigHeader,
-    ) -> Result<Gene, TGVError> {
+    ) -> Result<DataFrame, TGVError> {
         let contig_name = match contig_header.try_get(contig_index)?.get_track_name() {
             Some(contig_name) => contig_name,
             None => {
@@ -551,10 +506,13 @@ impl TrackService for LocalDbTrackService {
             started.elapsed().as_millis()
         );
 
-        Track::from_gene_rows(gene_rows, contig_index, contig_header)?
-            .get_saturating_k_genes_before(coord, k)
-            .cloned()
-            .ok_or(TGVError::IOError("No genes found".to_string()))
+        let rows = GeneTable::from_gene_rows(gene_rows, contig_index, contig_header, None)?
+            .get_saturating_k_genes_before(coord, k)?;
+        if rows.height() == 0 {
+            Err(TGVError::IOError("No genes found".to_string()))
+        } else {
+            Ok(rows)
+        }
     }
 
     async fn query_k_exons_after(
@@ -565,7 +523,7 @@ impl TrackService for LocalDbTrackService {
         k: usize,
 
         contig_header: &ContigHeader,
-    ) -> Result<SubGeneFeature, TGVError> {
+    ) -> Result<DataFrame, TGVError> {
         let contig_name = match contig_header.try_get(contig_index)?.get_track_name() {
             Some(contig_name) => contig_name,
             None => {
@@ -613,9 +571,13 @@ impl TrackService for LocalDbTrackService {
             started.elapsed().as_millis()
         );
 
-        Track::from_gene_rows(gene_rows, contig_index, contig_header)?
-            .get_saturating_k_exons_after(coord, k)
-            .ok_or(TGVError::IOError("No exons found".to_string()))
+        let rows = GeneTable::from_gene_rows(gene_rows, contig_index, contig_header, None)?
+            .get_saturating_k_exons_after(coord, k)?;
+        if rows.height() == 0 {
+            Err(TGVError::IOError("No exons found".to_string()))
+        } else {
+            Ok(rows)
+        }
     }
 
     async fn query_k_exons_before(
@@ -626,7 +588,7 @@ impl TrackService for LocalDbTrackService {
         k: usize,
 
         contig_header: &ContigHeader,
-    ) -> Result<SubGeneFeature, TGVError> {
+    ) -> Result<DataFrame, TGVError> {
         let contig_name = match contig_header.try_get(contig_index)?.get_track_name() {
             Some(contig_name) => contig_name,
             None => {
@@ -673,8 +635,12 @@ impl TrackService for LocalDbTrackService {
             started.elapsed().as_millis()
         );
 
-        Track::from_gene_rows(gene_rows, contig_index, contig_header)?
-            .get_saturating_k_exons_before(coord, k)
-            .ok_or(TGVError::IOError("No exons found".to_string()))
+        let rows = GeneTable::from_gene_rows(gene_rows, contig_index, contig_header, None)?
+            .get_saturating_k_exons_before(coord, k)?;
+        if rows.height() == 0 {
+            Err(TGVError::IOError("No exons found".to_string()))
+        } else {
+            Ok(rows)
+        }
     }
 }

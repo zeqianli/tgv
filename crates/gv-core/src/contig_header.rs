@@ -75,17 +75,6 @@ impl Contig {
     //     all_aliases
     // }
 
-    /// Helper function to sort contigs by name.
-    /// 1. chromosomes start with "chr" comes first.
-    /// 2. Then, if it follows numbers, sort by numbers.
-    /// 3. chrX, chrY, chrM / chrMT comes next.
-    /// 4. Otherwise, sort by the alphabetical order.
-    pub fn contigs_sort(contigs: Vec<Contig>) -> Vec<Contig> {
-        let mut sorted_contigs = contigs;
-        sorted_contigs.sort_by(Contig::contigs_compare);
-        sorted_contigs
-    }
-
     pub fn contigs_compare(a: &Contig, b: &Contig) -> std::cmp::Ordering {
         let a_name = &a.name;
         let b_name = &b.name;

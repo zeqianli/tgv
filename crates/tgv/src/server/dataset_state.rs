@@ -238,7 +238,7 @@ impl DatasetState {
                         &self.state.alignments[index],
                         contig_index,
                         &region,
-                    ));
+                    )?);
                 }
                 RepositoryFileIndex::Variant(index) => {
                     let track_summary = TrackSummary::from_variants(
@@ -263,11 +263,11 @@ impl DatasetState {
         let summary = InspectSummary {
             tracks: track_summaries,
             genes: GeneSummary::from_genes(
-                &self.state.track.features,
+                &self.state.track,
                 self.repository.track_service.is_some(),
                 contig_index,
                 &region,
-            ),
+            )?,
         };
         super::as_json(&InspectResponse {
             region,
@@ -282,7 +282,7 @@ impl DatasetState {
         selected: &[TrackId],
         layout: &ResolvedMainLayout,
         alignment_view: &AlignmentView,
-    ) -> Vec<DrawWarning> {
+    ) -> Result<Vec<DrawWarning>, TGVError> {
         let mut warnings: Vec<_> = self
             .availability_warnings()
             .into_iter()
@@ -303,9 +303,12 @@ impl DatasetState {
             let hidden = area.is_none_or(|area| area.height == 0);
             let clipped = match index {
                 RepositoryFileIndex::Alignment(i) => {
-                    area.is_some_and(|area| {
-                        self.state.alignments[i].depth() > usize::from(area.height)
-                    }) || alignment_view.zoom > AlignmentView::MAX_ZOOM_TO_DISPLAY_ALIGNMENTS
+                    let depth = match &self.state.paired_alignments[i] {
+                        Some(paired) => paired.depth()?,
+                        None => self.state.alignments[i].depth()?,
+                    };
+                    area.is_some_and(|area| depth > usize::from(area.height))
+                        || alignment_view.zoom > AlignmentView::MAX_ZOOM_TO_DISPLAY_ALIGNMENTS
                 }
                 _ => false,
             };
@@ -322,7 +325,7 @@ impl DatasetState {
                     .to_owned(),
             });
         }
-        warnings
+        Ok(warnings)
     }
 
     /// Renders the requested viewport through the existing TUI renderer.
@@ -396,7 +399,7 @@ impl DatasetState {
             &displayed,
             request.format,
             &buffer,
-            self.draw_warnings(&selected, &resolved_layout, &alignment_view),
+            self.draw_warnings(&selected, &resolved_layout, &alignment_view)?,
         ))
     }
 }

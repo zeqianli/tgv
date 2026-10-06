@@ -10,19 +10,20 @@ use ratatui::{
 use ratatui::symbols::bar::{NINE_LEVELS, Set};
 
 use gv_core::{
-    alignment::{Alignment, BaseCoverage},
+    alignment::{CoverageSchema, CoverageTable},
     prelude::*,
 };
 
 use crate::{layout::AlignmentView, rendering::Palette};
 const MIN_AREA_WIDTH: u16 = 2;
 const MIN_AREA_HEIGHT: u16 = 1;
+const MAX_DISPLAY_ALLELE_FREQUENCY_RECIPROCOL: u64 = 100;
 
 /// Render the coverage barplot.
 pub fn render_coverage(
     area: &Rect,
     buf: &mut Buffer,
-    alignment: &Alignment,
+    coverage: &CoverageTable,
     alignment_view: &AlignmentView,
     palette: &Palette,
 ) -> Result<(), TGVError> {
@@ -41,7 +42,7 @@ pub fn render_coverage(
     };
 
     let mut binned_coverage =
-        calculate_binned_coverage(alignment, left, right, plot_area.width as usize)?;
+        calculate_binned_coverage(coverage, left, right, plot_area.width as usize)?;
 
     let y_max: usize = round_up_max_coverage(
         (0..binned_coverage[0].len())
@@ -129,51 +130,51 @@ fn get_linear_space(left: u64, right: u64, n_bins: usize) -> Result<Vec<(u64, u6
 /// Calculate the binned coverage in [left_bound, right_bound].
 /// 1-based, inclusive.
 fn calculate_binned_coverage(
-    alignment: &Alignment,
+    coverage: &CoverageTable,
     left: u64,
     right: u64,
     n_bins: usize,
 ) -> Result<Vec<Vec<usize>>, TGVError> {
-    if right < left {
-        return Err(TGVError::ValueError("Right is less than left".to_string()));
-    }
-
-    if n_bins == 0 {
-        return Err(TGVError::ValueError("n_bins is 0".to_string()));
-    }
-
-    if right - left + 1 == n_bins as u64 {
-        // 1x zoom. Not need to calulate binned coverage.
-
-        // Stack 0: alt allele if above a threshold
-        // Stack 1: non-alt alleles
-        let mut output = vec![vec![0; n_bins]; 2];
-        (left..right + 1).enumerate().for_each(|(i, x)| {
-            let coverage = alignment.coverage_at(x);
-            let max_alt_depth = coverage.max_alt_depth().unwrap_or(0);
-
-            if max_alt_depth * BaseCoverage::MAX_DISPLAY_ALLELE_FREQUENCY_RECIPROCOL
-                > coverage.total
-            {
-                output[0][i] = max_alt_depth;
-                output[1][i] = coverage.total - max_alt_depth;
-            } else {
-                output[0][i] = 0;
-                output[1][i] = coverage.total;
-            }
-        });
-        return Ok(output);
-    }
-
     let linear_space = get_linear_space(left, right, n_bins)?;
-
-    let mut output = vec![vec![0; linear_space.len()]; 2];
-    linear_space
-        .into_iter()
-        .enumerate()
-        .for_each(|(i, (bin_left, bin_right))| {
-            (bin_left..bin_right + 1).for_each(|x| output[1][i] += alignment.coverage_at(x).total);
-        });
+    let table = coverage.query(left, right)?;
+    let positions = table.column(CoverageSchema::POS)?.u64()?;
+    let totals = table.column(CoverageSchema::TOTAL)?.u64()?;
+    let a = table.column(CoverageSchema::A)?.u64()?;
+    let t = table.column(CoverageSchema::T)?.u64()?;
+    let c = table.column(CoverageSchema::C)?.u64()?;
+    let reference_bases = table.column(CoverageSchema::REFERENCE_BASE)?.u8()?;
+    let mut output = vec![vec![0; n_bins]; 2];
+    let single_base_bins = right - left + 1 == n_bins as u64;
+    let mut bin = 0;
+    for (row, position) in positions.into_no_null_iter().enumerate() {
+        while position > linear_space[bin].1 {
+            bin += 1;
+        }
+        let total = totals.get(row).expect("coverage totals are non-null");
+        let alt = if single_base_bins && total > 0 {
+            let reference = reference_bases
+                .get(row)
+                .expect("reference bases are non-null");
+            let a = a.get(row).expect("coverage counts are non-null");
+            let t = t.get(row).expect("coverage counts are non-null");
+            let c = c.get(row).expect("coverage counts are non-null");
+            let depth = match reference {
+                b'A' | b'a' | b'G' | b'g' => c.max(t),
+                b'T' | b't' => a.max(c),
+                b'C' | b'c' => a.max(t),
+                _ => 0,
+            };
+            if depth * MAX_DISPLAY_ALLELE_FREQUENCY_RECIPROCOL > total {
+                depth
+            } else {
+                0
+            }
+        } else {
+            0
+        };
+        output[0][bin] += alt as usize;
+        output[1][bin] += (total - alt) as usize;
+    }
 
     Ok(output)
 }

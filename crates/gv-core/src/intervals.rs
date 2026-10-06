@@ -1,6 +1,8 @@
+use crate::table_schema::TableSchema;
 use crate::{contig_header::ContigHeader, error::TGVError};
 use noodles;
-use std::collections::HashMap;
+use polars::prelude::{DataFrame, DataType, Schema, SchemaRef};
+use std::sync::Arc;
 
 pub trait GenomeInterval {
     fn contig_index(&self) -> usize;
@@ -9,105 +11,34 @@ pub trait GenomeInterval {
     fn length(&self) -> u64 {
         self.end() - self.start() + 1
     }
+}
 
-    fn covers(&self, position: u64) -> bool {
-        self.start() <= position && self.end() >= position
-    }
+/// The common columns shared by genomic interval tables.
+pub struct IntervalSchema;
 
-    fn middle(&self) -> u64 {
-        (self.start() + self.end()) / 2
-    }
+impl IntervalSchema {
+    pub const ROW_ID: &'static str = "row_id";
+    pub const CONTIG_INDEX: &'static str = "contig_index";
+    pub const START: &'static str = "start";
+    pub const END: &'static str = "end";
+}
 
-    fn overlaps(&self, contig_index: usize, start: u64, end: u64) -> bool {
-        self.contig_index() == contig_index && self.start() <= end && self.end() >= start
-    }
-
-    fn contains(&self, other: &impl GenomeInterval) -> bool {
-        self.contig_index() == other.contig_index()
-            && self.start() <= other.start()
-            && self.end() >= other.end()
-    }
-
-    // The region ends at the end of the genome. Inclusive.
-    fn is_properly_bounded(&self, end: Option<u64>) -> bool {
-        match end {
-            Some(e) => self.start() <= self.end() && self.end() <= e,
-            None => self.start() <= self.end(),
-        }
+impl TableSchema for IntervalSchema {
+    fn schema() -> SchemaRef {
+        let mut schema = Schema::with_capacity(4);
+        schema.insert(Self::ROW_ID.into(), DataType::UInt64);
+        schema.insert(Self::CONTIG_INDEX.into(), DataType::UInt64);
+        schema.insert(Self::START.into(), DataType::UInt64);
+        schema.insert(Self::END.into(), DataType::UInt64);
+        Arc::new(schema)
     }
 }
 
-#[derive(Debug, Clone)]
-pub struct SortedIntervalCollection<T: GenomeInterval> {
-    /// Assumption: sorted by (contig, start, end)
-    pub intervals: Vec<T>,
-
-    /// {contig_name: [variant_indexes,... ]}
-    contig_lookup: HashMap<usize, Vec<usize>>,
-}
-
-impl<T> Default for SortedIntervalCollection<T>
-where
-    T: GenomeInterval,
-{
-    fn default() -> Self {
-        Self {
-            intervals: Vec::new(),
-            contig_lookup: HashMap::new(),
-        }
-    }
-}
-
-/// This is now O(N) for overlapping lookup. There are data structures for faster lookup, but TGV doesn't work with large interval collections.
-/// So O(N) might be ok or even faster.
-/// The interval tree data structure:
-/// - https://github.com/dcjones/coitrees
-/// - https://github.com/sstadick/rust-lapper
-/// - https://crates.io/crates/intervaltree
-/// - https://github.com/rust-bio/rust-bio/blob/master/src/data_structures/interval_tree/avl_interval_tree.rs
-impl<T> SortedIntervalCollection<T>
-where
-    T: GenomeInterval,
-{
-    pub fn new(intervals: Vec<T>) -> Result<Self, TGVError> {
-        let mut contig_lookup: HashMap<usize, Vec<usize>> = HashMap::new();
-
-        for (i, interval) in intervals.iter().enumerate() {
-            contig_lookup
-                .entry(interval.contig_index())
-                .and_modify(|indexes| indexes.push(i))
-                .or_insert(vec![i]);
-        }
-
-        Ok(SortedIntervalCollection {
-            intervals,
-            contig_lookup,
-        })
-    }
-
-    /// Get intervals overlapping a region.
-    pub fn overlapping(
-        &self,
-        contig_index: usize,
-        start: u64,
-        end: u64,
-    ) -> Result<Vec<&T>, TGVError> {
-        let indexes = match self.contig_lookup.get(&contig_index) {
-            Some(indexes) => indexes,
-            None => return Ok(Vec::new()),
-        };
-
-        Ok(indexes
-            .iter()
-            .filter_map(|i| {
-                if self.intervals[*i].overlaps(contig_index, start, end) {
-                    Some(&self.intervals[*i])
-                } else {
-                    None
-                }
-            })
-            .collect::<Vec<&T>>())
-    }
+/// A columnar collection of one-based, inclusive genomic intervals.
+pub trait IntervalTable {
+    /// Select overlapping rows in deterministic genomic order.
+    /// Unknown contigs and reversed bounds yield an empty frame; a zero start is invalid.
+    fn query(&self, contig_index: usize, start: u64, end: u64) -> Result<DataFrame, TGVError>;
 }
 
 /// A genomic region.
@@ -134,11 +65,6 @@ impl GenomeInterval for Region {
         self.focus.contig_index
     }
 
-    // override
-    fn middle(&self) -> u64 {
-        self.focus.position
-    }
-
     /// Width of a genome region.
     // override
     fn length(&self) -> u64 {
@@ -147,13 +73,6 @@ impl GenomeInterval for Region {
 }
 
 impl Region {
-    pub fn move_to(self, position: u64) -> Self {
-        Self {
-            focus: self.focus.move_to(position),
-            half_width: self.half_width,
-        }
-    }
-
     pub fn alignment(
         &self,
         header: &ContigHeader,

@@ -20,7 +20,7 @@ fn online_case_args(bam_path: Option<&str>, args: &str) -> String {
 #[case(None, "--online")]
 #[case(Some("ncbi.sorted.bam"), "-r 22:33121120 -g hg19 --online")]
 #[case(None, "-g GCF_028858775.2 -r NC_072398.2:76951800 --online")]
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 #[ignore = "requires network and third-party services"]
 async fn online_initialization_succeeds(#[case] bam_path: Option<&str>, #[case] args: &str) {
     let args = online_case_args(bam_path, args);
@@ -32,7 +32,7 @@ async fn online_initialization_succeeds(#[case] bam_path: Option<&str>, #[case] 
 #[rstest]
 #[case("wuhCor1")]
 #[case("ecoli")]
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 #[ignore = "requires network and third-party services"]
 async fn online_download_integration_test(#[case] reference_str: &str) {
     let reference = reference_str.parse::<Reference>().unwrap();

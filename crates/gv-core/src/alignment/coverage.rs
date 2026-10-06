@@ -1,211 +1,180 @@
-use crate::error::TGVError;
-use crate::sequence::Sequence;
-use noodles::sam::{
-    self,
-    alignment::{record::cigar::op::Kind, record_buf::Cigar},
-};
-use std::collections::HashMap;
-use std::default::Default;
+//! Independent columnar coverage storage, construction, and queries.
 
-/// See: https://samtools.github.io/hts-specs/SAMv1.pdf
-pub fn calculate_basewise_coverage(
-    reference_start: u64, // 1-based. Alignment start, not softclip start
-    cigar: &Cigar,
-    sequence: &sam::alignment::record_buf::Sequence,
-    reference_sequence: &Sequence,
-) -> Result<HashMap<u64, BaseCoverage>, TGVError> {
-    let mut output: HashMap<u64, BaseCoverage> = HashMap::new();
-    if cigar.as_ref().is_empty() || sequence.is_empty() {
-        return Ok(output);
-    }
+use super::tables::CigarSchema;
+use crate::{error::TGVError, sequence::Sequence, table_schema::TableSchema};
+use polars::prelude::*;
+use itertools::izip;
+use std::sync::Arc;
 
-    let mut reference_pivot: usize = reference_start as usize;
-    let mut query_pivot: usize = 1; // 1-based. # bases on the sequence. Note that need to substract leading softclips to get aligned base coordinate.
-
-    // FIXME:
-    // Mismatches are re-calculated by comparing with the reference genome, but BAM has MM/ML tags for this.
-    for (i_op, op) in cigar.as_ref().iter().enumerate() {
-        let kind = op.kind();
-        let len = op.len();
-        let next_reference_pivot = if kind.consumes_reference() {
-            reference_pivot + op.len()
-        } else {
-            reference_pivot
-        };
-
-        let next_query_pivot = if kind.consumes_read() {
-            query_pivot + op.len()
-        } else {
-            query_pivot
-        };
-
-        match kind {
-            Kind::SoftClip => {
-                // S
-                if i_op == 0 {
-                    // leading softclips. base rendered at the left of reference pivot.
-                    for i_soft_clip_base in 0..len {
-                        if reference_pivot + i_soft_clip_base <= len + 1 {
-                            //base_coordinate <= 1 (on the edge of screen)
-                            // Prevent cases when a soft clip is at the very starting of the reference genome:
-                            //    ----------- (ref)
-                            //  ssss======>   (read)
-                            //    ^           edge of screen
-                            //  ^^            these softcliped bases are not displayed
-                            continue;
-                        }
-
-                        let base_coordinate: usize = reference_pivot - len + i_soft_clip_base;
-                        let base = sequence.get(i_soft_clip_base).unwrap();
-
-                        output
-                            .entry(base_coordinate as u64)
-                            .or_insert(BaseCoverage::new(
-                                // FIXME: This can cause problems when sequence cache didn't catch up with alignment.
-                                reference_sequence
-                                    .base_at(base_coordinate as u64)
-                                    .unwrap_or(b'N'),
-                            ))
-                            .update_softclip(base)
-                    }
-                } else {
-                    // right softclips. base rendered at the right of reference pivot.
-                    for i_soft_clip_base in 0..len {
-                        let base_coordinate: usize = reference_pivot + i_soft_clip_base;
-                        let base = sequence.get(query_pivot + i_soft_clip_base - 1).unwrap();
-                        output
-                            .entry(base_coordinate as u64)
-                            .or_insert(BaseCoverage::new(
-                                // FIXME: This can cause problems when sequence cache didn't catch up with alignment.
-                                reference_sequence
-                                    .base_at(base_coordinate as u64)
-                                    .unwrap_or(b'N'),
-                            ))
-                            .update_softclip(base);
-                    }
-                }
-            }
-
-            Kind::Insertion => {}
-
-            Kind::Deletion | Kind::Skip => {}
-
-            Kind::SequenceMismatch | Kind::SequenceMatch | Kind::Match => {
-                for i in 0..len {
-                    let base_coordinate = reference_pivot + i;
-                    output
-                        .entry(base_coordinate as u64)
-                        .or_insert(BaseCoverage::new(
-                            // FIXME: This can cause problems when sequence cache didn't catch up with alignment.
-                            reference_sequence
-                                .base_at(base_coordinate as u64)
-                                .unwrap_or(b'N'),
-                        ))
-                        .update(sequence.get(query_pivot + i - 1).unwrap())
-                }
-            }
-            Kind::HardClip | Kind::Pad => {}
-        }
-
-        query_pivot = next_query_pivot;
-        reference_pivot = next_reference_pivot;
-    }
-
-    Ok(output)
+/// Sparse coverage by one-based position, independent of the alignment tables.
+#[derive(Debug)]
+pub struct CoverageTable {
+    /// Rows are sorted by position, and every column is non-null.
+    pub data: DataFrame,
 }
 
-#[derive(Clone, Debug)]
-#[allow(non_snake_case)]
-pub struct BaseCoverage {
-    pub A: usize,
-    pub T: usize,
-    pub C: usize,
-    pub G: usize,
-
-    pub N: usize,
-
-    // total coverage, exluding softclips
-    pub total: usize,
-
-    // Softclip count
-    pub softclip: usize,
-
-    // reference_base
-    pub reference_base: u8,
-}
-
-impl BaseCoverage {
-    pub const MAX_DISPLAY_ALLELE_FREQUENCY_RECIPROCOL: usize = 100;
-    pub fn new(reference_base: u8) -> Self {
-        Self {
-            A: 0,
-            T: 0,
-            C: 0,
-            G: 0,
-            N: 0,
-            total: 0,
-            softclip: 0,
-            reference_base,
-        }
-    }
-
-    pub fn update(&mut self, base: u8) {
-        match base {
-            b'A' | b'a' => self.A += 1,
-            b'T' | b't' => self.T += 1,
-            b'C' | b'c' => self.C += 1,
-            b'G' | b'g' => self.G += 1,
-
-            _ => self.N += 1,
-        }
-
-        self.total += 1;
-    }
-
-    pub fn update_softclip(&mut self, _base: u8) {
-        self.softclip += 1
-    }
-
-    pub fn add(&mut self, other: &BaseCoverage) {
-        self.A += other.A;
-        self.T += other.T;
-        self.C += other.C;
-        self.G += other.G;
-        self.total += other.total;
-        self.softclip += other.softclip;
-    }
-
-    pub fn max_alt_depth(&self) -> Option<usize> {
-        match self.reference_base {
-            b'A' | b'a' => Some(usize::max(self.C, self.T)),
-            b'T' | b't' => Some(usize::max(self.A, self.C)),
-            b'C' | b'c' => Some(usize::max(self.A, self.T)),
-            b'G' | b'g' => Some(usize::max(self.C, self.T)),
-            _ => None,
-        }
-    }
-
-    pub fn describe(&self) -> String {
-        format!(
-            "A:{}, T:{}, C:{}, G:{}, N:{}, total:{}",
-            self.A, self.T, self.C, self.G, self.N, self.total
-        )
-    }
-}
-
-impl Default for BaseCoverage {
+impl Default for CoverageTable {
     fn default() -> Self {
-        DEFAULT_COVERAGE.clone()
+        Self {
+            data: CoverageSchema::empty(),
+        }
     }
 }
 
-pub static DEFAULT_COVERAGE: BaseCoverage = BaseCoverage {
-    A: 0,
-    T: 0,
-    C: 0,
-    G: 0,
-    N: 0,
-    total: 0,
-    softclip: 0,
-    reference_base: b'N',
-};
+impl CoverageTable {
+    /// Construct coverage from a lazy query of visible CIGAR runs.
+    pub fn from_runs(
+        runs: LazyFrame,
+        contig_index: usize,
+        reference_sequence: &Sequence,
+    ) -> Result<Self, TGVError> {
+        // TODO: used only once. Consolidate.
+        let kind = col(CigarSchema::KIND);
+        let runs = runs
+            .filter(
+                kind.clone()
+                    .eq(lit(CigarSchema::MATCH))
+                    .or(kind.clone().eq(lit(CigarSchema::SEQUENCE_MATCH)))
+                    .or(kind.clone().eq(lit(CigarSchema::SEQUENCE_MISMATCH)))
+                    .or(kind.eq(lit(CigarSchema::SOFT_CLIP)))
+                    .and(col(CigarSchema::DISPLAY_START).is_not_null())
+                    .and(col(CigarSchema::DISPLAY_END).is_not_null()),
+            )
+            .collect()?;
+        let kinds = runs.column(CigarSchema::KIND)?.u8()?;
+        let starts = runs.column(CigarSchema::DISPLAY_START)?.u64()?;
+        let ends = runs.column(CigarSchema::DISPLAY_END)?.u64()?;
+        let offsets = runs.column(CigarSchema::RUN_OFFSET)?.u32()?;
+        let sequences = runs.column(CigarSchema::SEQ)?.str()?;
+        // Count into a dense array over the span of the runs. A map lookup per aligned base
+        // dominates alignment loads at high depth.
+        let first = starts.min().unwrap_or(1);
+        let span = ends.max().map_or(0, |last| (last + 1 - first) as usize);
+        let mut coverage: Vec<[u64; 7]> = vec![[0; 7]; span];
+        for (kind, start, end, offset, sequence) in izip!(
+            kinds.into_no_null_iter(),
+            starts.into_no_null_iter(),
+            ends.into_no_null_iter(),
+            offsets.into_no_null_iter(),
+            sequences.iter(),
+        ) {
+            let Some(sequence) = sequence else {
+                continue;
+            };
+            let counts = &mut coverage[(start - first) as usize..=(end - first) as usize];
+            if kind == CigarSchema::SOFT_CLIP {
+                counts.iter_mut().for_each(|counts| counts[6] += 1);
+            } else {
+                let bases = &sequence.as_bytes()[offset as usize..][..counts.len()];
+                for (counts, base) in counts.iter_mut().zip(bases) {
+                    let index = match base {
+                        b'A' | b'a' => 0,
+                        b'T' | b't' => 1,
+                        b'C' | b'c' => 2,
+                        b'G' | b'g' => 3,
+                        _ => 4,
+                    };
+                    counts[index] += 1;
+                    counts[5] += 1;
+                }
+            }
+        }
+        // The table stays sparse, so positions without read or soft-clip coverage get no row.
+        let covered = coverage
+            .iter()
+            .filter(|counts| counts[5] > 0 || counts[6] > 0)
+            .count();
+        let mut positions = Vec::with_capacity(covered);
+        let mut a = Vec::with_capacity(covered);
+        let mut t = Vec::with_capacity(covered);
+        let mut c = Vec::with_capacity(covered);
+        let mut g = Vec::with_capacity(covered);
+        let mut n = Vec::with_capacity(covered);
+        let mut total = Vec::with_capacity(covered);
+        let mut softclip = Vec::with_capacity(covered);
+        let mut reference_base = Vec::with_capacity(covered);
+        for (index, coverage) in coverage.into_iter().enumerate() {
+            if coverage[5] == 0 && coverage[6] == 0 {
+                continue;
+            }
+            let position = first + index as u64;
+            positions.push(position);
+            a.push(coverage[0]);
+            t.push(coverage[1]);
+            c.push(coverage[2]);
+            g.push(coverage[3]);
+            n.push(coverage[4]);
+            total.push(coverage[5]);
+            softclip.push(coverage[6]);
+            reference_base.push(if reference_sequence.contig_index == contig_index {
+                reference_sequence.base_at(position).unwrap_or(b'N')
+            } else {
+                b'N'
+            });
+        }
+        let data = DataFrame::new(
+            positions.len(),
+            vec![
+                Column::new(CoverageSchema::POS.into(), positions),
+                Column::new(CoverageSchema::A.into(), a),
+                Column::new(CoverageSchema::T.into(), t),
+                Column::new(CoverageSchema::C.into(), c),
+                Column::new(CoverageSchema::G.into(), g),
+                Column::new(CoverageSchema::N.into(), n),
+                Column::new(CoverageSchema::TOTAL.into(), total),
+                Column::new(CoverageSchema::SOFTCLIP.into(), softclip),
+                Column::new(CoverageSchema::REFERENCE_BASE.into(), reference_base),
+            ],
+        )?;
+
+        Ok(Self { data })
+    }
+
+    /// Select sparse rows within a one-based, inclusive interval.
+    pub fn query(&self, start: u64, end: u64) -> Result<DataFrame, TGVError> {
+        Ok(self
+            .data
+            .clone()
+            .lazy()
+            .filter(
+                col(CoverageSchema::POS)
+                    .gt_eq(lit(start))
+                    .and(col(CoverageSchema::POS).lt_eq(lit(end))),
+            )
+            .collect()?)
+    }
+}
+
+/// Sparse per-position counts, positions, and reference bases.
+///
+/// `pos` is one-based. Rows are sorted by position and contain no null values.
+/// Positions without read or soft-clip coverage have no row.
+pub struct CoverageSchema;
+
+impl CoverageSchema {
+    pub const POS: &'static str = "pos";
+    pub const A: &'static str = "A";
+    pub const T: &'static str = "T";
+    pub const C: &'static str = "C";
+    pub const G: &'static str = "G";
+    pub const N: &'static str = "N";
+    pub const TOTAL: &'static str = "total";
+    pub const SOFTCLIP: &'static str = "softclip";
+    pub const REFERENCE_BASE: &'static str = "reference_base";
+}
+
+impl TableSchema for CoverageSchema {
+    fn schema() -> SchemaRef {
+        let mut schema = Schema::with_capacity(9);
+        schema.insert(Self::POS.into(), DataType::UInt64);
+        schema.insert(Self::A.into(), DataType::UInt64);
+        schema.insert(Self::T.into(), DataType::UInt64);
+        schema.insert(Self::C.into(), DataType::UInt64);
+        schema.insert(Self::G.into(), DataType::UInt64);
+        schema.insert(Self::N.into(), DataType::UInt64);
+        schema.insert(Self::TOTAL.into(), DataType::UInt64);
+        schema.insert(Self::SOFTCLIP.into(), DataType::UInt64);
+        schema.insert(Self::REFERENCE_BASE.into(), DataType::UInt8);
+        Arc::new(schema)
+    }
+}

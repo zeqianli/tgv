@@ -146,12 +146,13 @@ pub fn render_main(
                 if alignment_view.zoom <= AlignmentView::MAX_ZOOM_TO_DISPLAY_ALIGNMENTS
                     && let Some(alignment) = state.alignments.get(index)
                 {
-                    render_coverage(rect, buf, alignment, alignment_view, pallete)?;
+                    render_coverage(rect, buf, &alignment.coverage, alignment_view, pallete)?;
                 }
             }
             AreaType::Alignment(id) => {
                 let index = layout.track_registry.alignment_index(*id)?;
                 if alignment_view.zoom <= AlignmentView::MAX_ZOOM_TO_DISPLAY_ALIGNMENTS {
+                    let top = alignment_view.top(index);
                     if state.alignment_options[index].contains(&AlignmentDisplayOption::ViewAsPairs)
                     {
                         let paired_alignment =
@@ -165,23 +166,21 @@ pub fn render_main(
                                 ))?;
 
                         render_paired_alignment(
-                            index,
+                            top,
                             rect,
                             buf,
-                            &mut state.alignments[index],
+                            &state.alignments[index],
                             alignment_view,
                             paired_alignment,
-                            &state.sequence,
                             pallete,
                         )?;
                     } else {
                         render_alignment(
-                            index,
+                            top,
                             rect,
                             buf,
-                            &mut state.alignments[index],
+                            &state.alignments[index],
                             alignment_view,
-                            &state.sequence,
                             pallete,
                         )?;
                     }

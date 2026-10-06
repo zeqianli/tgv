@@ -12,18 +12,16 @@ async-compat.workspace = true
 async-compression.workspace = true
 async-trait.workspace = true
 bigtools.workspace = true
-bytes.workspace = true
 chrono.workspace = true
 clap.workspace = true
-csv.workspace = true
 futures.workspace = true
 itertools.workspace = true
 log.workspace = true
 miette.workspace = true
-native-tls.workspace = true
 nom.workspace = true
 noodles.workspace = true
 opendal.workspace = true
+polars = { workspace = true }
 reqwest.workspace = true
 serde.workspace = true
 serde_json.workspace = true
@@ -35,10 +33,8 @@ tempfile.workspace = true
 tokio.workspace = true
 tokio-util.workspace = true
 twobit.workspace = true
-url.workspace = true
 
 [dev-dependencies]
-cargo-insta = "1.42"
 insta = "1.42"
 rstest = "0.25.0"
 shlex = "1.3.0"

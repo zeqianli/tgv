@@ -17,7 +17,11 @@ use crate::{
     track_registry::TrackRegistry,
 };
 use gv_core::prelude::*;
-use std::{path::PathBuf, sync::Arc, time::Instant};
+use std::{
+    path::PathBuf,
+    sync::Arc,
+    time::{Duration, Instant},
+};
 
 #[derive(Debug, Clone, Eq, PartialEq)]
 pub enum Scene {
@@ -161,50 +165,75 @@ impl App {
                 break;
             }
 
-            // handle events and decide what the renderer should do in the next loop
-            render_events = match event::read() {
-                Ok(Event::Key(key_event)) if key_event.kind == KeyEventKind::Press => {
-                    let state_messages = self.registers.handle_key_event(key_event, &self.state)?;
-                    self.handle(state_messages).await // TODO: this should not error out?
-                }
-
-                Ok(Event::Mouse(mouse_event)) if self.scene == Scene::Main => {
-                    let state_messages = self.mouse_register.handle_mouse_event(
-                        &self.state,
-                        &self.resolved_layout,
-                        &self.alignment_view,
-                        mouse_event,
-                    )?;
-
-                    self.handle(state_messages).await // TODO: this should not error out?
-                }
-
-                Ok(Event::Resize(width, height)) => {
-                    log::debug!("Terminal resized to {width}x{height}");
-                    self.resolved_layout = self
-                        .layout
-                        .resolve(Rect::new(0, 0, width, height), &self.repository);
-                    self.alignment_view.self_correct(
-                        &self.resolved_layout.main_area,
-                        self.state.contig_length(&self.alignment_view.focus)?,
-                    );
-                    self.load_data().await?;
-                    Ok(vec![RenderEvent::All])
-                }
-
-                _ => Ok(Vec::new()),
+            // Block for one event, then drain everything already queued. Bursts of key repeats,
+            // wheel scrolls, and mouse motion then produce one frame instead of one per event.
+            let mut events = vec![event::read()];
+            while matches!(event::poll(Duration::ZERO), Ok(true)) {
+                events.push(event::read());
             }
-            .unwrap_or_else(|e| {
-                log::warn!("Error while handling event: {e}");
-                self.state.add_message(format!("{e}"));
-                let events = vec![RenderEvent::Area(AreaType::Error)];
-                events
-            });
 
-            self.alignment_view.self_correct(
-                &self.resolved_layout.main_area,
-                self.state.contig_length(&self.alignment_view.focus)?,
-            );
+            for (index, event) in events.iter().enumerate() {
+                // Only the last of consecutive motion events determines the hover feedback.
+                // Drags are kept because each one moves the view relative to the previous.
+                if matches!(event, Ok(Event::Mouse(event)) if event.kind == event::MouseEventKind::Moved)
+                    && events.get(index + 1).is_some_and(|next| {
+                        matches!(next, Ok(Event::Mouse(next)) if next.kind == event::MouseEventKind::Moved)
+                    })
+                {
+                    continue;
+                }
+
+                let events = match event {
+                    Ok(Event::Key(key_event)) if key_event.kind == KeyEventKind::Press => {
+                        self.mouse_register.last_hover = None;
+                        let state_messages =
+                            self.registers.handle_key_event(*key_event, &self.state)?;
+                        self.handle(state_messages).await // TODO: this should not error out?
+                    }
+
+                    Ok(Event::Mouse(mouse_event)) if self.scene == Scene::Main => {
+                        let state_messages = self.mouse_register.handle_mouse_event(
+                            &self.state,
+                            &self.resolved_layout,
+                            &self.alignment_view,
+                            *mouse_event,
+                        )?;
+
+                        self.handle(state_messages).await // TODO: this should not error out?
+                    }
+
+                    Ok(Event::Resize(width, height)) => {
+                        log::debug!("Terminal resized to {width}x{height}");
+                        self.mouse_register.last_hover = None;
+                        self.resolved_layout = self
+                            .layout
+                            .resolve(Rect::new(0, 0, *width, *height), &self.repository);
+                        self.alignment_view.self_correct(
+                            &self.resolved_layout.main_area,
+                            self.state.contig_length(&self.alignment_view.focus)?,
+                        );
+                        self.load_data().await?;
+                        Ok(vec![RenderEvent::All])
+                    }
+
+                    _ => Ok(Vec::new()),
+                }
+                .unwrap_or_else(|e| {
+                    log::warn!("Error while handling event: {e}");
+                    self.state.add_message(format!("{e}"));
+                    vec![RenderEvent::Area(AreaType::Error)]
+                });
+                for event in events {
+                    if !render_events.contains(&event) {
+                        render_events.push(event);
+                    }
+                }
+
+                self.alignment_view.self_correct(
+                    &self.resolved_layout.main_area,
+                    self.state.contig_length(&self.alignment_view.focus)?,
+                );
+            }
         }
         log::info!("The app event loop exited");
         Ok(())
@@ -322,8 +351,14 @@ impl App {
                         scroll,
                         previous_y
                     );
-                    self.alignment_view
-                        .scroll(scroll.clone(), &self.state.alignments);
+                    if !self.state.alignments.is_empty() {
+                        let index = scroll.index();
+                        let depth = match &self.state.paired_alignments[index] {
+                            Some(paired) => paired.depth()?,
+                            None => self.state.alignments[index].depth()?,
+                        };
+                        self.alignment_view.scroll(scroll.clone(), depth);
+                    }
                     log::debug!(
                         "Scroll applied: scroll={:?} y_before={:?} y_after={:?}",
                         scroll,
