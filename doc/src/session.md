@@ -1,17 +1,16 @@
 # Session files
 
 A session file captures the current state of a tgv session so it can be restored later.
-The default session is created at `~/.tgv/sessions/default.toml` on first launch,
-saved on clean exit, and loaded on the next launch when no explicit session path is given.
+Sessions are opt-in: tgv reads a session only when you pass `--resume`, and writes one
+only when you save it with `:w`. Nothing is saved automatically on exit.
 
 Sessions are plain TOML files and can be edited by hand.
 
 ## File location
 
-| Purpose | Default path |
-|---|---|
-| Default session (auto-saved/loaded) | `~/.tgv/sessions/default.toml` |
-| Named session | `~/.tgv/sessions/<name>.toml` |
+Named sessions are stored at `~/.tgv/sessions/<name>.toml`. Wherever tgv accepts a
+session name, it also accepts a path. An argument is treated as a path when it starts
+with `~`, contains `/`, or ends with `.toml`.
 
 ## Example
 
@@ -90,16 +89,17 @@ The `locus` field accepts the same formats as the `-r` / `--region` flag:
 | `gene` | `TP53` | Jump to the gene's start. Requires a reference genome. |
 
 
-## Relationship to the TGV session
+## Starting and saving sessions
 
-When tgv starts, the app session is built by the following priority:
+- `tgv ...` starts without any session data.
+- `tgv ... --resume <name>` loads `~/.tgv/sessions/<name>.toml`, and `tgv ... --resume <path.toml>`
+  loads the file at that path. tgv exits with an error if the session cannot be loaded.
+- CLI arguments passed with `--resume` override the matching fields from the session.
 
-1. If no explicit session is provided and `~/.tgv/sessions/default.toml` is not found, create a default session file.
-2. Load the selected session file, or the default session when no explicit session is provided.
-3. CLI arguments override fields from the loaded session.
-4. Sessions can be saved in the app:
+In the app:
 
-- `:w` saves to the active session path.
-- `:w [session_name]` saves to `~/.tgv/sessions/[session_name].toml`.
-- `:w [full_session_path.toml]` saves to the full session path.
-- `:wq [...]` behaves similarly and quits the app.
+- `:w <name>` saves to `~/.tgv/sessions/<name>.toml`, and `:w <path.toml>` saves to that path.
+  The saved session becomes the active session.
+- `:w` saves to the active session: the one passed to `--resume`, or the last one saved
+  with `:w <name>`. If there is no active session, tgv shows an error.
+- `:wq [...]` saves like `:w` and then quits. If the save fails, the app stays open.

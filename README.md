@@ -23,7 +23,7 @@ tgv -g cat
 ```
 
 - `:q`: Quit
-- `:wq`: Save the current session and quit.
+- `:w _name_`: Save the session to `~/.tgv/sessions/_name_.toml`. Resume it with `tgv --resume _name_`.
 - `h/j/k/l`: Left / down / up / right
 - `W/B/w/b`: Next gene / previous gene / next exon / previous exon
 - `z/o`: Zoom in / out

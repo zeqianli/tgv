@@ -59,47 +59,27 @@ async fn main() -> Result<(), TGVError> {
         None => {}
     }
 
-    // Load the requested session when provided. Otherwise, load or create the default session,
-    // then apply CLI overrides on top.
-    let session_path = cli.session_path();
-    let mut settings = if session_path.exists() {
-        match SessionFile::from_path(&session_path).and_then(Settings::try_from) {
-            Ok(s) => {
-                log::info!("Loaded session from {}", session_path.display());
-                s
-            }
-            Err(e) => {
-                log::warn!(
-                    "Failed to load session file {}: {e}. Using defaults.",
-                    session_path.display()
-                );
-                eprintln!("Warning: failed to load session file: {e}. Using defaults.");
-                Settings::default()
-            }
+    // Only touch session files when the user explicitly resumes a session.
+    let settings = match cli.resume_path() {
+        Some(path) => {
+            let mut settings = SessionFile::from_path(&path)
+                .and_then(Settings::try_from)
+                .map_err(|e| {
+                    TGVError::CliError(format!(
+                        "Failed to resume session {}: {e}",
+                        path.display()
+                    ))
+                })?;
+            log::info!("Resumed session from {}", path.display());
+            cli.apply_overrides(&mut settings)?;
+            settings.session_path = Some(path);
+            settings
         }
-    } else if cli.session.is_none() {
-        // First run: write a default session so future launches restore state.
-        if let Err(e) = SessionFile::default().write_to_path(&session_path) {
-            log::warn!(
-                "Failed to write default session {}: {e}.",
-                session_path.display()
-            );
-            eprintln!("Warning: failed to write default session: {e}.");
-        } else {
-            log::info!("Wrote default session to {}", session_path.display());
-        }
-        Settings::default()
-    } else {
-        log::info!(
-            "Session file {} does not exist. Using defaults.",
-            session_path.display()
-        );
-        Settings::default()
+        None => Settings::try_from(cli)?,
     };
-    cli.apply_overrides(&mut settings)?;
     log::info!(
-        "Settings are ready: session={} reference={} tracks={} test_mode={}",
-        session_path.display(),
+        "Settings are ready: session={:?} reference={} tracks={} test_mode={}",
+        settings.session_path,
         settings.core.reference,
         settings.core.file_paths.len(),
         settings.test_mode,
@@ -112,7 +92,7 @@ async fn main() -> Result<(), TGVError> {
     execute!(stdout(), EnableMouseCapture)?;
 
     // Gather resources before starting the app.
-    let mut app = match App::new(settings, session_path).await {
+    let mut app = match App::new(settings).await {
         Ok(app) => app,
         Err(e) => {
             log::error!("Failed to initialize the app: {e}");
@@ -130,20 +110,6 @@ async fn main() -> Result<(), TGVError> {
     if let Err(err) = execute!(stdout(), DisableMouseCapture) {
         log::error!("Error disabling mouse capture: {err}");
         eprintln!("Error disabling mouse capture: {err}");
-    }
-
-    // Auto-save the active session on clean exit, and skip in test mode.
-    if !app.settings.test_mode && app_result.is_ok() {
-        match SessionFile::try_from(&app).and_then(|s| s.write_to_path(&app.session_path)) {
-            Ok(()) => log::info!("Saved session on exit: path={}", app.session_path.display()),
-            Err(e) => {
-                log::warn!(
-                    "Failed to save session {}: {e}.",
-                    app.session_path.display()
-                );
-                eprintln!("Warning: failed to save session: {e}.");
-            }
-        }
     }
 
     app.close().await?;

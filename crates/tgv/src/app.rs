@@ -23,6 +23,8 @@ use std::{
     time::{Duration, Instant},
 };
 
+const NO_ACTIVE_SESSION_MESSAGE: &str = "No active session. Use :w NAME or :w PATH to save.";
+
 #[derive(Debug, Clone, Eq, PartialEq)]
 pub enum Scene {
     Main,
@@ -32,7 +34,6 @@ pub enum Scene {
 
 pub struct App {
     pub exit: bool,
-    pub session_path: PathBuf,
 
     pub layout: MainLayout,
     pub resolved_layout: ResolvedMainLayout,
@@ -63,13 +64,13 @@ pub enum RenderEvent {
 }
 
 impl App {
-    pub async fn new(settings: Settings, session_path: PathBuf) -> Result<Self, TGVError> {
+    pub async fn new(settings: Settings) -> Result<Self, TGVError> {
         let app_init_started = Instant::now();
 
         // Gather resources before initializing the state.
         log::info!(
-            "Initializing the app with session {}",
-            session_path.display()
+            "Initializing the app with session {:?}",
+            settings.session_path
         );
 
         let (mut repository, contig_header, repository_file_indexes) =
@@ -111,7 +112,6 @@ impl App {
         let layout = MainLayout::new(&settings, Arc::clone(&tracks), &track_ids);
         Ok(Self {
             exit: false,
-            session_path,
             layout,
             resolved_layout: ResolvedMainLayout::default(),
             tracks,
@@ -246,7 +246,7 @@ impl App {
 
     fn save_session_to_path(&mut self, path: PathBuf) -> Result<(), TGVError> {
         SessionFile::try_from(&*self).and_then(|s| s.write_to_path(&path))?;
-        self.session_path = path;
+        self.settings.session_path = Some(path);
         Ok(())
     }
 
@@ -297,10 +297,14 @@ impl App {
 
                 Message::Core(gv_core::message::Message::SaveSession(path)) => {
                     let explicit_path = path.is_some();
-                    let path = path
+                    let Some(path) = path
                         .as_deref()
                         .map(SessionFile::resolve_path)
-                        .unwrap_or_else(|| self.session_path.clone());
+                        .or_else(|| self.settings.session_path.clone())
+                    else {
+                        self.state.add_message(NO_ACTIVE_SESSION_MESSAGE.to_string());
+                        continue;
+                    };
                     log::info!(
                         "Saving session: path={} explicit={}",
                         path.display(),
@@ -322,10 +326,14 @@ impl App {
 
                 Message::Core(gv_core::message::Message::SaveAndQuit(path)) => {
                     let explicit_path = path.is_some();
-                    let path = path
+                    let Some(path) = path
                         .as_deref()
                         .map(SessionFile::resolve_path)
-                        .unwrap_or_else(|| self.session_path.clone());
+                        .or_else(|| self.settings.session_path.clone())
+                    else {
+                        self.state.add_message(NO_ACTIVE_SESSION_MESSAGE.to_string());
+                        continue;
+                    };
                     log::info!(
                         "Saving session before quit: path={} explicit={}",
                         path.display(),

@@ -34,19 +34,6 @@ pub struct SessionFile {
     pub tracks: Vec<TrackEntry>,
 }
 
-impl Default for SessionFile {
-    fn default() -> Self {
-        SessionFile {
-            version: CURRENT_VERSION,
-            locus: "chr1:1".to_string(),
-            genome: Reference::default(),
-            ucsc_host: UcscHost::auto(),
-            zoom: 1,
-            tracks: Vec::new(),
-        }
-    }
-}
-
 /// One entry in the `[[tracks]]` array.
 #[derive(Debug, Serialize, Deserialize)]
 pub struct TrackEntry {
@@ -93,22 +80,12 @@ impl TryFrom<&AlignmentPath> for TrackEntry {
 // ─── I/O ────────────────────────────────────────────────────────────────────
 
 impl SessionFile {
-    /// Default path used when no explicit session path is given.
-    pub fn default_path() -> PathBuf {
-        PathBuf::from(shellexpand::tilde("~/.tgv/sessions/default.toml").as_ref())
-    }
-
     /// Resolve a session name or path.
     ///
-    /// - Empty string → default session path.
-    /// - Starts with `~` or `/` → treated as a full path, and `~` is expanded.
+    /// - Starts with `~`, contains `/`, or ends with `.toml` → treated as a path, and `~` is expanded.
     /// - Otherwise → `~/.tgv/sessions/<name>.toml`.
     pub fn resolve_path(name: &str) -> PathBuf {
-        if name.is_empty() {
-            return Self::default_path();
-        }
-
-        let raw = if name.starts_with('~') || name.starts_with('/') {
+        let raw = if name.starts_with('~') || name.contains('/') || name.ends_with(".toml") {
             name.to_string()
         } else {
             format!("~/.tgv/sessions/{name}.toml")
@@ -231,6 +208,7 @@ impl TryFrom<SessionFile> for Settings {
             test_mode: false,
             debug: false,
             palette: crate::rendering::DARK_THEME,
+            session_path: None,
         })
     }
 }

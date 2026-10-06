@@ -306,7 +306,7 @@ async fn offline_sequence_saves_session_and_save_and_quit() {
         .await
         .unwrap();
 
-    assert_eq!(harness.app.session_path, save_path);
+    assert_eq!(harness.app.settings.session_path, Some(save_path.clone()));
     assert!(save_path.exists());
 
     let session = SessionFile::from_path(&save_path).unwrap();
@@ -321,7 +321,7 @@ async fn offline_sequence_saves_session_and_save_and_quit() {
         .unwrap();
 
     assert!(harness.app.exit);
-    assert_eq!(harness.app.session_path, quit_path);
+    assert_eq!(harness.app.settings.session_path, Some(quit_path.clone()));
     assert!(quit_path.exists());
 
     harness.close().await.unwrap();

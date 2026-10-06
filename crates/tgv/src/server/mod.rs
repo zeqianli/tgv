@@ -94,7 +94,7 @@ impl ServerHandler for McpHandler {}
 pub async fn serve(cli: &Cli) -> Result<(), TGVError> {
     let mut settings = Settings::default();
     cli.apply_overrides(&mut settings)?;
-    if !settings.core.file_paths.is_empty() || cli.session.is_some() {
+    if !settings.core.file_paths.is_empty() || cli.resume.is_some() {
         return Err(TGVError::CliError(
             "Use the load_dataset MCP tool to load files when serving.".into(),
         ));
