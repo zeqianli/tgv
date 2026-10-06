@@ -1,5 +1,5 @@
-use crate::reference::Reference;
 use crate::tracks::UcscHost;
+use crate::{alignment::is_url, error::TGVError, reference::Reference};
 use clap::ValueEnum;
 
 #[derive(Clone, Debug, PartialEq, Eq, ValueEnum, Default)]
@@ -73,4 +73,59 @@ impl Default for Settings {
             cache_dir: shellexpand::tilde("~/.tgv").to_string(),
         }
     }
+}
+
+/// Classify input files and build the track paths.
+///
+/// Returns file paths in the same order as the input paths.
+pub fn classify_and_build_tracks(files: &[String]) -> Result<Vec<FilePath>, TGVError> {
+    for file in files {
+        let lower = file.to_lowercase();
+        if lower.ends_with(".fa")
+            || lower.ends_with(".fasta")
+            || lower.ends_with(".fa.gz")
+            || lower.ends_with(".fasta.gz")
+        {
+            return Err(TGVError::CliError(
+                "FASTA reference files must be passed with -g/--reference, not as positional input files.".to_string(),
+            ));
+        } else if lower.ends_with(".cram") {
+            return Err(TGVError::CliError(
+                "CRAM format is not yet supported as a CLI input format.".to_string(),
+            ));
+        } else if !(lower.ends_with(".bam")
+            || lower.ends_with(".vcf")
+            || lower.ends_with(".vcf.gz")
+            || lower.ends_with(".bed")
+            || lower.ends_with(".bed.gz"))
+        {
+            return Err(TGVError::CliError(format!(
+                "Unrecognized file format: {}. Supported track formats: .bam, .vcf, .vcf.gz, .bed, .bed.gz. Use -g for custom FASTA or 2bit reference genomes.",
+                file
+            )));
+        }
+    }
+
+    let mut file_paths = Vec::new();
+    for file in files {
+        let lower = file.to_lowercase();
+        if lower.ends_with(".bam") {
+            let index = format!("{file}.bai");
+            file_paths.push(FilePath::AlignmentPath(AlignmentPath::Bam {
+                path: file.clone(),
+                index,
+                source: if is_url(file.as_str()) {
+                    BamSource::S3
+                } else {
+                    BamSource::Local
+                },
+            }));
+        } else if lower.ends_with(".vcf") || lower.ends_with(".vcf.gz") {
+            file_paths.push(FilePath::VariantPath(file.clone()));
+        } else if lower.ends_with(".bed") || lower.ends_with(".bed.gz") {
+            file_paths.push(FilePath::BedPath(file.clone()));
+        }
+    }
+
+    Ok(file_paths)
 }

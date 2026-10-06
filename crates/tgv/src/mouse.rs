@@ -1,7 +1,6 @@
 use crate::{
     layout::{AlignmentView, AreaType, HoveringAreaType, ResolvedMainLayout},
     message::{Message, Movement, Scroll, UpdateLayoutMessage},
-    track_registry::TrackId,
 };
 use crossterm::event::{MouseButton, MouseEvent, MouseEventKind};
 use gv_core::prelude::*;

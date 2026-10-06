@@ -19,6 +19,7 @@ pub mod prelude {
         settings::FilePath,
         state::{CachePolicy, LoadRequest, State},
         table_schema::TableSchema,
+        track_registry::{TrackId, TrackRegistry},
     };
 }
 pub mod gene;
@@ -29,5 +30,6 @@ pub mod settings;
 pub mod state;
 pub mod strand;
 pub mod table_schema;
+pub mod track_registry;
 pub mod tracks;
 pub mod variant;

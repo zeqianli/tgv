@@ -14,7 +14,6 @@ use crate::{
     register::{KeyRegisterType, Registers},
     session::SessionFile,
     settings::Settings,
-    track_registry::TrackRegistry,
 };
 use gv_core::prelude::*;
 use std::{

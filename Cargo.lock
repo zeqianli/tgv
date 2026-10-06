@@ -1375,6 +1375,34 @@ dependencies = [
 ]
 
 [[package]]
+name = "gv-mcp"
+version = "0.3.0"
+dependencies = [
+ "gv-core",
+ "gv-session",
+ "rmcp",
+ "schemars",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.18",
+]
+
+[[package]]
+name = "gv-session"
+version = "0.3.0"
+dependencies = [
+ "gv-core",
+ "log",
+ "polars",
+ "rstest",
+ "schemars",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.18",
+ "tokio",
+]
+
+[[package]]
 name = "h2"
 version = "0.4.19"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4906,6 +4934,7 @@ dependencies = [
  "clap",
  "crossterm",
  "gv-core",
+ "gv-mcp",
  "insta",
  "itertools 0.13.0",
  "log",
@@ -4913,11 +4942,8 @@ dependencies = [
  "noodles",
  "polars",
  "ratatui",
- "rmcp",
  "rstest",
- "schemars",
  "serde",
- "serde_json",
  "shellexpand",
  "shlex",
  "strum 0.27.2",

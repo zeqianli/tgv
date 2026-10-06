@@ -1,0 +1,25 @@
+[package]
+name = "gv-session"
+version = "0.3.0"
+edition = "2024"
+description = "The dataset session and SQL tables shared by TGV front ends and agents."
+license = "MIT"
+repository = "https://github.com/zeqianli/tgv"
+homepage = "https://github.com/zeqianli/tgv"
+
+[dependencies]
+gv-core.workspace = true
+log.workspace = true
+# Queries use SQL with joins, including inequality joins for genomic overlaps, and `abs` and
+# `log` for common read statistics. `dtype-u128` lets `count(*)` run over concatenated
+# per-track tables, whose row counts Polars sums as 128-bit integers. File I/O features stay
+# disabled so SQL table functions cannot read files.
+polars = { workspace = true, features = ["sql", "semi_anti_join", "iejoin", "cross_join", "abs", "log", "dtype-u128"] }
+schemars.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+tokio.workspace = true
+
+[dev-dependencies]
+rstest = "0.25.0"

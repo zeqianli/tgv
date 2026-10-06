@@ -1,7 +1,8 @@
-//! MCP types for SQL queries over curated dataset tables, and the table catalog.
+//! SQL query request and response types, and the table catalog.
 
 use super::inspect::{InspectInterval, InspectWarning};
-use crate::server::tables::{CatalogTable, TABLES};
+use crate::error::SessionError;
+use crate::tables::{CatalogTable, TABLES};
 use gv_core::prelude::*;
 use polars::{prelude::*, sql::SQLContext};
 use schemars::JsonSchema;
@@ -11,7 +12,7 @@ use serde_json::{Number, Value};
 /// Requests a read-only SQL query, optionally over region-scoped tables.
 #[derive(Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
-pub(in crate::server) struct QueryRequest {
+pub struct QueryRequest {
     /// The region that region-scoped tables cover. Omit it to query only dataset and
     /// whole-file tables.
     pub region: Option<InspectInterval>,
@@ -26,10 +27,10 @@ impl QueryRequest {
     pub const MAX_LIMIT: usize = 10_000;
 
     /// Validates the row limit.
-    pub fn limit(&self) -> Result<usize, TGVError> {
+    pub fn limit(&self) -> Result<usize, SessionError> {
         let limit = self.limit.unwrap_or(Self::DEFAULT_LIMIT);
         if !(1..=Self::MAX_LIMIT).contains(&limit) {
-            return Err(TGVError::McpInvalidInput {
+            return Err(SessionError::InvalidInput {
                 field: "limit",
                 message: format!("The limit must be 1–{}.", Self::MAX_LIMIT),
             });
@@ -42,7 +43,7 @@ impl QueryRequest {
         &self,
         tables: Vec<(&'static str, LazyFrame)>,
         limit: usize,
-    ) -> Result<(DataFrame, bool), TGVError> {
+    ) -> Result<(DataFrame, bool), SessionError> {
         // A fresh context per query keeps `CREATE TABLE` and similar statements from persisting.
         // Rejecting them as well keeps the tool's contract read-only.
         let statement = self.sql.trim_start().to_ascii_lowercase();
@@ -50,7 +51,7 @@ impl QueryRequest {
             .iter()
             .any(|prefix| statement.starts_with(prefix))
         {
-            return Err(TGVError::McpInvalidInput {
+            return Err(SessionError::InvalidInput {
                 field: "sql",
                 message: "Use a single SELECT or WITH statement.".to_owned(),
             });
@@ -63,7 +64,7 @@ impl QueryRequest {
             } else {
                 ""
             };
-            TGVError::McpInvalidInput {
+            SessionError::InvalidInput {
                 field: "sql",
                 message: format!("{message}{hint}"),
             }
@@ -89,14 +90,14 @@ impl QueryRequest {
 
 /// Names and types one result column.
 #[derive(Serialize)]
-pub(in crate::server) struct QueryColumn {
+pub struct QueryColumn {
     pub name: String,
     pub dtype: String,
 }
 
 /// Returns query results as column metadata and row arrays.
 #[derive(Serialize)]
-pub(in crate::server) struct QueryResponse {
+pub struct QueryResponse {
     pub region: Option<InspectInterval>,
     pub columns: Vec<QueryColumn>,
     pub rows: Vec<Vec<Value>>,
@@ -167,7 +168,7 @@ fn json_value(value: AnyValue) -> Value {
 
 /// Describes every curated table, with usage notes and example queries.
 #[derive(Serialize)]
-pub(in crate::server) struct TablesResponse {
+pub struct TablesResponse {
     pub tables: Vec<CatalogTable>,
     pub notes: &'static [&'static str],
     pub examples: &'static [QueryExample],
@@ -175,7 +176,7 @@ pub(in crate::server) struct TablesResponse {
 
 /// Shows one example query.
 #[derive(Serialize)]
-pub(in crate::server) struct QueryExample {
+pub struct QueryExample {
     pub description: &'static str,
     pub sql: &'static str,
 }
@@ -214,7 +215,7 @@ impl TablesResponse {
         },
     ];
 
-    pub fn new() -> Result<Self, TGVError> {
+    pub fn new() -> Result<Self, SessionError> {
         Ok(Self {
             tables: TABLES
                 .iter()
@@ -262,7 +263,7 @@ mod tests {
         let error = request(sql, None).execute(tables(), 10).unwrap_err();
         assert!(matches!(
             error,
-            TGVError::McpInvalidInput { field: "sql", .. }
+            SessionError::InvalidInput { field: "sql", .. }
         ));
     }
 

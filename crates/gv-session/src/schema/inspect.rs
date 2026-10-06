@@ -1,6 +1,6 @@
-//! MCP inspection request and response types, independent of session serialization.
+//! Inspection request and response types, independent of session file serialization.
 
-use crate::track_registry::TrackId;
+use crate::error::SessionError;
 use gv_core::{
     alignment::{Alignment, CoverageSchema, tables::ReadSchema},
     bed::{BedSchema, BedTable},
@@ -17,7 +17,7 @@ const MAX_SUMMARY_ITEMS: usize = 1000;
 /// Identifies an inclusive, 1-based interval for inspection.
 #[derive(Deserialize, Serialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
-pub(in crate::server) struct InspectInterval {
+pub struct InspectInterval {
     pub contig: String,
     pub start: u64,
     pub end: u64,
@@ -26,7 +26,7 @@ pub(in crate::server) struct InspectInterval {
 /// Requests structured results for an explicit interval and optional tracks.
 #[derive(Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
-pub(in crate::server) struct InspectRequest {
+pub struct InspectRequest {
     pub region: InspectInterval,
     pub tracks: Option<Vec<TrackId>>,
 }
@@ -38,7 +38,10 @@ impl InspectInterval {
     ///
     /// Returns the core query region and the effective interval, with its end clamped to a
     /// known contig length.
-    pub fn resolve(&self, contigs: &ContigHeader) -> Result<(Region, InspectInterval), TGVError> {
+    pub fn resolve(
+        &self,
+        contigs: &ContigHeader,
+    ) -> Result<(Region, InspectInterval), SessionError> {
         let query = Region::try_from_contig_names_and_bounds(
             &self.contig,
             self.start,
@@ -46,7 +49,7 @@ impl InspectInterval {
             contigs,
             Some(Self::MAX_QUERY_WIDTH),
         )
-        .map_err(|error| TGVError::McpInvalidInput {
+        .map_err(|error| SessionError::InvalidInput {
             field: "region",
             message: error.to_string(),
         })?;
@@ -64,7 +67,7 @@ impl InspectInterval {
 
 /// Returns statistics for the effective interval after contig-end clamping.
 #[derive(Serialize)]
-pub(in crate::server) struct InspectResponse {
+pub struct InspectResponse {
     pub region: InspectInterval,
     pub summary: InspectSummary,
     pub warnings: Vec<InspectWarning>,
@@ -72,7 +75,7 @@ pub(in crate::server) struct InspectResponse {
 
 /// Groups per-track and gene summaries for an inspected interval.
 #[derive(Serialize)]
-pub(in crate::server) struct InspectSummary {
+pub struct InspectSummary {
     pub tracks: Vec<TrackSummary>,
     pub genes: GeneSummary,
 }
@@ -80,7 +83,7 @@ pub(in crate::server) struct InspectSummary {
 /// Summarizes records overlapping the interval in one selected track.
 #[derive(Serialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
-pub(in crate::server) enum TrackSummary {
+pub enum TrackSummary {
     Alignment {
         track_id: TrackId,
         overlapping_records: usize,
@@ -225,7 +228,7 @@ impl TrackSummary {
 
 /// Describes one variant returned in an inspection summary.
 #[derive(Serialize)]
-pub(in crate::server) struct VariantRecord {
+pub struct VariantRecord {
     pub start: u64,
     pub end: u64,
     pub reference: String,
@@ -234,14 +237,14 @@ pub(in crate::server) struct VariantRecord {
 
 /// Describes one BED interval returned in an inspection summary.
 #[derive(Serialize)]
-pub(in crate::server) struct BedRecord {
+pub struct BedRecord {
     pub start: u64,
     pub end: u64,
 }
 
 /// Summarizes overlapping genes and whether annotations are available.
 #[derive(Serialize)]
-pub(in crate::server) struct GeneSummary {
+pub struct GeneSummary {
     pub available: bool,
     pub overlapping_records: usize,
     pub truncated: bool,
@@ -297,7 +300,7 @@ impl GeneSummary {
 
 /// Describes one gene returned in an inspection summary.
 #[derive(Serialize)]
-pub(in crate::server) struct GeneRecord {
+pub struct GeneRecord {
     pub id: String,
     pub name: String,
     pub start: u64,
@@ -309,7 +312,7 @@ pub(in crate::server) struct GeneRecord {
 ///
 /// Per-position counts are available through the `coverage` table of the `query` tool.
 #[derive(Serialize)]
-pub(in crate::server) struct CoverageSummary {
+pub struct CoverageSummary {
     pub method: CoverageMethod,
     pub positions: u64,
     pub zero_depth_positions: u64,
@@ -321,14 +324,14 @@ pub(in crate::server) struct CoverageSummary {
 /// Identifies the calculation used for reported coverage.
 #[derive(Serialize)]
 #[serde(rename_all = "snake_case")]
-pub(in crate::server) enum CoverageMethod {
+pub enum CoverageMethod {
     ViewerCurrent,
 }
 
 /// Reports unavailable data in an inspection response.
 #[derive(Serialize)]
 #[serde(tag = "code", rename_all = "snake_case")]
-pub(in crate::server) enum InspectWarning {
+pub enum InspectWarning {
     ReferenceUnavailable { message: String },
     GenesUnavailable { message: String },
 }

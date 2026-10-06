@@ -1,7 +1,4 @@
-use crate::{
-    settings::Settings,
-    track_registry::{TrackId, TrackRegistry},
-};
+use crate::settings::Settings;
 use gv_core::{
     message::{Scroll, Zoom},
     prelude::*,

@@ -1,6 +1,6 @@
 # Inspect an interval
 
-`inspect_interval` returns a quick overview of an interval: read counts and depth statistics for alignment tracks, overlapping records for variant and BED tracks, and overlapping genes. The results do not depend on any drawing. For per-position counts, individual reads, or any other detail, use [`query`](./query.md).
+`inspect_interval` returns a quick overview of an interval: read counts and depth statistics for alignment tracks, overlapping records for variant and BED tracks, and overlapping genes. For per-position counts, individual reads, or any other detail, use [`query`](./query.md).
 
 ## Request
 

@@ -1,6 +1,6 @@
-//! Stable TUI file-track identities and their existing repository indexes.
+//! Stable file-track identities and their repository indexes, shared by all front ends.
 
-use gv_core::prelude::*;
+use crate::{error::TGVError, repository::RepositoryFileIndex};
 
 pub type TrackId = usize;
 

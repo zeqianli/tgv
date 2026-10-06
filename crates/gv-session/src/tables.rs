@@ -1,4 +1,4 @@
-//! SQL tables over the loaded dataset for the MCP `query` tool.
+//! SQL tables over the loaded dataset for the `query` command.
 //!
 //! Tables expose the documented columns of the core schemas under their core names, plus a
 //! few columns the server adds, such as `track_id` and contig names. Column descriptions come
@@ -10,7 +10,6 @@
 //! Tables stay lazy. The core frames are shared rather than copied, and Polars evaluates only
 //! the tables, columns, and rows that a query uses.
 
-use crate::track_registry::{TrackId, TrackRegistry};
 use gv_core::{
     alignment::{
         Alignment, CoverageSchema,
@@ -30,7 +29,7 @@ use serde::Serialize;
 /// Identifies which data a table holds for a query.
 #[derive(Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "snake_case")]
-pub(super) enum TableScope {
+pub enum TableScope {
     /// Describes the dataset itself and is always available.
     Dataset,
     /// Holds complete files and is always available.
@@ -152,7 +151,7 @@ struct AddedColumn {
 ///
 /// Columns are ordered as the leading added columns, the documented core columns, and the
 /// trailing added columns.
-pub(super) struct SqlTable {
+pub(crate) struct SqlTable {
     pub name: &'static str,
     pub scope: TableScope,
     pub description: &'static str,
@@ -166,7 +165,7 @@ pub(super) struct SqlTable {
 
 /// Describes one column in the catalog.
 #[derive(Serialize)]
-pub(super) struct CatalogColumn {
+pub struct CatalogColumn {
     pub name: String,
     pub dtype: String,
     pub description: String,
@@ -174,7 +173,7 @@ pub(super) struct CatalogColumn {
 
 /// Describes one table in the catalog.
 #[derive(Serialize)]
-pub(super) struct CatalogTable {
+pub struct CatalogTable {
     pub name: &'static str,
     pub scope: TableScope,
     pub description: &'static str,
@@ -319,7 +318,7 @@ impl SqlTable {
 }
 
 /// Names the columns that the server adds to tables.
-pub(super) struct AddedColumns;
+pub(crate) struct AddedColumns;
 
 impl AddedColumns {
     pub const TRACK_ID: &'static str = "track_id";
@@ -350,7 +349,7 @@ fn no_docs() -> &'static [ColumnDoc] {
     &[]
 }
 
-pub(super) const TRACKS: SqlTable = SqlTable {
+pub(crate) const TRACKS: SqlTable = SqlTable {
     name: "tracks",
     scope: TableScope::Dataset,
     description: "One row per loaded track.",
@@ -374,7 +373,7 @@ pub(super) const TRACKS: SqlTable = SqlTable {
     decoded: &[],
 };
 
-pub(super) const READS: SqlTable = SqlTable {
+pub(crate) const READS: SqlTable = SqlTable {
     name: "reads",
     scope: TableScope::Region,
     description: "One row per positioned read whose aligned span (`pos` to `end`, without soft clips) overlaps the region.",
@@ -397,7 +396,7 @@ pub(super) const READS: SqlTable = SqlTable {
     decoded: &[],
 };
 
-pub(super) const CIGAR_OPS: SqlTable = SqlTable {
+pub(crate) const CIGAR_OPS: SqlTable = SqlTable {
     name: "cigar_ops",
     scope: TableScope::Region,
     description: "One row per CIGAR operation of each read in `reads`.",
@@ -417,7 +416,7 @@ pub(super) const CIGAR_OPS: SqlTable = SqlTable {
     decoded: &[(CigarSchema::KIND, Decode::CigarOp)],
 };
 
-pub(super) const MISMATCHES: SqlTable = SqlTable {
+pub(crate) const MISMATCHES: SqlTable = SqlTable {
     name: "mismatches",
     scope: TableScope::Region,
     description: "One row per read base in an `M` operation that differs from the reference, for reads in `reads`. Empty without a reference sequence. Insertions and deletions are in `cigar_ops`.",
@@ -440,7 +439,7 @@ pub(super) const MISMATCHES: SqlTable = SqlTable {
     ],
 };
 
-pub(super) const BASE_MODS: SqlTable = SqlTable {
+pub(crate) const BASE_MODS: SqlTable = SqlTable {
     name: "base_mods",
     scope: TableScope::Region,
     description: "One row per base modification call (MM and ML tags) on reads in `reads`.",
@@ -456,7 +455,7 @@ pub(super) const BASE_MODS: SqlTable = SqlTable {
     decoded: &[(BaseModificationSchema::CODE, Decode::Ascii)],
 };
 
-pub(super) const COVERAGE: SqlTable = SqlTable {
+pub(crate) const COVERAGE: SqlTable = SqlTable {
     name: "coverage",
     scope: TableScope::Region,
     description: "One row per alignment track and region position, including zero-depth positions. Counts use the viewer's coverage calculation over all loaded reads. `reference_base` is null without a reference sequence.",
@@ -468,7 +467,7 @@ pub(super) const COVERAGE: SqlTable = SqlTable {
     decoded: &[(CoverageSchema::REFERENCE_BASE, Decode::Ascii)],
 };
 
-pub(super) const REFERENCE: SqlTable = SqlTable {
+pub(crate) const REFERENCE: SqlTable = SqlTable {
     name: "reference",
     scope: TableScope::Region,
     description: "One row per region position with a loaded reference base. Empty without a reference sequence.",
@@ -491,7 +490,7 @@ pub(super) const REFERENCE: SqlTable = SqlTable {
     decoded: &[(AddedColumns::BASE, Decode::Ascii)],
 };
 
-pub(super) const VARIANTS: SqlTable = SqlTable {
+pub(crate) const VARIANTS: SqlTable = SqlTable {
     name: "variants",
     scope: TableScope::WholeFile,
     description: "One row per VCF record in every variant track, across all contigs.",
@@ -503,7 +502,7 @@ pub(super) const VARIANTS: SqlTable = SqlTable {
     decoded: &[],
 };
 
-pub(super) const BED: SqlTable = SqlTable {
+pub(crate) const BED: SqlTable = SqlTable {
     name: "bed",
     scope: TableScope::WholeFile,
     description: "One row per interval in every BED track, across all contigs.",
@@ -515,7 +514,7 @@ pub(super) const BED: SqlTable = SqlTable {
     decoded: &[],
 };
 
-pub(super) const GENES: SqlTable = SqlTable {
+pub(crate) const GENES: SqlTable = SqlTable {
     name: "genes",
     scope: TableScope::Region,
     description: "One row per annotated transcript overlapping the region.",
@@ -527,7 +526,7 @@ pub(super) const GENES: SqlTable = SqlTable {
     decoded: &[],
 };
 
-pub(super) const GENE_FEATURES: SqlTable = SqlTable {
+pub(crate) const GENE_FEATURES: SqlTable = SqlTable {
     name: "gene_features",
     scope: TableScope::Region,
     description: "Exon and intron segments of the transcripts in `genes` that overlap the region. Coding exons are split at the CDS bounds. Join `genes` on `gene_row_id = row_id`.",
@@ -544,7 +543,7 @@ pub(super) const GENE_FEATURES: SqlTable = SqlTable {
 };
 
 /// Every SQL table, in catalog order.
-pub(super) const TABLES: [&SqlTable; 11] = [
+pub(crate) const TABLES: [&SqlTable; 11] = [
     &TRACKS,
     &READS,
     &CIGAR_OPS,
@@ -559,7 +558,7 @@ pub(super) const TABLES: [&SqlTable; 11] = [
 ];
 
 /// The contig and inclusive bounds of a region query.
-pub(super) struct QueryRegion<'a> {
+pub(crate) struct QueryRegion<'a> {
     pub contig_index: usize,
     pub contig: &'a str,
     pub start: u64,
@@ -567,7 +566,7 @@ pub(super) struct QueryRegion<'a> {
 }
 
 /// Borrows the dataset state needed to build tables.
-pub(super) struct TableSources<'a> {
+pub(crate) struct TableSources<'a> {
     pub state: &'a State,
     pub tracks: &'a TrackRegistry,
     pub sources: Vec<&'a str>,

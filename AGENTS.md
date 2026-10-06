@@ -40,6 +40,15 @@
 - Use direct typed column reductions for simple DataFrame statistics, such as sums, maxima, and visibility checks. Keep lazy expressions for row selection, transformations, joins, and grouped aggregations.
 - Benchmarks checked into the repo are slow. Do not run cargo bench unleass I asked to.
 
+## Crate layout
+
+- `gv-core`: the data model, repositories, `State`, data loading, `TrackRegistry`, and file classification. It knows nothing about front ends or MCP.
+- `gv-session`: the session worker that owns a loaded dataset and serves typed commands through `SessionHandle`, plus the SQL tables. Requests, responses, and `SessionError` live here.
+- `gv-mcp`: the MCP tools, which translate MCP calls into session commands. It owns MCP error codes and `McpError`.
+- `tgv`: the TUI and the `tgv` binary, including the `tgv mcp` subcommand.
+- Dependencies point away from front ends: no crate depends on `tgv`. The design is in `doc/src/design/session-architecture.md`.
+- Each crate declares the Polars features it needs in its own manifest. For example, SQL features belong to `gv-session`, not the workspace root.
+
 ## Documentation
 
 - User documentation is an mdBook in `doc/`. `doc/src/SUMMARY.md` defines the chapter tree; every page must be listed there.
@@ -48,7 +57,7 @@
   - `doc/src/server/` has one chapter per MCP interface, nested under the overview in `SUMMARY.md`. Closely related tools share a chapter, such as `get_dataset` and `load_dataset` in `dataset.md`.
   - Each tool chapter follows the same template: a purpose paragraph, a request field table, an example request, an example response, behavior notes, and bounds and errors with the `code` and `field` values the tool reports.
   - Examples use `"reference":"hg38"`, `HG002.GRCh38.300x_chr20.bam`, `simple.vcf`, and `simple.bed`, around `chr20:88108`. Show file paths as `/data/<file name>`.
-  - Capture example responses by running `tgv serve` against these files; do not write them by hand. Shorten only long arrays or drawings, and say where something is shortened.
+  - Capture example responses by running `tgv mcp` against these files; do not write them by hand. Shorten only long arrays, and say where something is shortened.
   - When a tool's schema, defaults, bounds, warnings, or errors change, update its chapter in the same change.
 
 ## Testing practices

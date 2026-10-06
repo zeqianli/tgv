@@ -1,5 +1,6 @@
-use crate::{app::Scene, register::KeyRegisterType, track_registry::TrackId};
+use crate::{app::Scene, register::KeyRegisterType};
 pub use gv_core::message::{Movement, Scroll};
+use gv_core::track_registry::TrackId;
 use strum::Display;
 
 /// TGV messages
