@@ -138,43 +138,31 @@ impl DatasetState {
         })
     }
 
-    /// Loads regional data for the selected tracks into the current state.
+    /// Loads the selected tracks, the reference sequence, and gene annotations for a region.
+    ///
+    /// Data that is already complete for the region is reused. Requests can span 100,000 bases
+    /// at high depth, so loads cover exactly the region instead of padding it like the viewer.
     async fn load_region(
         &mut self,
         region: &Region,
         track_ids: &[TrackId],
-    ) -> Result<(), gv_core::error::TGVError> {
-        if let Some(sequence) = self.repository.sequence_service.as_mut() {
-            self.state.load_sequence_data(region, sequence).await?;
-        }
-        if let Some(genes) = self.repository.track_service.as_mut() {
-            self.state.load_track_data(region, genes).await?;
-        }
-        for &id in track_ids {
-            match self.tracks.get(id).repository_index {
-                RepositoryFileIndex::Alignment(i) => {
-                    self.state
-                        .load_alignment_data(
-                            i,
-                            region,
-                            &mut self.repository.alignment_repositories[i],
-                        )
-                        .await?;
-                }
-                RepositoryFileIndex::Variant(i) if !self.state.variant_loaded[i] => {
-                    self.state
-                        .load_variant_data(i, region, &mut self.repository.variant_repositories[i])
-                        .await?;
-                }
-                RepositoryFileIndex::Bed(i) if !self.state.bed_loaded[i] => {
-                    self.state
-                        .load_bed_data(i, region, &mut self.repository.bed_repositories[i])
-                        .await?;
-                }
-                _ => {}
-            }
-        }
-        Ok(())
+    ) -> Result<(), TGVError> {
+        let files: Vec<RepositoryFileIndex> = track_ids
+            .iter()
+            .map(|&id| self.tracks.get(id).repository_index)
+            .collect();
+        self.state
+            .ensure_loaded(
+                region,
+                &LoadRequest {
+                    sequence: true,
+                    genes: true,
+                    files: &files,
+                    cache: CachePolicy::EXACT,
+                },
+                &mut self.repository,
+            )
+            .await
     }
 
     /// Validates requested track IDs and returns them in dataset order.
@@ -272,28 +260,6 @@ impl DatasetState {
         })
     }
 
-    /// Loads every variant and BED track that is not loaded yet.
-    ///
-    /// These repositories read whole files, so the region only labels the load in logs.
-    async fn load_whole_file_tracks(&mut self, region: &Region) -> Result<(), TGVError> {
-        for entry in &self.tracks.entries {
-            match entry.repository_index {
-                RepositoryFileIndex::Variant(i) if !self.state.variant_loaded[i] => {
-                    self.state
-                        .load_variant_data(i, region, &mut self.repository.variant_repositories[i])
-                        .await?;
-                }
-                RepositoryFileIndex::Bed(i) if !self.state.bed_loaded[i] => {
-                    self.state
-                        .load_bed_data(i, region, &mut self.repository.bed_repositories[i])
-                        .await?;
-                }
-                _ => {}
-            }
-        }
-        Ok(())
-    }
-
     /// Runs a read-only SQL query over the curated tables.
     pub(super) async fn query(&mut self, request: QueryRequest) -> Reply {
         let limit = request.limit()?;
@@ -308,6 +274,7 @@ impl DatasetState {
                 self.load_region(query, &all).await?;
             }
             None => {
+                // Variant and BED repositories read whole files, so the region only labels logs.
                 let anywhere = Region {
                     focus: Focus {
                         contig_index: 0,
@@ -315,7 +282,25 @@ impl DatasetState {
                     },
                     half_width: 0,
                 };
-                self.load_whole_file_tracks(&anywhere).await?;
+                let files: Vec<RepositoryFileIndex> = self
+                    .tracks
+                    .entries
+                    .iter()
+                    .map(|entry| entry.repository_index)
+                    .filter(|index| !matches!(index, RepositoryFileIndex::Alignment(_)))
+                    .collect();
+                self.state
+                    .ensure_loaded(
+                        &anywhere,
+                        &LoadRequest {
+                            sequence: false,
+                            genes: false,
+                            files: &files,
+                            cache: CachePolicy::EXACT,
+                        },
+                        &mut self.repository,
+                    )
+                    .await?;
             }
         }
 

@@ -13,12 +13,69 @@ use crate::{
     reference::Reference,
     //register::Registers,
     //rendering::{MainLayout, layout::resize_node},
-    repository::Repository,
+    repository::{Repository, RepositoryFileIndex},
     sequence::Sequence,
     variant::VariantTable,
 };
 use itertools::Itertools;
 use std::time::Instant;
+
+/// Selects the data that [`State::ensure_loaded`] covers for a region.
+pub struct LoadRequest<'a> {
+    /// Loads the reference sequence.
+    pub sequence: bool,
+    /// Loads the gene annotations.
+    pub genes: bool,
+    /// The file tracks to load. Variant and BED tracks load their whole files once.
+    pub files: &'a [RepositoryFileIndex],
+    /// How far loads extend beyond the region on a cache miss.
+    pub cache: CachePolicy,
+}
+
+/// Extends loads on a cache miss so that nearby requests hit the cache.
+///
+/// Each ratio multiplies the requested half-width around the same focus.
+#[derive(Clone, Copy, Debug)]
+pub struct CachePolicy {
+    pub alignment_ratio: u64,
+    pub sequence_ratio: u64,
+    pub track_ratio: u64,
+}
+
+impl CachePolicy {
+    /// Pads small viewer regions generously, so panning and zooming rarely reload.
+    pub const VIEWER: Self = Self {
+        alignment_ratio: 3,
+        sequence_ratio: 6,
+        track_ratio: 10,
+    };
+
+    /// Loads exactly the requested region.
+    pub const EXACT: Self = Self {
+        alignment_ratio: 1,
+        sequence_ratio: 1,
+        track_ratio: 1,
+    };
+
+    fn padded(region: &Region, ratio: u64) -> Region {
+        Region {
+            focus: region.focus.clone(),
+            half_width: region.half_width * ratio,
+        }
+    }
+
+    pub fn alignment_region(&self, region: &Region) -> Region {
+        Self::padded(region, self.alignment_ratio)
+    }
+
+    pub fn sequence_region(&self, region: &Region) -> Region {
+        Self::padded(region, self.sequence_ratio)
+    }
+
+    pub fn track_region(&self, region: &Region) -> Region {
+        Self::padded(region, self.track_ratio)
+    }
+}
 
 /// Holds states of the application.
 pub struct State {
@@ -405,6 +462,87 @@ impl State {
             started.elapsed().as_millis(),
         );
         Ok(self)
+    }
+
+    /// Loads the requested data for a region, skipping data that is already complete there.
+    ///
+    /// On a cache miss, loads extend beyond the region according to the request's cache policy.
+    pub async fn ensure_loaded(
+        &mut self,
+        region: &Region,
+        request: &LoadRequest<'_>,
+        repository: &mut Repository,
+    ) -> Result<(), TGVError> {
+        // Load the sequence first: alignment loads compute mismatches against it.
+        if request.sequence
+            && let Some(sequence_service) = repository.sequence_service.as_mut()
+            && !self.sequence.has_complete_data(region)
+        {
+            let cache_region = request.cache.sequence_region(region);
+            log::trace!(
+                "Sequence cache miss; requesting data load: region={:?} cache_region={:?}",
+                region,
+                cache_region,
+            );
+            self.load_sequence_data(&cache_region, sequence_service)
+                .await?;
+        }
+
+        for &file in request.files {
+            match file {
+                RepositoryFileIndex::Alignment(index) => {
+                    if self.alignments[index].has_complete_data(region) {
+                        log::trace!(
+                            "Skipping alignment data load because cached data is complete: track={} region={:?}",
+                            index,
+                            region,
+                        );
+                        continue;
+                    }
+                    let cache_region = request.cache.alignment_region(region);
+                    log::trace!(
+                        "Alignment cache miss; requesting data load: track={} region={:?} cache_region={:?}",
+                        index,
+                        region,
+                        cache_region,
+                    );
+                    self.load_alignment_data(
+                        index,
+                        &cache_region,
+                        &mut repository.alignment_repositories[index],
+                    )
+                    .await?;
+                }
+                RepositoryFileIndex::Variant(index) if !self.variant_loaded[index] => {
+                    self.load_variant_data(
+                        index,
+                        region,
+                        &mut repository.variant_repositories[index],
+                    )
+                    .await?;
+                }
+                RepositoryFileIndex::Bed(index) if !self.bed_loaded[index] => {
+                    self.load_bed_data(index, region, &mut repository.bed_repositories[index])
+                        .await?;
+                }
+                _ => {}
+            }
+        }
+
+        if request.genes
+            && let Some(track_service) = repository.track_service.as_mut()
+            && !self.track.has_complete_data(region)
+        {
+            let cache_region = request.cache.track_region(region);
+            log::trace!(
+                "Reference track cache miss; requesting data load: region={:?} cache_region={:?}",
+                region,
+                cache_region,
+            );
+            self.load_track_data(&cache_region, track_service).await?;
+        }
+
+        Ok(())
     }
 
     pub async fn ensure_complete_cytoband_data(

@@ -518,104 +518,35 @@ impl App {
             self.alignment_view.focus,
         );
 
-        if let Some(sequence_service) = self.repository.sequence_service.as_mut()
-            && self.alignment_view.zoom <= AlignmentView::MAX_ZOOM_TO_DISPLAY_SEQUENCES
-            && !self.state.sequence.has_complete_data(&region)
-        {
-            let cache_region = self.alignment_view.sequence_cache_region(region.clone());
-            log::trace!(
-                "Sequence cache miss; requesting data load: display_region={:?} cache_region={:?} zoom={}",
-                region,
-                cache_region,
-                self.alignment_view.zoom,
-            );
-            self.state
-                .load_sequence_data(&cache_region, sequence_service)
-                .await?;
-        }
-
-        if self.alignment_view.zoom <= AlignmentView::MAX_ZOOM_TO_DISPLAY_ALIGNMENTS {
-            for entry in &self.tracks.entries {
-                let RepositoryFileIndex::Alignment(index) = entry.repository_index else {
-                    continue;
-                };
-                if !self.state.alignments[index].has_complete_data(&region) {
-                    let cache_region = self.alignment_view.alignment_cache_region(region.clone());
-                    log::trace!(
-                        "Alignment cache miss; requesting data load: track={} display_region={:?} cache_region={:?} zoom={}",
-                        index,
-                        region,
-                        cache_region,
-                        self.alignment_view.zoom,
-                    );
-                    self.state
-                        .load_alignment_data(
-                            index,
-                            &cache_region,
-                            &mut self.repository.alignment_repositories[index],
-                        )
-                        .await?;
-                } else {
-                    log::trace!(
-                        "Skipping alignment data load because cached data is complete: track={} display_region={:?}",
-                        index,
-                        region,
-                    );
-                }
-            }
-        } else {
+        let show_alignments =
+            self.alignment_view.zoom <= AlignmentView::MAX_ZOOM_TO_DISPLAY_ALIGNMENTS;
+        if !show_alignments {
             log::trace!(
                 "Skipping alignment data loads because zoom={} exceeds max_zoom={}",
                 self.alignment_view.zoom,
                 AlignmentView::MAX_ZOOM_TO_DISPLAY_ALIGNMENTS,
             );
         }
-
-        if let Some(track_service) = self.repository.track_service.as_mut()
-            && !self.state.track.has_complete_data(&region)
-        {
-            // viewing_window.zoom <= Self::MAX_ZOOM_TO_DISPLAY_FEATURES is always true
-            let cache_region = self.alignment_view.track_cache_region(region.clone());
-            log::trace!(
-                "Reference track cache miss; requesting data load: display_region={:?} cache_region={:?}",
-                region,
-                cache_region,
-            );
-            self.state
-                .load_track_data(&cache_region, track_service)
-                .await?;
-        }
-
-        for entry in &self.tracks.entries {
-            let id = entry.id;
-            match entry.repository_index {
-                RepositoryFileIndex::Variant(index) if !self.state.variant_loaded[index] => {
-                    log::trace!(
-                        "Variant data not loaded; requesting data load: track={} display_region={:?}",
-                        id,
-                        region,
-                    );
-                    self.state
-                        .load_variant_data(
-                            index,
-                            &region,
-                            &mut self.repository.variant_repositories[index],
-                        )
-                        .await?;
-                }
-                RepositoryFileIndex::Bed(index) if !self.state.bed_loaded[index] => {
-                    log::trace!(
-                        "BED data not loaded; requesting data load: track={} display_region={:?}",
-                        id,
-                        region,
-                    );
-                    self.state
-                        .load_bed_data(index, &region, &mut self.repository.bed_repositories[index])
-                        .await?;
-                }
-                _ => {}
-            }
-        }
+        let files: Vec<RepositoryFileIndex> = self
+            .tracks
+            .entries
+            .iter()
+            .map(|entry| entry.repository_index)
+            .filter(|index| show_alignments || !matches!(index, RepositoryFileIndex::Alignment(_)))
+            .collect();
+        self.state
+            .ensure_loaded(
+                &region,
+                &LoadRequest {
+                    sequence: self.alignment_view.zoom
+                        <= AlignmentView::MAX_ZOOM_TO_DISPLAY_SEQUENCES,
+                    genes: true,
+                    files: &files,
+                    cache: CachePolicy::VIEWER,
+                },
+                &mut self.repository,
+            )
+            .await?;
 
         // Cytobands
         // TODO

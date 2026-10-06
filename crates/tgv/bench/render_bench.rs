@@ -18,6 +18,7 @@ use crossterm::event::{KeyModifiers, MouseEvent, MouseEventKind};
 use gv_core::{
     intervals::GenomeInterval,
     message::{AlignmentDisplayOption, Message as CoreMessage, Movement, Scroll},
+    state::CachePolicy,
 };
 use ratatui::{buffer::Buffer, layout::Rect};
 use std::time::{Duration, Instant};
@@ -133,10 +134,12 @@ async fn main() {
     if run("load") {
         // Reload the alignment cache window: BAM query, table building, stacking, coverage, and
         // display options. The reference sequence is already cached, so no network is involved.
-        let region = bench
-            .app
-            .alignment_view
-            .alignment_cache_region(bench.app.alignment_view.region(&bench.app.resolved_layout.main_area));
+        let region = CachePolicy::VIEWER.alignment_region(
+            &bench
+                .app
+                .alignment_view
+                .region(&bench.app.resolved_layout.main_area),
+        );
         let mut samples = Vec::with_capacity(iterations);
         for _ in 0..iterations {
             let started = Instant::now();

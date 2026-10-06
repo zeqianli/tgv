@@ -17,7 +17,7 @@ pub mod prelude {
         reference::Reference,
         repository::{Repository, RepositoryFileIndex},
         settings::FilePath,
-        state::State,
+        state::{CachePolicy, LoadRequest, State},
         table_schema::TableSchema,
     };
 }
