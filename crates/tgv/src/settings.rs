@@ -3,10 +3,9 @@ use crate::{
     rendering::{DARK_THEME, Palette},
 };
 use clap::{Parser, Subcommand, ValueEnum};
-use gv_core::alignment::is_url;
 use gv_core::message::Movement;
 use gv_core::prelude::*;
-use gv_core::settings::{AlignmentPath, BackendType, BamSource};
+use gv_core::settings::{BackendType, Settings as CoreSettings, classify_and_build_tracks};
 use gv_core::tracks::{UCSCDownloadSource, UcscHost};
 use std::path::PathBuf;
 
@@ -58,8 +57,9 @@ impl From<UCSCDownloadSourceCli> for UCSCDownloadSource {
 
 #[derive(Subcommand, Clone, Debug)]
 pub enum Commands {
-    /// Serve regional genome evidence through MCP over standard input and output.
-    Serve,
+    /// Serve datasets to agents through MCP over standard input and output.
+    #[command(alias = "serve")]
+    Mcp,
     /// Download reference data.
     Download {
         /// Reference genome to download.
@@ -174,6 +174,21 @@ impl Cli {
         }
     }
 
+    /// Builds the session defaults for `tgv mcp` from the global options.
+    ///
+    /// The MCP server loads files only through its `load_dataset` tool, so positional files
+    /// and resumed sessions are rejected.
+    pub fn mcp_settings(&self) -> Result<CoreSettings, TGVError> {
+        if !self.files.is_empty() || self.resume.is_some() {
+            return Err(TGVError::CliError(
+                "Use the load_dataset MCP tool to load files when serving.".into(),
+            ));
+        }
+        let mut settings = Settings::default();
+        self.apply_overrides(&mut settings)?;
+        Ok(settings.core)
+    }
+
     pub fn resume_path(&self) -> Option<PathBuf> {
         self.resume
             .as_deref()
@@ -248,61 +263,6 @@ impl Cli {
 
         Ok(())
     }
-}
-
-/// Classify input files and build the track paths.
-///
-/// Returns file paths in the same order as the CLI arguments.
-pub(crate) fn classify_and_build_tracks(files: &[String]) -> Result<Vec<FilePath>, TGVError> {
-    for file in files {
-        let lower = file.to_lowercase();
-        if lower.ends_with(".fa")
-            || lower.ends_with(".fasta")
-            || lower.ends_with(".fa.gz")
-            || lower.ends_with(".fasta.gz")
-        {
-            return Err(TGVError::CliError(
-                "FASTA reference files must be passed with -g/--reference, not as positional input files.".to_string(),
-            ));
-        } else if lower.ends_with(".cram") {
-            return Err(TGVError::CliError(
-                "CRAM format is not yet supported as a CLI input format.".to_string(),
-            ));
-        } else if !(lower.ends_with(".bam")
-            || lower.ends_with(".vcf")
-            || lower.ends_with(".vcf.gz")
-            || lower.ends_with(".bed")
-            || lower.ends_with(".bed.gz"))
-        {
-            return Err(TGVError::CliError(format!(
-                "Unrecognized file format: {}. Supported track formats: .bam, .vcf, .vcf.gz, .bed, .bed.gz. Use -g for custom FASTA or 2bit reference genomes.",
-                file
-            )));
-        }
-    }
-
-    let mut file_paths = Vec::new();
-    for file in files {
-        let lower = file.to_lowercase();
-        if lower.ends_with(".bam") {
-            let index = format!("{file}.bai");
-            file_paths.push(FilePath::AlignmentPath(AlignmentPath::Bam {
-                path: file.clone(),
-                index,
-                source: if is_url(file.as_str()) {
-                    BamSource::S3
-                } else {
-                    BamSource::Local
-                },
-            }));
-        } else if lower.ends_with(".vcf") || lower.ends_with(".vcf.gz") {
-            file_paths.push(FilePath::VariantPath(file.clone()));
-        } else if lower.ends_with(".bed") || lower.ends_with(".bed.gz") {
-            file_paths.push(FilePath::BedPath(file.clone()));
-        }
-    }
-
-    Ok(file_paths)
 }
 
 #[derive(Debug, Clone, Eq, PartialEq)]

@@ -1,0 +1,17 @@
+[package]
+name = "gv-mcp"
+version = "0.3.0"
+edition = "2024"
+description = "MCP tools over a TGV dataset session."
+license = "MIT"
+repository = "https://github.com/zeqianli/tgv"
+homepage = "https://github.com/zeqianli/tgv"
+
+[dependencies]
+gv-core.workspace = true
+gv-session.workspace = true
+rmcp.workspace = true
+schemars.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true

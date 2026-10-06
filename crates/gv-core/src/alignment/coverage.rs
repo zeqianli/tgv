@@ -1,7 +1,11 @@
 //! Independent columnar coverage storage, construction, and queries.
 
 use super::tables::CigarSchema;
-use crate::{error::TGVError, sequence::Sequence, table_schema::TableSchema};
+use crate::{
+    error::TGVError,
+    sequence::Sequence,
+    table_schema::{ColumnDoc, TableSchema},
+};
 use polars::prelude::*;
 use itertools::izip;
 use std::sync::Arc;
@@ -176,5 +180,46 @@ impl TableSchema for CoverageSchema {
         schema.insert(Self::SOFTCLIP.into(), DataType::UInt64);
         schema.insert(Self::REFERENCE_BASE.into(), DataType::UInt8);
         Arc::new(schema)
+    }
+
+    fn column_docs() -> &'static [ColumnDoc] {
+        &[
+            ColumnDoc {
+                name: Self::POS,
+                description: "The 1-based reference position.",
+            },
+            ColumnDoc {
+                name: Self::A,
+                description: "Aligned `A` bases.",
+            },
+            ColumnDoc {
+                name: Self::T,
+                description: "Aligned `T` bases.",
+            },
+            ColumnDoc {
+                name: Self::C,
+                description: "Aligned `C` bases.",
+            },
+            ColumnDoc {
+                name: Self::G,
+                description: "Aligned `G` bases.",
+            },
+            ColumnDoc {
+                name: Self::N,
+                description: "Aligned bases other than A, C, G, and T.",
+            },
+            ColumnDoc {
+                name: Self::TOTAL,
+                description: "All aligned bases; deletions are not counted.",
+            },
+            ColumnDoc {
+                name: Self::SOFTCLIP,
+                description: "Soft-clipped bases projected onto the position.",
+            },
+            ColumnDoc {
+                name: Self::REFERENCE_BASE,
+                description: "The reference base.",
+            },
+        ]
     }
 }

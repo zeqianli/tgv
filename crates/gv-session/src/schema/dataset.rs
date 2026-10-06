@@ -1,7 +1,10 @@
-//! MCP dataset request and response types, independent of session serialization.
+//! Dataset request and response types, independent of session file serialization.
 
-use crate::settings::{Settings, classify_and_build_tracks};
-use gv_core::prelude::*;
+use crate::error::SessionError;
+use gv_core::{
+    prelude::*,
+    settings::{Settings, classify_and_build_tracks},
+};
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -9,7 +12,7 @@ use serde_json::Value;
 /// Replaces the current dataset with a reference and a list of data files.
 #[derive(Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
-pub(in crate::server) struct DatasetRequest {
+pub struct DatasetRequest {
     // A required nullable value distinguishes an omitted reference from no reference.
     #[schemars(extend("type" = ["string", "null"]))]
     pub reference: serde_json::Value,
@@ -18,36 +21,33 @@ pub(in crate::server) struct DatasetRequest {
 
 impl DatasetRequest {
     /// Applies the request to the current settings and validates its file paths.
-    pub(in crate::server) fn update_settings(
-        &self,
-        settings: &Settings,
-    ) -> Result<Settings, TGVError> {
+    pub fn update_settings(&self, settings: &Settings) -> Result<Settings, SessionError> {
         let mut settings = settings.clone();
-        settings.core.reference = match &self.reference {
+        settings.reference = match &self.reference {
             Value::Null => Reference::NoReference,
             Value::String(reference) => {
                 reference
                     .parse()
-                    .map_err(|error: TGVError| TGVError::McpInvalidInput {
+                    .map_err(|error: TGVError| SessionError::InvalidInput {
                         field: "reference",
                         message: error.to_string(),
                     })?
             }
             _ => {
-                return Err(TGVError::McpInvalidInput {
+                return Err(SessionError::InvalidInput {
                     field: "reference",
                     message: "The reference must be a string or null.".to_owned(),
                 });
             }
         };
-        if self.files.is_empty() && settings.core.reference == Reference::NoReference {
-            return Err(TGVError::McpInvalidInput {
+        if self.files.is_empty() && settings.reference == Reference::NoReference {
+            return Err(SessionError::InvalidInput {
                 field: "files",
                 message: "Provide a reference or at least one file.".to_owned(),
             });
         }
-        settings.core.file_paths =
-            classify_and_build_tracks(&self.files).map_err(|error| TGVError::McpInvalidInput {
+        settings.file_paths =
+            classify_and_build_tracks(&self.files).map_err(|error| SessionError::InvalidInput {
                 field: "files",
                 message: error.to_string(),
             })?;
@@ -57,15 +57,15 @@ impl DatasetRequest {
 
 /// Describes the reference and tracks in the loaded dataset.
 #[derive(Serialize)]
-pub(in crate::server) struct DatasetDescription {
+pub struct DatasetDescription {
     pub reference: String,
     pub tracks: Vec<TrackDescription>,
 }
 
 /// Identifies one loaded track and its source file.
 #[derive(Serialize)]
-pub(in crate::server) struct TrackDescription {
-    pub id: crate::track_registry::TrackId,
+pub struct TrackDescription {
+    pub id: gv_core::track_registry::TrackId,
     pub r#type: TrackType,
     pub source: String,
 }
@@ -73,7 +73,7 @@ pub(in crate::server) struct TrackDescription {
 /// Classifies a track by the kind of repository that provides its data.
 #[derive(Clone, Copy, Serialize)]
 #[serde(rename_all = "snake_case")]
-pub(in crate::server) enum TrackType {
+pub enum TrackType {
     Alignment,
     Variant,
     Bed,

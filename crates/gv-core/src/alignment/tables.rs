@@ -4,7 +4,11 @@
 //! metadata. Polars schemas specify column names and types, but do not enforce
 //! whether values may be null. Optional tags remain in the original records.
 
-use crate::{error::TGVError, sequence::Sequence, table_schema::TableSchema};
+use crate::{
+    error::TGVError,
+    sequence::Sequence,
+    table_schema::{ColumnDoc, TableSchema},
+};
 use noodles::sam::{
     self,
     alignment::{
@@ -114,10 +118,10 @@ fn build_batch(
     let mut read_id: Vec<u64> = Vec::with_capacity(records.len());
     let mut qname: Vec<Option<String>> = Vec::with_capacity(records.len());
     let mut ref_id: Vec<Option<u32>> = Vec::with_capacity(records.len());
-    let mut pos: Vec<Option<u32>> = Vec::with_capacity(records.len());
+    let mut pos: Vec<Option<u64>> = Vec::with_capacity(records.len());
     let mut mapq: Vec<Option<u8>> = Vec::with_capacity(records.len());
     let mut next_ref_id: Vec<Option<u32>> = Vec::with_capacity(records.len());
-    let mut next_pos: Vec<Option<u32>> = Vec::with_capacity(records.len());
+    let mut next_pos: Vec<Option<u64>> = Vec::with_capacity(records.len());
     let mut tlen: Vec<i32> = Vec::with_capacity(records.len());
     let mut stacking_start: Vec<Option<u64>> = Vec::with_capacity(records.len());
     let mut stacking_end: Vec<Option<u64>> = Vec::with_capacity(records.len());
@@ -286,10 +290,10 @@ fn append_read(
     read_id: &mut Vec<u64>,
     qname: &mut Vec<Option<String>>,
     ref_id: &mut Vec<Option<u32>>,
-    pos: &mut Vec<Option<u32>>,
+    pos: &mut Vec<Option<u64>>,
     mapq: &mut Vec<Option<u8>>,
     next_ref_id: &mut Vec<Option<u32>>,
-    next_pos: &mut Vec<Option<u32>>,
+    next_pos: &mut Vec<Option<u64>>,
     tlen: &mut Vec<i32>,
     stacking_start: &mut Vec<Option<u64>>,
     stacking_end: &mut Vec<Option<u64>>,
@@ -314,10 +318,10 @@ fn append_read(
             .transpose()?,
     );
     ref_id.push(record.reference_sequence_id().map(|id| id as u32));
-    pos.push(record.alignment_start().map(|p| p.get() as u32));
+    pos.push(record.alignment_start().map(|p| p.get() as u64));
     mapq.push(record.mapping_quality().map(|q| q.get()));
     next_ref_id.push(record.mate_reference_sequence_id().map(|id| id as u32));
-    next_pos.push(record.mate_alignment_start().map(|p| p.get() as u32));
+    next_pos.push(record.mate_alignment_start().map(|p| p.get() as u64));
     tlen.push(record.template_length());
     let flags = record.flags();
     paired.push(flags.contains(Flags::SEGMENTED));
@@ -522,10 +526,10 @@ impl TableSchema for ReadSchema {
         schema.insert(Self::READ_ID.into(), DataType::UInt64);
         schema.insert(Self::QNAME.into(), DataType::String);
         schema.insert(Self::REF_ID.into(), DataType::UInt32);
-        schema.insert(Self::POS.into(), DataType::UInt32);
+        schema.insert(Self::POS.into(), DataType::UInt64);
         schema.insert(Self::MAPQ.into(), DataType::UInt8);
         schema.insert(Self::NEXT_REF_ID.into(), DataType::UInt32);
-        schema.insert(Self::NEXT_POS.into(), DataType::UInt32);
+        schema.insert(Self::NEXT_POS.into(), DataType::UInt64);
         schema.insert(Self::TLEN.into(), DataType::Int32);
         schema.insert(Self::STACKING_START.into(), DataType::UInt64);
         schema.insert(Self::STACKING_END.into(), DataType::UInt64);
@@ -544,6 +548,83 @@ impl TableSchema for ReadSchema {
         schema.insert(Self::SHOW.into(), DataType::Boolean);
         schema.insert(Self::Y.into(), DataType::UInt64);
         Arc::new(schema)
+    }
+
+    fn column_docs() -> &'static [ColumnDoc] {
+        &[
+            ColumnDoc {
+                name: Self::READ_ID,
+                description: "The read ID within the loaded reads.",
+            },
+            ColumnDoc {
+                name: Self::QNAME,
+                description: "The read name, or null.",
+            },
+            ColumnDoc {
+                name: Self::POS,
+                description: "The 1-based alignment start, or null for unpositioned reads.",
+            },
+            ColumnDoc {
+                name: Self::MAPQ,
+                description: "The mapping quality, or null when unavailable.",
+            },
+            ColumnDoc {
+                name: Self::NEXT_POS,
+                description: "The mate's 1-based alignment start, or null.",
+            },
+            ColumnDoc {
+                name: Self::TLEN,
+                description: "The observed template length; negative for the rightmost segment.",
+            },
+            ColumnDoc {
+                name: Self::PAIRED,
+                description: "SAM flag 0x1: the template has multiple segments.",
+            },
+            ColumnDoc {
+                name: Self::PROPER_PAIR,
+                description: "SAM flag 0x2: each segment is properly aligned.",
+            },
+            ColumnDoc {
+                name: Self::UNMAPPED,
+                description: "SAM flag 0x4: the read is unmapped.",
+            },
+            ColumnDoc {
+                name: Self::MATE_UNMAPPED,
+                description: "SAM flag 0x8: the mate is unmapped.",
+            },
+            ColumnDoc {
+                name: Self::REVERSE,
+                description: "SAM flag 0x10: the read is reverse complemented.",
+            },
+            ColumnDoc {
+                name: Self::MATE_REVERSE,
+                description: "SAM flag 0x20: the mate is reverse complemented.",
+            },
+            ColumnDoc {
+                name: Self::FIRST_SEGMENT,
+                description: "SAM flag 0x40: the read is the first segment.",
+            },
+            ColumnDoc {
+                name: Self::LAST_SEGMENT,
+                description: "SAM flag 0x80: the read is the last segment.",
+            },
+            ColumnDoc {
+                name: Self::SECONDARY,
+                description: "SAM flag 0x100: the alignment is secondary.",
+            },
+            ColumnDoc {
+                name: Self::QC_FAILED,
+                description: "SAM flag 0x200: the read fails quality checks.",
+            },
+            ColumnDoc {
+                name: Self::DUPLICATE,
+                description: "SAM flag 0x400: the read is a PCR or optical duplicate.",
+            },
+            ColumnDoc {
+                name: Self::SUPPLEMENTARY,
+                description: "SAM flag 0x800: the alignment is supplementary.",
+            },
+        ]
     }
 }
 
@@ -605,6 +686,39 @@ impl TableSchema for CigarSchema {
         schema.insert(Self::RUN_OFFSET.into(), DataType::UInt32);
         Arc::new(schema)
     }
+
+    fn column_docs() -> &'static [ColumnDoc] {
+        &[
+            ColumnDoc {
+                name: Self::READ_ID,
+                description: "The read that owns the operation.",
+            },
+            ColumnDoc {
+                name: Self::OP_INDEX,
+                description: "The zero-based operation index within the CIGAR string.",
+            },
+            ColumnDoc {
+                name: Self::KIND,
+                description: "The CIGAR operation, as a BAM operation code.",
+            },
+            ColumnDoc {
+                name: Self::REF_START,
+                description: "The 1-based reference position where the operation starts. For operations that do not consume the reference, it is the next reference position, so an insertion lies between `ref_start - 1` and `ref_start`.",
+            },
+            ColumnDoc {
+                name: Self::OP_LEN,
+                description: "The operation length.",
+            },
+            ColumnDoc {
+                name: Self::SEQ,
+                description: "The read bases of operations that consume the read; otherwise null.",
+            },
+            ColumnDoc {
+                name: Self::QUAL,
+                description: "The base qualities, aligned with `seq`.",
+            },
+        ]
+    }
 }
 
 /// The schema for records without CIGAR operations.
@@ -651,6 +765,27 @@ impl TableSchema for ReferenceMismatchSchema {
         schema.insert(Self::BASE.into(), DataType::UInt8);
         Arc::new(schema)
     }
+
+    fn column_docs() -> &'static [ColumnDoc] {
+        &[
+            ColumnDoc {
+                name: Self::READ_ID,
+                description: "The read containing the mismatch.",
+            },
+            ColumnDoc {
+                name: Self::OP_INDEX,
+                description: "The `M` operation containing the base.",
+            },
+            ColumnDoc {
+                name: Self::REF_POS,
+                description: "The 1-based reference position.",
+            },
+            ColumnDoc {
+                name: Self::BASE,
+                description: "The read base, which differs from the reference.",
+            },
+        ]
+    }
 }
 
 /// Sparse MM/ML annotations, with exactly one of code and ChEBI ID populated.
@@ -683,6 +818,31 @@ impl TableSchema for BaseModificationSchema {
         schema.insert(Self::PROBABILITY.into(), DataType::UInt8);
         schema.insert(Self::SOURCE_ORDER.into(), DataType::UInt64);
         Arc::new(schema)
+    }
+
+    fn column_docs() -> &'static [ColumnDoc] {
+        &[
+            ColumnDoc {
+                name: Self::READ_ID,
+                description: "The read carrying the modification call.",
+            },
+            ColumnDoc {
+                name: Self::DISPLAY_POS,
+                description: "The 1-based reference position, with soft-clipped bases projected beside the alignment.",
+            },
+            ColumnDoc {
+                name: Self::CODE,
+                description: "The modification code, such as `m` for 5mC; null when `chebi_id` is set.",
+            },
+            ColumnDoc {
+                name: Self::CHEBI_ID,
+                description: "The ChEBI ID of the modification; null when `code` is set.",
+            },
+            ColumnDoc {
+                name: Self::PROBABILITY,
+                description: "The ML probability from 0 to 255, or null when absent.",
+            },
+        ]
     }
 }
 
@@ -1450,10 +1610,10 @@ mod tests {
                 .reads
                 .column(ReadSchema::POS)
                 .unwrap()
-                .u32()
+                .u64()
                 .unwrap()
                 .get(0),
-            Some(reference_start as u32)
+            Some(reference_start)
         );
         assert_eq!(
             alignment

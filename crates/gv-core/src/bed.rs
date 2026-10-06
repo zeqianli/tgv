@@ -4,7 +4,7 @@ use crate::{
     contig_header::ContigHeader,
     error::TGVError,
     intervals::{IntervalSchema, IntervalTable},
-    table_schema::TableSchema,
+    table_schema::{ColumnDoc, TableSchema},
 };
 use noodles::bed;
 use polars::prelude::*;
@@ -34,6 +34,23 @@ impl TableSchema for BedSchema {
         schema.insert(Self::START.into(), DataType::UInt64);
         schema.insert(Self::END.into(), DataType::UInt64);
         Arc::new(schema)
+    }
+
+    fn column_docs() -> &'static [ColumnDoc] {
+        &[
+            ColumnDoc {
+                name: Self::ROW_ID,
+                description: "The zero-based interval index in the file.",
+            },
+            ColumnDoc {
+                name: Self::START,
+                description: "The 1-based first position, converted from the BED 0-based start.",
+            },
+            ColumnDoc {
+                name: Self::END,
+                description: "The last position, inclusive.",
+            },
+        ]
     }
 }
 

@@ -1,5 +1,5 @@
 [workspace]
-members = ["crates/gv-core", "crates/tgv"]
+members = ["crates/gv-core", "crates/gv-mcp", "crates/gv-session", "crates/tgv"]
 resolver = "3"
 
 [workspace.dependencies]
@@ -19,7 +19,8 @@ miette = { version = "7", features = ["fancy"] }
 nom = "8"
 noodles = { version = "0", features = ["async", "bam", "bed", "bgzf", "core", "cram", "fasta", "sam", "vcf"] }
 opendal = { version = "0.53.3", default-features = false, features = ["services-s3"] }
-# Polars 0.55 string expressions also require its temporal support.
+# Polars 0.55 string expressions also require its temporal support. Crates that run SQL add
+# their features in their own manifests.
 polars = { version = "0.55.2", default-features = false, features = ["dtype-u8", "dtype-u16", "lazy", "strings", "is_in", "cum_agg", "dtype-i128", "temporal", "round_series"] }
 ratatui = "0.29"
 rmcp = { version = "=3.5.0", default-features = false, features = ["server", "macros", "transport-io"] }
@@ -41,6 +42,8 @@ unicode-width = "0.2"
 # local crates
 
 gv-core = { path = "crates/gv-core", version = "=0.3.0" }
+gv-mcp = { path = "crates/gv-mcp", version = "=0.3.0" }
+gv-session = { path = "crates/gv-session", version = "=0.3.0" }
 
 [profile.release] # as recommended in https://github.com/ratatui/ratatui-website/pull/931/files
 codegen-units = 1 # Allows compiler to perform better optimization.

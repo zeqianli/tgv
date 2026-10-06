@@ -1,47 +1,69 @@
 # Local MCP server
 
-Configure an MCP client to start `tgv serve` as a stdio server. For example, with Codex:
+TGV runs as a local [MCP](https://modelcontextprotocol.io) server so that agents can load genomic files and query and summarize data over intervals with SQL.
+
+## Setup
+
+Configure an MCP client to start `tgv mcp` as a stdio server. For example, with Codex or Claude Code:
 
 ```sh
-codex mcp add tgv -- tgv serve
+codex mcp add tgv -- tgv mcp
+claude mcp add tgv -- tgv mcp
 ```
 
-The client launches TGV and communicates through standard input and output. No port, URL, or separate background process is needed. Each server process starts without a dataset and owns one dataset for its client connection. Global options precede the subcommand, for example `tgv --offline serve`. File paths passed to tools refer to the computer running TGV. Standard output is reserved for MCP messages; diagnostics go to the log file or standard error.
+The client launches TGV and communicates through standard input and output. No port, URL, or separate background process is needed. `tgv serve` is an alias for `tgv mcp`. Global options precede the subcommand, for example `tgv --offline mcp`. Positional file arguments and `--session` are rejected; load files with [`load_dataset`](./server/dataset.md) instead. Standard output is reserved for MCP messages; diagnostics go to the log file or standard error.
 
-## Load and describe a dataset
+## Lifecycle
 
-Call the `load_dataset` tool with these arguments:
+Each server process starts without a dataset and owns one dataset for its client connection. Tool calls are processed one at a time, in order, by a single dataset worker. Closing standard input stops the server and closes the dataset after outstanding work finishes. A termination signal stops the process immediately.
+
+## Tools
+
+| Tool | Chapter | Purpose |
+|------|---------|---------|
+| `get_dataset` | [Load and describe a dataset](./server/dataset.md) | Describes the loaded reference and tracks. |
+| `load_dataset` | [Load and describe a dataset](./server/dataset.md) | Loads or replaces the dataset. |
+| `inspect_interval` | [Inspect an interval](./server/inspect.md) | Returns an overview of reads, depth, variants, BED intervals, and genes in an interval. |
+| `describe_tables` | [Query data with SQL](./server/query.md) | Lists the SQL tables, their columns, and example queries. |
+| `query` | [Query data with SQL](./server/query.md) | Runs a read-only SQL query over reads, coverage, variants, BED intervals, genes, and the reference. |
+
+The examples in each chapter use the same dataset: an HG002 chr20 BAM, a small VCF, and a small BED file on hg38, inspected around `chr20:88108`.
+
+## Conventions
+
+- Coordinates are 1-based, and interval ends are inclusive, in both requests and responses.
+- Tracks have numeric IDs in the order of the loaded files. IDs reset whenever the dataset is replaced, so call `get_dataset` again before reusing old IDs.
+- An optional `tracks` array selects distinct track IDs; omitting it selects all tracks.
+- File paths refer to the computer running TGV, not to the client.
+- Requests reject unknown fields.
+
+## Errors
+
+Validation and dataset failures are MCP tool results with `isError: true`. The text content contains `<code>: <message>`, and the structured content contains the error object. For example, an `inspect_interval` call with `"tracks":[0,0]` returns:
 
 ```json
-{"reference":"hg38","files":["/data/reads.bam","/data/calls.vcf","/data/targets.bed"]}
+{
+  "content": [
+    {
+      "type": "text",
+      "text": "invalid_input: Select distinct track IDs from the current dataset."
+    }
+  ],
+  "structuredContent": {
+    "error": {
+      "code": "invalid_input",
+      "field": "tracks",
+      "message": "Select distinct track IDs from the current dataset."
+    }
+  },
+  "isError": true
+}
 ```
 
-The `reference` field is required; use a reference accepted by `-g`, or `null` for no reference. A successful result contains the reference and tracks with numeric `id`, `type`, and `source` fields. Adding or removing files replaces the entire dataset. Failed loading leaves the previous dataset intact. Track IDs reset on replacement, so call `get_dataset` again before using old IDs. Before the first load, `get_dataset` returns `{"loaded":false}`.
+| Code | Meaning | `field` |
+|------|---------|---------|
+| `invalid_input` | The request is well-formed but invalid for the current dataset. | The offending request field, such as `tracks` or `center.contig`. |
+| `no_dataset` | `inspect_interval` or `query` is called before `load_dataset`. | `null` |
+| `internal_error` | Reading files or computing results fails. | `null` |
 
-## Inspect an interval
-
-Call `inspect_interval` with these arguments:
-
-```json
-{"region":{"contig":"chr20","start":88000,"end":88100},"tracks":[0,1,2]}
-```
-
-Coordinates are 1-based and inclusive. The optional `tracks` array selects distinct numeric IDs; omitting it selects all tracks. The structured result contains the effective `region`, `summary.tracks`, `summary.genes`, and `warnings`. If the contig length is known, an end beyond it is clamped; a start beyond it is invalid.
-
-Each alignment entry in `summary.tracks` contains `overlapping_records` and `coverage`. The nested coverage has a `viewer_current` method and per-position `A`, `C`, `G`, `T`, `N`, `total`, and `softclip` counts, including zero-depth positions. Variant and BED entries contain overlap counts, up to 1,000 items, and a truncation flag. Alignment overlap counts use displayed read spans, including soft clips, through the same core query as the single-read TUI renderer. Coverage retains the current viewer calculation and is not an audited analytical metric.
-
-## Draw a viewport
-
-Call `draw_viewport` with these arguments:
-
-```json
-{"center":{"contig":"chr20","position":88050},"zoom":1,"half_width":100,"tracks":[0],"format":"ansi","canvas_width":120,"canvas_height":40}
-```
-
-Use `"format":"text"` for plain output or `"format":"ansi"` for terminal colors. The structured result contains the displayed `region`, `text`, a `legend`, and `warnings`. Drawing reuses the TUI renderer and does not calculate inspection statistics.
-
-## Bounds and errors
-
-Inspected intervals are limited to 100,000 bases. Draw canvas dimensions must each be 10–500 cells, and the resolved track area must have nonzero width. These bounds do not impose a read-depth or memory limit, so high-depth regions can still be expensive.
-
-Validation and dataset failures are MCP tool errors with `isError: true`, a readable message, and structured `{"error":{"code":"...","message":"...","field":null}}` data. Malformed MCP requests and arguments receive protocol errors. Closing standard input stops the server and closes its repository after outstanding work finishes. A termination signal stops the process immediately.
+Malformed MCP requests, and arguments that do not match a tool's input schema, receive protocol errors instead of tool results.

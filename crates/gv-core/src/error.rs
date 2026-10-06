@@ -53,18 +53,6 @@ pub enum TGVError {
     #[error("File IO error: {0}")]
     FileIOError(#[from] std::io::Error),
 
-    #[error("{message}")]
-    McpInvalidInput {
-        field: &'static str,
-        message: String,
-    },
-
-    #[error("Load a dataset before {operation}.")]
-    McpNoDataset { operation: &'static str },
-
-    #[error("{message}")]
-    McpInternal { message: String },
-
     #[error("Logging error: {0}")]
     LoggingError(#[from] crate::logging::LoggingError),
 

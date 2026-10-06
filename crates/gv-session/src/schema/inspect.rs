@@ -1,6 +1,6 @@
-//! MCP inspection request and response types, independent of session serialization.
+//! Inspection request and response types, independent of session file serialization.
 
-use crate::track_registry::TrackId;
+use crate::error::SessionError;
 use gv_core::{
     alignment::{Alignment, CoverageSchema, tables::ReadSchema},
     bed::{BedSchema, BedTable},
@@ -17,7 +17,7 @@ const MAX_SUMMARY_ITEMS: usize = 1000;
 /// Identifies an inclusive, 1-based interval for inspection.
 #[derive(Deserialize, Serialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
-pub(in crate::server) struct InspectInterval {
+pub struct InspectInterval {
     pub contig: String,
     pub start: u64,
     pub end: u64,
@@ -26,18 +26,48 @@ pub(in crate::server) struct InspectInterval {
 /// Requests structured results for an explicit interval and optional tracks.
 #[derive(Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
-pub(in crate::server) struct InspectRequest {
+pub struct InspectRequest {
     pub region: InspectInterval,
     pub tracks: Option<Vec<TrackId>>,
 }
 
 impl InspectInterval {
     pub const MAX_QUERY_WIDTH: u64 = 100_000;
+
+    /// Validates the interval against the dataset contigs.
+    ///
+    /// Returns the core query region and the effective interval, with its end clamped to a
+    /// known contig length.
+    pub fn resolve(
+        &self,
+        contigs: &ContigHeader,
+    ) -> Result<(Region, InspectInterval), SessionError> {
+        let query = Region::try_from_contig_names_and_bounds(
+            &self.contig,
+            self.start,
+            self.end,
+            contigs,
+            Some(Self::MAX_QUERY_WIDTH),
+        )
+        .map_err(|error| SessionError::InvalidInput {
+            field: "region",
+            message: error.to_string(),
+        })?;
+        let header = &contigs.contigs[query.contig_index()];
+        let effective = InspectInterval {
+            contig: header.name.clone(),
+            start: self.start,
+            end: header
+                .length
+                .map_or(self.end, |length| self.end.min(length)),
+        };
+        Ok((query, effective))
+    }
 }
 
 /// Returns statistics for the effective interval after contig-end clamping.
 #[derive(Serialize)]
-pub(in crate::server) struct InspectResponse {
+pub struct InspectResponse {
     pub region: InspectInterval,
     pub summary: InspectSummary,
     pub warnings: Vec<InspectWarning>,
@@ -45,7 +75,7 @@ pub(in crate::server) struct InspectResponse {
 
 /// Groups per-track and gene summaries for an inspected interval.
 #[derive(Serialize)]
-pub(in crate::server) struct InspectSummary {
+pub struct InspectSummary {
     pub tracks: Vec<TrackSummary>,
     pub genes: GeneSummary,
 }
@@ -53,7 +83,7 @@ pub(in crate::server) struct InspectSummary {
 /// Summarizes records overlapping the interval in one selected track.
 #[derive(Serialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
-pub(in crate::server) enum TrackSummary {
+pub enum TrackSummary {
     Alignment {
         track_id: TrackId,
         overlapping_records: usize,
@@ -74,7 +104,7 @@ pub(in crate::server) enum TrackSummary {
 }
 
 impl TrackSummary {
-    /// Summarizes overlapping reads and their per-position coverage.
+    /// Summarizes overlapping reads and their depth over the interval.
     pub fn from_alignment(
         track_id: TrackId,
         alignment: &Alignment,
@@ -99,50 +129,32 @@ impl TrackSummary {
                     .collect()?
                     .height()
             };
-        let coverage = alignment.coverage.query(region.start, region.end)?;
-        let mut rows = coverage
-            .column(CoverageSchema::POS)?
-            .u64()?
+        let width = region.end - region.start + 1;
+        let coverage = if alignment.contig_index == contig_index {
+            alignment.coverage.query(region.start, region.end)?
+        } else {
+            CoverageSchema::empty()
+        };
+        let totals = coverage.column(CoverageSchema::TOTAL)?.u64()?;
+        let covered = totals
             .into_no_null_iter()
-            .enumerate()
-            .peekable();
-        let a = coverage.column(CoverageSchema::A)?.u64()?;
-        let c = coverage.column(CoverageSchema::C)?.u64()?;
-        let g = coverage.column(CoverageSchema::G)?.u64()?;
-        let t = coverage.column(CoverageSchema::T)?.u64()?;
-        let n = coverage.column(CoverageSchema::N)?.u64()?;
-        let total = coverage.column(CoverageSchema::TOTAL)?.u64()?;
-        let softclip = coverage.column(CoverageSchema::SOFTCLIP)?.u64()?;
-        let positions = (region.start..=region.end)
-            .map(|position| {
-                let row = if rows.peek().is_some_and(|(_, pos)| *pos == position) {
-                    rows.next().map(|(row, _)| row)
-                } else {
-                    None
-                };
-                let count = |column: &polars::prelude::UInt64Chunked| {
-                    row.map_or(0, |row| {
-                        column.get(row).expect("coverage counts are non-null") as usize
-                    })
-                };
-                PositionCoverage {
-                    position,
-                    a: count(a),
-                    c: count(c),
-                    g: count(g),
-                    t: count(t),
-                    n: count(n),
-                    total: count(total),
-                    softclip: count(softclip),
-                }
-            })
-            .collect();
+            .filter(|&total| total > 0)
+            .count() as u64;
+        let total = totals.sum().unwrap_or(0);
         Ok(Self::Alignment {
             track_id,
             overlapping_records,
             coverage: CoverageSummary {
                 method: CoverageMethod::ViewerCurrent,
-                positions,
+                positions: width,
+                zero_depth_positions: width - covered,
+                mean_depth: total as f64 / width as f64,
+                min_depth: if covered < width {
+                    0
+                } else {
+                    totals.min().unwrap_or(0)
+                },
+                max_depth: totals.max().unwrap_or(0),
             },
         })
     }
@@ -216,7 +228,7 @@ impl TrackSummary {
 
 /// Describes one variant returned in an inspection summary.
 #[derive(Serialize)]
-pub(in crate::server) struct VariantRecord {
+pub struct VariantRecord {
     pub start: u64,
     pub end: u64,
     pub reference: String,
@@ -225,14 +237,14 @@ pub(in crate::server) struct VariantRecord {
 
 /// Describes one BED interval returned in an inspection summary.
 #[derive(Serialize)]
-pub(in crate::server) struct BedRecord {
+pub struct BedRecord {
     pub start: u64,
     pub end: u64,
 }
 
 /// Summarizes overlapping genes and whether annotations are available.
 #[derive(Serialize)]
-pub(in crate::server) struct GeneSummary {
+pub struct GeneSummary {
     pub available: bool,
     pub overlapping_records: usize,
     pub truncated: bool,
@@ -288,7 +300,7 @@ impl GeneSummary {
 
 /// Describes one gene returned in an inspection summary.
 #[derive(Serialize)]
-pub(in crate::server) struct GeneRecord {
+pub struct GeneRecord {
     pub id: String,
     pub name: String,
     pub start: u64,
@@ -296,42 +308,30 @@ pub(in crate::server) struct GeneRecord {
     pub strand: String,
 }
 
-/// Reports per-position coverage for one alignment track.
+/// Summarizes the depth of one alignment track over the interval.
+///
+/// Per-position counts are available through the `coverage` table of the `query` tool.
 #[derive(Serialize)]
-pub(in crate::server) struct CoverageSummary {
+pub struct CoverageSummary {
     pub method: CoverageMethod,
-    pub positions: Vec<PositionCoverage>,
+    pub positions: u64,
+    pub zero_depth_positions: u64,
+    pub mean_depth: f64,
+    pub min_depth: u64,
+    pub max_depth: u64,
 }
 
 /// Identifies the calculation used for reported coverage.
 #[derive(Serialize)]
 #[serde(rename_all = "snake_case")]
-pub(in crate::server) enum CoverageMethod {
+pub enum CoverageMethod {
     ViewerCurrent,
-}
-
-/// Reports base counts and soft clips at one genomic position.
-#[derive(Serialize)]
-pub(in crate::server) struct PositionCoverage {
-    pub position: u64,
-    #[serde(rename = "A")]
-    pub a: usize,
-    #[serde(rename = "C")]
-    pub c: usize,
-    #[serde(rename = "G")]
-    pub g: usize,
-    #[serde(rename = "T")]
-    pub t: usize,
-    #[serde(rename = "N")]
-    pub n: usize,
-    pub total: usize,
-    pub softclip: usize,
 }
 
 /// Reports unavailable data in an inspection response.
 #[derive(Serialize)]
 #[serde(tag = "code", rename_all = "snake_case")]
-pub(in crate::server) enum InspectWarning {
+pub enum InspectWarning {
     ReferenceUnavailable { message: String },
     GenesUnavailable { message: String },
 }
