@@ -1,6 +1,10 @@
 //! The loaded dataset state, dataset replacement, regional inspection, and rendering.
 
-use super::{Command, Reply, schema::*};
+use super::{
+    Command, Reply,
+    schema::*,
+    tables::{QueryRegion, TableSources},
+};
 use crate::{
     app::RenderEvent,
     layout::{AlignmentView, AreaType, MainLayout, ResolvedMainLayout},
@@ -46,6 +50,12 @@ impl DatasetState {
                     Some(dataset) => dataset.inspect(request).await,
                     None => Err(TGVError::McpNoDataset {
                         operation: "inspecting",
+                    }),
+                },
+                Command::Query(request) => match dataset.as_mut() {
+                    Some(dataset) => dataset.query(request).await,
+                    None => Err(TGVError::McpNoDataset {
+                        operation: "querying",
                     }),
                 },
                 Command::Draw(request) => match dataset.as_mut() {
@@ -211,23 +221,9 @@ impl DatasetState {
     /// Summarizes an inclusive region, clamping its end to a known contig length.
     pub(super) async fn inspect(&mut self, request: InspectRequest) -> Reply {
         let selected = self.selected_tracks(request.tracks.as_deref())?;
-        let query = Region::try_from_contig_names_and_bounds(
-            &request.region.contig,
-            request.region.start,
-            request.region.end,
-            &self.state.contig_header,
-            Some(InspectInterval::MAX_QUERY_WIDTH),
-        )?;
+        let (query, region) = request.region.resolve(&self.state.contig_header)?;
         self.load_region(&query, &selected).await?;
         let contig_index = query.contig_index();
-        let header = &self.state.contig_header.contigs[contig_index];
-        let region = InspectInterval {
-            contig: header.name.clone(),
-            start: request.region.start,
-            end: header
-                .length
-                .map_or(request.region.end, |length| request.region.end.min(length)),
-        };
 
         let mut track_summaries = Vec::new();
         for &id in &selected {
@@ -274,6 +270,84 @@ impl DatasetState {
             summary,
             warnings: self.availability_warnings(),
         })
+    }
+
+    /// Loads every variant and BED track that is not loaded yet.
+    ///
+    /// These repositories read whole files, so the region only labels the load in logs.
+    async fn load_whole_file_tracks(&mut self, region: &Region) -> Result<(), TGVError> {
+        for entry in &self.tracks.entries {
+            match entry.repository_index {
+                RepositoryFileIndex::Variant(i) if !self.state.variant_loaded[i] => {
+                    self.state
+                        .load_variant_data(i, region, &mut self.repository.variant_repositories[i])
+                        .await?;
+                }
+                RepositoryFileIndex::Bed(i) if !self.state.bed_loaded[i] => {
+                    self.state
+                        .load_bed_data(i, region, &mut self.repository.bed_repositories[i])
+                        .await?;
+                }
+                _ => {}
+            }
+        }
+        Ok(())
+    }
+
+    /// Runs a read-only SQL query over the curated tables.
+    pub(super) async fn query(&mut self, request: QueryRequest) -> Reply {
+        let limit = request.limit()?;
+        let resolved = request
+            .region
+            .as_ref()
+            .map(|region| region.resolve(&self.state.contig_header))
+            .transpose()?;
+        match &resolved {
+            Some((query, _)) => {
+                let all: Vec<TrackId> = self.tracks.entries.iter().map(|entry| entry.id).collect();
+                self.load_region(query, &all).await?;
+            }
+            None => {
+                let anywhere = Region {
+                    focus: Focus {
+                        contig_index: 0,
+                        position: 1,
+                    },
+                    half_width: 0,
+                };
+                self.load_whole_file_tracks(&anywhere).await?;
+            }
+        }
+
+        let region = resolved.as_ref().map(|(query, interval)| QueryRegion {
+            contig_index: query.contig_index(),
+            contig: &interval.contig,
+            start: interval.start,
+            end: interval.end,
+        });
+        let sources = TableSources {
+            state: &self.state,
+            tracks: &self.tracks,
+            sources: self
+                .tracks
+                .entries
+                .iter()
+                .map(|entry| self.repository.file_path(entry.repository_index))
+                .collect(),
+        };
+        let tables = sources.build(region.as_ref())?;
+        let (frame, truncated) = request.execute(tables, limit)?;
+        let warnings = if resolved.is_some() {
+            self.availability_warnings()
+        } else {
+            Vec::new()
+        };
+        super::as_json(&QueryResponse::from_frame(
+            resolved.map(|(_, interval)| interval),
+            &frame,
+            truncated,
+            warnings,
+        )?)
     }
 
     /// Reports dataset and layout limitations visible in a drawing.

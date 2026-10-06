@@ -1,6 +1,6 @@
 # Inspect an interval
 
-`inspect_interval` returns structured statistics for an interval: per-position coverage for alignment tracks, overlapping records for variant and BED tracks, and overlapping genes. The results do not depend on any drawing.
+`inspect_interval` returns a quick overview of an interval: read counts and depth statistics for alignment tracks, overlapping records for variant and BED tracks, and overlapping genes. The results do not depend on any drawing. For per-position counts, individual reads, or any other detail, use [`query`](./query.md).
 
 ## Request
 
@@ -17,7 +17,7 @@
 
 ## Response
 
-This interval covers a heterozygous T>C site at `chr20:88108`. The site appears in the alignment coverage, in the VCF, and inside a BED target.
+This interval covers a heterozygous T>C site at `chr20:88108`. The site appears in the VCF and inside a BED target.
 
 ```json
 {
@@ -30,13 +30,11 @@ This interval covers a heterozygous T>C site at `chr20:88108`. The site appears 
         "overlapping_records": 360,
         "coverage": {
           "method": "viewer_current",
-          "positions": [
-            {"position": 88106, "A": 0, "C": 0, "G": 341, "T": 1, "N": 0, "total": 342, "softclip": 6},
-            {"position": 88107, "A": 0, "C": 0, "G": 0, "T": 343, "N": 0, "total": 343, "softclip": 8},
-            {"position": 88108, "A": 0, "C": 149, "G": 0, "T": 189, "N": 0, "total": 338, "softclip": 12},
-            {"position": 88109, "A": 0, "C": 0, "G": 349, "T": 0, "N": 0, "total": 349, "softclip": 2},
-            {"position": 88110, "A": 0, "C": 0, "G": 0, "T": 353, "N": 0, "total": 353, "softclip": 1}
-          ]
+          "positions": 5,
+          "zero_depth_positions": 0,
+          "mean_depth": 345.0,
+          "min_depth": 338,
+          "max_depth": 353
         }
       },
       {
@@ -75,7 +73,7 @@ This interval covers a heterozygous T>C site at `chr20:88108`. The site appears 
 
 - `region` is the effective interval after clamping.
 - `summary.tracks` has one entry per selected track, in dataset order. The `type` field indicates which other fields the entry has:
-  - `alignment`: `overlapping_records` counts reads whose displayed span overlaps the interval. `coverage.positions` has one entry for every position in the interval, including zero-depth positions, with `A`, `C`, `G`, `T`, `N`, `total`, and `softclip` counts.
+  - `alignment`: `overlapping_records` counts reads whose displayed span overlaps the interval. `coverage` summarizes the aligned-base depth over the interval: the number of `positions`, the `zero_depth_positions`, and the `mean_depth`, `min_depth`, and `max_depth`.
   - `variant`: `items` lists the overlapping records with `start`, `end`, `reference`, and `alternate` alleles.
   - `bed`: `items` lists the overlapping intervals, converted to 1-based inclusive coordinates. The BED line `chr20 88100 88200` appears as `88101`–`88200`.
 - `summary.genes` lists overlapping genes, sorted by start. `available` is `false` when the reference has no gene annotations.
@@ -90,16 +88,16 @@ This interval covers a heterozygous T>C site at `chr20:88108`. The site appears 
 
 ## Bounds and errors
 
-The interval may span at most 100,000 bases. The bound does not limit read depth or memory, so high-depth regions can still be expensive. With per-position coverage, a large interval also produces a large response.
+The interval may span at most 100,000 bases. The bound does not limit read depth or memory, so high-depth regions can still be expensive.
 
 | Code | `field` | Cause |
 |------|---------|-------|
 | `invalid_input` | `tracks` | `tracks` is empty, repeats an ID, or contains an ID that is not in the dataset. |
-| `internal_error` | `null` | The contig is unknown, the start is 0 or past the contig end, the start exceeds the end, or the interval is wider than 100,000 bases. |
+| `invalid_input` | `region` | The contig is unknown, the start is 0 or past the contig end, the start exceeds the end, or the interval is wider than 100,000 bases. |
 | `no_dataset` | `null` | No dataset is loaded. |
 
-Interval validation errors currently use the `internal_error` code. For example, an unknown contig returns:
+For example, an unknown contig returns:
 
 ```json
-{"error": {"code": "internal_error", "field": null, "message": "State error: Contig chrZ not found"}}
+{"error": {"code": "invalid_input", "field": "region", "message": "State error: Contig chrZ not found"}}
 ```

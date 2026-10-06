@@ -2,6 +2,7 @@
 
 mod dataset_state;
 mod schema;
+mod tables;
 
 use self::{dataset_state::DatasetState, schema::*};
 use crate::settings::{Cli, Settings};
@@ -22,6 +23,7 @@ enum Command {
     Describe,
     Replace(DatasetRequest),
     Inspect(InspectRequest),
+    Query(QueryRequest),
     Draw(DrawRequest),
     Shutdown,
 }
@@ -61,6 +63,20 @@ impl McpHandler {
         Parameters(request): Parameters<InspectRequest>,
     ) -> CallToolResult {
         self.dispatch(Command::Inspect(request)).await
+    }
+
+    #[tool(
+        description = "Describe the SQL tables available to the query tool: columns, types, keys, scopes, usage notes, and example queries."
+    )]
+    async fn describe_tables(&self) -> CallToolResult {
+        tool_result(TablesResponse::new().and_then(|tables| as_json(&tables)))
+    }
+
+    #[tool(
+        description = "Run a read-only Polars SQL query over the dataset's reads, CIGAR operations, mismatches, base modifications, coverage, reference, variants, BED intervals, and genes. Call describe_tables first. Region tables need a 1-based inclusive region of at most 100,000 bases."
+    )]
+    async fn query(&self, Parameters(request): Parameters<QueryRequest>) -> CallToolResult {
+        self.dispatch(Command::Query(request)).await
     }
 
     #[tool(description = "Draw a genome viewport as plain text or ANSI-colored terminal output.")]

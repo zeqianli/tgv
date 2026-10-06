@@ -4,7 +4,7 @@ use crate::{
     contig_header::ContigHeader,
     error::TGVError,
     intervals::{IntervalSchema, IntervalTable},
-    table_schema::TableSchema,
+    table_schema::{ColumnDoc, TableSchema},
 };
 use noodles::vcf::{
     self,
@@ -54,6 +54,43 @@ impl TableSchema for VariantSchema {
             DataType::List(Box::new(DataType::String)),
         );
         Arc::new(schema)
+    }
+
+    fn column_docs() -> &'static [ColumnDoc] {
+        &[
+            ColumnDoc {
+                name: Self::ROW_ID,
+                description: "The zero-based record index in the file.",
+            },
+            ColumnDoc {
+                name: Self::START,
+                description: "The 1-based VCF POS.",
+            },
+            ColumnDoc {
+                name: Self::END,
+                description: "The last reference position covered by the reference allele.",
+            },
+            ColumnDoc {
+                name: Self::IDS,
+                description: "The VCF ID values.",
+            },
+            ColumnDoc {
+                name: Self::REFERENCE,
+                description: "The reference allele.",
+            },
+            ColumnDoc {
+                name: Self::ALTERNATE,
+                description: "The alternate alleles.",
+            },
+            ColumnDoc {
+                name: Self::QUALITY_SCORE,
+                description: "The VCF QUAL, or null.",
+            },
+            ColumnDoc {
+                name: Self::FILTERS,
+                description: "The VCF FILTER values, such as `PASS`.",
+            },
+        ]
     }
 }
 

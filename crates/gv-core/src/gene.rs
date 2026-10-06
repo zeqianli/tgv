@@ -3,7 +3,7 @@
 use crate::{
     error::TGVError,
     intervals::{GenomeInterval, IntervalSchema, IntervalTable, Region},
-    table_schema::TableSchema,
+    table_schema::{ColumnDoc, TableSchema},
 };
 use polars::prelude::*;
 use std::sync::Arc;
@@ -470,6 +470,55 @@ impl TableSchema for GeneSchema {
         schema.insert(Self::HAS_EXONS.into(), DataType::Boolean);
         Arc::new(schema)
     }
+
+    fn column_docs() -> &'static [ColumnDoc] {
+        &[
+            ColumnDoc {
+                name: Self::ROW_ID,
+                description: "The transcript row ID within the loaded annotations.",
+            },
+            ColumnDoc {
+                name: Self::START,
+                description: "The transcript start.",
+            },
+            ColumnDoc {
+                name: Self::END,
+                description: "The transcript end, inclusive.",
+            },
+            ColumnDoc {
+                name: Self::ID,
+                description: "The transcript accession, such as `NM_153325.4`.",
+            },
+            ColumnDoc {
+                name: Self::NAME,
+                description: "The gene name, such as `DEFB125`.",
+            },
+            ColumnDoc {
+                name: Self::STRAND,
+                description: "`+` or `-`.",
+            },
+            ColumnDoc {
+                name: Self::CDS_START,
+                description: "The first coding position; greater than `cds_end` for noncoding transcripts.",
+            },
+            ColumnDoc {
+                name: Self::CDS_END,
+                description: "The last coding position.",
+            },
+            ColumnDoc {
+                name: Self::EXON_STARTS,
+                description: "The exon starts, in genomic order.",
+            },
+            ColumnDoc {
+                name: Self::EXON_ENDS,
+                description: "The exon ends, inclusive and paired with `exon_starts`.",
+            },
+            ColumnDoc {
+                name: Self::HAS_EXONS,
+                description: "Whether the annotation source provides exons.",
+            },
+        ]
+    }
 }
 
 /// Derived coding exon, noncoding exon, and intron drawing segments.
@@ -498,6 +547,31 @@ impl TableSchema for GeneSegmentSchema {
         schema.insert(Self::KIND.into(), DataType::String);
         schema.insert(Self::FEATURE_INDEX.into(), DataType::UInt64);
         Arc::new(schema)
+    }
+
+    fn column_docs() -> &'static [ColumnDoc] {
+        &[
+            ColumnDoc {
+                name: Self::GENE_ROW_ID,
+                description: "The transcript row ID in the gene table.",
+            },
+            ColumnDoc {
+                name: Self::START,
+                description: "The segment start.",
+            },
+            ColumnDoc {
+                name: Self::END,
+                description: "The segment end, inclusive.",
+            },
+            ColumnDoc {
+                name: Self::KIND,
+                description: "`coding_exon`, `noncoding_exon`, or `intron`.",
+            },
+            ColumnDoc {
+                name: Self::FEATURE_INDEX,
+                description: "The exon or intron number in transcription order, starting at 1.",
+            },
+        ]
     }
 }
 
