@@ -9,7 +9,7 @@
 | Field | Type | Required | Meaning |
 |-------|------|----------|---------|
 | `reference` | string or `null` | Yes | A reference accepted by `-g`, such as `hg38`, a UCSC assembly, or a FASTA or 2bit path. Use `null` for no reference. |
-| `files` | array of strings | Yes | BAM, VCF (`.vcf`, `.vcf.gz`), and BED (`.bed`, `.bed.gz`) paths. Track IDs follow this order. |
+| `files` | array of strings | Yes | BAM, variant (`.vcf`, `.vcf.gz`, `.vcf.bgz`, and `.bcf`), and BED (`.bed`, `.bed.gz`, `.bb`, and `.bigbed`) paths. Bgzipped VCF and BED files with a `.tbi` or `.csi` index, BCF files with a `.csi` index, and bigBed files load by region. Track IDs follow this order. |
 
 ```json
 {

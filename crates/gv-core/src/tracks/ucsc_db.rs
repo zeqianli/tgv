@@ -3,7 +3,6 @@ use crate::{
     cytoband::{Cytoband, CytobandSegment},
     error::TGVError,
     gene::GeneTable,
-    intervals::GenomeInterval,
     intervals::Region,
     reference::Reference,
     tracks::UcscHost,

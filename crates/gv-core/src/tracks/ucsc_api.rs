@@ -4,8 +4,8 @@ use crate::{
     cytoband::Cytoband,
     error::TGVError,
     gene::GeneTable,
+    intervals::IntervalTable,
     intervals::Region,
-    intervals::{GenomeInterval, IntervalTable},
     reference::Reference,
     tracks::schema::*,
 };

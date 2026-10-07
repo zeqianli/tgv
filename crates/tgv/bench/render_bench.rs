@@ -16,7 +16,6 @@
 
 use crossterm::event::{KeyModifiers, MouseEvent, MouseEventKind};
 use gv_core::{
-    intervals::GenomeInterval,
     message::{AlignmentDisplayOption, Message as CoreMessage, Movement, Scroll},
     state::CachePolicy,
 };

@@ -1,7 +1,7 @@
 use crate::{
     contig_header::{Contig, ContigHeader},
     error::TGVError,
-    intervals::{GenomeInterval, Region},
+    intervals::Region,
     sequence::Sequence,
 };
 use noodles::fasta::{

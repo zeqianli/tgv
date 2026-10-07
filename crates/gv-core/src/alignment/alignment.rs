@@ -3,7 +3,7 @@ use crate::alignment::{
     tables::{AlignmentTables, CigarSchema, ReadSchema},
 };
 use crate::error::TGVError;
-use crate::intervals::{GenomeInterval, Region};
+use crate::intervals::Region;
 use crate::message::{AlignmentFilter, AlignmentSort};
 use crate::sequence::Sequence;
 use noodles::sam::alignment::RecordBuf;
@@ -441,11 +441,7 @@ impl TrackBounds {
             return y;
         }
 
-        if let Some(y) = self
-            .right
-            .iter()
-            .position(|&right| start > right + min_gap)
-        {
+        if let Some(y) = self.right.iter().position(|&right| start > right + min_gap) {
             self.right[y] = end;
             return y;
         }
