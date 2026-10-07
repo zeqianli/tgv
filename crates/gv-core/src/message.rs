@@ -38,6 +38,10 @@ impl From<Zoom> for Message {
 pub enum Zoom {
     Out(u64),
     In(u64),
+    /// Shows at least `bases` bases across the track area.
+    Fit {
+        bases: u64,
+    },
 }
 
 #[derive(Debug, Clone, Eq, PartialEq, Display)]

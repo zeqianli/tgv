@@ -9,7 +9,7 @@ pub use crate::sequence::{
 use crate::{
     contig_header::{Contig, ContigHeader},
     error::TGVError,
-    intervals::{GenomeInterval, Region},
+    intervals::Region,
     reference::Reference,
     settings::{BackendType, Settings},
 };

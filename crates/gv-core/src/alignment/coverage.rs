@@ -6,8 +6,8 @@ use crate::{
     sequence::Sequence,
     table_schema::{ColumnDoc, TableSchema},
 };
-use polars::prelude::*;
 use itertools::izip;
+use polars::prelude::*;
 use std::sync::Arc;
 
 /// Sparse coverage by one-based position, independent of the alignment tables.

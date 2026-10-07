@@ -1,6 +1,6 @@
 use crate::{
     layout::{AlignmentView, AreaType, HoveringAreaType, ResolvedMainLayout},
-    message::{Message, Movement, Scroll, UpdateLayoutMessage},
+    message::{Action, Movement, Scroll, UpdateLayoutAction},
 };
 use crossterm::event::{MouseButton, MouseEvent, MouseEventKind};
 use gv_core::prelude::*;
@@ -47,7 +47,7 @@ impl MouseRegister {
         layout: &ResolvedMainLayout,
         alignment_view: &AlignmentView,
         event: MouseEvent,
-    ) -> Result<Vec<Message>, TGVError> {
+    ) -> Result<Vec<Action>, TGVError> {
         let cell = (event.column, event.row);
         if event.kind == MouseEventKind::Moved {
             if self.last_hover == Some(cell) {
@@ -92,14 +92,14 @@ impl MouseRegister {
             }
             MouseEventKind::Drag(MouseButton::Left) => {
                 if self.sidebar_resizing {
-                    messages.push(Message::UpdateLayout(UpdateLayoutMessage::SetSidebarWidth(
+                    messages.push(Action::UpdateLayout(UpdateLayoutAction::SetSidebarWidth(
                         event.column,
                     )));
                 } else if let Some((upper, lower)) = self.active_divider {
                     let delta_rows = event.row as i32 - self.last_y as i32;
                     if delta_rows != 0 {
-                        messages.push(Message::UpdateLayout(
-                            UpdateLayoutMessage::ResizeAlignmentPair {
+                        messages.push(Action::UpdateLayout(
+                            UpdateLayoutAction::ResizeAlignmentPair {
                                 upper,
                                 lower,
                                 delta_rows,
@@ -180,7 +180,7 @@ impl MouseRegister {
                                     &mut cigar,
                                     record.cigar(),
                                 )?;
-                                messages.push(Message::message(format!(
+                                messages.push(Action::message(format!(
                                     "{}  Flags={}  MAPQ={}  Cigar={}",
                                     name,
                                     u16::from(record.flags()),
@@ -201,7 +201,7 @@ impl MouseRegister {
                                             .map(|base| format!("{}: {}", coordinate, base as char))
                                     })
                                     .join(", ");
-                                messages.push(Message::message(description));
+                                messages.push(Action::message(description));
                             }
                         }
                         AreaType::Coverage(id) => {
@@ -249,7 +249,7 @@ impl MouseRegister {
                                 } else {
                                     format!("{} - {}: {}", left, right, counts)
                                 };
-                                messages.push(Message::message(description));
+                                messages.push(Action::message(description));
                             }
                         }
                         AreaType::Variant(id) => {
@@ -267,7 +267,9 @@ impl MouseRegister {
                                 let references = rows.column(VariantSchema::REFERENCE)?.str()?;
                                 let alternates = rows.column(VariantSchema::ALTERNATE)?.list()?;
                                 let qualities = rows.column(VariantSchema::QUALITY_SCORE)?.f32()?;
-                                let ids = rows.column(VariantSchema::ROW_ID)?.u64()?;
+                                let contig = &state.contig_header.contigs
+                                    [alignment_view.focus.contig_index]
+                                    .name;
                                 for row in 0..rows.height() {
                                     let alleles = alternates.get_as_series(row);
                                     let alternate = match alleles {
@@ -284,11 +286,9 @@ impl MouseRegister {
                                         .get(row)
                                         .map(|q| q.to_string())
                                         .unwrap_or_else(|| "?".into());
-                                    let record = &variants.records
-                                        [ids.get(row).expect("row IDs are non-null") as usize];
-                                    messages.push(Message::message(format!(
+                                    messages.push(Action::message(format!(
                                         "Variant: {}:{} {}>{} QUAL={}",
-                                        record.reference_sequence_name(),
+                                        contig,
                                         starts.get(row).expect("variant starts are non-null"),
                                         references.get(row).expect("reference bases are non-null"),
                                         alternate,
@@ -310,15 +310,20 @@ impl MouseRegister {
                                 )?;
                                 let starts = rows.column(BedSchema::START)?.u64()?;
                                 let ends = rows.column(BedSchema::END)?.u64()?;
-                                let ids = rows.column(BedSchema::ROW_ID)?.u64()?;
+                                let names = rows.column(BedSchema::NAME)?.str()?;
+                                let contig = &state.contig_header.contigs
+                                    [alignment_view.focus.contig_index]
+                                    .name;
                                 for row in 0..rows.height() {
-                                    let record = &intervals.records
-                                        [ids.get(row).expect("row IDs are non-null") as usize];
-                                    messages.push(Message::message(format!(
-                                        "BED interval: {}:{}-{}",
-                                        record.reference_sequence_name(),
+                                    let name = names
+                                        .get(row)
+                                        .map_or_else(String::new, |name| format!(" {name}"));
+                                    messages.push(Action::message(format!(
+                                        "BED interval: {}:{}-{}{}",
+                                        contig,
                                         starts.get(row).expect("BED starts are non-null"),
-                                        ends.get(row).expect("BED ends are non-null")
+                                        ends.get(row).expect("BED ends are non-null"),
+                                        name
                                     )));
                                 }
                             }

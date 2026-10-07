@@ -75,6 +75,14 @@ impl Default for Settings {
     }
 }
 
+/// Variant file extensions. Bgzipped VCF files with a `.tbi` or `.csi` index, and BCF files
+/// with a `.csi` index, are read by region.
+pub const VARIANT_EXTENSIONS: [&str; 4] = [".vcf", ".vcf.gz", ".vcf.bgz", ".bcf"];
+
+/// BED file extensions. Bgzipped BED files with a `.tbi` or `.csi` index, and bigBed files,
+/// are read by region.
+pub const BED_EXTENSIONS: [&str; 4] = [".bed", ".bed.gz", ".bb", ".bigbed"];
+
 /// Classify input files and build the track paths.
 ///
 /// Returns file paths in the same order as the input paths.
@@ -94,14 +102,18 @@ pub fn classify_and_build_tracks(files: &[String]) -> Result<Vec<FilePath>, TGVE
                 "CRAM format is not yet supported as a CLI input format.".to_string(),
             ));
         } else if !(lower.ends_with(".bam")
-            || lower.ends_with(".vcf")
-            || lower.ends_with(".vcf.gz")
-            || lower.ends_with(".bed")
-            || lower.ends_with(".bed.gz"))
+            || VARIANT_EXTENSIONS
+                .iter()
+                .any(|extension| lower.ends_with(extension))
+            || BED_EXTENSIONS
+                .iter()
+                .any(|extension| lower.ends_with(extension)))
         {
             return Err(TGVError::CliError(format!(
-                "Unrecognized file format: {}. Supported track formats: .bam, .vcf, .vcf.gz, .bed, .bed.gz. Use -g for custom FASTA or 2bit reference genomes.",
-                file
+                "Unrecognized file format: {}. Supported track formats: .bam, {}, {}. Use -g for custom FASTA or 2bit reference genomes.",
+                file,
+                VARIANT_EXTENSIONS.join(", "),
+                BED_EXTENSIONS.join(", "),
             )));
         }
     }
@@ -120,9 +132,15 @@ pub fn classify_and_build_tracks(files: &[String]) -> Result<Vec<FilePath>, TGVE
                     BamSource::Local
                 },
             }));
-        } else if lower.ends_with(".vcf") || lower.ends_with(".vcf.gz") {
+        } else if VARIANT_EXTENSIONS
+            .iter()
+            .any(|extension| lower.ends_with(extension))
+        {
             file_paths.push(FilePath::VariantPath(file.clone()));
-        } else if lower.ends_with(".bed") || lower.ends_with(".bed.gz") {
+        } else if BED_EXTENSIONS
+            .iter()
+            .any(|extension| lower.ends_with(extension))
+        {
             file_paths.push(FilePath::BedPath(file.clone()));
         }
     }

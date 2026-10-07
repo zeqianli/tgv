@@ -1,6 +1,6 @@
 use crate::contig_header::{Contig, ContigHeader};
 use crate::error::TGVError;
-use crate::intervals::{GenomeInterval, Region};
+use crate::intervals::Region;
 use crate::reference::Reference;
 use crate::sequence::Sequence;
 use crate::tracks::{UcscHost, schema::*};

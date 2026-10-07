@@ -4,12 +4,15 @@ use crossterm::event::{KeyCode, KeyModifiers, MouseButton, MouseEvent, MouseEven
 use gv_core::message::{
     AlignmentDisplayOption, AlignmentSort, Message as CoreMessage, Movement, Scroll, Zoom,
 };
+use gv_session::{
+    DatasetRequest, HighlightRequest, InspectInterval, NavigateRequest, QueryRequest, SessionError,
+};
 use rstest::rstest;
 use support::{AppHarness, test_data_path};
 use tempfile::TempDir;
 use tgv::{
-    app::Scene,
-    message::{Message, UpdateLayoutMessage},
+    app::{Highlight, Scene},
+    message::{Action, UpdateLayoutAction},
     session::SessionFile,
 };
 
@@ -81,7 +84,7 @@ async fn offline_sequence_navigates_and_zooms() {
     assert_eq!(harness.app.alignment_view.focus.position, 33_121_140);
     assert_eq!(harness.app.alignment_view.zoom, initial_zoom * 2);
     assert_eq!(harness.app.alignment_view.top(0), 1);
-    assert!(harness.app.state.messages.is_empty());
+    assert!(harness.app.dataset.view.messages.is_empty());
 
     harness.close().await.unwrap();
 }
@@ -173,7 +176,7 @@ async fn offline_sequence_updates_tracks_and_scenes() {
         .app
         .mouse_register
         .handle_mouse_event(
-            &harness.app.state,
+            &harness.app.dataset.view,
             &harness.app.resolved_layout,
             &harness.app.alignment_view,
             down,
@@ -188,7 +191,7 @@ async fn offline_sequence_updates_tracks_and_scenes() {
         .app
         .mouse_register
         .handle_mouse_event(
-            &harness.app.state,
+            &harness.app.dataset.view,
             &harness.app.resolved_layout,
             &harness.app.alignment_view,
             drag,
@@ -206,8 +209,8 @@ async fn offline_sequence_updates_tracks_and_scenes() {
         .unwrap();
     assert_eq!(harness.app.resolved_layout.sidebar_width, 24);
     harness
-        .handle(vec![Message::UpdateLayout(
-            UpdateLayoutMessage::SetSidebarWidth(6),
+        .handle(vec![Action::UpdateLayout(
+            UpdateLayoutAction::SetSidebarWidth(6),
         )])
         .await
         .unwrap();
@@ -243,22 +246,26 @@ async fn offline_sequence_updates_tracks_and_scenes() {
 
     harness
         .handle(vec![
-            Message::SwitchScene(Scene::Help),
-            Message::SwitchScene(Scene::Main),
-            Message::Core(CoreMessage::Move(Movement::Position(33_121_130))),
-            Message::Core(CoreMessage::Message("scripted-note".to_string())),
-            Message::SwitchScene(Scene::ContigList),
-            Message::SwitchScene(Scene::Main),
+            Action::SwitchScene(Scene::Help),
+            Action::SwitchScene(Scene::Main),
+            Action::Core(CoreMessage::Move(Movement::Position(33_121_130))),
+            Action::Core(CoreMessage::Message("scripted-note".to_string())),
+            Action::SwitchScene(Scene::ContigList),
+            Action::SwitchScene(Scene::Main),
         ])
         .await
         .unwrap();
 
     assert_eq!(harness.app.scene, Scene::Main);
-    assert_eq!(harness.app.state.variant_loaded, vec![true]);
-    assert_eq!(harness.app.state.bed_loaded, vec![true]);
+    let displayed = harness
+        .app
+        .alignment_view
+        .region(&harness.app.resolved_layout.main_area);
+    assert!(harness.app.dataset.view.variants[0].has_complete_data(&displayed));
+    assert!(harness.app.dataset.view.bed_intervals[0].has_complete_data(&displayed));
     assert_eq!(harness.app.alignment_view.focus.position, 33_121_130);
     assert_eq!(
-        harness.app.state.messages,
+        harness.app.dataset.view.messages,
         vec!["scripted-note".to_string()]
     );
 
@@ -273,18 +280,18 @@ async fn offline_sequence_handles_sorting_command() {
     );
     let mut harness = AppHarness::from_args(&args).await.unwrap();
     let sort_position = harness.app.alignment_view.focus.position;
-    let initial_messages = harness.app.state.messages.clone();
+    let initial_messages = harness.app.dataset.view.messages.clone();
 
     harness.handle_command("sort base").await.unwrap();
 
     assert_eq!(
-        harness.app.state.alignment_options[0],
+        harness.app.dataset.view.alignment_options[0],
         vec![AlignmentDisplayOption::Sort(AlignmentSort::BaseAt(
             sort_position
         ))]
     );
-    assert_eq!(harness.app.state.messages, initial_messages);
-    assert!(harness.app.state.alignments[0].depth().unwrap() > 0);
+    assert_eq!(harness.app.dataset.view.messages, initial_messages);
+    assert!(harness.app.dataset.view.alignments[0].depth().unwrap() > 0);
 
     harness.close().await.unwrap();
 }
@@ -323,6 +330,97 @@ async fn offline_sequence_saves_session_and_save_and_quit() {
     assert!(harness.app.exit);
     assert_eq!(harness.app.settings.session_path, Some(quit_path.clone()));
     assert!(quit_path.exists());
+
+    harness.close().await.unwrap();
+}
+
+fn covid_interval(start: u64, end: u64) -> InspectInterval {
+    InspectInterval {
+        contig: "MN908947.3".to_owned(),
+        start,
+        end,
+    }
+}
+
+async fn covid_harness() -> AppHarness {
+    let args = offline_case_args(
+        Some("covid.sorted.bam"),
+        "-g tests/data/covid.fa -r MN908947.3:100 --offline",
+    );
+    AppHarness::from_args(&args).await.unwrap()
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn agent_navigates_and_highlights_the_view() {
+    let mut harness = covid_harness().await;
+    let session = harness.app.session.clone();
+
+    let view = harness
+        .agent(session.navigate(NavigateRequest {
+            region: covid_interval(20_000, 20_200),
+        }))
+        .await
+        .unwrap();
+    assert!(view.region.start <= 20_000 && view.region.end >= 20_200);
+    assert_eq!(harness.app.alignment_view.focus.position, 20_100);
+    assert!(harness.app.dataset.view.messages[0].contains("Type :MN908947.3:100 to go back"));
+
+    harness
+        .agent(session.highlight(HighlightRequest {
+            intervals: vec![covid_interval(20_050, 20_060)],
+            label: Some("candidate site".to_owned()),
+        }))
+        .await
+        .unwrap();
+    assert_eq!(
+        harness.app.highlights,
+        [Highlight {
+            contig_index: 0,
+            start: 20_050,
+            end: 20_060,
+        }]
+    );
+
+    harness.agent(session.clear_highlights()).await.unwrap();
+    assert!(harness.app.highlights.is_empty());
+
+    harness.close().await.unwrap();
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn agent_queries_leave_the_view_and_cannot_replace_the_dataset() {
+    let mut harness = covid_harness().await;
+    let session = harness.app.session.clone();
+    let focus = harness.app.alignment_view.focus.clone();
+    let viewed = harness
+        .app
+        .alignment_view
+        .region(&harness.app.resolved_layout.main_area);
+    let viewed_reads = harness.app.dataset.view.alignments[0].tables.reads.height();
+
+    let response = harness
+        .agent(session.query(QueryRequest {
+            region: Some(covid_interval(20_000, 20_200)),
+            sql: "SELECT count(*) AS n FROM reads".to_owned(),
+            limit: None,
+        }))
+        .await
+        .unwrap();
+    assert_eq!(response.row_count, 1);
+    assert_eq!(harness.app.alignment_view.focus, focus);
+    assert!(harness.app.dataset.view.alignments[0].has_complete_data(&viewed));
+    assert_eq!(
+        harness.app.dataset.view.alignments[0].tables.reads.height(),
+        viewed_reads
+    );
+
+    let request: DatasetRequest =
+        serde_json::from_str(r#"{"reference": null, "files": []}"#).unwrap();
+    let error = harness
+        .agent(session.load_dataset(request))
+        .await
+        .unwrap_err();
+    assert!(matches!(error, SessionError::DatasetFixed));
 
     harness.close().await.unwrap();
 }

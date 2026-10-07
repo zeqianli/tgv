@@ -1,23 +1,22 @@
-//! Queryable VCF core fields with the original records and header preserved.
+//! Queryable VCF core fields for a loaded region, and their table schema.
 
 use crate::{
-    contig_header::ContigHeader,
     error::TGVError,
-    intervals::{IntervalSchema, IntervalTable},
+    intervals::{IntervalSchema, IntervalTable, Region},
     table_schema::{ColumnDoc, TableSchema},
 };
-use noodles::vcf::{
-    self,
-    variant::record::{AlternateBases as _, Filters as _, Ids as _},
-};
+use noodles::vcf;
 use polars::prelude::*;
 use std::sync::Arc;
 
+/// Variants overlapping the loaded region of one track.
 #[derive(Debug)]
 pub struct VariantTable {
+    /// Rows are sorted by contig, start, end, and row ID.
     pub data: DataFrame,
-    pub records: Vec<vcf::Record>,
-    pub header: vcf::Header,
+    pub contig_index: usize,
+    data_complete_left_bound: u64,
+    data_complete_right_bound: u64,
 }
 
 /// The ordered columns for VCF core fields.
@@ -60,7 +59,7 @@ impl TableSchema for VariantSchema {
         &[
             ColumnDoc {
                 name: Self::ROW_ID,
-                description: "The zero-based record index in the file.",
+                description: "The zero-based record index within the loaded data, in file order: within the whole file for plain VCF files, and within the loaded region for indexed VCF and BCF files.",
             },
             ColumnDoc {
                 name: Self::START,
@@ -98,8 +97,9 @@ impl Default for VariantTable {
     fn default() -> Self {
         Self {
             data: VariantSchema::empty(),
-            records: Vec::new(),
-            header: vcf::Header::default(),
+            contig_index: 0,
+            data_complete_left_bound: u64::MAX,
+            data_complete_right_bound: 0,
         }
     }
 }
@@ -129,15 +129,18 @@ impl IntervalTable for VariantTable {
 }
 
 impl VariantTable {
-    pub fn add_records(
-        mut self,
-        records: &[vcf::Record],
-        contig_header: &ContigHeader,
-    ) -> Result<Self, TGVError> {
-        if records.is_empty() {
-            return Ok(self);
-        }
-        let offset = self.records.len() as u64;
+    /// Whether the table holds every record overlapping the region.
+    pub fn has_complete_data(&self, region: &Region) -> bool {
+        region.contig_index() == self.contig_index
+            && region.start() >= self.data_complete_left_bound
+            && region.end() <= self.data_complete_right_bound
+    }
+
+    /// Builds records into a frame in record order, numbering rows from 0.
+    pub(super) fn records_frame(
+        records: &[vcf::variant::RecordBuf],
+        contig_index: usize,
+    ) -> Result<DataFrame, TGVError> {
         let mut row_ids = Vec::with_capacity(records.len());
         let mut contigs = Vec::with_capacity(records.len());
         let mut starts = Vec::with_capacity(records.len());
@@ -156,12 +159,9 @@ impl VariantTable {
             records.len(),
             records.len(),
         );
-        for (index, record) in records.iter().enumerate() {
-            let id = offset + index as u64;
-            let contig = contig_header.try_get_index_by_str(record.reference_sequence_name())?;
+        for (id, record) in records.iter().enumerate() {
             let start = record
                 .variant_start()
-                .transpose()?
                 .ok_or_else(|| {
                     TGVError::ValueError(format!("VCF row {id} has no positive start."))
                 })?
@@ -172,36 +172,32 @@ impl VariantTable {
                     "VCF row {id} has no reference bases."
                 )));
             }
-            row_ids.push(id);
-            contigs.push(contig as u64);
+            row_ids.push(id as u64);
+            contigs.push(contig_index as u64);
             starts.push(start);
             ends.push(start + bases.len() as u64 - 1);
             reference.push(bases);
-            quality.push(record.quality_score().transpose()?);
-            let record_ids = record.ids();
+            quality.push(record.quality_score());
+            let record_ids = record.ids().as_ref();
             if record_ids.is_empty() {
                 ids.append_null();
             } else {
-                ids.append_values_iter(record_ids.iter());
+                ids.append_values_iter(record_ids.iter().map(String::as_str));
             }
-            let record_alternates = record.alternate_bases();
-            let alleles = record_alternates.iter().collect::<Result<Vec<_>, _>>()?;
+            let alleles = record.alternate_bases().as_ref();
             if alleles.is_empty() {
                 alternate.append_null();
             } else {
-                alternate.append_values_iter(alleles.into_iter());
+                alternate.append_values_iter(alleles.iter().map(String::as_str));
             }
-            let record_filters = record.filters();
+            let record_filters = record.filters().as_ref();
             if record_filters.is_empty() {
                 filters.append_null();
             } else {
-                let values = record_filters
-                    .iter(&self.header)
-                    .collect::<Result<Vec<_>, _>>()?;
-                filters.append_values_iter(values.into_iter());
+                filters.append_values_iter(record_filters.iter().map(String::as_str));
             }
         }
-        let batch = DataFrame::new(
+        Ok(DataFrame::new(
             records.len(),
             vec![
                 Column::new(VariantSchema::ROW_ID.into(), row_ids),
@@ -214,8 +210,17 @@ impl VariantTable {
                 Column::new(VariantSchema::QUALITY_SCORE.into(), quality),
                 filters.finish().into_series().into(),
             ],
-        )?;
-        self.data = concat([self.data.lazy(), batch.lazy()], UnionArgs::default())?
+        )?)
+    }
+
+    /// Builds a table from records on one contig, numbering rows from 0 in record order.
+    pub(super) fn from_records(
+        records: &[vcf::variant::RecordBuf],
+        contig_index: usize,
+        loaded_bounds: (u64, u64),
+    ) -> Result<Self, TGVError> {
+        let data = Self::records_frame(records, contig_index)?
+            .lazy()
             .sort(
                 [
                     VariantSchema::CONTIG_INDEX,
@@ -226,31 +231,25 @@ impl VariantTable {
                 SortMultipleOptions::default(),
             )
             .collect()?;
-        self.records.extend_from_slice(records);
-        Ok(self)
+        Ok(Self {
+            data,
+            contig_index,
+            data_complete_left_bound: loaded_bounds.0,
+            data_complete_right_bound: loaded_bounds.1,
+        })
     }
-}
 
-pub struct VariantRepository {
-    pub vcf_path: String,
-}
-
-impl VariantRepository {
-    pub fn read_variants(&self, contig_header: &ContigHeader) -> Result<VariantTable, TGVError> {
-        let mut reader = vcf::io::reader::Builder::default().build_from_path(&self.vcf_path)?;
-        let header = reader.read_header()?;
-        let mut table = VariantTable {
-            header,
-            ..VariantTable::default()
-        };
-        let mut batch = Vec::with_capacity(1024);
-        for record in reader.records() {
-            batch.push(record?);
-            if batch.len() == 1024 {
-                table = table.add_records(&batch, contig_header)?;
-                batch.clear();
-            }
-        }
-        table.add_records(&batch, contig_header)
+    /// Wraps a frame holding every record of one contig, read before contig indexes were known.
+    pub(super) fn whole_contig(data: &DataFrame, contig_index: usize) -> Result<Self, TGVError> {
+        Ok(Self {
+            data: data
+                .clone()
+                .lazy()
+                .with_columns([lit(contig_index as u64).alias(VariantSchema::CONTIG_INDEX)])
+                .collect()?,
+            contig_index,
+            data_complete_left_bound: 1,
+            data_complete_right_bound: u64::MAX,
+        })
     }
 }

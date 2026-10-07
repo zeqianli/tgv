@@ -6,7 +6,13 @@
   - Local paths and `s3://` URLs are supported.
   - The index path is inferred as `<bam>.bai`. There is no separate CLI option for a custom index path.
   - For `s3://` BAMs, place the `.bai` object at the inferred path and configure S3 credentials in the environment.
-- VCF (`.vcf` and `.vcf.gz`) and BED (`.bed` and `.bed.gz`) files are supported as positional input files.
+- Variant files: VCF (`.vcf`, `.vcf.gz`, and `.vcf.bgz`) and BCF (`.bcf`).
+  - A bgzipped VCF with a `.tbi` or `.csi` index next to it, and a BCF with a `.csi` index, load by region, so large files such as gnomAD or ClinVar stay fast. A BCF without a `.csi` index is an error.
+  - Other VCF files load whole the first time they're shown.
+- Feature files: BED (`.bed` and `.bed.gz`) and bigBed (`.bb` and `.bigbed`).
+  - A bgzipped BED with a `.tbi` or `.csi` index, and any bigBed file, load by region. Other BED files load whole the first time they're shown.
+  - BED tracks show each feature's name when it fits, and its strand as `›` or `‹` chevrons.
+- Indexed variant and BED tracks show `zoom in to view …` when zoomed out beyond 100 bases per column, instead of loading a large region.
 - Custom FASTA and 2bit reference genomes are passed with `-g` / `--reference`, not as positional track files. FASTA references require a `.fai` index beside the FASTA file.
 - CRAM is not supported as a CLI input format. Configure CRAM tracks in a session file.
 

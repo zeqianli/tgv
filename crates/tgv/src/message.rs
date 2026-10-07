@@ -1,11 +1,17 @@
-use crate::{app::Scene, register::KeyRegisterType};
+use crate::{
+    app::{Highlight, Scene},
+    register::KeyRegisterType,
+};
 pub use gv_core::message::{Movement, Scroll};
 use gv_core::track_registry::TrackId;
 use strum::Display;
 
-/// TGV messages
+/// A change to the TUI's view or input state, applied by `App::handle`.
+///
+/// Key and mouse input produce actions, and so do agent view requests, so every change to what
+/// the screen shows goes through one path.
 #[derive(Debug, Clone, Eq, PartialEq, Display)]
-pub enum Message {
+pub enum Action {
     Core(gv_core::message::Message),
 
     SwitchScene(Scene),
@@ -16,14 +22,19 @@ pub enum Message {
 
     SwitchKeyRegister(KeyRegisterType),
 
-    UpdateLayout(UpdateLayoutMessage),
+    UpdateLayout(UpdateLayoutAction),
 
     ClearAllKeyRegisters,
+
+    /// Replaces the highlighted intervals.
+    SetHighlights(Vec<Highlight>),
+
+    ClearHighlights,
 }
 
-/// UX layout update messages
+/// Layout changes.
 #[derive(Debug, Clone, Eq, PartialEq, Display)]
-pub enum UpdateLayoutMessage {
+pub enum UpdateLayoutAction {
     ToggleSidebar,
     SetSidebarWidth(u16),
     ResizeAlignmentPair {
@@ -33,26 +44,26 @@ pub enum UpdateLayoutMessage {
     },
 }
 
-impl Message {
-    /// Helper function for gv_core::message::Message::Message
+impl Action {
+    /// Wraps a status message for the message line.
     pub fn message(s: String) -> Self {
-        Message::Core(gv_core::message::Message::Message(s))
+        Action::Core(gv_core::message::Message::Message(s))
     }
 }
 
-impl From<gv_core::message::Message> for Message {
+impl From<gv_core::message::Message> for Action {
     fn from(m: gv_core::message::Message) -> Self {
-        Message::Core(m)
+        Action::Core(m)
     }
 }
 
-impl From<gv_core::message::Movement> for Message {
+impl From<gv_core::message::Movement> for Action {
     fn from(movement: gv_core::message::Movement) -> Self {
         gv_core::message::Message::Move(movement).into()
     }
 }
 
-impl From<gv_core::message::Scroll> for Message {
+impl From<gv_core::message::Scroll> for Action {
     fn from(scroll: gv_core::message::Scroll) -> Self {
         gv_core::message::Message::Scroll(scroll).into()
     }

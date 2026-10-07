@@ -2,7 +2,7 @@
 
 use crate::{
     error::TGVError,
-    intervals::{GenomeInterval, IntervalSchema, IntervalTable, Region},
+    intervals::{IntervalSchema, IntervalTable, Region},
     table_schema::{ColumnDoc, TableSchema},
 };
 use polars::prelude::*;

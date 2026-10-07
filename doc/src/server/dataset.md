@@ -1,6 +1,6 @@
 # Load and describe a dataset
 
-`load_dataset` loads a reference and a list of data files as the server's dataset, replacing any existing one. `get_dataset` describes the loaded dataset without changing it. Both tools return the same description, so a client can read the track IDs from either.
+`load_dataset` loads a reference and a list of data files as the server's dataset, replacing any existing one. `get_dataset` describes the loaded dataset without changing it. Both tools return the same description, so a client can read the track IDs from either. When the server is connected to a TGV viewer, `get_dataset` describes the files the viewer shows, and `load_dataset` fails with `dataset_fixed`; see [Show results in the viewer](./view.md).
 
 ## `load_dataset`
 
@@ -9,7 +9,7 @@
 | Field | Type | Required | Meaning |
 |-------|------|----------|---------|
 | `reference` | string or `null` | Yes | A reference accepted by `-g`, such as `hg38`, a UCSC assembly, or a FASTA or 2bit path. Use `null` for no reference. |
-| `files` | array of strings | Yes | BAM, VCF (`.vcf`, `.vcf.gz`), and BED (`.bed`, `.bed.gz`) paths. Track IDs follow this order. |
+| `files` | array of strings | Yes | BAM, variant (`.vcf`, `.vcf.gz`, `.vcf.bgz`, and `.bcf`), and BED (`.bed`, `.bed.gz`, `.bb`, and `.bigbed`) paths. Bgzipped VCF and BED files with a `.tbi` or `.csi` index, BCF files with a `.csi` index, and bigBed files load by region. Track IDs follow this order. |
 
 ```json
 {
@@ -46,12 +46,14 @@ Each track has a numeric `id`, a `type` of `alignment`, `variant`, or `bed`, and
 
 ### Errors
 
-All loading errors are `invalid_input`:
+Loading errors are `invalid_input`, except while connected to a viewer:
 
 | `field` | Cause |
 |---------|-------|
 | `reference` | The reference is not a string or `null`, or it fails to parse. |
 | `files` | `reference` is `null` and `files` is empty, a file type is unsupported, a file fails to open, or the reference cannot be found. |
+
+While connected to a TGV viewer, `load_dataset` fails with `dataset_fixed` and `field: null`, because the viewer's files can't be replaced.
 
 For example, loading `/data/missing.bam` returns this structured content:
 

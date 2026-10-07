@@ -9,7 +9,7 @@ use crate::{
     cytoband::Cytoband,
     error::TGVError,
     gene::GeneTable,
-    intervals::{GenomeInterval, Region},
+    intervals::Region,
     reference::Reference,
     settings::{BackendType, Settings},
 };

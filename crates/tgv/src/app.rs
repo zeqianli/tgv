@@ -1,6 +1,7 @@
 /// The main app object
 ///
-use crossterm::event::{self, Event, KeyEventKind};
+use crossterm::event::{self, Event, EventStream, KeyEventKind};
+use futures::StreamExt;
 use ratatui::{Terminal, buffer::Buffer, layout::Rect, prelude::Backend};
 
 use crate::{
@@ -9,13 +10,20 @@ use crate::{
         AreaType::{self, Console},
         MainLayout, ResolvedMainLayout,
     },
-    message::{Message, UpdateLayoutMessage},
+    message::{Action, UpdateLayoutAction},
     mouse::MouseRegister,
     register::{KeyRegisterType, Registers},
     session::SessionFile,
     settings::Settings,
 };
-use gv_core::prelude::*;
+use gv_core::{
+    message::{Movement, Zoom},
+    prelude::*,
+};
+use gv_session::{
+    Dataset, HighlightRequest, InspectInterval, NavigateRequest, Request, Requests, Session,
+    SessionError, SessionHandle, ViewRequest, ViewState,
+};
 use std::{
     path::PathBuf,
     sync::Arc,
@@ -31,19 +39,34 @@ pub enum Scene {
     ContigList,
 }
 
+/// An interval that an agent marks in the view.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Highlight {
+    pub contig_index: usize,
+    /// 1-based, inclusive.
+    pub start: u64,
+    /// 1-based, inclusive.
+    pub end: u64,
+}
+
 pub struct App {
     pub exit: bool,
 
     pub layout: MainLayout,
     pub resolved_layout: ResolvedMainLayout,
-    pub tracks: Arc<TrackRegistry>,
-    pub state: State,
+    /// The displayed dataset. The view state holds what is drawn; agent requests use its
+    /// separate query state.
+    pub dataset: Dataset,
     pub settings: Settings,
-    pub repository: Repository,
     pub registers: Registers,
     pub mouse_register: MouseRegister,
 
     pub alignment_view: AlignmentView,
+    pub highlights: Vec<Highlight>,
+
+    /// Sends requests to this viewer, for agents and tests.
+    pub session: SessionHandle,
+    requests: Requests,
 
     pub scene: Scene,
     render_buffer: Buffer,
@@ -72,52 +95,43 @@ impl App {
             settings.session_path
         );
 
-        let (mut repository, contig_header, repository_file_indexes) =
-            Repository::new(&settings.core).await?;
+        let mut dataset = Dataset::new(settings.core.clone()).await?;
+        let focus = dataset.view.default_focus(&mut dataset.repository).await?;
 
-        let mut state = State::new(settings.core.reference.clone(), contig_header)?;
-
-        // Initiate empty track data
-        settings.core.file_paths.iter().for_each(|path| match path {
-            FilePath::AlignmentPath(_) => state.add_alignment_track(),
-            FilePath::VariantPath(_) => state.add_variant_track(),
-            FilePath::BedPath(_) => state.add_bed_track(),
-        });
-
-        let focus = state.default_focus(&mut repository).await?;
-
-        let mut alignment_view = AlignmentView::new(focus, state.alignments.len());
+        let mut alignment_view = AlignmentView::new(focus, dataset.view.alignments.len());
         if let Some(zoom) = settings.zoom {
             alignment_view.zoom = zoom;
         }
         log::info!(
             "App state initialized: reference={} contigs={} alignment_tracks={} variant_tracks={} bed_tracks={} default_focus={:?} initial_zoom={} elapsed_ms={}",
             settings.core.reference,
-            state.contig_header.contigs.len(),
-            state.alignments.len(),
-            state.variants.len(),
-            state.bed_intervals.len(),
+            dataset.view.contig_header.contigs.len(),
+            dataset.view.alignments.len(),
+            dataset.view.variants.len(),
+            dataset.view.bed_intervals.len(),
             alignment_view.focus,
             alignment_view.zoom,
             app_init_started.elapsed().as_millis(),
         );
 
-        let tracks = Arc::new(TrackRegistry::new(&repository_file_indexes));
-        let track_ids = tracks
+        let track_ids = dataset
+            .tracks
             .entries
             .iter()
             .map(|entry| entry.id)
             .collect::<Vec<_>>();
-        let layout = MainLayout::new(&settings, Arc::clone(&tracks), &track_ids);
+        let layout = MainLayout::new(&settings, Arc::clone(&dataset.tracks), &track_ids);
+        let (session, requests) = Session::channel();
         Ok(Self {
             exit: false,
             layout,
             resolved_layout: ResolvedMainLayout::default(),
-            tracks,
+            dataset,
             alignment_view,
-            state,
+            highlights: Vec::new(),
+            session,
+            requests,
             settings: settings.clone(),
-            repository,
             registers: Registers::default(),
             mouse_register: MouseRegister::default(),
             scene: Scene::Main,
@@ -132,19 +146,21 @@ impl App {
         log::info!("Starting the app event loop");
         terminal
             .draw(|frame| {
-                self.resolved_layout = self.layout.resolve(frame.area(), &self.repository);
+                self.resolved_layout = self.layout.resolve(frame.area(), &self.dataset.repository);
             })
             .map_err(|e| TGVError::IOError(format!("Failed to draw the terminal: {e}")))?;
 
-        self.handle(self.settings.initial_state_messages.clone())
-            .await?;
+        self.handle(self.settings.initial_actions.clone()).await?;
 
         self.alignment_view.self_correct(
             &self.resolved_layout.main_area,
-            self.state.contig_length(&self.alignment_view.focus)?,
+            self.dataset
+                .view
+                .contig_length(&self.alignment_view.focus)?,
         );
 
         let mut render_events: Vec<RenderEvent> = vec![RenderEvent::All];
+        let mut terminal_events = EventStream::new();
 
         while !self.exit {
             let mut render_result = Ok(());
@@ -164,11 +180,27 @@ impl App {
                 break;
             }
 
-            // Block for one event, then drain everything already queued. Bursts of key repeats,
-            // wheel scrolls, and mouse motion then produce one frame instead of one per event.
-            let mut events = vec![event::read()];
-            while matches!(event::poll(Duration::ZERO), Ok(true)) {
-                events.push(event::read());
+            // Wait for one terminal event or session request. After a terminal event, drain
+            // everything already queued, so bursts of key repeats, wheel scrolls, and mouse
+            // motion produce one frame instead of one per event.
+            let mut events = tokio::select! {
+                event = terminal_events.next() => match event {
+                    Some(event) => vec![event],
+                    None => break,
+                },
+                request = self.requests.recv() => {
+                    if let Some(request) = request {
+                        render_events.extend(self.serve(request).await);
+                    }
+                    continue;
+                }
+            };
+            // A zero timeout polls the stream once with this task's waker. Polling it with a
+            // no-op waker, as `now_or_never` does, leaves the stream unable to wake the loop.
+            while let Ok(Some(event)) =
+                tokio::time::timeout(Duration::ZERO, terminal_events.next()).await
+            {
+                events.push(event);
             }
 
             for (index, event) in events.iter().enumerate() {
@@ -185,20 +217,21 @@ impl App {
                 let events = match event {
                     Ok(Event::Key(key_event)) if key_event.kind == KeyEventKind::Press => {
                         self.mouse_register.last_hover = None;
-                        let state_messages =
-                            self.registers.handle_key_event(*key_event, &self.state)?;
-                        self.handle(state_messages).await // TODO: this should not error out?
+                        let actions = self
+                            .registers
+                            .handle_key_event(*key_event, &self.dataset.view)?;
+                        self.handle(actions).await // TODO: this should not error out?
                     }
 
                     Ok(Event::Mouse(mouse_event)) if self.scene == Scene::Main => {
-                        let state_messages = self.mouse_register.handle_mouse_event(
-                            &self.state,
+                        let actions = self.mouse_register.handle_mouse_event(
+                            &self.dataset.view,
                             &self.resolved_layout,
                             &self.alignment_view,
                             *mouse_event,
                         )?;
 
-                        self.handle(state_messages).await // TODO: this should not error out?
+                        self.handle(actions).await // TODO: this should not error out?
                     }
 
                     Ok(Event::Resize(width, height)) => {
@@ -206,10 +239,12 @@ impl App {
                         self.mouse_register.last_hover = None;
                         self.resolved_layout = self
                             .layout
-                            .resolve(Rect::new(0, 0, *width, *height), &self.repository);
+                            .resolve(Rect::new(0, 0, *width, *height), &self.dataset.repository);
                         self.alignment_view.self_correct(
                             &self.resolved_layout.main_area,
-                            self.state.contig_length(&self.alignment_view.focus)?,
+                            self.dataset
+                                .view
+                                .contig_length(&self.alignment_view.focus)?,
                         );
                         self.load_data().await?;
                         Ok(vec![RenderEvent::All])
@@ -219,7 +254,7 @@ impl App {
                 }
                 .unwrap_or_else(|e| {
                     log::warn!("Error while handling event: {e}");
-                    self.state.add_message(format!("{e}"));
+                    self.dataset.view.add_message(format!("{e}"));
                     vec![RenderEvent::Area(AreaType::Error)]
                 });
                 for event in events {
@@ -230,7 +265,9 @@ impl App {
 
                 self.alignment_view.self_correct(
                     &self.resolved_layout.main_area,
-                    self.state.contig_length(&self.alignment_view.focus)?,
+                    self.dataset
+                        .view
+                        .contig_length(&self.alignment_view.focus)?,
                 );
             }
         }
@@ -238,9 +275,165 @@ impl App {
         Ok(())
     }
 
+    /// Serves the next session request, for hosts that drive the app without `run`.
+    pub async fn serve_next_request(&mut self) -> Vec<RenderEvent> {
+        match self.requests.recv().await {
+            Some(request) => self.serve(request).await,
+            None => Vec::new(),
+        }
+    }
+
+    /// Serves a session request and returns the areas to redraw.
+    async fn serve(&mut self, request: Request) -> Vec<RenderEvent> {
+        match request {
+            Request::Data(request) => {
+                self.dataset.serve(request).await;
+                Vec::new()
+            }
+            Request::LoadDataset(_, reply) => {
+                reply.respond(Err(SessionError::DatasetFixed));
+                Vec::new()
+            }
+            Request::View(request) => self.serve_view(request).await,
+            // The user decides when the viewer quits.
+            Request::Shutdown => Vec::new(),
+        }
+    }
+
+    /// Serves a view request by translating it into actions and applying them like input.
+    async fn serve_view(&mut self, request: ViewRequest) -> Vec<RenderEvent> {
+        match request {
+            ViewRequest::Navigate(request, reply) => match self.navigate_actions(&request) {
+                Ok(actions) => {
+                    let (render_events, result) = self.apply_for_agent(actions).await;
+                    reply.respond(result.and_then(|()| self.view_state()));
+                    render_events
+                }
+                Err(error) => {
+                    reply.respond(Err(error));
+                    Vec::new()
+                }
+            },
+            ViewRequest::Highlight(request, reply) => match self.highlight_actions(request) {
+                Ok(actions) => {
+                    let (render_events, result) = self.apply_for_agent(actions).await;
+                    reply.respond(result);
+                    render_events
+                }
+                Err(error) => {
+                    reply.respond(Err(error));
+                    Vec::new()
+                }
+            },
+            ViewRequest::ClearHighlights(reply) => {
+                let (render_events, result) =
+                    self.apply_for_agent(vec![Action::ClearHighlights]).await;
+                reply.respond(result);
+                render_events
+            }
+            ViewRequest::Current(reply) => {
+                reply.respond(self.view_state());
+                Vec::new()
+            }
+        }
+    }
+
+    /// Applies actions from an agent. A failure is shown to the user and returned to the agent.
+    async fn apply_for_agent(
+        &mut self,
+        actions: Vec<Action>,
+    ) -> (Vec<RenderEvent>, Result<(), SessionError>) {
+        match self.handle(actions).await {
+            Ok(render_events) => (render_events, Ok(())),
+            Err(error) => {
+                self.dataset.view.add_message(format!("{error}"));
+                (vec![RenderEvent::Area(AreaType::Error)], Err(error.into()))
+            }
+        }
+    }
+
+    /// Resolves an interval against the dataset's contigs, without a width limit.
+    fn resolve_interval(&self, interval: &InspectInterval) -> Result<Region, SessionError> {
+        Region::try_from_contig_names_and_bounds(
+            &interval.contig,
+            interval.start,
+            interval.end,
+            &self.dataset.view.contig_header,
+            None,
+        )
+        .map_err(|error| SessionError::InvalidInput {
+            field: "region",
+            message: error.to_string(),
+        })
+    }
+
+    /// Centers the region, fits it to the track area, and tells the user how to return.
+    fn navigate_actions(&self, request: &NavigateRequest) -> Result<Vec<Action>, SessionError> {
+        let region = self.resolve_interval(&request.region)?;
+        let contigs = &self.dataset.view.contig_header;
+        let previous = self.alignment_view.focus.to_locus_str(contigs)?;
+        let target = region.focus.to_locus_str(contigs)?;
+        Ok(vec![
+            Movement::ContigNamePosition(
+                contigs.contigs[region.contig_index()].name.clone(),
+                region.focus.position,
+            )
+            .into(),
+            Action::Core(
+                Zoom::Fit {
+                    bases: region.end() - region.start() + 1,
+                }
+                .into(),
+            ),
+            Action::message(format!(
+                "An agent moved the view to {target}. Type :{previous} to go back."
+            )),
+        ])
+    }
+
+    /// Replaces the highlights and tells the user what was marked.
+    fn highlight_actions(&self, request: HighlightRequest) -> Result<Vec<Action>, SessionError> {
+        let highlights = request
+            .intervals
+            .iter()
+            .map(|interval| {
+                let region = self.resolve_interval(interval)?;
+                Ok(Highlight {
+                    contig_index: region.contig_index(),
+                    start: region.start(),
+                    end: region.end(),
+                })
+            })
+            .collect::<Result<Vec<_>, SessionError>>()?;
+        let label = request
+            .label
+            .map_or_else(String::new, |label| format!(": {label}"));
+        let notice = format!(
+            "An agent highlighted {} intervals{label}.",
+            highlights.len()
+        );
+        Ok(vec![
+            Action::SetHighlights(highlights),
+            Action::message(notice),
+        ])
+    }
+
+    /// Reports the displayed interval and zoom.
+    fn view_state(&self) -> Result<ViewState, SessionError> {
+        let region = self.alignment_view.region(&self.resolved_layout.main_area);
+        Ok(ViewState {
+            region: InspectInterval {
+                contig: self.dataset.view.contig_name(&region.focus)?.clone(),
+                start: region.start(),
+                end: region.end(),
+            },
+            zoom: self.alignment_view.zoom,
+        })
+    }
+
     /// close connections
     pub async fn close(mut self) -> Result<(), TGVError> {
-        self.repository.close().await
+        self.dataset.repository.close().await
     }
 
     fn save_session_to_path(&mut self, path: PathBuf) -> Result<(), TGVError> {
@@ -249,18 +442,17 @@ impl App {
         Ok(())
     }
 
-    /// Handle messages after initialization. This blocks any error messages instead of propagating them.
-    /// Returns a list of render evnet, indicating which areas in the layout needs re-rendering.
-    pub async fn handle(&mut self, messages: Vec<Message>) -> Result<Vec<RenderEvent>, TGVError> {
+    /// Applies actions after initialization and returns the areas that need redrawing.
+    pub async fn handle(&mut self, actions: Vec<Action>) -> Result<Vec<RenderEvent>, TGVError> {
         let mut render_events = Vec::new();
-        if !self.state.messages.is_empty() {
-            self.state.messages.clear();
+        if !self.dataset.view.messages.is_empty() {
+            self.dataset.view.messages.clear();
             render_events.push(RenderEvent::Area(AreaType::Error));
         }
 
-        for message in messages {
-            match message {
-                Message::Core(gv_core::message::Message::Move(movement)) => {
+        for action in actions {
+            match action {
+                Action::Core(gv_core::message::Message::Move(movement)) => {
                     let previous_focus = self.alignment_view.focus.clone();
                     log::debug!(
                         "Handling movement: movement={:?} previous_focus={:?} zoom={}",
@@ -269,11 +461,12 @@ impl App {
                         self.alignment_view.zoom,
                     );
                     let focus = self
-                        .state
+                        .dataset
+                        .view
                         .movement(
                             self.alignment_view.focus.clone(),
                             self.alignment_view.zoom,
-                            &mut self.repository,
+                            &mut self.dataset.repository,
                             movement.clone(),
                         )
                         .await?;
@@ -289,19 +482,21 @@ impl App {
                     render_events.push(RenderEvent::AllTracks);
                 }
 
-                Message::Core(gv_core::message::Message::Quit) => {
+                Action::Core(gv_core::message::Message::Quit) => {
                     log::info!("Quit requested");
                     self.exit = true;
                 }
 
-                Message::Core(gv_core::message::Message::SaveSession(path)) => {
+                Action::Core(gv_core::message::Message::SaveSession(path)) => {
                     let explicit_path = path.is_some();
                     let Some(path) = path
                         .as_deref()
                         .map(SessionFile::resolve_path)
                         .or_else(|| self.settings.session_path.clone())
                     else {
-                        self.state.add_message(NO_ACTIVE_SESSION_MESSAGE.to_string());
+                        self.dataset
+                            .view
+                            .add_message(NO_ACTIVE_SESSION_MESSAGE.to_string());
                         continue;
                     };
                     log::info!(
@@ -312,25 +507,29 @@ impl App {
                     match self.save_session_to_path(path.clone()) {
                         Ok(()) => {
                             log::info!("Session saved: path={}", path.display());
-                            self.state
+                            self.dataset
+                                .view
                                 .add_message(format!("Session saved to {}", path.display()));
                         }
                         Err(e) => {
                             log::warn!("Failed to save session: path={} error={e}", path.display());
-                            self.state
+                            self.dataset
+                                .view
                                 .add_message(format!("Failed to save session: {e}"));
                         }
                     }
                 }
 
-                Message::Core(gv_core::message::Message::SaveAndQuit(path)) => {
+                Action::Core(gv_core::message::Message::SaveAndQuit(path)) => {
                     let explicit_path = path.is_some();
                     let Some(path) = path
                         .as_deref()
                         .map(SessionFile::resolve_path)
                         .or_else(|| self.settings.session_path.clone())
                     else {
-                        self.state.add_message(NO_ACTIVE_SESSION_MESSAGE.to_string());
+                        self.dataset
+                            .view
+                            .add_message(NO_ACTIVE_SESSION_MESSAGE.to_string());
                         continue;
                     };
                     log::info!(
@@ -345,24 +544,25 @@ impl App {
                         }
                         Err(e) => {
                             log::warn!("Failed to save session before quit: {e}");
-                            self.state
+                            self.dataset
+                                .view
                                 .add_message(format!("Failed to save session: {e}"));
                         }
                     }
                 }
 
-                Message::Core(gv_core::message::Message::Scroll(scroll)) => {
+                Action::Core(gv_core::message::Message::Scroll(scroll)) => {
                     let previous_y = self.alignment_view.y.clone();
                     log::debug!(
                         "Handling scroll: scroll={:?} y_before={:?}",
                         scroll,
                         previous_y
                     );
-                    if !self.state.alignments.is_empty() {
+                    if !self.dataset.view.alignments.is_empty() {
                         let index = scroll.index();
-                        let depth = match &self.state.paired_alignments[index] {
+                        let depth = match &self.dataset.view.paired_alignments[index] {
                             Some(paired) => paired.depth()?,
-                            None => self.state.alignments[index].depth()?,
+                            None => self.dataset.view.alignments[index].depth()?,
                         };
                         self.alignment_view.scroll(scroll.clone(), depth);
                     }
@@ -373,12 +573,15 @@ impl App {
                         self.alignment_view.y,
                     );
                     render_events.push(RenderEvent::Area(AreaType::Alignment(
-                        self.tracks.alignment_id(scroll.index()),
+                        self.dataset.tracks.alignment_id(scroll.index()),
                     )))
                 }
 
-                Message::Core(gv_core::message::Message::Zoom(zoom)) => {
-                    let contig_length = self.state.contig_length(&self.alignment_view.focus)?;
+                Action::Core(gv_core::message::Message::Zoom(zoom)) => {
+                    let contig_length = self
+                        .dataset
+                        .view
+                        .contig_length(&self.alignment_view.focus)?;
                     let previous_zoom = self.alignment_view.zoom;
                     log::debug!(
                         "Handling zoom: zoom={:?} previous_zoom={} focus={:?}",
@@ -402,15 +605,15 @@ impl App {
                     render_events.push(RenderEvent::AllTracks)
                 }
 
-                Message::Core(gv_core::message::Message::SetAlignmentOption(options)) => {
+                Action::Core(gv_core::message::Message::SetAlignmentOption(options)) => {
                     log::debug!(
                         "Setting alignment options: alignment_count={} options={:?}",
-                        self.state.alignments.len(),
+                        self.dataset.view.alignments.len(),
                         options,
                     );
                     // TODO: introduce focus. Only apply option to the alignment in focus
-                    for index in 0..self.state.alignments.len() {
-                        self.state.set_alignment_options(
+                    for index in 0..self.dataset.view.alignments.len() {
+                        self.dataset.view.set_alignment_options(
                             index,
                             &self.alignment_view.focus,
                             options.clone(),
@@ -420,32 +623,32 @@ impl App {
                     render_events.push(RenderEvent::AllTracks)
                 }
 
-                Message::Core(gv_core::message::Message::Message(message)) => {
+                Action::Core(gv_core::message::Message::Message(message)) => {
                     log::trace!("Adding transient status message: bytes={}", message.len());
-                    self.state.add_message(message);
+                    self.dataset.view.add_message(message);
                     render_events.push(RenderEvent::Area(AreaType::Error))
                 }
 
-                Message::SelectContig(index) => {
+                Action::SelectContig(index) => {
                     if self.scene == Scene::ContigList
-                        && index < self.state.contig_header.contigs.len()
+                        && index < self.dataset.view.contig_header.contigs.len()
                         && index != self.registers.contig_list_cursor
                     {
                         self.registers.contig_list_cursor = index;
                         render_events.push(RenderEvent::All);
                     }
                 }
-                Message::SwitchScene(scene) => {
+                Action::SwitchScene(scene) => {
                     let previous_scene = self.scene.clone();
                     log::debug!("Switching scene: from={:?} to={:?}", previous_scene, scene);
                     self.scene = scene;
                     self.mouse_register = MouseRegister::default();
                     render_events.push(RenderEvent::All)
                 }
-                Message::CommandChanged => {
+                Action::CommandChanged => {
                     render_events.push(RenderEvent::Area(AreaType::Console));
                 }
-                Message::SwitchKeyRegister(register) => {
+                Action::SwitchKeyRegister(register) => {
                     let previous_register = self.registers.current.clone();
                     if register == KeyRegisterType::ContigList {
                         self.registers.contig_list_cursor = self.alignment_view.focus.contig_index
@@ -458,14 +661,14 @@ impl App {
                     );
                     render_events.push(RenderEvent::Area(AreaType::Console))
                 }
-                Message::UpdateLayout(update) => {
+                Action::UpdateLayout(update) => {
                     let previous_width = self.resolved_layout.main_area.width;
                     match update {
-                        UpdateLayoutMessage::ToggleSidebar => self.layout.toggle_sidebar(),
-                        UpdateLayoutMessage::SetSidebarWidth(column) => self
+                        UpdateLayoutAction::ToggleSidebar => self.layout.toggle_sidebar(),
+                        UpdateLayoutAction::SetSidebarWidth(column) => self
                             .layout
                             .resize_sidebar_to(column, self.resolved_layout.terminal_area),
-                        UpdateLayoutMessage::ResizeAlignmentPair {
+                        UpdateLayoutAction::ResizeAlignmentPair {
                             upper,
                             lower,
                             delta_rows,
@@ -478,20 +681,31 @@ impl App {
                     }
                     self.resolved_layout = self
                         .layout
-                        .resolve(self.resolved_layout.terminal_area, &self.repository);
+                        .resolve(self.resolved_layout.terminal_area, &self.dataset.repository);
                     if self.resolved_layout.main_area.width != previous_width {
                         self.alignment_view.self_correct(
                             &self.resolved_layout.main_area,
-                            self.state.contig_length(&self.alignment_view.focus)?,
+                            self.dataset
+                                .view
+                                .contig_length(&self.alignment_view.focus)?,
                         );
                         self.load_data().await?;
                     }
                     render_events.push(RenderEvent::All)
                 }
-                Message::ClearAllKeyRegisters => {
+                Action::ClearAllKeyRegisters => {
                     log::debug!("Clearing all key registers");
                     self.registers.clear();
                     render_events.push(RenderEvent::Area(AreaType::Console))
+                }
+                Action::SetHighlights(highlights) => {
+                    log::debug!("Setting highlights: count={}", highlights.len());
+                    self.highlights = highlights;
+                    render_events.push(RenderEvent::All)
+                }
+                Action::ClearHighlights => {
+                    self.highlights.clear();
+                    render_events.push(RenderEvent::All)
                 }
             }
         }
@@ -526,14 +740,28 @@ impl App {
                 AlignmentView::MAX_ZOOM_TO_DISPLAY_ALIGNMENTS,
             );
         }
+        let show_indexed_features =
+            self.alignment_view.zoom <= AlignmentView::MAX_ZOOM_TO_DISPLAY_INDEXED_FEATURES;
         let files: Vec<RepositoryFileIndex> = self
+            .dataset
             .tracks
             .entries
             .iter()
             .map(|entry| entry.repository_index)
-            .filter(|index| show_alignments || !matches!(index, RepositoryFileIndex::Alignment(_)))
+            .filter(|index| match index {
+                RepositoryFileIndex::Alignment(_) => show_alignments,
+                RepositoryFileIndex::Variant(i) => {
+                    show_indexed_features
+                        || !self.dataset.repository.variant_repositories[*i].is_indexed()
+                }
+                RepositoryFileIndex::Bed(i) => {
+                    show_indexed_features
+                        || !self.dataset.repository.bed_repositories[*i].is_indexed()
+                }
+            })
             .collect();
-        self.state
+        self.dataset
+            .view
             .ensure_loaded(
                 &region,
                 &LoadRequest {
@@ -543,7 +771,7 @@ impl App {
                     files: &files,
                     cache: CachePolicy::VIEWER,
                 },
-                &mut self.repository,
+                &mut self.dataset.repository,
             )
             .await?;
 
@@ -570,18 +798,19 @@ impl App {
         } else {
             render_events
         };
-        self.resolved_layout = self.layout.resolve(buf.area, &self.repository);
+        self.resolved_layout = self.layout.resolve(buf.area, &self.dataset.repository);
         if render_events.contains(&RenderEvent::All) || self.scene != Scene::Main {
             self.render_buffer.reset();
         }
         match &self.scene {
             Scene::Main => render_main(
                 &mut self.render_buffer,
-                &mut self.state,
+                &mut self.dataset.view,
                 &self.registers,
                 &self.resolved_layout,
                 &self.alignment_view,
                 &self.mouse_register,
+                &self.highlights,
                 &self.settings.palette,
                 render_events,
             ),
@@ -591,7 +820,7 @@ impl App {
             Scene::ContigList => render_contig_list(
                 &self.resolved_layout.terminal_area,
                 &mut self.render_buffer,
-                &self.state,
+                &self.dataset.view,
                 &self.registers,
                 &self.settings.palette,
             ),

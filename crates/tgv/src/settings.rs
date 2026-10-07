@@ -1,5 +1,5 @@
 use crate::{
-    message::Message,
+    message::Action,
     rendering::{DARK_THEME, Palette},
 };
 use clap::{Parser, Subcommand, ValueEnum};
@@ -85,7 +85,9 @@ pub enum Commands {
 #[derive(Parser, Clone)]
 #[command(author, version, about, long_about = None)]
 pub struct Cli {
-    /// Input files. Supported track formats: .bam, .vcf, .vcf.gz, .bed, .bed.gz.
+    /// Input files. Supported track formats: .bam, .vcf, .vcf.gz, .vcf.bgz, .bcf, .bed, .bed.gz, .bb, .bigbed.
+    /// Bgzipped VCF and BED files with a .tbi or .csi index, BCF files with a .csi index, and
+    /// bigBed files load by region.
     /// BAM index files are inferred automatically as .bam.bai.
     /// To set the viewer reference, including a custom FASTA or 2bit file, use -g.
     #[arg(value_name = "files")]
@@ -141,11 +143,11 @@ impl Cli {
         self.debug
     }
 
-    pub fn initial_movement(&self) -> Result<Vec<Message>, TGVError> {
+    pub fn initial_movement(&self) -> Result<Vec<Action>, TGVError> {
         let region_string = match &self.region {
             Some(region_string) => region_string,
             None => {
-                return Ok(vec![Message::Core(gv_core::message::Message::Move(
+                return Ok(vec![Action::Core(gv_core::message::Message::Move(
                     gv_core::message::Movement::Default,
                 ))]);
             }
@@ -154,13 +156,13 @@ impl Cli {
         let split = region_string.split(":").collect::<Vec<&str>>();
 
         match split.len() {
-            1 => Ok(vec![Message::Core(gv_core::message::Message::Move(
+            1 => Ok(vec![Action::Core(gv_core::message::Message::Move(
                 gv_core::message::Movement::Gene(region_string.to_string()),
             ))]),
             2 => split[1]
                 .parse::<u64>()
                 .map(|n| {
-                    vec![Message::Core(gv_core::message::Message::Move(
+                    vec![Action::Core(gv_core::message::Message::Move(
                         Movement::ContigNamePosition(split[0].to_string(), n),
                     ))]
                 })
@@ -208,7 +210,7 @@ impl Cli {
 
         // Region / initial locus override.
         if self.region.is_some() {
-            settings.initial_state_messages = self.initial_movement()?;
+            settings.initial_actions = self.initial_movement()?;
         }
 
         // Track override: if any files were provided, replace all session tracks.
@@ -240,8 +242,8 @@ impl Cli {
 
         // Validate: if no reference is provided, the initial messages cannot contain GoToGene.
         if !settings.core.reference.needs_track() {
-            for m in settings.initial_state_messages.iter() {
-                if let Message::Core(gv_core::message::Message::Move(
+            for m in settings.initial_actions.iter() {
+                if let Action::Core(gv_core::message::Message::Move(
                     gv_core::message::Movement::Gene(gene_name),
                 )) = m
                 {
@@ -268,7 +270,7 @@ impl Cli {
 #[derive(Debug, Clone, Eq, PartialEq)]
 pub struct Settings {
     pub core: gv_core::settings::Settings,
-    pub initial_state_messages: Vec<Message>,
+    pub initial_actions: Vec<Action>,
     pub test_mode: bool,
 
     pub debug: bool,
@@ -286,7 +288,7 @@ impl Default for Settings {
         Settings {
             core: gv_core::settings::Settings::default(),
 
-            initial_state_messages: vec![Movement::Default.into()],
+            initial_actions: vec![Movement::Default.into()],
 
             test_mode: false,
 
@@ -322,7 +324,7 @@ impl TryFrom<Cli> for Settings {
                 .parse::<Reference>()?
         };
 
-        let initial_state_messages = cli.initial_movement()?;
+        let initial_actions = cli.initial_movement()?;
 
         let backend = match (cli.offline, cli.online) {
             (true, true) => {
@@ -337,8 +339,8 @@ impl TryFrom<Cli> for Settings {
 
         // Validate: no-reference + gene movement is invalid.
         if !reference.needs_track() {
-            for m in initial_state_messages.iter() {
-                if let Message::Core(gv_core::message::Message::Move(
+            for m in initial_actions.iter() {
+                if let Action::Core(gv_core::message::Message::Move(
                     gv_core::message::Movement::Gene(gene_name),
                 )) = m
                 {
@@ -371,7 +373,7 @@ impl TryFrom<Cli> for Settings {
                 ucsc_host: cli.host.unwrap_or(UcscHostCli::Auto).into(),
                 cache_dir,
             },
-            initial_state_messages,
+            initial_actions,
 
             test_mode: false,
             debug,
@@ -454,7 +456,7 @@ mod tests {
         core: gv_core::settings::Settings {
         file_paths: vec![FilePath::AlignmentPath(bam("input.bam"))],
         ..gv_core::settings::Settings::default()},
-        initial_state_messages: vec![Movement::ContigNamePosition(
+        initial_actions: vec![Movement::ContigNamePosition(
             "chr1".to_string(),
             12345,
         ).into()],
@@ -466,7 +468,7 @@ mod tests {
         core: gv_core::settings::Settings {
         file_paths: vec![FilePath::AlignmentPath(bam("input.bam"))],
         ..gv_core::settings::Settings::default()},
-        initial_state_messages: vec![Movement::Gene("TP53".to_string()).into()],
+        initial_actions: vec![Movement::Gene("TP53".to_string()).into()],
         ..Settings::default()
     }))]
     #[case("tgv input.bam -r TP53 -g hg19", Ok(Settings {
@@ -474,7 +476,7 @@ mod tests {
         file_paths: vec![FilePath::AlignmentPath(bam("input.bam"))],
         reference: Reference::Hg19,
         ..gv_core::settings::Settings::default()},
-        initial_state_messages: vec![Movement::Gene("TP53".to_string()).into()],
+        initial_actions: vec![Movement::Gene("TP53".to_string()).into()],
         ..Settings::default()
     }))]
     #[case("tgv input.bam -r TP53 -g mm39", Ok(Settings {
@@ -482,7 +484,7 @@ mod tests {
         file_paths: vec![FilePath::AlignmentPath(bam("input.bam"))],
         reference: Reference::UcscGenome("mm39".to_string()),
         ..gv_core::settings::Settings::default()},
-        initial_state_messages: vec![Movement::Gene("TP53".to_string()).into()],
+        initial_actions: vec![Movement::Gene("TP53".to_string()).into()],
         ..Settings::default()
     }))]
     #[case("tgv input.bam -r 1:12345 --no-reference", Ok(Settings {
@@ -490,7 +492,7 @@ mod tests {
         file_paths: vec![FilePath::AlignmentPath(bam("input.bam"))],
         reference: Reference::NoReference,
         ..gv_core::settings::Settings::default()},
-        initial_state_messages: vec![Movement::ContigNamePosition(
+        initial_actions: vec![Movement::ContigNamePosition(
             "1".to_string(),
             12345,
         ).into()],

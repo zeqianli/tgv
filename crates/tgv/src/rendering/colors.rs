@@ -71,6 +71,9 @@ pub struct Palette {
     pub BED1: Color,
     pub BED2: Color,
 
+    /// Intervals that an agent highlights, behind the coordinate ruler.
+    pub HIGHLIGHT: Color,
+
     // Gene track
     pub EXON_BACKGROUND_COLOR: Color,
     pub EXON_FOREGROUND_COLOR: Color,
@@ -235,6 +238,8 @@ pub const DARK_THEME: Palette = Palette {
     VCF2: tailwind::VIOLET.c400,
     BED1: tailwind::INDIGO.c900,
     BED2: tailwind::INDIGO.c400,
+
+    HIGHLIGHT: tailwind::AMBER.c700,
 
     // Gene track
     EXON_BACKGROUND_COLOR: tailwind::BLUE.c800,

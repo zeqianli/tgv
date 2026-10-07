@@ -16,7 +16,6 @@
 
 use crossterm::event::{KeyModifiers, MouseEvent, MouseEventKind};
 use gv_core::{
-    intervals::GenomeInterval,
     message::{AlignmentDisplayOption, Message as CoreMessage, Movement, Scroll},
     state::CachePolicy,
 };
@@ -25,7 +24,7 @@ use std::time::{Duration, Instant};
 use tgv::{
     app::{App, RenderEvent},
     layout::AreaType,
-    message::Message,
+    message::Action,
     settings::{Cli, Settings},
 };
 
@@ -47,7 +46,8 @@ impl Bench {
     fn self_correct(&mut self) {
         let contig_length = self
             .app
-            .state
+            .dataset
+            .view
             .contig_length(&self.app.alignment_view.focus)
             .expect("contig length");
         self.app
@@ -58,7 +58,7 @@ impl Bench {
     async fn handle(&mut self, messages: Vec<CoreMessage>) -> Vec<RenderEvent> {
         let events = self
             .app
-            .handle(messages.into_iter().map(Message::Core).collect())
+            .handle(messages.into_iter().map(Action::Core).collect())
             .await
             .expect("handle");
         self.self_correct();
@@ -70,7 +70,9 @@ impl Bench {
             .resolved_layout
             .areas
             .iter()
-            .find_map(|(area_type, rect)| matches!(area_type, AreaType::Alignment(_)).then_some(*rect))
+            .find_map(|(area_type, rect)| {
+                matches!(area_type, AreaType::Alignment(_)).then_some(*rect)
+            })
             .expect("an alignment area")
     }
 }
@@ -108,9 +110,7 @@ async fn main() {
     settings.zoom = zoom;
 
     let started = Instant::now();
-    let app = App::new(settings)
-        .await
-        .expect("app");
+    let app = App::new(settings).await.expect("app");
     let mut bench = Bench {
         app,
         buffer: Buffer::empty(Rect::new(0, 0, WIDTH, HEIGHT)),
@@ -118,17 +118,20 @@ async fn main() {
     bench.app.resolved_layout = bench
         .app
         .layout
-        .resolve(bench.buffer.area, &bench.app.repository);
-    let initial = bench.app.settings.initial_state_messages.clone();
+        .resolve(bench.buffer.area, &bench.app.dataset.repository);
+    let initial = bench.app.settings.initial_actions.clone();
     bench.app.handle(initial).await.expect("initial load");
     bench.self_correct();
     bench.render(&vec![RenderEvent::All]);
     println!(
         "initial load + first render: {:?} (reads={} runs={} depth={})",
         started.elapsed(),
-        bench.app.state.alignments[0].tables.reads.height(),
-        bench.app.state.alignments[0].tables.cigar_runs.height(),
-        bench.app.state.alignments[0].depth().expect("depth"),
+        bench.app.dataset.view.alignments[0].tables.reads.height(),
+        bench.app.dataset.view.alignments[0]
+            .tables
+            .cigar_runs
+            .height(),
+        bench.app.dataset.view.alignments[0].depth().expect("depth"),
     );
 
     if run("load") {
@@ -145,11 +148,12 @@ async fn main() {
             let started = Instant::now();
             bench
                 .app
-                .state
+                .dataset
+                .view
                 .load_alignment_data(
                     0,
                     &region,
-                    &mut bench.app.repository.alignment_repositories[0],
+                    &mut bench.app.dataset.repository.alignment_repositories[0],
                 )
                 .await
                 .expect("load");
@@ -220,7 +224,7 @@ async fn main() {
                 .app
                 .mouse_register
                 .handle_mouse_event(
-                    &bench.app.state,
+                    &bench.app.dataset.view,
                     &bench.app.resolved_layout,
                     &bench.app.alignment_view,
                     event,

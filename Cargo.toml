@@ -11,27 +11,27 @@ async-trait = "0"
 bigtools = { version = "0", default-features = false, features = ["read"] }
 chrono = { version = "0", features = ["clock"] }
 clap = { version = "4", features = ["derive"] }
-crossterm = "0"
+# Match the versions ratatui uses, so the TUI shares one copy of each.
+crossterm = "0.28"
 futures = "0"
-itertools = "0"
+itertools = "0.13"
 log = { version = "0.4", features = ["std"] }
-miette = { version = "7", features = ["fancy"] }
 nom = "8"
-noodles = { version = "0", features = ["async", "bam", "bed", "bgzf", "core", "cram", "fasta", "sam", "vcf"] }
-opendal = { version = "0.53.3", default-features = false, features = ["services-s3"] }
+noodles = { version = "0", features = ["async", "bam", "bcf", "bed", "bgzf", "core", "cram", "csi", "fasta", "sam", "tabix", "vcf"] }
+opendal = { version = "0.53", default-features = false, features = ["services-s3"] }
 # Polars 0.55 string expressions also require its temporal support. Crates that run SQL add
 # their features in their own manifests.
-polars = { version = "0.55.2", default-features = false, features = ["dtype-u8", "dtype-u16", "lazy", "strings", "is_in", "cum_agg", "dtype-i128", "temporal", "round_series"] }
+polars = { version = "0.55", default-features = false, features = ["dtype-u8", "dtype-u16", "lazy", "strings", "is_in", "cum_agg", "dtype-i128", "temporal", "round_series"] }
 ratatui = "0.29"
-rmcp = { version = "=3.5.0", default-features = false, features = ["server", "macros", "transport-io"] }
+rmcp = { version = "3", default-features = false, features = ["server", "macros", "transport-io"] }
 schemars = "1"
 reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls", "stream"] }
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1"
 toml = "0.8"
 shellexpand = "3.1"
-sqlx = { version = "0.7", default-features = false, features = ["mysql", "sqlite", "runtime-tokio-rustls"] }
-strum = { version = "0.27", features = ["derive"] }
+sqlx = { version = "0.8", default-features = false, features = ["mysql", "sqlite", "runtime-tokio", "tls-rustls"] }
+strum = { version = "0.26", features = ["derive"] }
 thiserror = { version = "2" }
 tempfile = "3"
 tokio = { version = "1", features = ["full"] }
@@ -44,6 +44,15 @@ unicode-width = "0.2"
 gv-core = { path = "crates/gv-core", version = "=0.3.0" }
 gv-mcp = { path = "crates/gv-mcp", version = "=0.3.0" }
 gv-session = { path = "crates/gv-session", version = "=0.3.0" }
+
+[profile.dev]
+# Full debug info for Polars and noodles makes each test binary about 2 GB, so linking
+# dominates test builds. Line tables keep file and line numbers in backtraces.
+debug = "line-tables-only"
+
+[profile.dev.package."*"]
+# Dependencies don't need debug info for stepping through TGV code.
+debug = false
 
 [profile.release] # as recommended in https://github.com/ratatui/ratatui-website/pull/931/files
 codegen-units = 1 # Allows compiler to perform better optimization.

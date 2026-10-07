@@ -7,7 +7,7 @@ use gv_core::{
 use ratatui::{Terminal, backend::TestBackend};
 use tgv::{
     app::{App, RenderEvent},
-    message::Message,
+    message::Action,
     settings::{Cli, Settings},
 };
 
@@ -40,20 +40,22 @@ impl AppHarness {
     async fn initialize(&mut self) -> Result<(), TGVError> {
         self.terminal
             .draw(|frame| {
-                self.app.resolved_layout =
-                    self.app.layout.resolve(frame.area(), &self.app.repository);
+                self.app.resolved_layout = self
+                    .app
+                    .layout
+                    .resolve(frame.area(), &self.app.dataset.repository);
             })
             .expect("initial layout draw");
 
         self.app
-            .handle(self.app.settings.initial_state_messages.clone())
+            .handle(self.app.settings.initial_actions.clone())
             .await?;
         self.self_correct()?;
         self.render(&vec![RenderEvent::All]);
         Ok(())
     }
 
-    pub async fn handle(&mut self, messages: Vec<Message>) -> Result<(), TGVError> {
+    pub async fn handle(&mut self, messages: Vec<Action>) -> Result<(), TGVError> {
         let render_events = self.app.handle(messages).await?;
         self.self_correct()?;
         self.render(&render_events);
@@ -61,7 +63,7 @@ impl AppHarness {
     }
 
     pub async fn handle_core(&mut self, messages: Vec<CoreMessage>) -> Result<(), TGVError> {
-        self.handle(messages.into_iter().map(Message::Core).collect())
+        self.handle(messages.into_iter().map(Action::Core).collect())
             .await
     }
 
@@ -71,10 +73,10 @@ impl AppHarness {
     ) -> Result<(), TGVError> {
         let mut render_events = Vec::new();
         for key_code in key_codes {
-            let messages = self
-                .app
-                .registers
-                .handle_key_event(KeyEvent::new(key_code, KeyModifiers::NONE), &self.app.state)?;
+            let messages = self.app.registers.handle_key_event(
+                KeyEvent::new(key_code, KeyModifiers::NONE),
+                &self.app.dataset.view,
+            )?;
             render_events.extend(self.app.handle(messages).await?);
         }
         self.self_correct()?;
@@ -94,11 +96,20 @@ impl AppHarness {
         self.handle_core(vec![CoreMessage::Move(movement)]).await
     }
 
+    /// Sends a session request the way an agent does, serves it in the app, and redraws.
+    pub async fn agent<T>(&mut self, request: impl Future<Output = T>) -> T {
+        let (result, render_events) = tokio::join!(request, self.app.serve_next_request());
+        self.self_correct()
+            .expect("self-correct after an agent request");
+        self.render(&render_events);
+        result
+    }
+
     pub fn locus(&self) -> String {
         self.app
             .alignment_view
             .focus
-            .to_locus_str(&self.app.state.contig_header)
+            .to_locus_str(&self.app.dataset.view.contig_header)
             .expect("focus to locus")
     }
 
@@ -113,7 +124,8 @@ impl AppHarness {
     fn self_correct(&mut self) -> Result<(), TGVError> {
         let contig_length = self
             .app
-            .state
+            .dataset
+            .view
             .contig_length(&self.app.alignment_view.focus)?;
         self.app
             .alignment_view

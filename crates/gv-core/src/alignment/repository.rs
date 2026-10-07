@@ -2,7 +2,7 @@ use crate::{
     alignment::{Alignment, AlignmentTables},
     contig_header::ContigHeader,
     error::TGVError,
-    intervals::{GenomeInterval, Region},
+    intervals::Region,
     sequence::Sequence,
     settings::{AlignmentPath, BamSource},
 };

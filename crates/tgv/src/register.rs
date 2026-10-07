@@ -1,6 +1,6 @@
 use crate::{
     app::Scene,
-    message::{Message, Movement, UpdateLayoutMessage},
+    message::{Action, Movement, UpdateLayoutAction},
 };
 use crossterm::event::{KeyCode, KeyEvent};
 use gv_core::normal::update_by_char;
@@ -50,11 +50,11 @@ impl Registers {
 }
 
 impl Registers {
-    fn handle_help(&mut self, key_event: KeyEvent) -> Result<Vec<Message>, TGVError> {
+    fn handle_help(&mut self, key_event: KeyEvent) -> Result<Vec<Action>, TGVError> {
         match key_event.code {
             KeyCode::Esc => Ok(vec![
-                Message::SwitchScene(Scene::Main),
-                Message::SwitchKeyRegister(KeyRegisterType::Normal),
+                Action::SwitchScene(Scene::Main),
+                Action::SwitchKeyRegister(KeyRegisterType::Normal),
             ]), // TODO: when handling this, should switch register too.
             // This ensures that switching scene and switching register are always together.
             _ => Ok(vec![]),
@@ -66,18 +66,18 @@ impl Registers {
         &mut self,
         key_event: KeyEvent,
         state: &State,
-    ) -> Result<Vec<Message>, TGVError> {
+    ) -> Result<Vec<Action>, TGVError> {
         match key_event.code {
             KeyCode::Enter if state.contig_header.contigs.is_empty() => Ok(vec![]),
             KeyCode::Enter => Ok(vec![
-                Message::SwitchKeyRegister(KeyRegisterType::Normal),
-                Message::SwitchScene(Scene::Main),
+                Action::SwitchKeyRegister(KeyRegisterType::Normal),
+                Action::SwitchScene(Scene::Main),
                 Movement::ContigIndex(self.contig_list_cursor).into(),
             ]),
 
             KeyCode::Esc => Ok(vec![
-                Message::SwitchKeyRegister(KeyRegisterType::Normal),
-                Message::SwitchScene(Scene::Main),
+                Action::SwitchKeyRegister(KeyRegisterType::Normal),
+                Action::SwitchScene(Scene::Main),
             ]),
             // FEAT: command mode in contig list
             // - search and filter contig by regex patterns
@@ -89,9 +89,9 @@ impl Registers {
                     self.contig_list_cursor.saturating_add(1),
                     state.contig_header.contigs.len().saturating_sub(1),
                 );
-                Ok(vec![Message::SelectContig(index)])
+                Ok(vec![Action::SelectContig(index)])
             }
-            KeyCode::Char('k') | KeyCode::Up => Ok(vec![Message::SelectContig(
+            KeyCode::Char('k') | KeyCode::Up => Ok(vec![Action::SelectContig(
                 self.contig_list_cursor.saturating_sub(1),
             )]),
 
@@ -100,71 +100,71 @@ impl Registers {
                     self.contig_list_cursor.saturating_add(30),
                     state.contig_header.contigs.len().saturating_sub(1),
                 );
-                Ok(vec![Message::SelectContig(index)])
+                Ok(vec![Action::SelectContig(index)])
             }
 
-            KeyCode::Char('{') => Ok(vec![Message::SelectContig(
+            KeyCode::Char('{') => Ok(vec![Action::SelectContig(
                 self.contig_list_cursor.saturating_sub(30),
             )]),
             _ => Ok(vec![]),
         }
     }
 
-    fn handle_command(&mut self, key_event: KeyEvent) -> Result<Vec<Message>, TGVError> {
+    fn handle_command(&mut self, key_event: KeyEvent) -> Result<Vec<Action>, TGVError> {
         match key_event.code {
             KeyCode::Esc => Ok(vec![
-                Message::ClearAllKeyRegisters,
-                Message::SwitchKeyRegister(KeyRegisterType::Normal),
+                Action::ClearAllKeyRegisters,
+                Action::SwitchKeyRegister(KeyRegisterType::Normal),
             ]),
 
             KeyCode::Enter => match self.command.as_ref() {
                 "h" => Ok(vec![
-                    Message::ClearAllKeyRegisters,
-                    Message::SwitchScene(Scene::Help),
-                    Message::SwitchKeyRegister(KeyRegisterType::Help),
+                    Action::ClearAllKeyRegisters,
+                    Action::SwitchScene(Scene::Help),
+                    Action::SwitchKeyRegister(KeyRegisterType::Help),
                 ]),
                 "ls" | "contigs" => Ok(vec![
-                    Message::ClearAllKeyRegisters,
-                    Message::SwitchScene(Scene::ContigList),
-                    Message::SwitchKeyRegister(KeyRegisterType::ContigList),
+                    Action::ClearAllKeyRegisters,
+                    Action::SwitchScene(Scene::ContigList),
+                    Action::SwitchKeyRegister(KeyRegisterType::ContigList),
                 ]),
                 _ => Ok(gv_core::command::parse(self.command.as_str())
-                    .map(|m| m.into_iter().map(Message::Core).collect_vec())
+                    .map(|m| m.into_iter().map(Action::Core).collect_vec())
                     .unwrap_or_else(|e| {
-                        vec![Message::Core(gv_core::message::Message::Message(format!(
+                        vec![Action::Core(gv_core::message::Message::Message(format!(
                             "{}",
                             e
                         )))]
                     })
                     .into_iter()
                     .chain(vec![
-                        Message::ClearAllKeyRegisters,
-                        Message::SwitchKeyRegister(KeyRegisterType::Normal),
+                        Action::ClearAllKeyRegisters,
+                        Action::SwitchKeyRegister(KeyRegisterType::Normal),
                     ])
                     .collect_vec()),
             },
             KeyCode::Char(c) => {
                 self.command.insert(self.command_cursor, c);
                 self.command_cursor += 1;
-                Ok(vec![Message::CommandChanged])
+                Ok(vec![Action::CommandChanged])
             }
             KeyCode::Backspace => {
                 if self.command_cursor > 0 {
                     self.command.remove(self.command_cursor - 1);
                     self.command_cursor -= 1;
                 }
-                Ok(vec![Message::CommandChanged])
+                Ok(vec![Action::CommandChanged])
             }
             KeyCode::Left => {
                 self.command_cursor = self.command_cursor.saturating_sub(1);
-                Ok(vec![Message::CommandChanged])
+                Ok(vec![Action::CommandChanged])
             }
             KeyCode::Right => {
                 self.command_cursor = self
                     .command_cursor
                     .saturating_add(1)
                     .clamp(0, self.command.len());
-                Ok(vec![Message::CommandChanged])
+                Ok(vec![Action::CommandChanged])
             }
             _ => Err(TGVError::RegisterError(format!(
                 "Invalid command mode input: {:?}",
@@ -173,14 +173,14 @@ impl Registers {
         }
     }
 
-    fn handle_normal(&mut self, key_event: KeyEvent) -> Result<Vec<Message>, TGVError> {
+    fn handle_normal(&mut self, key_event: KeyEvent) -> Result<Vec<Action>, TGVError> {
         match key_event.code {
-            KeyCode::Char('s') if self.normal.is_empty() => Ok(vec![Message::UpdateLayout(
-                UpdateLayoutMessage::ToggleSidebar,
+            KeyCode::Char('s') if self.normal.is_empty() => Ok(vec![Action::UpdateLayout(
+                UpdateLayoutAction::ToggleSidebar,
             )]),
             KeyCode::Char(':') => Ok(vec![
-                Message::ClearAllKeyRegisters,
-                Message::SwitchKeyRegister(KeyRegisterType::Command),
+                Action::ClearAllKeyRegisters,
+                Action::SwitchKeyRegister(KeyRegisterType::Command),
             ]),
             KeyCode::Char(char) => Ok(update_by_char(&mut self.normal, char)?
                 .into_iter()
@@ -217,7 +217,7 @@ impl Registers {
         &mut self,
         key_event: KeyEvent,
         state: &State,
-    ) -> Result<Vec<Message>, TGVError> {
+    ) -> Result<Vec<Action>, TGVError> {
         Ok(match self.current {
             KeyRegisterType::Normal => self.handle_normal(key_event),
             KeyRegisterType::Command => self.handle_command(key_event),
@@ -229,8 +229,8 @@ impl Registers {
         }
         .unwrap_or_else(|e| {
             vec![
-                Message::ClearAllKeyRegisters,
-                Message::message(format!("{}", e)),
+                Action::ClearAllKeyRegisters,
+                Action::message(format!("{}", e)),
             ]
         }))
     }

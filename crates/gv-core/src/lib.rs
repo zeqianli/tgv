@@ -13,7 +13,7 @@ pub mod prelude {
     pub use crate::{
         contig_header::ContigHeader,
         error::TGVError,
-        intervals::{Focus, GenomeInterval, IntervalTable, Region},
+        intervals::{Focus, IntervalTable, Region},
         reference::Reference,
         repository::{Repository, RepositoryFileIndex},
         settings::FilePath,

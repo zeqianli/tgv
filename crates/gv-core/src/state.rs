@@ -1,14 +1,14 @@
 use crate::sequence::SequenceRepositoryEnum;
 use crate::tracks::{TrackService, TrackServiceEnum};
-use crate::variant::VariantRepository;
+use crate::variant::VariantRepositoryEnum;
 use crate::{
     alignment::{Alignment, AlignmentRepositoryEnum, PairedAlignment, tables},
-    bed::{BedRepository, BedTable},
+    bed::{BedRepositoryEnum, BedTable},
     contig_header::ContigHeader,
     cytoband::Cytoband,
     error::TGVError,
     gene::{GeneSchema, GeneTable},
-    intervals::{Focus, GenomeInterval, Region},
+    intervals::{Focus, Region},
     message::{AlignmentDisplayOption, AlignmentFilter, AlignmentSort, Movement},
     reference::Reference,
     //register::Registers,
@@ -26,7 +26,7 @@ pub struct LoadRequest<'a> {
     pub sequence: bool,
     /// Loads the gene annotations.
     pub genes: bool,
-    /// The file tracks to load. Variant and BED tracks load their whole files once.
+    /// The file tracks to load.
     pub files: &'a [RepositoryFileIndex],
     /// How far loads extend beyond the region on a cache miss.
     pub cache: CachePolicy,
@@ -90,15 +90,13 @@ pub struct State {
     pub alignment_options: Vec<Vec<AlignmentDisplayOption>>,
     pub paired_alignments: Vec<Option<PairedAlignment>>,
 
-    /// Variant track data.
-    /// Index always matches with VariantRepository index
+    /// Variant track data for the loaded region.
+    /// Index always matches with the variant repository index.
     pub variants: Vec<VariantTable>,
-    pub variant_loaded: Vec<bool>, // Temporary hack before proper implemetation for the indexed VCF IO
 
-    /// Bed track data
-    /// Index always matches with BedRepository index
+    /// BED track data for the loaded region.
+    /// Index always matches with the BED repository index.
     pub bed_intervals: Vec<BedTable>,
-    pub bed_loaded: Vec<bool>, // Temporary hack before proper implemetation for large bed file io
 
     pub track: GeneTable,
 
@@ -124,9 +122,7 @@ impl State {
             track: GeneTable::default(),
             sequence: Sequence::default(),
             variants: Vec::new(),
-            variant_loaded: Vec::new(),
             bed_intervals: Vec::new(),
-            bed_loaded: Vec::new(),
             contig_header: contigs,
         })
     }
@@ -350,18 +346,17 @@ impl State {
 
     pub fn add_variant_track(&mut self) {
         self.variants.push(VariantTable::default());
-        self.variant_loaded.push(false);
     }
 
     pub async fn load_variant_data(
         &mut self,
         index: usize,
         region: &Region,
-        variant_repository: &mut VariantRepository,
+        variant_repository: &mut VariantRepositoryEnum,
     ) -> Result<&mut Self, TGVError> {
         let started = Instant::now();
         log::debug!("Loading variant data: track={} region={:?}", index, region);
-        let variants = match variant_repository.read_variants(&self.contig_header) {
+        let variants = match variant_repository.read_variants(region, &self.contig_header) {
             Ok(variants) => variants,
             Err(e) => {
                 log::warn!(
@@ -373,53 +368,30 @@ impl State {
                 return Err(e);
             }
         };
-        let record_count = variants.data.height();
-        let Some(variant_track) = self.variants.get_mut(index) else {
-            let e = TGVError::StateError(format!("Variant index out of bounds: {index}"));
-            log::warn!(
-                "Failed to store variant data: track={} region={:?} elapsed_ms={} error={e}",
-                index,
-                region,
-                started.elapsed().as_millis(),
-            );
-            return Err(e);
-        };
-        *variant_track = variants;
-        let Some(variant_loaded) = self.variant_loaded.get_mut(index) else {
-            let e = TGVError::StateError(format!("Variant loaded index out of bounds: {index}"));
-            log::warn!(
-                "Failed to mark variant data loaded: track={} region={:?} elapsed_ms={} error={e}",
-                index,
-                region,
-                started.elapsed().as_millis(),
-            );
-            return Err(e);
-        };
-        *variant_loaded = true;
         log::debug!(
             "Loaded variant data: track={} region={:?} records={} elapsed_ms={}",
             index,
             region,
-            record_count,
+            variants.data.height(),
             started.elapsed().as_millis(),
         );
+        self.variants[index] = variants;
         Ok(self)
     }
 
     pub fn add_bed_track(&mut self) {
         self.bed_intervals.push(BedTable::default());
-        self.bed_loaded.push(false);
     }
 
     pub async fn load_bed_data(
         &mut self,
         index: usize,
         region: &Region,
-        bed_repository: &mut BedRepository,
+        bed_repository: &mut BedRepositoryEnum,
     ) -> Result<&mut Self, TGVError> {
         let started = Instant::now();
         log::debug!("Loading BED data: track={} region={:?}", index, region);
-        let bed_intervals = match bed_repository.read_bed(&self.contig_header) {
+        let bed_intervals = match bed_repository.read_bed(region, &self.contig_header) {
             Ok(bed_intervals) => bed_intervals,
             Err(e) => {
                 log::warn!(
@@ -431,36 +403,14 @@ impl State {
                 return Err(e);
             }
         };
-        let record_count = bed_intervals.data.height();
-        let Some(bed_track) = self.bed_intervals.get_mut(index) else {
-            let e = TGVError::StateError(format!("BED index out of bounds: {index}"));
-            log::warn!(
-                "Failed to store BED data: track={} region={:?} elapsed_ms={} error={e}",
-                index,
-                region,
-                started.elapsed().as_millis(),
-            );
-            return Err(e);
-        };
-        *bed_track = bed_intervals;
-        let Some(bed_loaded) = self.bed_loaded.get_mut(index) else {
-            let e = TGVError::StateError(format!("BED loaded index out of bounds: {index}"));
-            log::warn!(
-                "Failed to mark BED data loaded: track={} region={:?} elapsed_ms={} error={e}",
-                index,
-                region,
-                started.elapsed().as_millis(),
-            );
-            return Err(e);
-        };
-        *bed_loaded = true;
         log::debug!(
             "Loaded BED data: track={} region={:?} records={} elapsed_ms={}",
             index,
             region,
-            record_count,
+            bed_intervals.data.height(),
             started.elapsed().as_millis(),
         );
+        self.bed_intervals[index] = bed_intervals;
         Ok(self)
     }
 
@@ -513,17 +463,27 @@ impl State {
                     )
                     .await?;
                 }
-                RepositoryFileIndex::Variant(index) if !self.variant_loaded[index] => {
+                RepositoryFileIndex::Variant(index)
+                    if !self.variants[index].has_complete_data(region) =>
+                {
+                    let cache_region = request.cache.track_region(region);
                     self.load_variant_data(
                         index,
-                        region,
+                        &cache_region,
                         &mut repository.variant_repositories[index],
                     )
                     .await?;
                 }
-                RepositoryFileIndex::Bed(index) if !self.bed_loaded[index] => {
-                    self.load_bed_data(index, region, &mut repository.bed_repositories[index])
-                        .await?;
+                RepositoryFileIndex::Bed(index)
+                    if !self.bed_intervals[index].has_complete_data(region) =>
+                {
+                    let cache_region = request.cache.track_region(region);
+                    self.load_bed_data(
+                        index,
+                        &cache_region,
+                        &mut repository.bed_repositories[index],
+                    )
+                    .await?;
                 }
                 _ => {}
             }

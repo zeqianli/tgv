@@ -9,12 +9,14 @@ include = ["src/*", "!src/snapshots", "Cargo.toml", "./README.md"]
 
 [dependencies]
 clap.workspace = true
-crossterm.workspace = true
+# The event loop waits for terminal events and session requests together.
+crossterm = { workspace = true, features = ["event-stream"] }
+futures.workspace = true
 gv-core.workspace = true
 gv-mcp.workspace = true
+gv-session.workspace = true
 itertools.workspace = true
 log.workspace = true
-miette.workspace = true
 ratatui.workspace = true
 serde.workspace = true
 shellexpand.workspace = true
@@ -35,5 +37,6 @@ harness = false
 [dev-dependencies]
 insta = "1.42"
 rstest = "0.25.0"
+serde_json.workspace = true
 shlex = "1.3.0"
 tempfile = "3"
