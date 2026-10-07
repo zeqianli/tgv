@@ -257,8 +257,12 @@ async fn offline_sequence_updates_tracks_and_scenes() {
         .unwrap();
 
     assert_eq!(harness.app.scene, Scene::Main);
-    assert_eq!(harness.app.dataset.view.variant_loaded, vec![true]);
-    assert_eq!(harness.app.dataset.view.bed_loaded, vec![true]);
+    let displayed = harness
+        .app
+        .alignment_view
+        .region(&harness.app.resolved_layout.main_area);
+    assert!(harness.app.dataset.view.variants[0].has_complete_data(&displayed));
+    assert!(harness.app.dataset.view.bed_intervals[0].has_complete_data(&displayed));
     assert_eq!(harness.app.alignment_view.focus.position, 33_121_130);
     assert_eq!(
         harness.app.dataset.view.messages,

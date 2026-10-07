@@ -297,7 +297,7 @@ Scope: region. Key: `track_id`, `row_id`.
 |--------|------|---------|
 | `track_id` | `u64` | The track ID from `get_dataset`. |
 | `contig` | `str` | The contig name. |
-| `row_id` | `u64` | The zero-based record index within the loaded data: the order in the file for plain VCF files, and the order within the loaded region for indexed VCF and BCF files. |
+| `row_id` | `u64` | The zero-based record index within the loaded data, in file order: within the contig for plain VCF files, and within the loaded region for indexed VCF and BCF files. |
 | `start` | `u64` | The 1-based VCF POS. |
 | `end` | `u64` | The last reference position covered by the reference allele. |
 | `ids` | `list[str]` | The VCF ID values. |
@@ -316,7 +316,7 @@ Scope: region. Key: `track_id`, `row_id`.
 |--------|------|---------|
 | `track_id` | `u64` | The track ID from `get_dataset`. |
 | `contig` | `str` | The contig name. |
-| `row_id` | `u64` | The zero-based feature index within the loaded data: the order in the file for plain BED files, and the order within the loaded region for indexed BED and bigBed files. |
+| `row_id` | `u64` | The zero-based feature index within the loaded data, in file order: within the whole file for plain BED files, and within the loaded region for indexed BED and bigBed files. |
 | `start` | `u64` | The 1-based first position, converted from the BED 0-based start. |
 | `end` | `u64` | The last position, inclusive. |
 | `name` | `str` | The BED name, or null when absent. |

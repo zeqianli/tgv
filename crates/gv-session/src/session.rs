@@ -226,8 +226,8 @@ impl Session {
 /// Owns a loaded dataset: its repositories, its tracks, and two states over them.
 ///
 /// `view` holds what a viewer displays. `query` holds what `inspect` and `query` commands load,
-/// so an agent's queries never replace the region a person is looking at. Both states share
-/// the repositories and the whole-file variant and BED tables, but load regions independently.
+/// so an agent's queries never replace the region a person is looking at. Both states read
+/// through the same repositories, but load regions independently.
 pub struct Dataset {
     pub settings: Settings,
     pub repository: Repository,
@@ -339,12 +339,6 @@ impl Dataset {
         })
     }
 
-    /// Lets each state reuse whole-file tables that the other has loaded.
-    fn share_whole_file_tracks(&mut self) {
-        self.view.share_whole_file_tracks(&self.query);
-        self.query.share_whole_file_tracks(&self.view);
-    }
-
     /// Loads the selected tracks, the reference sequence, and gene annotations for a region
     /// into the query state.
     ///
@@ -359,7 +353,6 @@ impl Dataset {
             .iter()
             .map(|&id| self.tracks.get(id).repository_index)
             .collect();
-        self.share_whole_file_tracks();
         self.query
             .ensure_loaded(
                 region,
@@ -371,9 +364,7 @@ impl Dataset {
                 },
                 &mut self.repository,
             )
-            .await?;
-        self.share_whole_file_tracks();
-        Ok(())
+            .await
     }
 
     /// Validates requested track IDs and returns them in dataset order.
@@ -472,42 +463,10 @@ impl Dataset {
             .as_ref()
             .map(|region| region.resolve(&self.query.contig_header))
             .transpose()?;
-        match &resolved {
-            Some((query, _)) => {
-                let all: Vec<TrackId> = self.tracks.entries.iter().map(|entry| entry.id).collect();
-                self.load_query_region(query, &all).await?;
-            }
-            None => {
-                // Variant and BED repositories read whole files, so the region only labels logs.
-                let anywhere = Region {
-                    focus: Focus {
-                        contig_index: 0,
-                        position: 1,
-                    },
-                    half_width: 0,
-                };
-                let files: Vec<RepositoryFileIndex> = self
-                    .tracks
-                    .entries
-                    .iter()
-                    .map(|entry| entry.repository_index)
-                    .filter(|index| !matches!(index, RepositoryFileIndex::Alignment(_)))
-                    .collect();
-                self.share_whole_file_tracks();
-                self.query
-                    .ensure_loaded(
-                        &anywhere,
-                        &LoadRequest {
-                            sequence: false,
-                            genes: false,
-                            files: &files,
-                            cache: CachePolicy::EXACT,
-                        },
-                        &mut self.repository,
-                    )
-                    .await?;
-                self.share_whole_file_tracks();
-            }
+        // Without a region, only dataset tables exist, so there is nothing to load.
+        if let Some((query, _)) = &resolved {
+            let all: Vec<TrackId> = self.tracks.entries.iter().map(|entry| entry.id).collect();
+            self.load_query_region(query, &all).await?;
         }
 
         let region = resolved.as_ref().map(|(query, interval)| QueryRegion {

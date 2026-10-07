@@ -17,7 +17,6 @@ use gv_core::{
     },
     bed::BedSchema,
     gene::{GeneSchema, GeneSegmentSchema, query_segments},
-    intervals::IntervalSchema,
     prelude::*,
     sequence::Sequence,
     table_schema::ColumnDoc,
@@ -32,8 +31,6 @@ use serde::Serialize;
 pub enum TableScope {
     /// Describes the dataset itself and is always available.
     Dataset,
-    /// Holds complete files and is always available.
-    WholeFile,
     /// Holds data for the query region and requires `region`.
     Region,
 }
@@ -492,8 +489,8 @@ pub(crate) const REFERENCE: SqlTable = SqlTable {
 
 pub(crate) const VARIANTS: SqlTable = SqlTable {
     name: "variants",
-    scope: TableScope::WholeFile,
-    description: "One row per VCF record in every variant track, across all contigs.",
+    scope: TableScope::Region,
+    description: "One row per VCF or BCF record overlapping the region, in every variant track.",
     key: &[AddedColumns::TRACK_ID, VariantSchema::ROW_ID],
     leading: &[TRACK_ID, CONTIG],
     trailing: &[],
@@ -504,8 +501,8 @@ pub(crate) const VARIANTS: SqlTable = SqlTable {
 
 pub(crate) const BED: SqlTable = SqlTable {
     name: "bed",
-    scope: TableScope::WholeFile,
-    description: "One row per interval in every BED track, across all contigs.",
+    scope: TableScope::Region,
+    description: "One row per feature overlapping the region, in every BED and bigBed track.",
     key: &[AddedColumns::TRACK_ID, BedSchema::ROW_ID],
     leading: &[TRACK_ID, CONTIG],
     trailing: &[],
@@ -578,11 +575,7 @@ impl TableSources<'_> {
         &self,
         region: Option<&QueryRegion>,
     ) -> Result<Vec<(&'static str, LazyFrame)>, TGVError> {
-        let mut tables = vec![
-            (TRACKS.name, self.tracks_table()?),
-            (VARIANTS.name, self.variants_table()?),
-            (BED.name, self.bed_table()?),
-        ];
+        let mut tables = vec![(TRACKS.name, self.tracks_table()?)];
         if let Some(region) = region {
             let reference = self.loaded_reference(region)?;
             let reads = self.read_frames(region, &reference)?;
@@ -593,6 +586,8 @@ impl TableSources<'_> {
                 (BASE_MODS.name, BASE_MODS.finish(reads.base_mods)?),
                 (COVERAGE.name, self.coverage_table(region, &reference)?),
                 (REFERENCE.name, self.reference_table(region, reference)?),
+                (VARIANTS.name, self.variants_table(region)?),
+                (BED.name, self.bed_table(region)?),
                 (GENES.name, self.genes_table(region)?),
                 (GENE_FEATURES.name, self.gene_features_table(region)?),
             ]);
@@ -610,21 +605,6 @@ impl TableSources<'_> {
                 }
                 _ => None,
             })
-    }
-
-    /// Maps contig indexes to names, for joining onto whole-file tables.
-    fn contigs(&self) -> Result<LazyFrame, TGVError> {
-        let contigs = &self.state.contig_header.contigs;
-        let indexes: Vec<u64> = (0..contigs.len() as u64).collect();
-        let names: Vec<&str> = contigs.iter().map(|contig| contig.name.as_str()).collect();
-        Ok(DataFrame::new(
-            contigs.len(),
-            vec![
-                Column::new(IntervalSchema::CONTIG_INDEX.into(), indexes),
-                Column::new(AddedColumns::CONTIG.into(), names),
-            ],
-        )?
-        .lazy())
     }
 
     /// Lists the loaded reference bases on the region's contig, by position.
@@ -673,8 +653,7 @@ impl TableSources<'_> {
         TRACKS.finish(vec![frame.lazy()])
     }
 
-    fn variants_table(&self) -> Result<LazyFrame, TGVError> {
-        let contigs = self.contigs()?;
+    fn variants_table(&self, region: &QueryRegion) -> Result<LazyFrame, TGVError> {
         let mut frames = Vec::new();
         for entry in &self.tracks.entries {
             let RepositoryFileIndex::Variant(index) = entry.repository_index else {
@@ -682,23 +661,18 @@ impl TableSources<'_> {
             };
             frames.push(
                 self.state.variants[index]
-                    .data
-                    .clone()
+                    .query(region.contig_index, region.start, region.end)?
                     .lazy()
-                    .join(
-                        contigs.clone(),
-                        [col(VariantSchema::CONTIG_INDEX)],
-                        [col(IntervalSchema::CONTIG_INDEX)],
-                        left_join(),
-                    )
-                    .with_columns([lit(entry.id as u64).alias(AddedColumns::TRACK_ID)]),
+                    .with_columns([
+                        lit(entry.id as u64).alias(AddedColumns::TRACK_ID),
+                        lit(region.contig).alias(AddedColumns::CONTIG),
+                    ]),
             );
         }
         VARIANTS.finish(frames)
     }
 
-    fn bed_table(&self) -> Result<LazyFrame, TGVError> {
-        let contigs = self.contigs()?;
+    fn bed_table(&self, region: &QueryRegion) -> Result<LazyFrame, TGVError> {
         let mut frames = Vec::new();
         for entry in &self.tracks.entries {
             let RepositoryFileIndex::Bed(index) = entry.repository_index else {
@@ -706,16 +680,12 @@ impl TableSources<'_> {
             };
             frames.push(
                 self.state.bed_intervals[index]
-                    .data
-                    .clone()
+                    .query(region.contig_index, region.start, region.end)?
                     .lazy()
-                    .join(
-                        contigs.clone(),
-                        [col(BedSchema::CONTIG_INDEX)],
-                        [col(IntervalSchema::CONTIG_INDEX)],
-                        left_join(),
-                    )
-                    .with_columns([lit(entry.id as u64).alias(AddedColumns::TRACK_ID)]),
+                    .with_columns([
+                        lit(entry.id as u64).alias(AddedColumns::TRACK_ID),
+                        lit(region.contig).alias(AddedColumns::CONTIG),
+                    ]),
             );
         }
         BED.finish(frames)

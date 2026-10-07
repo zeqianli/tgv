@@ -150,8 +150,7 @@ impl App {
             })
             .map_err(|e| TGVError::IOError(format!("Failed to draw the terminal: {e}")))?;
 
-        self.handle(self.settings.initial_actions.clone())
-            .await?;
+        self.handle(self.settings.initial_actions.clone()).await?;
 
         self.alignment_view.self_correct(
             &self.resolved_layout.main_area,
@@ -741,13 +740,25 @@ impl App {
                 AlignmentView::MAX_ZOOM_TO_DISPLAY_ALIGNMENTS,
             );
         }
+        let show_indexed_features =
+            self.alignment_view.zoom <= AlignmentView::MAX_ZOOM_TO_DISPLAY_INDEXED_FEATURES;
         let files: Vec<RepositoryFileIndex> = self
             .dataset
             .tracks
             .entries
             .iter()
             .map(|entry| entry.repository_index)
-            .filter(|index| show_alignments || !matches!(index, RepositoryFileIndex::Alignment(_)))
+            .filter(|index| match index {
+                RepositoryFileIndex::Alignment(_) => show_alignments,
+                RepositoryFileIndex::Variant(i) => {
+                    show_indexed_features
+                        || !self.dataset.repository.variant_repositories[*i].is_indexed()
+                }
+                RepositoryFileIndex::Bed(i) => {
+                    show_indexed_features
+                        || !self.dataset.repository.bed_repositories[*i].is_indexed()
+                }
+            })
             .collect();
         self.dataset
             .view
