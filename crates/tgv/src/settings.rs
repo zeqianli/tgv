@@ -85,7 +85,9 @@ pub enum Commands {
 #[derive(Parser, Clone)]
 #[command(author, version, about, long_about = None)]
 pub struct Cli {
-    /// Input files. Supported track formats: .bam, .vcf, .vcf.gz, .bed, .bed.gz.
+    /// Input files. Supported track formats: .bam, .vcf, .vcf.gz, .vcf.bgz, .bcf, .bed, .bed.gz, .bb, .bigbed.
+    /// Bgzipped VCF and BED files with a .tbi or .csi index, BCF files with a .csi index, and
+    /// bigBed files load by region.
     /// BAM index files are inferred automatically as .bam.bai.
     /// To set the viewer reference, including a custom FASTA or 2bit file, use -g.
     #[arg(value_name = "files")]
