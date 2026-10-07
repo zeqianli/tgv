@@ -50,16 +50,17 @@ Dataset
 ├── repository   open readers, shared by both states
 ├── tracks       TrackRegistry: track IDs → repository indexes
 ├── view: State  what a viewer draws
-│   ├── alignments, sequence, genes     ← the region on screen, padded (CachePolicy::VIEWER)
-│   └── variants, BED intervals ─┐
+│   └── alignments, sequence, genes, variants, BED features
+│                                       ← the region on screen, padded (CachePolicy::VIEWER)
 └── query: State what agent requests load
-    ├── alignments, sequence, genes     ← the requested region exactly (CachePolicy::EXACT)
-    └── variants, BED intervals ─┤
-                                 └──► Arc<VariantTable>, Arc<BedTable>: each file is loaded once
+    └── alignments, sequence, genes, variants, BED features
+                                        ← the requested region exactly (CachePolicy::EXACT)
 ```
 
 - **The two states load regions separately.** An agent query on another contig loads into `query` and never replaces what `view` shows.
-- **Whole-file variant and BED tables are shared.** Each state points to the same `Arc` table through `State::share_whole_file_tracks`, so a large VCF isn't held twice.
+- **Every track kind loads by region.** Each table records its loaded bounds, and `State::ensure_loaded` reads a track only when `has_complete_data(region)` is false. The repository decides how to read the region:
+  - Indexed files (bgzipped VCF and BED with a `.tbi` or `.csi` index, BCF, and bigBed) are queried through their index.
+  - Plain VCF and BED files are parsed once into the repository, which then answers each read with the whole contig. Both states read through the one repository, so a plain file is parsed once.
 - **One `Repository` is safe without locks.** A host handles one request at a time, so the two states never read files concurrently.
 
 ## Requests
@@ -116,10 +117,33 @@ App
 ├── highlights                intervals an agent marked
 ├── layout, resolved_layout   areas on screen
 ├── registers, mouse_register key and mouse input state
-├── settings                  palette, initial messages, session path
+├── settings                  palette, initial actions, session path
 ├── session: SessionHandle    sends requests to this App
 └── requests: Requests        receives them
 ```
+
+## Actions and requests
+
+The TUI uses two kinds of message, with separate jobs:
+
+| | `Action` (`tgv::message`) | `Request` (`gv_session`) |
+|---|---|---|
+| Purpose | Changes the TUI's view or input state | Calls the session from another task or process |
+| Produced by | Key and mouse handling, session-file loading, and agent view requests | `SessionHandle` methods |
+| Applied by | `App::handle`, the only code that changes what the screen shows | The session host: the headless worker or `App::serve` |
+| Reply | None; `App::handle` returns the areas to redraw | A typed result through a `Responder` |
+
+An agent's view request becomes actions. `App::serve_view` validates the request, translates it into actions, and applies them with `App::handle`, the same path key presses take. It then replies with the result:
+
+```text
+keys, mouse ──► Registers / MouseRegister ──► Vec<Action> ─┐
+                                                           ├──► App::handle ──► view, highlights
+Request::View ──► App::serve_view (validate, translate) ───┘          │
+       ▲                                                              │
+       └────────────── Responder::respond(ViewState or error) ◄───────┘
+```
+
+Data requests never change the screen, so `Dataset::serve` answers them without actions.
 
 ## The TUI event loop
 
@@ -139,13 +163,13 @@ App
         ┌──────────────────────────┐  ┌──────────────────────────┐ │
         │ take every event already │  │ App::serve               │ │
         │ queued (zero timeout)    │  │  Data → Dataset::serve   │ │
-        │ skip superseded mouse    │  │  View → navigate,        │ │
-        │ moves                    │  │         highlight, ...   │ │
+        │ skip superseded mouse    │  │  View → Actions, then    │ │
+        │ moves                    │  │         App::handle      │ │
         └────────────┬─────────────┘  │  LoadDataset → refuse    │ │
                      ▼                └────────────┬─────────────┘ │
         ┌──────────────────────────┐               │               │
-        │ keys and mouse → Messages│               │               │
-        │ App::handle(messages)    │               │               │
+        │ keys and mouse → Actions │               │               │
+        │ App::handle(actions)     │               │               │
         │  move, zoom, scroll, ... │               │               │
         │  load_data() if the view │               │               │
         │  moved                   │               │               │
@@ -159,14 +183,14 @@ App
 
 **Session requests** run inside the loop, between batches of terminal events. Only the loop touches the `Dataset`, so nothing else mutates it. A long agent query pauses input while it runs.
 
-**View requests** from an agent:
+**View requests** from an agent, and the actions they become:
 
-| Request | Effect |
-|---|---|
-| `navigate` | Centers the region, picks a zoom that fits the track area, loads it into `view`, and shows "An agent moved the view to X. Type :Y to go back." |
-| `highlight` | Replaces `App::highlights`, tints their columns in the coordinate ruler, and reports the count and label in the message line. |
-| `clear_highlights` | Removes the highlights. |
-| `view_state` | Returns the displayed interval and zoom. |
+| Request | Actions | Effect |
+|---|---|---|
+| `navigate` | `Move(ContigNamePosition)`, `Zoom(Fit { bases })`, and a status message | Centers the region, fits it to the track area, loads it into `view`, and shows "An agent moved the view to X. Type :Y to go back." |
+| `highlight` | `SetHighlights` and a status message | Tints the intervals' columns in the coordinate ruler, and reports the count and label in the message line. |
+| `clear_highlights` | `ClearHighlights` | Removes the highlights. |
+| `view_state` | None; it only reads | Returns the displayed interval and zoom. |
 
 **Data loading for the view** goes through `App::load_data`. It works out the displayed region from `alignment_view` and the track area. Then it calls `dataset.view.ensure_loaded` with `CachePolicy::VIEWER`, which reads files only when the region isn't already loaded, and pads each load so that nearby panning reuses the data.
 
@@ -176,5 +200,5 @@ App
 |---|---|
 | A new SQL table or column | gv-core schemas (`column_docs`) and `gv-session/src/tables.rs` |
 | A new request | `gv-session/src/session.rs`, both hosts (`Dataset::run` and `App::serve`), and a tool in `gv-mcp` if agents need it |
-| How the viewer reacts to agents | `App::serve_view` in `tgv/src/app.rs` |
+| How the viewer reacts to agents | `App::serve_view`, which translates requests into actions, in `tgv/src/app.rs` |
 | What gets loaded and cached | `State::ensure_loaded` and `CachePolicy` in `gv-core/src/state.rs` |
