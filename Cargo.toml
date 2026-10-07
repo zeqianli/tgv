@@ -45,6 +45,15 @@ gv-core = { path = "crates/gv-core", version = "=0.3.0" }
 gv-mcp = { path = "crates/gv-mcp", version = "=0.3.0" }
 gv-session = { path = "crates/gv-session", version = "=0.3.0" }
 
+[profile.dev]
+# Full debug info for Polars and noodles makes each test binary about 2 GB, so linking
+# dominates test builds. Line tables keep file and line numbers in backtraces.
+debug = "line-tables-only"
+
+[profile.dev.package."*"]
+# Dependencies don't need debug info for stepping through TGV code.
+debug = false
+
 [profile.release] # as recommended in https://github.com/ratatui/ratatui-website/pull/931/files
 codegen-units = 1 # Allows compiler to perform better optimization.
 lto = true # Enables link-time optimization.

@@ -267,7 +267,9 @@ impl MouseRegister {
                                 let references = rows.column(VariantSchema::REFERENCE)?.str()?;
                                 let alternates = rows.column(VariantSchema::ALTERNATE)?.list()?;
                                 let qualities = rows.column(VariantSchema::QUALITY_SCORE)?.f32()?;
-                                let ids = rows.column(VariantSchema::ROW_ID)?.u64()?;
+                                let contig = &state.contig_header.contigs
+                                    [alignment_view.focus.contig_index]
+                                    .name;
                                 for row in 0..rows.height() {
                                     let alleles = alternates.get_as_series(row);
                                     let alternate = match alleles {
@@ -284,11 +286,9 @@ impl MouseRegister {
                                         .get(row)
                                         .map(|q| q.to_string())
                                         .unwrap_or_else(|| "?".into());
-                                    let record = &variants.records
-                                        [ids.get(row).expect("row IDs are non-null") as usize];
                                     messages.push(Action::message(format!(
                                         "Variant: {}:{} {}>{} QUAL={}",
-                                        record.reference_sequence_name(),
+                                        contig,
                                         starts.get(row).expect("variant starts are non-null"),
                                         references.get(row).expect("reference bases are non-null"),
                                         alternate,
@@ -310,15 +310,20 @@ impl MouseRegister {
                                 )?;
                                 let starts = rows.column(BedSchema::START)?.u64()?;
                                 let ends = rows.column(BedSchema::END)?.u64()?;
-                                let ids = rows.column(BedSchema::ROW_ID)?.u64()?;
+                                let names = rows.column(BedSchema::NAME)?.str()?;
+                                let contig = &state.contig_header.contigs
+                                    [alignment_view.focus.contig_index]
+                                    .name;
                                 for row in 0..rows.height() {
-                                    let record = &intervals.records
-                                        [ids.get(row).expect("row IDs are non-null") as usize];
+                                    let name = names
+                                        .get(row)
+                                        .map_or_else(String::new, |name| format!(" {name}"));
                                     messages.push(Action::message(format!(
-                                        "BED interval: {}:{}-{}",
-                                        record.reference_sequence_name(),
+                                        "BED interval: {}:{}-{}{}",
+                                        contig,
                                         starts.get(row).expect("BED starts are non-null"),
-                                        ends.get(row).expect("BED ends are non-null")
+                                        ends.get(row).expect("BED ends are non-null"),
+                                        name
                                     )));
                                 }
                             }

@@ -42,3 +42,17 @@ pub fn render_simple_intervals(
 
     Ok(())
 }
+
+/// Says that the track isn't loaded for this view, because the view is zoomed out too far.
+pub fn render_zoom_in_notice(area: &Rect, buf: &mut Buffer, features: &str) {
+    if area.width == 0 || area.height == 0 {
+        return;
+    }
+    buf.set_stringn(
+        area.x,
+        area.y,
+        format!("zoom in to view {features}"),
+        area.width as usize,
+        Style::default().fg(Color::DarkGray),
+    );
+}

@@ -89,6 +89,10 @@ impl AlignmentView {
     pub const MAX_ZOOM_TO_DISPLAY_ALIGNMENTS: u64 = 32;
     pub const MAX_ZOOM_TO_DISPLAY_SEQUENCES: u64 = 2;
 
+    /// Indexed variant and BED files can be too large to read for a zoomed-out view. At this
+    /// zoom, an 80-column track area shows 8 kb, and the viewer cache loads about 80 kb.
+    pub const MAX_ZOOM_TO_DISPLAY_INDEXED_FEATURES: u64 = 100;
+
     pub fn new(focus: Focus, alignment_count: usize) -> Self {
         Self::new_with_zoom(focus, 1, alignment_count)
     }

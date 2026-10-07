@@ -297,7 +297,7 @@ Scope: region. Key: `track_id`, `row_id`.
 |--------|------|---------|
 | `track_id` | `u64` | The track ID from `get_dataset`. |
 | `contig` | `str` | The contig name. |
-| `row_id` | `u64` | The zero-based record index within the loaded data, in file order: within the contig for plain VCF files, and within the loaded region for indexed VCF and BCF files. |
+| `row_id` | `u64` | The zero-based record index within the loaded data, in file order: within the whole file for plain VCF files, and within the loaded region for indexed VCF and BCF files. |
 | `start` | `u64` | The 1-based VCF POS. |
 | `end` | `u64` | The last reference position covered by the reference allele. |
 | `ids` | `list[str]` | The VCF ID values. |
