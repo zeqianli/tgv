@@ -4,15 +4,6 @@ use noodles;
 use polars::prelude::{DataFrame, DataType, Schema, SchemaRef};
 use std::sync::Arc;
 
-pub trait GenomeInterval {
-    fn contig_index(&self) -> usize;
-    fn start(&self) -> u64;
-    fn end(&self) -> u64;
-    fn length(&self) -> u64 {
-        self.end() - self.start() + 1
-    }
-}
-
 /// The common columns shared by genomic interval tables.
 pub struct IntervalSchema;
 
@@ -52,27 +43,39 @@ pub struct Region {
     pub half_width: u64,
 }
 
-impl GenomeInterval for Region {
-    fn start(&self) -> u64 {
+impl Region {
+    /// The first position, 1-based and inclusive. Regions near a contig start are cut at 1.
+    pub fn start(&self) -> u64 {
         u64::max(1, self.focus.position.saturating_sub(self.half_width))
     }
 
-    fn end(&self) -> u64 {
+    /// The last position, 1-based and inclusive.
+    pub fn end(&self) -> u64 {
         self.focus.position + self.half_width
     }
 
-    fn contig_index(&self) -> usize {
+    pub fn contig_index(&self) -> usize {
         self.focus.contig_index
     }
 
-    /// Width of a genome region.
-    // override
-    fn length(&self) -> u64 {
+    /// The width before cutting at the contig start.
+    pub fn length(&self) -> u64 {
         self.half_width * 2 + 1
     }
-}
 
-impl Region {
+    /// Converts to a noodles region on the contig named `name`, as a file names it.
+    pub fn noodles_region(&self, name: &str) -> Result<noodles::core::Region, TGVError> {
+        let position = |coordinate: u64| {
+            noodles::core::Position::try_from(coordinate as usize).map_err(|_| {
+                TGVError::StateError(format!("Failed to convert to a noodles region: {:?}", self))
+            })
+        };
+        Ok(noodles::core::Region::new(
+            name,
+            position(self.start())?..=position(self.end())?,
+        ))
+    }
+
     pub fn alignment(
         &self,
         header: &ContigHeader,
