@@ -1,6 +1,6 @@
 # Load and describe a dataset
 
-`load_dataset` loads a reference and a list of data files as the server's dataset, replacing any existing one. `get_dataset` describes the loaded dataset without changing it. Both tools return the same description, so a client can read the track IDs from either.
+`load_dataset` loads a reference and a list of data files as the server's dataset, replacing any existing one. `get_dataset` describes the loaded dataset without changing it. Both tools return the same description, so a client can read the track IDs from either. When the server is connected to a TGV viewer, `get_dataset` describes the files the viewer shows, and `load_dataset` fails with `dataset_fixed`; see [Show results in the viewer](./view.md).
 
 ## `load_dataset`
 
@@ -46,12 +46,14 @@ Each track has a numeric `id`, a `type` of `alignment`, `variant`, or `bed`, and
 
 ### Errors
 
-All loading errors are `invalid_input`:
+Loading errors are `invalid_input`, except while connected to a viewer:
 
 | `field` | Cause |
 |---------|-------|
 | `reference` | The reference is not a string or `null`, or it fails to parse. |
 | `files` | `reference` is `null` and `files` is empty, a file type is unsupported, a file fails to open, or the reference cannot be found. |
+
+While connected to a TGV viewer, `load_dataset` fails with `dataset_fixed` and `field: null`, because the viewer's files can't be replaced.
 
 For example, loading `/data/missing.bam` returns this structured content:
 

@@ -17,7 +17,6 @@ gv-mcp.workspace = true
 gv-session.workspace = true
 itertools.workspace = true
 log.workspace = true
-miette.workspace = true
 ratatui.workspace = true
 serde.workspace = true
 shellexpand.workspace = true

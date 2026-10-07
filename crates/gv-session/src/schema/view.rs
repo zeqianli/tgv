@@ -5,14 +5,14 @@ use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
 /// Requests that the viewer show a 1-based inclusive region.
-#[derive(Deserialize, JsonSchema)]
+#[derive(Deserialize, Serialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct NavigateRequest {
     pub region: InspectInterval,
 }
 
 /// Requests that the viewer mark 1-based inclusive intervals, with an optional label.
-#[derive(Deserialize, JsonSchema)]
+#[derive(Deserialize, Serialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct HighlightRequest {
     pub intervals: Vec<InspectInterval>,

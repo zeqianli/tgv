@@ -2,11 +2,13 @@
 //!
 //! One worker owns the dataset, so the TUI, a GUI, and agent servers can share it without
 //! shared mutable state. Callers send commands through a [`SessionHandle`], and the worker
-//! handles them one at a time. The session also builds the SQL tables that agents query.
+//! handles them one at a time. The session also builds the SQL tables that agents query, and
+//! serves itself over a local socket so that agents in other processes can drive a viewer.
 
 mod error;
 mod schema;
 mod session;
+mod socket;
 mod tables;
 
 pub use error::SessionError;
@@ -14,4 +16,5 @@ pub use schema::*;
 pub use session::{
     DataRequest, Dataset, Request, Requests, Responder, Session, SessionHandle, ViewRequest,
 };
+pub use socket::{Call, SessionConnection, SessionSocket};
 pub use tables::{CatalogColumn, CatalogTable, TableScope};

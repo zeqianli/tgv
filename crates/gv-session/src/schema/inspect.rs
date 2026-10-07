@@ -24,7 +24,7 @@ pub struct InspectInterval {
 }
 
 /// Requests structured results for an explicit interval and optional tracks.
-#[derive(Deserialize, JsonSchema)]
+#[derive(Deserialize, Serialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct InspectRequest {
     pub region: InspectInterval,

@@ -1,9 +1,8 @@
 use bigtools::{BBIReadError, BigBedReadOpenError};
-use miette::Diagnostic;
 use std::path::PathBuf;
 use thiserror::Error;
 
-#[derive(Debug, Diagnostic, Error)]
+#[derive(Debug, Error)]
 #[allow(clippy::enum_variant_names)]
 pub enum TGVError {
     #[error("CLI error: {0}")]

@@ -108,7 +108,7 @@ Requests whose caller has stopped waiting are skipped.
 
 ### Viewer: the TUI
 
-The `App` itself is the host. It owns the `Dataset` and a `Requests` stream, and it keeps the matching `SessionHandle` in `App::session` for agents and tests. Today nothing outside the process holds that handle. Connecting a local socket to it lets an agent drive the TUI.
+The `App` itself is the host. It owns the `Dataset` and a `Requests` stream, and it keeps the matching `SessionHandle` in `App::session`. `main` binds a `SessionSocket` to that handle, so agents in other processes can drive the TUI; see [Connecting agents to a viewer](#connecting-agents-to-a-viewer).
 
 ```text
 App
@@ -121,6 +121,21 @@ App
 ├── session: SessionHandle    sends requests to this App
 └── requests: Requests        receives them
 ```
+
+### Connecting agents to a viewer
+
+```text
+ agent ──stdio──► tgv mcp (gv-mcp)
+                    ├── viewer found: SessionConnection ──socket──► SessionSocket in the TUI
+                    │                                                 └─► App::session ─► App::serve
+                    └── no viewer: headless SessionHandle ─► session worker
+```
+
+- **`Call`** is the serializable form of each request: describe, load a dataset, inspect, query, navigate, highlight, clear highlights, and view state. `SessionHandle::call` runs a `Call` in-process and returns its reply as JSON, so the headless path and the socket path share one dispatch.
+- **`SessionSocket`** listens at `$XDG_RUNTIME_DIR/tgv/<pid>.sock`, in a directory only the user can open. Each connection sends one JSON `Call` per line and gets one JSON reply per line: `{"ok": …}`, or `{"error": {"code", "message", "field"}}`. Dropping the socket removes its file.
+- **`SessionConnection`** connects to the most recently started viewer and removes sockets that no process listens on. Remote errors come back as `SessionError::Remote`, keeping their codes.
+- **`tgv mcp`** looks for a viewer before each call until the agent loads a dataset headlessly. Once connected, it keeps the connection; when the viewer closes, it reports `viewer_disconnected` and returns to headless.
+- **Error codes** come from `SessionError::code`, so socket replies and MCP tool errors report the same codes.
 
 ## Actions and requests
 

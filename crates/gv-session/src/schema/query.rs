@@ -10,7 +10,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::{Number, Value};
 
 /// Requests a read-only SQL query, optionally over region-scoped tables.
-#[derive(Deserialize, JsonSchema)]
+#[derive(Deserialize, Serialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct QueryRequest {
     /// The region that region-scoped tables cover. Omit it to query only the dataset's

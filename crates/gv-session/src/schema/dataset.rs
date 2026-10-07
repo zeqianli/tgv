@@ -10,7 +10,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
 /// Replaces the current dataset with a reference and a list of data files.
-#[derive(Deserialize, JsonSchema)]
+#[derive(Deserialize, Serialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct DatasetRequest {
     // A required nullable value distinguishes an omitted reference from no reference.

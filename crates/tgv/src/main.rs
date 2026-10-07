@@ -6,6 +6,7 @@ use crossterm::{
 use gv_core::logging::{init_file_logging_with_level, timestamped_log_file_name};
 use gv_core::prelude::*;
 use gv_core::tracks::{UCSCDownloader, UcscDbTrackService};
+use gv_session::SessionSocket;
 use std::{io::stdout, path::PathBuf};
 use tgv::{
     app::App,
@@ -104,7 +105,12 @@ async fn main() -> Result<(), TGVError> {
             return Err(e);
         }
     };
+    // Agents reach the viewer through `tgv mcp`; without the socket, the viewer still works.
+    let socket = SessionSocket::bind(app.session.clone())
+        .inspect_err(|e| log::warn!("Agents can't connect to this viewer: {e}"))
+        .ok();
     let app_result = app.run(&mut terminal).await;
+    drop(socket);
 
     ratatui::restore();
     if let Err(err) = execute!(stdout(), DisableMouseCapture) {
