@@ -1,18 +1,13 @@
 # Design: more track file formats
 
-Status: proposed, not implemented.
+Status: steps 1 and 2 (indexed VCF, BCF, indexed BED, and bigBed) are implemented; steps 3 and 4 are proposed.
 
 ## Context
 
-TGV reads BAM, CRAM, and remote BAM alignments, plus VCF, BED, indexed FASTA, and 2bit files. IGV and the UCSC Genome Browser also read signal tracks, binary and indexed feature files, and user gene annotations. This design adds:
+TGV reads BAM, CRAM, and remote BAM alignments; plain and indexed VCF and BCF files; plain and indexed BED and bigBed files; and indexed FASTA and 2bit references. Variant and BED tracks load by region, like alignments. IGV and the UCSC Genome Browser also read signal tracks and user gene annotations. This design adds:
 
 - **bigWig** (`.bw`, `.bigwig`): signal tracks, such as ChIP-seq, ATAC-seq, and conservation scores.
-- **bigBed** (`.bb`, `.bigbed`): indexed features with zoom levels.
-- **Indexed BED** (`.bed.gz` with `.tbi` or `.csi`).
-- **Indexed VCF** (`.vcf.gz` with `.tbi` or `.csi`) and **BCF** (`.bcf` with `.csi`).
 - **GFF3** (`.gff3`, `.gff`, and `.gff3.gz` with `.tbi`): user gene annotations.
-
-Today, VCF and BED files load whole, once, which doesn't scale to files like gnomAD or ClinVar. The indexed formats load by region instead.
 
 The new formats fit the existing design wherever possible. The design adds no new framework or groundwork phase. Each format reuses a pattern that already exists, and the few shared pieces arrive with the first format that needs them.
 
@@ -20,84 +15,15 @@ The new formats fit the existing design wherever possible. The design adds no ne
 
 | Need | Existing pattern |
 |---|---|
-| Several formats in one track kind | `AlignmentRepositoryEnum` (`Bam`, `RemoteBam`, and `Cram`) |
-| Region-based loading | `GeneTable`: `contig_index` and the complete bounds, with `has_complete_data` |
-| A width limit on loading | `AlignmentView::MAX_ZOOM_TO_DISPLAY_*` and the filter in `App::load_data` |
-| Contig names from files | `update_or_add_contig(…, ContigSource::Annotation)`, plus the commented-out sync block in `Repository::new` |
+| Several formats in one track kind | `AlignmentRepositoryEnum`, `VariantRepositoryEnum`, and `BedRepositoryEnum`, each dispatching to one struct per format |
+| Region-based loading | `GeneTable`, `VariantTable`, and `BedTable`: `contig_index` and the complete bounds, with `has_complete_data` |
+| A width limit on loading | `AlignmentView::MAX_ZOOM_TO_DISPLAY_*`, including `MAX_ZOOM_TO_DISPLAY_INDEXED_FEATURES`, and the filter in `App::load_data` |
+| Contig names from files | Each repository's `read_contigs`, which `Repository::new` adds with `ContigSource::Annotation` |
 | Row ID meaning for region data | The `genes` SQL table: "Scope: region", with row IDs within the loaded data |
 | Signal rendering | `StackedSparkline`, `NINE_LEVELS`, and the y-axis label in `rendering/coverage.rs` |
 | Gene-model rendering | `render_track` and `query_segments` |
-| Input paths | `FilePath::VariantPath(String)` and `FilePath::BedPath(String)` stay as `String`. The repository chooses the reader. |
-
-## Step 1: indexed VCF and BCF
-
-Indexed VCF and BCF files belong to the existing variant kind.
-
-### Core (`gv-core`)
-
-- **Cargo:** add the `tabix`, `csi`, and `bcf` features to `noodles` in the root `Cargo.toml`.
-- **Repository enum:** `VariantRepository` becomes `VariantRepositoryEnum { Vcf, IndexedVcf, Bcf }`.
-  - `new(path)` chooses the variant from the extension and whether a `.tbi` or `.csi` file exists next to the data file. A `.bcf` without a `.csi` is an error.
-  - The enum provides `is_indexed()`, `read_contigs()`, and the region read.
-- **Readers:**
-  - Indexed VCF uses `vcf::io::indexed_reader` and `query(&header, &region)`.
-  - BCF uses `bcf::io::indexed_reader`. Its header is a `vcf::Header`, so `VariantTable.header` keeps its type.
-- **Records:** BCF records aren't `vcf::Record`, so `VariantTable.records` becomes `Vec<vcf::variant::RecordBuf>`, the owned type that both formats convert to. `add_records` reads from the `RecordBuf` accessors.
-- **Loaded bounds:** `VariantTable` gets `contig_index` and the complete left and right bounds, with `has_complete_data`, following `GeneTable`.
-- **File contig names:**
-  - Each repository keeps the contig names from its own header or index.
-  - A small shared function in `contig_header.rs` returns the first of `contig.name` and `contig.aliases` that the file contains. The indexed readers query with that name instead of `get_alignment_name`.
-  - `ContigHeader` doesn't change.
-- **Contig sync:** uncomment the variant block in `Repository::new` and pass `ContigSource::Annotation`, so VCF and BCF headers contribute contigs and lengths.
-- **Loading:** the variant arm of `State::ensure_loaded` skips the load when `variant_loaded[index]` is set or `variants[index].has_complete_data(region)` is true.
-  - Plain files load whole, as they do today, and set `variant_loaded`.
-  - Indexed files load `cache.track_region(region)` and set the bounds.
-
-### Viewer (`tgv`)
-
-- **Zoom gate:** add `AlignmentView::MAX_ZOOM_TO_DISPLAY_INDEXED_FEATURES`. `App::load_data` drops indexed variant and BED tracks above that zoom, through the same filter that drops alignments.
-- **Rendering (`rendering/variants.rs`):**
-  - If the table neither holds the whole file nor covers the region, draw a dim `zoom in to view variants` line. This needs no extra flag.
-  - Alternate colors by on-screen order instead of `row_id % 2`, so colors don't change when the region reloads.
-  - Optionally, color by allele type (SNV, insertion, or deletion) and dim sites that don't pass filters.
-- **Mouse:** the variant hover message in `mouse.rs` reads the contig name through the `RecordBuf` accessor.
-
-### Server and docs
-
-- **Row IDs:** `row_id` covers the whole file for plain files and the loaded region for indexed files. Update `VariantSchema::column_docs` and the `variants` table in `doc/src/server/query.md` to say so.
-- **Help text:** add the new extensions to the supported formats in the CLI help and the error message in `classify_and_build_tracks`.
-
-## Step 2: indexed BED and bigBed
-
-Indexed BED and bigBed files belong to the existing BED kind.
-
-### Core (`gv-core`)
-
-- **Repository enum:** `BedRepository` becomes `BedRepositoryEnum { Bed, IndexedBed, BigBed }`, following step 1.
-- **Indexed BED:** query through noodles `csi` or `tabix`, and parse each line with the existing BED reader. Check whether noodles 0.108 provides a dedicated indexed BED reader first.
-- **bigBed:**
-  - Use `BigBedRead::get_interval` and convert zero-based, half-open coordinates to one-based, inclusive ones with `start + 1` and the same `end`.
-  - Move the autoSql parsing in `tracks/downloader.rs` into a shared function, so UCSC tracks and user bigBed files use the same code.
-  - `bigtools` reads synchronously. This matches the current BED and VCF reads, so leave a `// PERF:` note rather than adding `spawn_blocking` now.
-- **Schema:** add nullable `NAME`, `SCORE`, and `STRAND` constants and columns to `BedSchema`. BED fills them from `other_fields()`, and bigBed fills them from `rest`.
-- **Records:** `BedTable.records: Vec<bed::Record<3>>` can't hold bigBed entries.
-  - Its only reader is the BED hover message in `mouse.rs`, which uses it for the contig name. The contig header already provides that name from `CONTIG_INDEX`.
-  - Remove `records` from `BedTable`. This is the one change that departs from the existing design.
-- **Loaded bounds, loading, and the zoom gate:** the same as step 1.
-- **Contig sync:** uncomment the BED block in `Repository::new`.
-
-### Viewer (`tgv`)
-
-- **Rendering (`rendering/bed.rs`):**
-  - Alternate colors by on-screen order.
-  - When `STRAND` is present, fill the bar with `›` or `‹` chevrons.
-  - Draw `NAME` inside the bar when it fits.
-  - Keep the one-row height. Packing overlapping features into lanes (the TODO in `render_simple_intervals`) is a separate change.
-- **Mouse:** the BED hover message reads the contig name from the contig header.
-
-### Server and docs
-
-- Update `BedSchema::column_docs`, the `bed` table in `doc/src/server/query.md`, and the help text.
+| Input paths | `FilePath::VariantPath(String)` and `FilePath::BedPath(String)` stay as `String`, and the repository chooses the reader. |
+| Whole-file parsing for plain files | `PlainBed` and `PlainVcf`: parse once in `open` into one frame with a contig-name column, then filter by contig on read |
 
 ## Step 3: bigWig
 
@@ -183,13 +109,11 @@ GFF3 needs a new annotation kind. Its data is gene models, so it produces a `Gen
 
 ## Order of work
 
-1. **Steps 1 and 2** change `variant.rs`, `bed.rs`, one arm each in `state.rs`, the filter in `app.rs`, `mouse.rs`, and the variant and BED renderers. The repository and table code is self-contained and can go first.
-2. **Step 3** adds a kind, so it changes `layout.rs`, `track_registry.rs`, `app.rs`, `session.rs`, and `gv-session`.
-3. **Step 4** reuses the wiring from step 3 and changes `render_track`.
+1. **Step 3** adds a track kind, so it changes `layout.rs`, `track_registry.rs`, `app.rs`, `session.rs`, and `gv-session`.
+2. **Step 4** reuses the wiring from step 3 and changes `render_track`.
 
 Each step is one change that includes its documentation updates.
 
 ## Open questions
 
-- **BED records:** remove `BedTable.records`, as step 2 proposes, or keep it for plain BED files only.
-- **Test data:** small indexed fixtures next to `simple.vcf` and `simple.bed` would cover each reader: a `.vcf.gz` with a `.tbi`, a `.bcf` with a `.csi`, a `.bed.gz` with a `.tbi`, a `.bb`, a `.bw`, and a `.gff3`.
+- **Test data:** small fixtures would cover each new reader: a `.bw` and a `.gff3`. The existing indexed VCF, BCF, and BED tests build their fixtures at test time from `simple.vcf` and `simple.bed`; bigWig and GFF3 tests could do the same, or use small checked-in files.

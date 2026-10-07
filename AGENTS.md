@@ -46,7 +46,7 @@
 - `gv-session`: the session worker that owns a loaded dataset and serves typed commands through `SessionHandle`, plus the SQL tables and the local socket (`SessionSocket` and `SessionConnection`) that lets agents drive a viewer. Requests, responses, `Call`, and `SessionError` with its stable error codes live here.
 - `gv-mcp`: the MCP tools, which translate MCP calls into session calls and send them to a running viewer or a headless session. It owns the MCP tool results and `McpError`.
 - `tgv`: the TUI and the `tgv` binary, including the `tgv mcp` subcommand.
-- Dependencies point away from front ends: no crate depends on `tgv`. The design is in `doc/src/design/session-architecture.md`.
+- Dependencies point away from front ends: no crate depends on `tgv`. The current design is in `doc/src/architecture.md`.
 - Each crate declares the Polars features it needs in its own manifest. For example, SQL features belong to `gv-session`, not the workspace root.
 
 ## Documentation
