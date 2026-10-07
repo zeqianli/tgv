@@ -13,8 +13,8 @@ use serde_json::{Number, Value};
 #[derive(Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct QueryRequest {
-    /// The region that region-scoped tables cover. Omit it to query only dataset and
-    /// whole-file tables.
+    /// The region that region-scoped tables cover. Omit it to query only the dataset's
+    /// `tracks` table.
     pub region: Option<InspectInterval>,
     /// A Polars SQL `SELECT` or `WITH` statement.
     pub sql: String,
@@ -187,7 +187,7 @@ impl TablesResponse {
         "Coordinates, counts, and IDs are unsigned, and unsigned arithmetic wraps around instead of going negative. Cast to BIGINT before subtracting, as in `CAST(pos AS BIGINT) - 88108`.",
         "Queries use Polars SQL. CTEs, subqueries, GROUP BY, window functions, and INNER, LEFT, RIGHT, FULL, CROSS, SEMI, and ANTI joins are supported.",
         "An ON clause with inequalities, such as an overlap test, runs as an efficient range join, but only as an inner join. For a left overlap join, aggregate the inner join in a CTE, then LEFT JOIN it back on the left table's key.",
-        "Region tables hold data for the `region` argument, at most 100,000 bases. Whole-file and dataset tables are always available.",
+        "Region tables hold data for the `region` argument, at most 100,000 bases. Only the `tracks` table is available without a region.",
         "`reads` holds reads whose aligned span overlaps the region, while `coverage` counts all loaded reads, so coverage near the region edges can include reads outside `reads`.",
         "Results return at most `limit` rows; `truncated` reports whether more rows exist. Aggregate in SQL instead of returning raw rows when possible.",
     ];
@@ -199,7 +199,7 @@ impl TablesResponse {
         },
         QueryExample {
             description: "Mean depth for every BED target in the region, including targets with no coverage.",
-            sql: "WITH depth AS (SELECT b.track_id AS bed_track, b.row_id, avg(c.total) AS mean_depth FROM bed b JOIN coverage c ON c.pos >= b.start AND c.pos <= b.end WHERE b.contig = 'chr20' GROUP BY 1, 2) SELECT b.row_id, b.start, b.end, coalesce(d.mean_depth, 0) AS mean_depth FROM bed b LEFT JOIN depth d ON b.track_id = d.bed_track AND b.row_id = d.row_id WHERE b.contig = 'chr20' AND b.start <= 88200 AND b.end >= 88000 ORDER BY b.start",
+            sql: "WITH depth AS (SELECT b.track_id AS bed_track, b.row_id, avg(c.total) AS mean_depth FROM bed b JOIN coverage c ON c.pos >= b.start AND c.pos <= b.end GROUP BY 1, 2) SELECT b.row_id, b.name, b.start, b.end, coalesce(d.mean_depth, 0) AS mean_depth FROM bed b LEFT JOIN depth d ON b.track_id = d.bed_track AND b.row_id = d.row_id ORDER BY b.start",
         },
         QueryExample {
             description: "Fragment-length histogram in 50-base bins. `/` divides as floating point, so floor it for integer bins.",
@@ -210,8 +210,8 @@ impl TablesResponse {
             sql: "SELECT o.kind, o.op_len, o.ref_start, count(*) AS reads FROM cigar_ops o JOIN reads r ON o.track_id = r.track_id AND o.read_id = r.read_id WHERE o.kind IN ('I', 'D') AND NOT r.duplicate GROUP BY 1, 2, 3 ORDER BY reads DESC",
         },
         QueryExample {
-            description: "Passing variants across the whole file.",
-            sql: "SELECT contig, start, reference, alternate, quality_score FROM variants WHERE array_contains(filters, 'PASS') ORDER BY quality_score DESC",
+            description: "Passing variants in the region, with the depth at each.",
+            sql: "SELECT v.start, v.reference, v.alternate, v.quality_score, c.total FROM variants v JOIN coverage c ON c.pos = v.start WHERE array_contains(v.filters, 'PASS') ORDER BY v.start",
         },
     ];
 
