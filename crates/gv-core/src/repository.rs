@@ -1,13 +1,13 @@
 use crate::{
     alignment::AlignmentRepositoryEnum,
-    bed::BedRepository,
+    bed::BedRepositoryEnum,
     contig_header::{ContigHeader, ContigSource},
     error::TGVError,
     reference::Reference,
     sequence::SequenceRepositoryEnum,
     settings::{FilePath, Settings},
     tracks::{TrackService, TrackServiceEnum},
-    variant::VariantRepository,
+    variant::VariantRepositoryEnum,
 };
 
 use itertools::Itertools;
@@ -23,9 +23,9 @@ pub enum RepositoryFileIndex {
 pub struct Repository {
     pub alignment_repositories: Vec<AlignmentRepositoryEnum>,
 
-    pub variant_repositories: Vec<VariantRepository>,
+    pub variant_repositories: Vec<VariantRepositoryEnum>,
 
-    pub bed_repositories: Vec<BedRepository>,
+    pub bed_repositories: Vec<BedRepositoryEnum>,
 
     pub track_service: Option<TrackServiceEnum>,
 
@@ -36,8 +36,8 @@ impl Repository {
     pub fn file_path(&self, index: RepositoryFileIndex) -> &str {
         match index {
             RepositoryFileIndex::Alignment(index) => self.alignment_repositories[index].path(),
-            RepositoryFileIndex::Variant(index) => &self.variant_repositories[index].vcf_path,
-            RepositoryFileIndex::Bed(index) => &self.bed_repositories[index].bed_path,
+            RepositoryFileIndex::Variant(index) => self.variant_repositories[index].path(),
+            RepositoryFileIndex::Bed(index) => self.bed_repositories[index].path(),
         }
     }
 
@@ -68,16 +68,12 @@ impl Repository {
                 }
                 FilePath::VariantPath(vcf_path) => {
                     let index = variant_repositories.len();
-                    variant_repositories.push(VariantRepository {
-                        vcf_path: vcf_path.clone(),
-                    });
+                    variant_repositories.push(VariantRepositoryEnum::new(vcf_path)?);
                     repository_file_indexes.push(RepositoryFileIndex::Variant(index));
                 }
                 FilePath::BedPath(bed_path) => {
                     let index = bed_repositories.len();
-                    bed_repositories.push(BedRepository {
-                        bed_path: bed_path.clone(),
-                    });
+                    bed_repositories.push(BedRepositoryEnum::new(bed_path)?);
                     repository_file_indexes.push(RepositoryFileIndex::Bed(index));
                 }
             }
@@ -227,32 +223,28 @@ impl Repository {
                             );
                         });
                 }
-                RepositoryFileIndex::Variant(index) => {
-                    // variant_repositories[*index]
-                    //     .read_contigs()?
-                    //     .into_iter()
-                    //     .for_each(|(name, length)| {
-                    //         contig_header.update_or_add_contig(
-                    //             name,
-                    //             length,
-                    //             Vec::new(),
-                    //             ContigSource::Annotation,
-                    //         );
-                    //     });
-                }
-                RepositoryFileIndex::Bed(index) => {
-                    // bed_repositories[*index]
-                    //     .read_contigs()?
-                    //     .into_iter()
-                    //     .for_each(|(name, length)| {
-                    //         contig_header.update_or_add_contig(
-                    //             name,
-                    //             length,
-                    //             Vec::new(),
-                    //             ContigSource::Annotation,
-                    //         );
-                    //     });
-                }
+                RepositoryFileIndex::Variant(index) => variant_repositories[*index]
+                    .read_contigs()
+                    .into_iter()
+                    .for_each(|(name, length)| {
+                        contig_header.update_or_add_contig(
+                            name,
+                            length,
+                            Vec::new(),
+                            ContigSource::Annotation,
+                        );
+                    }),
+                RepositoryFileIndex::Bed(index) => bed_repositories[*index]
+                    .read_contigs()
+                    .into_iter()
+                    .for_each(|(name, length)| {
+                        contig_header.update_or_add_contig(
+                            name,
+                            length,
+                            Vec::new(),
+                            ContigSource::Annotation,
+                        );
+                    }),
             }
         }
 
