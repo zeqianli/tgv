@@ -10,7 +10,8 @@ use itertools::Itertools;
 pub enum KeyRegisterType {
     Normal,
     Command,
-    Help,
+    /// Navigation input after `/`. It shares the command line with command mode.
+    Search,
     ContigList,
     // ContigListCommand,
 }
@@ -50,17 +51,6 @@ impl Registers {
 }
 
 impl Registers {
-    fn handle_help(&mut self, key_event: KeyEvent) -> Result<Vec<Action>, TGVError> {
-        match key_event.code {
-            KeyCode::Esc => Ok(vec![
-                Action::SwitchScene(Scene::Main),
-                Action::SwitchKeyRegister(KeyRegisterType::Normal),
-            ]), // TODO: when handling this, should switch register too.
-            // This ensures that switching scene and switching register are always together.
-            _ => Ok(vec![]),
-        }
-    }
-
     /// Move the selected contig up or down.
     fn handle_contig_list(
         &mut self,
@@ -110,26 +100,26 @@ impl Registers {
         }
     }
 
-    fn handle_command(&mut self, key_event: KeyEvent) -> Result<Vec<Action>, TGVError> {
+    /// Edit the command line, shared by command and search mode. Enter submits the line to
+    /// `submit`.
+    fn handle_command_line(
+        &mut self,
+        key_event: KeyEvent,
+        submit: fn(&str) -> Result<Vec<Action>, TGVError>,
+    ) -> Result<Vec<Action>, TGVError> {
         match key_event.code {
             KeyCode::Esc => Ok(vec![
                 Action::ClearAllKeyRegisters,
                 Action::SwitchKeyRegister(KeyRegisterType::Normal),
             ]),
 
-            KeyCode::Enter => match self.command.as_ref() {
-                "h" => Ok(vec![
-                    Action::ClearAllKeyRegisters,
-                    Action::SwitchScene(Scene::Help),
-                    Action::SwitchKeyRegister(KeyRegisterType::Help),
-                ]),
-                "ls" | "contigs" => Ok(vec![
+            KeyCode::Enter => match self.command.trim() {
+                "ls" | "contigs" if self.current == KeyRegisterType::Command => Ok(vec![
                     Action::ClearAllKeyRegisters,
                     Action::SwitchScene(Scene::ContigList),
                     Action::SwitchKeyRegister(KeyRegisterType::ContigList),
                 ]),
-                _ => Ok(gv_core::command::parse(self.command.as_str())
-                    .map(|m| m.into_iter().map(Action::Core).collect_vec())
+                _ => Ok(submit(self.command.as_str())
                     .unwrap_or_else(|e| {
                         vec![Action::Core(gv_core::message::Message::Message(format!(
                             "{}",
@@ -182,6 +172,10 @@ impl Registers {
                 Action::ClearAllKeyRegisters,
                 Action::SwitchKeyRegister(KeyRegisterType::Command),
             ]),
+            KeyCode::Char('/') => Ok(vec![
+                Action::ClearAllKeyRegisters,
+                Action::SwitchKeyRegister(KeyRegisterType::Search),
+            ]),
             KeyCode::Char(char) => Ok(update_by_char(&mut self.normal, char)?
                 .into_iter()
                 .map(|m| m.into())
@@ -220,8 +214,18 @@ impl Registers {
     ) -> Result<Vec<Action>, TGVError> {
         Ok(match self.current {
             KeyRegisterType::Normal => self.handle_normal(key_event),
-            KeyRegisterType::Command => self.handle_command(key_event),
-            KeyRegisterType::Help => self.handle_help(key_event),
+            KeyRegisterType::Command => self.handle_command_line(key_event, |input| {
+                Ok(gv_core::command::parse(input)?
+                    .into_iter()
+                    .map(Action::Core)
+                    .collect())
+            }),
+            KeyRegisterType::Search => self.handle_command_line(key_event, |input| {
+                Ok(gv_core::command::parse_search(input)?
+                    .into_iter()
+                    .map(Action::Core)
+                    .collect())
+            }),
             KeyRegisterType::ContigList => self.handle_contig_list(key_event, state),
             // KeyRegisterType::ContigListCommand => {
             //     self.contig_list_command.handle_key_event(key_event)

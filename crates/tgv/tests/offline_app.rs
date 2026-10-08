@@ -246,8 +246,6 @@ async fn offline_sequence_updates_tracks_and_scenes() {
 
     harness
         .handle(vec![
-            Action::SwitchScene(Scene::Help),
-            Action::SwitchScene(Scene::Main),
             Action::Core(CoreMessage::Move(Movement::Position(33_121_130))),
             Action::Core(CoreMessage::Message("scripted-note".to_string())),
             Action::SwitchScene(Scene::ContigList),
@@ -282,7 +280,12 @@ async fn offline_sequence_handles_sorting_command() {
     let sort_position = harness.app.alignment_view.focus.position;
     let initial_messages = harness.app.dataset.view.messages.clone();
 
-    harness.handle_command("sort base").await.unwrap();
+    harness
+        .handle_core(vec![CoreMessage::SetAlignmentOption(vec![
+            AlignmentDisplayOption::Sort(AlignmentSort::BaseAtCurrentPosition),
+        ])])
+        .await
+        .unwrap();
 
     assert_eq!(
         harness.app.dataset.view.alignment_options[0],

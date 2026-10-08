@@ -6,7 +6,6 @@ mod contig_list;
 mod coordinate;
 mod coverage;
 mod cytoband;
-mod help;
 mod intervals;
 mod sequence;
 mod sidebar;
@@ -23,7 +22,6 @@ pub use contig_list::render_contig_list;
 pub use coordinate::render_coordinates;
 pub use coverage::render_coverage;
 pub use cytoband::render_cytobands;
-pub use help::render_help;
 pub use sequence::render_sequence;
 pub use status_bar::render_status_bar;
 pub use track::render_track;
@@ -205,7 +203,10 @@ pub fn render_main(
                 render_track(rect, buf, state, alignment_view, pallete)?;
             }
             AreaType::Console => {
-                if registers.current == KeyRegisterType::Command {
+                if matches!(
+                    registers.current,
+                    KeyRegisterType::Command | KeyRegisterType::Search
+                ) {
                     render_console(rect, buf, registers)?;
                 }
             }

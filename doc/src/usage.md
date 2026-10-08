@@ -25,6 +25,7 @@ Normal mode
 | Command  | Notes | Example |
 |---------|-------------|---------|
 | `:` | Enter command mode | |
+| `/` | Enter search mode | |
 | `h/j/k/l` | Move left / down / up / right | |
 | `H/J/K/L` | Move left / down / up / right faster | |
 | `w/b` | Beginning of the next / previous exon |  |
@@ -50,21 +51,19 @@ Command mode
 | `:w _name_` | Save the session to `~/.tgv/sessions/_name_.toml`, or to a path | `:w brca`, `:w ./brca.toml` |
 | `:w` | Save to the active session (from `--resume` or the last `:w _name_`) | |
 | `:wq [_name_]` | Save the session like `:w` and quit | `:wq brca` |
-| `:h` | Help | |
-| `:_pos_` | Go to position on same contig | `:1000` |
-| `:_contig_:_pos_` | Go to position on specific contig | `:17:7572659` |
-| `:_gene_` | Go to `_gene_` | `:KRAS` |
 | `:ls` / `:contigs` | List contigs (`j/k` to select, `Esc`, `Enter`) | |
+| `:paired` | Show alignments as read pairs | |
+| `:clear` / `:default` | Restore the default alignment display | |
 | `Esc` | Switch to normal mode | |
 
-Filter / sort reads in command mode:
-```
-# Restore
-CLEAR
+Search mode
 
-# Filter by base at position 123
-FILTER BASE(123)=C
-```
+| Command | Notes | Example |
+|---------|-------------|---------|
+| `/_pos_` | Go to position on same contig | `/1000` |
+| `/_contig_:_pos_` | Go to position on specific contig | `/17:7572659` |
+| `/_gene_` | Go to `_gene_` | `/KRAS` |
+| `Esc` | Switch to normal mode | |
 
 ## Compare TGV and Vim concepts
 

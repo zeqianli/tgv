@@ -16,7 +16,6 @@ crossterm = "0.28"
 futures = "0"
 itertools = "0.13"
 log = { version = "0.4", features = ["std"] }
-nom = "8"
 noodles = { version = "0", features = ["async", "bam", "bcf", "bed", "bgzf", "core", "cram", "csi", "fasta", "sam", "tabix", "vcf"] }
 opendal = { version = "0.53", default-features = false, features = ["services-s3"] }
 # Polars 0.55 string expressions also require its temporal support. Crates that run SQL add

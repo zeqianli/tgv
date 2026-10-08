@@ -35,7 +35,6 @@ const NO_ACTIVE_SESSION_MESSAGE: &str = "No active session. Use :w NAME or :w PA
 #[derive(Debug, Clone, Eq, PartialEq)]
 pub enum Scene {
     Main,
-    Help,
     ContigList,
 }
 
@@ -795,7 +794,7 @@ impl App {
         buf: &mut Buffer,
         render_events: &Vec<RenderEvent>,
     ) -> Result<(), TGVError> {
-        use crate::rendering::{render_contig_list, render_help, render_main};
+        use crate::rendering::{render_contig_list, render_main};
         let full_render = vec![RenderEvent::All];
         let render_events = if self.render_buffer.area != buf.area {
             self.render_buffer.resize(buf.area);
@@ -819,9 +818,6 @@ impl App {
                 &self.settings.palette,
                 render_events,
             ),
-            Scene::Help => {
-                render_help(&self.resolved_layout.terminal_area, &mut self.render_buffer)
-            }
             Scene::ContigList => render_contig_list(
                 &self.resolved_layout.terminal_area,
                 &mut self.render_buffer,
