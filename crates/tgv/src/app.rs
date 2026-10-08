@@ -870,9 +870,12 @@ impl App {
             )
             .await?;
 
-        // Cytobands
-        // TODO
-        //
+        // The cytoband is queried once per contig, whatever the zoom.
+        self.dataset
+            .view
+            .ensure_complete_cytoband_data(&region, &mut self.dataset.repository)
+            .await?;
+
         log::debug!(
             "Finished evaluating data loads: display_region={:?}",
             region

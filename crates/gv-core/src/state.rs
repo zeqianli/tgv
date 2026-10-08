@@ -512,9 +512,18 @@ impl State {
         {
             Ok(false)
         } else if let Some(track_service) = repository.track_service.as_mut() {
+            // The cytoband only decorates the view, so a failed query leaves it empty rather than
+            // failing the load. Recording the empty result also stops repeated queries.
             let cytoband = track_service
                 .get_cytoband(&self.reference, region.contig_index(), &self.contig_header)
-                .await?;
+                .await
+                .unwrap_or_else(|e| {
+                    log::warn!(
+                        "Failed to load the cytoband: contig={} error={e}",
+                        region.contig_index()
+                    );
+                    None
+                });
             self.contig_header
                 .try_update_cytoband(region.contig_index(), cytoband)?;
             Ok(true)
