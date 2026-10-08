@@ -62,6 +62,8 @@ pub struct App {
     pub mouse_register: MouseRegister,
 
     pub alignment_view: AlignmentView,
+    /// The alignment index that scrolls apply to: the one the mouse was last over.
+    pub focused_alignment: usize,
     pub highlights: Vec<Highlight>,
 
     /// Sends requests to this viewer, for agents and tests.
@@ -128,6 +130,7 @@ impl App {
             resolved_layout: ResolvedMainLayout::default(),
             dataset,
             alignment_view,
+            focused_alignment: 0,
             highlights: Vec::new(),
             session,
             requests,
@@ -254,7 +257,7 @@ impl App {
                 }
                 .unwrap_or_else(|e| {
                     log::warn!("Error while handling event: {e}");
-                    self.dataset.view.add_message(format!("{e}"));
+                    self.dataset.view.messages = vec![format!("{e}")];
                     vec![RenderEvent::Area(AreaType::Error)]
                 });
                 for event in events {
@@ -346,7 +349,7 @@ impl App {
         match self.handle(actions).await {
             Ok(render_events) => (render_events, Ok(())),
             Err(error) => {
-                self.dataset.view.add_message(format!("{error}"));
+                self.dataset.view.messages = vec![format!("{error}")];
                 (vec![RenderEvent::Area(AreaType::Error)], Err(error.into()))
             }
         }
@@ -445,10 +448,9 @@ impl App {
     /// Applies actions after initialization and returns the areas that need redrawing.
     pub async fn handle(&mut self, actions: Vec<Action>) -> Result<Vec<RenderEvent>, TGVError> {
         let mut render_events = Vec::new();
-        if !self.dataset.view.messages.is_empty() {
-            self.dataset.view.messages.clear();
-            render_events.push(RenderEvent::Area(AreaType::Error));
-        }
+        // Messages from this batch replace the displayed ones. Batches without messages, such
+        // as repeated motion within a cell, keep the current messages on screen.
+        let mut messages = Vec::new();
 
         for action in actions {
             match action {
@@ -480,6 +482,7 @@ impl App {
                     self.alignment_view.focus = focus;
                     self.load_data().await?;
                     render_events.push(RenderEvent::AllTracks);
+                    render_events.push(RenderEvent::Sidebar);
                 }
 
                 Action::Core(gv_core::message::Message::Quit) => {
@@ -494,9 +497,7 @@ impl App {
                         .map(SessionFile::resolve_path)
                         .or_else(|| self.settings.session_path.clone())
                     else {
-                        self.dataset
-                            .view
-                            .add_message(NO_ACTIVE_SESSION_MESSAGE.to_string());
+                        messages.push(NO_ACTIVE_SESSION_MESSAGE.to_string());
                         continue;
                     };
                     log::info!(
@@ -507,15 +508,11 @@ impl App {
                     match self.save_session_to_path(path.clone()) {
                         Ok(()) => {
                             log::info!("Session saved: path={}", path.display());
-                            self.dataset
-                                .view
-                                .add_message(format!("Session saved to {}", path.display()));
+                            messages.push(format!("Session saved to {}", path.display()));
                         }
                         Err(e) => {
                             log::warn!("Failed to save session: path={} error={e}", path.display());
-                            self.dataset
-                                .view
-                                .add_message(format!("Failed to save session: {e}"));
+                            messages.push(format!("Failed to save session: {e}"));
                         }
                     }
                 }
@@ -527,9 +524,7 @@ impl App {
                         .map(SessionFile::resolve_path)
                         .or_else(|| self.settings.session_path.clone())
                     else {
-                        self.dataset
-                            .view
-                            .add_message(NO_ACTIVE_SESSION_MESSAGE.to_string());
+                        messages.push(NO_ACTIVE_SESSION_MESSAGE.to_string());
                         continue;
                     };
                     log::info!(
@@ -544,9 +539,7 @@ impl App {
                         }
                         Err(e) => {
                             log::warn!("Failed to save session before quit: {e}");
-                            self.dataset
-                                .view
-                                .add_message(format!("Failed to save session: {e}"));
+                            messages.push(format!("Failed to save session: {e}"));
                         }
                     }
                 }
@@ -558,13 +551,17 @@ impl App {
                         scroll,
                         previous_y
                     );
+                    let index = self.focused_alignment;
                     if !self.dataset.view.alignments.is_empty() {
-                        let index = scroll.index();
                         let depth = match &self.dataset.view.paired_alignments[index] {
                             Some(paired) => paired.depth()?,
                             None => self.dataset.view.alignments[index].depth()?,
                         };
-                        self.alignment_view.scroll(scroll.clone(), depth);
+                        self.alignment_view.scroll(index, scroll.clone(), depth);
+                        render_events.push(RenderEvent::Area(AreaType::Alignment(
+                            self.dataset.tracks.alignment_id(index),
+                        )));
+                        render_events.push(RenderEvent::Sidebar);
                     }
                     log::debug!(
                         "Scroll applied: scroll={:?} y_before={:?} y_after={:?}",
@@ -572,9 +569,6 @@ impl App {
                         previous_y,
                         self.alignment_view.y,
                     );
-                    render_events.push(RenderEvent::Area(AreaType::Alignment(
-                        self.dataset.tracks.alignment_id(scroll.index()),
-                    )))
                 }
 
                 Action::Core(gv_core::message::Message::Zoom(zoom)) => {
@@ -602,7 +596,8 @@ impl App {
                         self.alignment_view.focus,
                     );
                     self.load_data().await?;
-                    render_events.push(RenderEvent::AllTracks)
+                    render_events.push(RenderEvent::AllTracks);
+                    render_events.push(RenderEvent::Sidebar);
                 }
 
                 Action::Core(gv_core::message::Message::SetAlignmentOption(options)) => {
@@ -620,13 +615,13 @@ impl App {
                         )?;
                     }
 
-                    render_events.push(RenderEvent::AllTracks)
+                    render_events.push(RenderEvent::AllTracks);
+                    render_events.push(RenderEvent::Sidebar);
                 }
 
                 Action::Core(gv_core::message::Message::Message(message)) => {
                     log::trace!("Adding transient status message: bytes={}", message.len());
-                    self.dataset.view.add_message(message);
-                    render_events.push(RenderEvent::Area(AreaType::Error))
+                    messages.push(message);
                 }
 
                 Action::SelectContig(index) => {
@@ -693,6 +688,13 @@ impl App {
                     }
                     render_events.push(RenderEvent::All)
                 }
+                Action::FocusAlignment(id) => {
+                    let index = self.dataset.tracks.alignment_index(id)?;
+                    if index != self.focused_alignment {
+                        self.focused_alignment = index;
+                        render_events.push(RenderEvent::Sidebar);
+                    }
+                }
                 Action::ClearAllKeyRegisters => {
                     log::debug!("Clearing all key registers");
                     self.registers.clear();
@@ -710,7 +712,10 @@ impl App {
             }
         }
 
-        // TODO: reduce this list
+        if !messages.is_empty() {
+            self.dataset.view.messages = messages;
+            render_events.push(RenderEvent::Area(AreaType::Error));
+        }
 
         Ok(render_events)
     }
