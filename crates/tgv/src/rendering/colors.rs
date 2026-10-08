@@ -1,5 +1,5 @@
 use gv_core::cytoband::Stain;
-use ratatui::style::{Color, palette::tailwind};
+use ratatui::style::{Color, Modifier, Style, palette::tailwind};
 
 use noodles::sam::record::data::field::value::base_modifications::group::{
     Modification, modification,
@@ -15,6 +15,8 @@ pub struct Palette {
     // Alignment
     pub MATCH_COLOR: Color,
     pub MATCH_FG_COLOR: Color,
+    /// The body of a read with mapping quality 0.
+    pub ZERO_MAPQ_COLOR: Color,
 
     pub MISMATCH_COLOR: Color,
     pub DELETION_COLOR: Color,
@@ -74,6 +76,14 @@ pub struct Palette {
     /// Intervals that an agent highlights, behind the coordinate ruler.
     pub HIGHLIGHT: Color,
 
+    // Context menu and sidebar
+    pub MENU_BACKGROUND: Color,
+    pub MENU_HOVER_BACKGROUND: Color,
+    pub MENU_FOREGROUND: Color,
+    pub MENU_DISABLED_FOREGROUND: Color,
+    /// Alignment display options listed in the sidebar.
+    pub SIDEBAR_OPTION_COLOR: Color,
+
     // Gene track
     pub EXON_BACKGROUND_COLOR: Color,
     pub EXON_FOREGROUND_COLOR: Color,
@@ -123,6 +133,22 @@ impl Palette {
             b'G' | b'g' => self.MISMATCH_G,
             b'T' | b't' => self.MISMATCH_T,
             _ => self.MISMATCH_N,
+        }
+    }
+
+    /// Mismatched bases with a Phred quality below this are dimmed. IGV shades bases below 20
+    /// by default.
+    const SHADED_MISMATCH_QUALITY: u8 = 20;
+
+    /// Style for a mismatched base. Low-quality bases are dimmed, so likely sequencing errors
+    /// stand out less. A missing quality, 255 in BAM, is not shaded.
+    pub fn mismatch_style(&self, base: u8, quality: Option<u8>) -> Style {
+        let style = Style::default().fg(self.mismatch_color(base));
+        match quality {
+            Some(quality) if quality < Self::SHADED_MISMATCH_QUALITY => {
+                style.add_modifier(Modifier::DIM)
+            }
+            _ => style,
         }
     }
 
@@ -184,6 +210,7 @@ pub const DARK_THEME: Palette = Palette {
     // Alignment
     MATCH_COLOR: tailwind::GRAY.c500,
     MATCH_FG_COLOR: tailwind::WHITE,
+    ZERO_MAPQ_COLOR: tailwind::GRAY.c700,
     MISMATCH_COLOR: Color::Rgb(251, 198, 207),
     DELETION_COLOR: Color::Red,
     PAIRGAP_COLOR: Color::LightRed,
@@ -240,6 +267,12 @@ pub const DARK_THEME: Palette = Palette {
     BED2: tailwind::INDIGO.c400,
 
     HIGHLIGHT: tailwind::AMBER.c700,
+
+    MENU_BACKGROUND: tailwind::SLATE.c700,
+    MENU_HOVER_BACKGROUND: tailwind::SKY.c700,
+    MENU_FOREGROUND: tailwind::WHITE,
+    MENU_DISABLED_FOREGROUND: tailwind::SLATE.c400,
+    SIDEBAR_OPTION_COLOR: tailwind::SKY.c300,
 
     // Gene track
     EXON_BACKGROUND_COLOR: tailwind::BLUE.c800,

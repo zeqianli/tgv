@@ -205,6 +205,15 @@ pub enum AlignmentRepositoryEnum {
 }
 
 impl AlignmentRepositoryEnum {
+    /// The alignment file's header, which names the references that records point to.
+    pub fn header(&self) -> &Header {
+        match self {
+            Self::Bam(inner) => &inner.header,
+            Self::RemoteBam(inner) => &inner.header,
+            Self::Cram(inner) => &inner.header,
+        }
+    }
+
     pub fn path(&self) -> &str {
         match self {
             Self::Bam(inner) => &inner.bam_path,

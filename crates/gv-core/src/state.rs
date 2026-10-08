@@ -512,9 +512,18 @@ impl State {
         {
             Ok(false)
         } else if let Some(track_service) = repository.track_service.as_mut() {
+            // The cytoband only decorates the view, so a failed query leaves it empty rather than
+            // failing the load. Recording the empty result also stops repeated queries.
             let cytoband = track_service
                 .get_cytoband(&self.reference, region.contig_index(), &self.contig_header)
-                .await?;
+                .await
+                .unwrap_or_else(|e| {
+                    log::warn!(
+                        "Failed to load the cytoband: contig={} error={e}",
+                        region.contig_index()
+                    );
+                    None
+                });
             self.contig_header
                 .try_update_cytoband(region.contig_index(), cytoband)?;
             Ok(true)
@@ -550,6 +559,20 @@ impl State {
                 option => option,
             })
             .collect_vec();
+
+        // Filters and sorts rewrite read visibility and rows in place. When they change, start
+        // again from the loaded reads so that removed options no longer apply.
+        let previous = &self.alignment_options[index];
+        if *previous != options
+            && previous.iter().any(|option| {
+                matches!(
+                    option,
+                    AlignmentDisplayOption::Filter(_) | AlignmentDisplayOption::Sort(_)
+                )
+            })
+        {
+            self.alignments[index].filter(AlignmentFilter::Default, &self.sequence)?;
+        }
 
         self.alignment_options[index] = options.clone();
 
@@ -1195,7 +1218,7 @@ mod tests {
             .set_alignment_options(
                 0,
                 &focus,
-                vec![AlignmentDisplayOption::Sort(AlignmentSort::MappingQuality)],
+                vec![AlignmentDisplayOption::Sort(AlignmentSort::Sample)],
             )
             .unwrap_err();
 

@@ -5,9 +5,9 @@ mod console;
 mod contig_list;
 mod coordinate;
 mod coverage;
-mod cytoband;
-mod help;
+pub(crate) mod cytoband;
 mod intervals;
+mod menu;
 mod sequence;
 mod sidebar;
 mod status_bar;
@@ -23,7 +23,6 @@ pub use contig_list::render_contig_list;
 pub use coordinate::render_coordinates;
 pub use coverage::render_coverage;
 pub use cytoband::render_cytobands;
-pub use help::render_help;
 pub use sequence::render_sequence;
 pub use status_bar::render_status_bar;
 pub use track::render_track;
@@ -32,7 +31,9 @@ pub use variants::render_variants;
 use crate::{
     app::{Highlight, RenderEvent},
     layout::{AlignmentView, AreaType, OnScreenCoordinate, ResolvedMainLayout, wrap_sidebar_label},
+    menu::ContextMenu,
     mouse::MouseRegister,
+    popup::TextPopup,
     register::{KeyRegisterType, Registers},
 };
 
@@ -52,6 +53,8 @@ pub fn render_main(
     alignment_view: &AlignmentView,
     mouse_register: &MouseRegister,
     highlights: &[Highlight],
+    context_menu: Option<&ContextMenu>,
+    popup: Option<&TextPopup>,
     pallete: &Palette,
     render_events: &Vec<RenderEvent>,
 ) -> Result<(), TGVError> {
@@ -205,7 +208,10 @@ pub fn render_main(
                 render_track(rect, buf, state, alignment_view, pallete)?;
             }
             AreaType::Console => {
-                if registers.current == KeyRegisterType::Command {
+                if matches!(
+                    registers.current,
+                    KeyRegisterType::Command | KeyRegisterType::Search
+                ) {
                     render_console(rect, buf, registers)?;
                 }
             }
@@ -226,6 +232,14 @@ pub fn render_main(
             }
             AreaType::Fill => {}
         };
+    }
+
+    // Track redraws may have overwritten part of the menu, so it is drawn on every frame.
+    if let Some(menu) = context_menu {
+        menu::render_context_menu(buf, menu, pallete);
+    }
+    if let Some(popup) = popup {
+        menu::render_text_popup(buf, layout.terminal_area, popup, pallete);
     }
     Ok(())
 }

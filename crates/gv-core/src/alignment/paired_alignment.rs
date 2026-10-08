@@ -1,6 +1,6 @@
 use crate::{
     alignment::{
-        alignment::{Alignment, base_sort_key_at, stack_tracks_by_sort_key},
+        alignment::{Alignment, stack_tracks_by_sort_key},
         tables::{CigarSchema, ReadSchema},
     },
     error::TGVError,
@@ -162,7 +162,8 @@ impl PairedAlignment {
         Ok(())
     }
 
-    /// Find a read in a visible pair or singleton at the displayed row.
+    /// Find a read in a visible pair or singleton at the displayed row. Both mates of a visible
+    /// pair are displayed, even when only one passes the display options.
     pub fn read_overlapping(
         &self,
         alignment: &Alignment,
@@ -211,8 +212,8 @@ impl PairedAlignment {
             .clone()
             .lazy()
             .filter(
-                col(ReadSchema::SHOW)
-                    .and(col(ReadSchema::READ_ID).is_in(lit(selected).implode(true), false))
+                col(ReadSchema::READ_ID)
+                    .is_in(lit(selected).implode(true), false)
                     .and(col(ReadSchema::STACKING_START).lt_eq(lit(right)))
                     .and(col(ReadSchema::STACKING_END).gt_eq(lit(left))),
             )
@@ -230,36 +231,13 @@ impl PairedAlignment {
     }
 
     pub fn sort(&mut self, alignment: &Alignment, option: AlignmentSort) -> Result<(), TGVError> {
-        match option {
-            AlignmentSort::BaseAt(position) => self.sort_by_base_at(alignment, position),
-            option => Err(TGVError::ValueError(format!(
-                "Paired alignment sorting is not implemented yet for option {option}"
-            ))),
-        }
-    }
-
-    fn sort_by_base_at(&mut self, alignment: &Alignment, position: u64) -> Result<(), TGVError> {
-        alignment.ensure_position_has_complete_data(position)?;
-
-        let kind = col(CigarSchema::KIND);
-        let keys = alignment
-            .tables
-            .cigar_runs
-            .clone()
-            .lazy()
-            .filter(
-                kind.clone()
-                    .eq(lit(CigarSchema::MATCH))
-                    .or(kind.clone().eq(lit(CigarSchema::SEQUENCE_MATCH)))
-                    .or(kind.clone().eq(lit(CigarSchema::SEQUENCE_MISMATCH)))
-                    .or(kind.clone().eq(lit(CigarSchema::INSERTION)))
-                    .or(kind.clone().eq(lit(CigarSchema::DELETION)))
-                    .or(kind.eq(lit(CigarSchema::REFERENCE_SKIP)))
-                    .and(col(CigarSchema::DISPLAY_START).lt_eq(lit(position)))
-                    .and(col(CigarSchema::DISPLAY_END).gt_eq(lit(position))),
-            )
-            .group_by([col(CigarSchema::READ_ID)])
-            .agg([base_sort_key_at(position).min().alias(ReadSchema::SORT_KEY)]);
+        let keys = alignment.sort_keys(&option)?;
+        // When sorting by base, a pair whose mates flank the position sorts after the pairs with
+        // a base there, as if the gap were another base.
+        let gap_position = match option {
+            AlignmentSort::BaseAt(position) => Some(position),
+            _ => None,
+        };
         let reads = alignment.tables.reads.clone().lazy().left_join(
             keys,
             col(ReadSchema::READ_ID),
@@ -271,21 +249,29 @@ impl PairedAlignment {
                 col(ReadSchema::SHOW).alias(show),
                 when(col(ReadSchema::SHOW))
                     .then(col(ReadSchema::SORT_KEY))
-                    .otherwise(lit(NULL).cast(DataType::UInt8))
+                    .otherwise(lit(NULL))
                     .alias(key),
                 col(ReadSchema::STACKING_START).alias(start),
                 col(ReadSchema::STACKING_END).alias(end),
             ])
         };
-        let pos = lit(position);
-        let gap = col(PairSchema::FIRST_END)
-            .lt(col(PairSchema::SECOND_START))
-            .and(pos.clone().gt(col(PairSchema::FIRST_END)))
-            .and(pos.clone().lt(col(PairSchema::SECOND_START)))
-            .or(col(PairSchema::SECOND_END)
-                .lt(col(PairSchema::FIRST_START))
-                .and(pos.clone().gt(col(PairSchema::SECOND_END)))
-                .and(pos.lt(col(PairSchema::FIRST_START))));
+        let mut pair_keys = vec![col(PairSchema::FIRST_KEY), col(PairSchema::SECOND_KEY)];
+        if let Some(position) = gap_position {
+            let pos = lit(position);
+            let gap = col(PairSchema::FIRST_END)
+                .lt(col(PairSchema::SECOND_START))
+                .and(pos.clone().gt(col(PairSchema::FIRST_END)))
+                .and(pos.clone().lt(col(PairSchema::SECOND_START)))
+                .or(col(PairSchema::SECOND_END)
+                    .lt(col(PairSchema::FIRST_START))
+                    .and(pos.clone().gt(col(PairSchema::SECOND_END)))
+                    .and(pos.lt(col(PairSchema::FIRST_START))));
+            pair_keys.push(
+                when(gap)
+                    .then(lit(8u8))
+                    .otherwise(lit(NULL).cast(DataType::UInt8)),
+            );
+        }
         let items = self
             .pairs
             .clone()
@@ -316,14 +302,7 @@ impl PairedAlignment {
                 col(PairSchema::FIRST_SHOW)
                     .or(col(PairSchema::SECOND_SHOW).fill_null(lit(false)))
                     .alias(PairSchema::SHOW),
-                coalesce(&[
-                    col(PairSchema::FIRST_KEY),
-                    col(PairSchema::SECOND_KEY),
-                    when(gap)
-                        .then(lit(8u8))
-                        .otherwise(lit(NULL).cast(DataType::UInt8)),
-                ])
-                .alias(PairSchema::SORT_KEY),
+                coalesce(&pair_keys).alias(PairSchema::SORT_KEY),
             ])
             .sort([PairSchema::PAIR_ID], SortMultipleOptions::default());
         let pairs = items

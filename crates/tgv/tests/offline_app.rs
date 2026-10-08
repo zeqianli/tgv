@@ -104,11 +104,11 @@ async fn offline_sequence_updates_tracks_and_scenes() {
             .resolved_layout
             .sidebar_labels
             .iter()
-            .map(|(_, label)| label.as_str())
+            .map(|label| label.name.as_str())
             .collect::<Vec<_>>(),
         vec!["ncbi.sorted.bam", "simple.vcf", "simple.bed"],
     );
-    let label_area = harness.app.resolved_layout.sidebar_labels[0].0;
+    let label_area = harness.app.resolved_layout.sidebar_labels[0].area;
     let initial_buffer = harness.terminal_backend().buffer();
     let rendered_label = (0..label_area.height)
         .flat_map(|row| {
@@ -214,7 +214,7 @@ async fn offline_sequence_updates_tracks_and_scenes() {
         )])
         .await
         .unwrap();
-    let vcf_area = harness.app.resolved_layout.sidebar_labels[1].0;
+    let vcf_area = harness.app.resolved_layout.sidebar_labels[1].area;
     let sidebar_buffer = harness.terminal_backend().buffer();
     let first_vcf_line = (0..vcf_area.width)
         .map(|column| {
@@ -241,13 +241,11 @@ async fn offline_sequence_updates_tracks_and_scenes() {
             .symbol(),
         "_"
     );
-    let bed_area = harness.app.resolved_layout.sidebar_labels[2].0;
+    let bed_area = harness.app.resolved_layout.sidebar_labels[2].area;
     assert!(bed_area.height >= 2);
 
     harness
         .handle(vec![
-            Action::SwitchScene(Scene::Help),
-            Action::SwitchScene(Scene::Main),
             Action::Core(CoreMessage::Move(Movement::Position(33_121_130))),
             Action::Core(CoreMessage::Message("scripted-note".to_string())),
             Action::SwitchScene(Scene::ContigList),
@@ -282,7 +280,12 @@ async fn offline_sequence_handles_sorting_command() {
     let sort_position = harness.app.alignment_view.focus.position;
     let initial_messages = harness.app.dataset.view.messages.clone();
 
-    harness.handle_command("sort base").await.unwrap();
+    harness
+        .handle_core(vec![CoreMessage::SetAlignmentOption(vec![
+            AlignmentDisplayOption::Sort(AlignmentSort::BaseAtCurrentPosition),
+        ])])
+        .await
+        .unwrap();
 
     assert_eq!(
         harness.app.dataset.view.alignment_options[0],
@@ -363,7 +366,7 @@ async fn agent_navigates_and_highlights_the_view() {
         .unwrap();
     assert!(view.region.start <= 20_000 && view.region.end >= 20_200);
     assert_eq!(harness.app.alignment_view.focus.position, 20_100);
-    assert!(harness.app.dataset.view.messages[0].contains("Type :MN908947.3:100 to go back"));
+    assert!(harness.app.dataset.view.messages[0].contains("Press u to go back to MN908947.3:100"));
 
     harness
         .agent(session.highlight(HighlightRequest {

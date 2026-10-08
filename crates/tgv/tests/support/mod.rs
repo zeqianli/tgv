@@ -50,6 +50,7 @@ impl AppHarness {
         self.app
             .handle(self.app.settings.initial_actions.clone())
             .await?;
+        self.app.jumps = tgv::jumps::JumpList::default();
         self.self_correct()?;
         self.render(&vec![RenderEvent::All]);
         Ok(())

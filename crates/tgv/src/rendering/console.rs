@@ -1,4 +1,4 @@
-use crate::register::Registers;
+use crate::register::{KeyRegisterType, Registers};
 use gv_core::prelude::*;
 use ratatui::{
     buffer::Buffer,
@@ -6,7 +6,7 @@ use ratatui::{
     style::{Color, Style},
 };
 
-/// Render the command mode console.
+/// Render the command line for command (`:`) and search (`/`) mode.
 const MIN_AREA_WIDTH: u16 = 2;
 const MIN_AREA_HEIGHT: u16 = 1;
 pub fn render_console(area: &Rect, buf: &mut Buffer, buffer: &Registers) -> Result<(), TGVError> {
@@ -25,7 +25,15 @@ pub fn render_console(area: &Rect, buf: &mut Buffer, buffer: &Registers) -> Resu
     buf.set_stringn(
         area.x,
         area.y,
-        format!(":{}", buffer.command),
+        format!(
+            "{}{}",
+            if buffer.current == KeyRegisterType::Search {
+                '/'
+            } else {
+                ':'
+            },
+            buffer.command
+        ),
         area.width as usize,
         Style::default(),
     );
