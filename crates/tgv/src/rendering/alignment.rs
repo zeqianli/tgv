@@ -53,6 +53,9 @@ pub fn render_alignment(
 }
 
 /// Render pair gaps, mates, and singletons from the zero-based `top` row.
+///
+/// A pair is shown when either mate passes the display options, and then both mates are drawn
+/// so a pair always stays together.
 pub fn render_paired_alignment(
     top: usize,
     area: &Rect,
@@ -83,7 +86,6 @@ pub fn render_paired_alignment(
     let reads = &alignment.tables.reads;
     let starts = reads.column(ReadSchema::STACKING_START)?.u64()?;
     let ends = reads.column(ReadSchema::STACKING_END)?.u64()?;
-    let shown = reads.column(ReadSchema::SHOW)?.bool()?;
     for ((first, second), y) in first
         .into_no_null_iter()
         .zip(second.iter())
@@ -91,11 +93,6 @@ pub fn render_paired_alignment(
     {
         let Some(second) = second else { continue };
         let (first, second) = (first as usize, second as usize);
-        if !shown.get(first).expect("read visibility is non-null")
-            || !shown.get(second).expect("read visibility is non-null")
-        {
-            continue;
-        }
         let (Some(a), Some(b), Some(c), Some(d)) = (
             starts.get(first),
             ends.get(first),
@@ -150,12 +147,12 @@ pub fn render_paired_alignment(
         ],
         UnionArgs::default(),
     )?;
+    // Members are already limited to shown pairs and singletons.
     let reads = alignment
         .tables
         .reads
         .clone()
         .lazy()
-        .filter(col(ReadSchema::SHOW))
         .drop(cols([ReadSchema::Y]))
         .join(
             members,

@@ -655,8 +655,11 @@ impl MainLayout {
                     section.width,
                     section.height.saturating_sub(reserved),
                 );
-                (label_area.height > 0 && label_area.width > 0)
-                    .then_some((label_area, name.to_owned()))
+                (label_area.height > 0 && label_area.width > 0).then(|| SidebarLabel {
+                    area: label_area,
+                    area_type: *area_type,
+                    name: name.to_owned(),
+                })
             })
             .collect();
 
@@ -675,6 +678,15 @@ impl MainLayout {
     }
 }
 
+/// A file name in the sidebar, beside the section of the track it names.
+#[derive(Clone, Debug)]
+pub struct SidebarLabel {
+    pub area: Rect,
+    /// The first area of the track's section, such as `Coverage` for an alignment track.
+    pub area_type: AreaType,
+    pub name: String,
+}
+
 /// Rectangles computed for one terminal size.
 #[derive(Default, Clone, Debug)]
 pub struct ResolvedMainLayout {
@@ -685,7 +697,7 @@ pub struct ResolvedMainLayout {
     pub sidebar_areas: Vec<Rect>,
     pub sidebar_divider_area: Rect,
     pub sidebar_section_dividers: Vec<Rect>,
-    pub sidebar_labels: Vec<(Rect, String)>,
+    pub sidebar_labels: Vec<SidebarLabel>,
     pub sidebar_alignment_depths: Vec<(Rect, TrackId)>,
     pub track_registry: Arc<TrackRegistry>,
 }

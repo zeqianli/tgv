@@ -1,5 +1,6 @@
 pub mod app;
 pub mod layout;
+pub mod menu;
 pub mod message;
 pub mod mouse;
 pub mod register;

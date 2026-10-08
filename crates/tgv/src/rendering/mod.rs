@@ -7,6 +7,7 @@ mod coordinate;
 mod coverage;
 mod cytoband;
 mod intervals;
+mod menu;
 mod sequence;
 mod sidebar;
 mod status_bar;
@@ -29,6 +30,7 @@ pub use variants::render_variants;
 
 use crate::{
     app::{Highlight, RenderEvent},
+    menu::ContextMenu,
     layout::{AlignmentView, AreaType, OnScreenCoordinate, ResolvedMainLayout, wrap_sidebar_label},
     mouse::MouseRegister,
     register::{KeyRegisterType, Registers},
@@ -50,6 +52,7 @@ pub fn render_main(
     alignment_view: &AlignmentView,
     mouse_register: &MouseRegister,
     highlights: &[Highlight],
+    context_menu: Option<&ContextMenu>,
     pallete: &Palette,
     render_events: &Vec<RenderEvent>,
 ) -> Result<(), TGVError> {
@@ -227,6 +230,11 @@ pub fn render_main(
             }
             AreaType::Fill => {}
         };
+    }
+
+    // Track redraws may have overwritten part of the menu, so it is drawn on every frame.
+    if let Some(menu) = context_menu {
+        menu::render_context_menu(buf, menu, pallete);
     }
     Ok(())
 }

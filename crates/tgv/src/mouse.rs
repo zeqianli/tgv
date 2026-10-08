@@ -1,6 +1,6 @@
 use crate::{
     layout::{AlignmentView, AreaType, HoveringAreaType, ResolvedMainLayout},
-    message::{Action, Movement, Scroll, UpdateLayoutAction},
+    message::{Action, ContextMenuTarget, Movement, Scroll, UpdateLayoutAction},
 };
 use crossterm::event::{MouseButton, MouseEvent, MouseEventKind};
 use gv_core::prelude::*;
@@ -88,6 +88,31 @@ impl MouseRegister {
                     if let AreaType::AlignmentDivider { upper, lower } = area {
                         self.active_divider = Some((upper, lower));
                     }
+                }
+            }
+            MouseEventKind::Down(MouseButton::Right) => {
+                let target = match hovered {
+                    HoveringAreaType::Sidebar(_) => Some(ContextMenuTarget::Sidebar),
+                    HoveringAreaType::Track(track_index) => match &layout.areas[track_index] {
+                        (AreaType::Alignment(id) | AreaType::Coverage(id), area) => {
+                            Some(ContextMenuTarget::Alignment {
+                                track: *id,
+                                // Base actions need a single base under the cursor.
+                                position: alignment_view
+                                    .coordinates_of_onscreen_x(event.column, area)
+                                    .and_then(|(left, right)| (left == right).then_some(left)),
+                            })
+                        }
+                        _ => None,
+                    },
+                    _ => None,
+                };
+                if let Some(target) = target {
+                    messages.push(Action::OpenContextMenu {
+                        target,
+                        column: event.column,
+                        row: event.row,
+                    });
                 }
             }
             MouseEventKind::Drag(MouseButton::Left) => {

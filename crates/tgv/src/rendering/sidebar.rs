@@ -6,7 +6,10 @@ use crate::{
     rendering::colors::Palette,
 };
 
-use gv_core::{message::AlignmentDisplayOption, prelude::*};
+use gv_core::{
+    message::{AlignmentDisplayOption, AlignmentFilter, AlignmentSort},
+    prelude::*,
+};
 use itertools::Itertools;
 use ratatui::{
     buffer::Buffer,
@@ -23,20 +26,44 @@ fn alignment_depth_description(
         Some(paired) => paired.depth()?,
         None => state.alignments[index].depth()?,
     };
-    let mut description = if depth == 0 {
+    Ok(if depth == 0 {
         "0% (0 / 0)".to_string()
     } else {
         let y = usize::min(alignment_view.top(index), depth.saturating_sub(1)) + 1;
         format!("{}% ({} / {})", y as u128 * 100 / depth as u128, y, depth)
-    };
-    if !state.alignment_options[index].is_empty() {
-        let options = state.alignment_options[index]
-            .iter()
-            .map(|option| format!("{option}"))
-            .join(",");
-        description.push_str(&format!(" ({options})"));
+    })
+}
+
+/// Describe an alignment display option in a few words.
+fn describe_option(option: &AlignmentDisplayOption) -> String {
+    match option {
+        AlignmentDisplayOption::ViewAsPairs => "Paired".to_string(),
+        AlignmentDisplayOption::Sort(AlignmentSort::BaseAt(position)) => {
+            format!("Sorted by base at {position}")
+        }
+        AlignmentDisplayOption::Filter(AlignmentFilter::Base(position, base)) => {
+            format!("Only {base} at {position}")
+        }
+        AlignmentDisplayOption::Filter(AlignmentFilter::BaseSoftclip(position)) => {
+            format!("Only soft clips at {position}")
+        }
+        option => option.to_string(),
     }
-    Ok(description)
+}
+
+/// Wrap text at spaces to fit `width`, breaking words that are longer than a line.
+fn wrap_words(text: &str, width: u16) -> Vec<String> {
+    let mut lines: Vec<String> = Vec::new();
+    for word in text.split_whitespace() {
+        match lines.last_mut() {
+            Some(line) if line.chars().count() + 1 + word.chars().count() <= width as usize => {
+                line.push(' ');
+                line.push_str(word);
+            }
+            _ => lines.extend(wrap_sidebar_label(word, width)),
+        }
+    }
+    lines
 }
 
 pub fn render_sidebar(
@@ -61,8 +88,40 @@ pub fn render_sidebar(
                 separator_style,
             );
         }
-        for (area, label) in &layout.sidebar_labels {
-            let lines = wrap_sidebar_label(label, area.width);
+        let option_style = Style::default().fg(pallete.SIDEBAR_OPTION_COLOR);
+        for label in &layout.sidebar_labels {
+            let mut area = label.area;
+            // An alignment's display options sit at the bottom of its label area, just above the
+            // depth line. The file name keeps at least one line.
+            if let AreaType::Coverage(id) = label.area_type {
+                let index = layout.track_registry.alignment_index(id)?;
+                let mut option_lines = state.alignment_options[index]
+                    .iter()
+                    .flat_map(|option| wrap_words(&describe_option(option), area.width))
+                    .collect_vec();
+                let rows = option_lines
+                    .len()
+                    .min(area.height.saturating_sub(1) as usize);
+                if rows < option_lines.len() && rows > 0 {
+                    option_lines.truncate(rows);
+                    let last = &mut option_lines[rows - 1];
+                    if last.chars().count() >= area.width as usize {
+                        last.pop();
+                    }
+                    last.push('…');
+                }
+                area.height -= rows as u16;
+                for (offset, line) in option_lines.iter().take(rows).enumerate() {
+                    buf.set_stringn(
+                        area.x,
+                        area.bottom() + offset as u16,
+                        line,
+                        area.width as usize,
+                        option_style,
+                    );
+                }
+            }
+            let lines = wrap_sidebar_label(&label.name, area.width);
             let visible_lines = lines.len().min(area.height as usize);
             let first_row = area.y + (area.height as usize - visible_lines) as u16 / 2;
             for (offset, line) in lines.iter().take(visible_lines).enumerate() {

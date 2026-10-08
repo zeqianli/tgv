@@ -10,14 +10,15 @@ use crate::{
         AreaType::{self, Console},
         MainLayout, ResolvedMainLayout,
     },
-    message::{Action, UpdateLayoutAction},
+    menu::ContextMenu,
+    message::{Action, AlignmentOptionUpdate, ContextMenuTarget, UpdateLayoutAction},
     mouse::MouseRegister,
     register::{KeyRegisterType, Registers},
     session::SessionFile,
     settings::Settings,
 };
 use gv_core::{
-    message::{Movement, Zoom},
+    message::{AlignmentDisplayOption, Movement, Zoom},
     prelude::*,
 };
 use gv_session::{
@@ -59,6 +60,8 @@ pub struct App {
     pub settings: Settings,
     pub registers: Registers,
     pub mouse_register: MouseRegister,
+    /// The open right-click menu. While it is open, it takes all mouse input.
+    pub context_menu: Option<ContextMenu>,
 
     pub alignment_view: AlignmentView,
     /// The alignment index that scrolls apply to: the one the mouse was last over.
@@ -136,6 +139,7 @@ impl App {
             settings: settings.clone(),
             registers: Registers::default(),
             mouse_register: MouseRegister::default(),
+            context_menu: None,
             scene: Scene::Main,
             render_buffer: Buffer::empty(Rect::default()),
         })
@@ -219,19 +223,30 @@ impl App {
                 let events = match event {
                     Ok(Event::Key(key_event)) if key_event.kind == KeyEventKind::Press => {
                         self.mouse_register.last_hover = None;
-                        let actions = self
-                            .registers
-                            .handle_key_event(*key_event, &self.dataset.view)?;
+                        let actions = if self.context_menu.is_some() {
+                            // The menu is mouse-only. Escape closes it, and other keys wait.
+                            if key_event.code == event::KeyCode::Esc {
+                                vec![Action::CloseContextMenu]
+                            } else {
+                                Vec::new()
+                            }
+                        } else {
+                            self.registers
+                                .handle_key_event(*key_event, &self.dataset.view)?
+                        };
                         self.handle(actions).await // TODO: this should not error out?
                     }
 
                     Ok(Event::Mouse(mouse_event)) if self.scene == Scene::Main => {
-                        let actions = self.mouse_register.handle_mouse_event(
-                            &self.dataset.view,
-                            &self.resolved_layout,
-                            &self.alignment_view,
-                            *mouse_event,
-                        )?;
+                        let actions = match &mut self.context_menu {
+                            Some(menu) => menu.handle_mouse_event(*mouse_event),
+                            None => self.mouse_register.handle_mouse_event(
+                                &self.dataset.view,
+                                &self.resolved_layout,
+                                &self.alignment_view,
+                                *mouse_event,
+                            )?,
+                        };
 
                         self.handle(actions).await // TODO: this should not error out?
                     }
@@ -694,6 +709,82 @@ impl App {
                         render_events.push(RenderEvent::Sidebar);
                     }
                 }
+                Action::UpdateAlignmentOptions { track, update } => {
+                    let index = self.dataset.tracks.alignment_index(track)?;
+                    let mut options = self.dataset.view.alignment_options[index].clone();
+                    match update {
+                        AlignmentOptionUpdate::Sort(sort) => {
+                            options.retain(|option| {
+                                !matches!(option, AlignmentDisplayOption::Sort(_))
+                            });
+                            options.push(AlignmentDisplayOption::Sort(sort));
+                        }
+                        AlignmentOptionUpdate::Filter(filter) => {
+                            options.retain(|option| {
+                                !matches!(option, AlignmentDisplayOption::Filter(_))
+                            });
+                            options.push(AlignmentDisplayOption::Filter(filter));
+                        }
+                        AlignmentOptionUpdate::TogglePaired => {
+                            if options.contains(&AlignmentDisplayOption::ViewAsPairs) {
+                                options.retain(|option| {
+                                    *option != AlignmentDisplayOption::ViewAsPairs
+                                });
+                            } else {
+                                options.push(AlignmentDisplayOption::ViewAsPairs);
+                            }
+                        }
+                        AlignmentOptionUpdate::Reset => options.clear(),
+                    }
+                    // Options apply in order. Filtering re-stacks the reads, so it goes before
+                    // sorting.
+                    options.sort_by_key(|option| match option {
+                        AlignmentDisplayOption::Filter(_) => 0,
+                        AlignmentDisplayOption::Sort(_) => 1,
+                        AlignmentDisplayOption::ViewAsPairs => 2,
+                    });
+                    log::debug!("Updating alignment options: track={track} options={options:?}");
+                    self.dataset.view.set_alignment_options(
+                        index,
+                        &self.alignment_view.focus,
+                        options,
+                    )?;
+                    render_events.push(RenderEvent::AllTracks);
+                    render_events.push(RenderEvent::Sidebar);
+                }
+                Action::OpenContextMenu {
+                    target,
+                    column,
+                    row,
+                } => {
+                    let items = match target {
+                        ContextMenuTarget::Alignment { track, position } => {
+                            let index = self.dataset.tracks.alignment_index(track)?;
+                            ContextMenu::alignment_items(
+                                track,
+                                position,
+                                &self.dataset.view.alignments[index],
+                                &self.dataset.view.alignment_options[index],
+                            )?
+                        }
+                        ContextMenuTarget::Sidebar => ContextMenu::sidebar_items(),
+                    };
+                    self.context_menu = Some(ContextMenu::new(
+                        items,
+                        column,
+                        row,
+                        self.resolved_layout.terminal_area,
+                    ));
+                    render_events.push(RenderEvent::All);
+                }
+                Action::ContextMenuChanged => render_events.push(RenderEvent::All),
+                Action::CloseContextMenu => {
+                    if self.context_menu.take().is_some() {
+                        // The cell under the cursor may show something new after the menu closes.
+                        self.mouse_register.last_hover = None;
+                        render_events.push(RenderEvent::All);
+                    }
+                }
                 Action::ClearAllKeyRegisters => {
                     log::debug!("Clearing all key registers");
                     self.registers.clear();
@@ -815,6 +906,7 @@ impl App {
                 &self.alignment_view,
                 &self.mouse_register,
                 &self.highlights,
+                self.context_menu.as_ref(),
                 &self.settings.palette,
                 render_events,
             ),

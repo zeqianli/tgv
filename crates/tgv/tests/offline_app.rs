@@ -104,11 +104,11 @@ async fn offline_sequence_updates_tracks_and_scenes() {
             .resolved_layout
             .sidebar_labels
             .iter()
-            .map(|(_, label)| label.as_str())
+            .map(|label| label.name.as_str())
             .collect::<Vec<_>>(),
         vec!["ncbi.sorted.bam", "simple.vcf", "simple.bed"],
     );
-    let label_area = harness.app.resolved_layout.sidebar_labels[0].0;
+    let label_area = harness.app.resolved_layout.sidebar_labels[0].area;
     let initial_buffer = harness.terminal_backend().buffer();
     let rendered_label = (0..label_area.height)
         .flat_map(|row| {
@@ -214,7 +214,7 @@ async fn offline_sequence_updates_tracks_and_scenes() {
         )])
         .await
         .unwrap();
-    let vcf_area = harness.app.resolved_layout.sidebar_labels[1].0;
+    let vcf_area = harness.app.resolved_layout.sidebar_labels[1].area;
     let sidebar_buffer = harness.terminal_backend().buffer();
     let first_vcf_line = (0..vcf_area.width)
         .map(|column| {
@@ -241,7 +241,7 @@ async fn offline_sequence_updates_tracks_and_scenes() {
             .symbol(),
         "_"
     );
-    let bed_area = harness.app.resolved_layout.sidebar_labels[2].0;
+    let bed_area = harness.app.resolved_layout.sidebar_labels[2].area;
     assert!(bed_area.height >= 2);
 
     harness

@@ -42,6 +42,21 @@ change its width. Drag a line between alignment tracks to resize the adjacent
 alignments. Filenames wrap within their track sections, which are separated by
 underscore lines. When the sidebar is hidden, its labels and alignment depths
 are hidden too. The command and message rows remain in the main track column.
+An alignment's display options, such as `Paired` or `Sorted by base at 88108`,
+are listed above its depth.
+
+Right-click an alignment track for a menu. It applies to the clicked track only:
+
+- Sort by base at _pos_: sort reads by their base at the clicked position.
+- Filter by base at _pos_: show only the reads with the chosen base, or a soft
+  clip, at the clicked position. The submenu lists the choices present there,
+  with read counts.
+- View as pairs: show mates on one row.
+- Reset display options.
+
+The base items need one base per column, so they are disabled when zoomed out.
+Right-click the sidebar for an option to hide it (also `s`). Click outside the
+menu or press `Esc` to close it.
 
 Command mode
 

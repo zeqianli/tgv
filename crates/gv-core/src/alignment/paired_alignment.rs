@@ -162,7 +162,8 @@ impl PairedAlignment {
         Ok(())
     }
 
-    /// Find a read in a visible pair or singleton at the displayed row.
+    /// Find a read in a visible pair or singleton at the displayed row. Both mates of a visible
+    /// pair are displayed, even when only one passes the display options.
     pub fn read_overlapping(
         &self,
         alignment: &Alignment,
@@ -211,8 +212,8 @@ impl PairedAlignment {
             .clone()
             .lazy()
             .filter(
-                col(ReadSchema::SHOW)
-                    .and(col(ReadSchema::READ_ID).is_in(lit(selected).implode(true), false))
+                col(ReadSchema::READ_ID)
+                    .is_in(lit(selected).implode(true), false)
                     .and(col(ReadSchema::STACKING_START).lt_eq(lit(right)))
                     .and(col(ReadSchema::STACKING_END).gt_eq(lit(left))),
             )

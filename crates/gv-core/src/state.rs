@@ -551,6 +551,20 @@ impl State {
             })
             .collect_vec();
 
+        // Filters and sorts rewrite read visibility and rows in place. When they change, start
+        // again from the loaded reads so that removed options no longer apply.
+        let previous = &self.alignment_options[index];
+        if *previous != options
+            && previous.iter().any(|option| {
+                matches!(
+                    option,
+                    AlignmentDisplayOption::Filter(_) | AlignmentDisplayOption::Sort(_)
+                )
+            })
+        {
+            self.alignments[index].filter(AlignmentFilter::Default, &self.sequence)?;
+        }
+
         self.alignment_options[index] = options.clone();
 
         let view_as_pairs = options.contains(&AlignmentDisplayOption::ViewAsPairs);

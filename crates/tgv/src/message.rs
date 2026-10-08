@@ -2,6 +2,7 @@ use crate::{
     app::{Highlight, Scene},
     register::KeyRegisterType,
 };
+use gv_core::message::{AlignmentFilter, AlignmentSort};
 pub use gv_core::message::{Movement, Scroll};
 use gv_core::track_registry::TrackId;
 use strum::Display;
@@ -27,12 +28,53 @@ pub enum Action {
     /// Makes the alignment track the target of later scrolls.
     FocusAlignment(TrackId),
 
+    /// Changes one display option of an alignment track and keeps the others.
+    UpdateAlignmentOptions {
+        track: TrackId,
+        update: AlignmentOptionUpdate,
+    },
+
+    /// Opens the context menu for `target`, anchored at a terminal cell.
+    OpenContextMenu {
+        target: ContextMenuTarget,
+        column: u16,
+        row: u16,
+    },
+
+    /// The open context menu changed its hover or submenu state.
+    ContextMenuChanged,
+
+    CloseContextMenu,
+
     ClearAllKeyRegisters,
 
     /// Replaces the highlighted intervals.
     SetHighlights(Vec<Highlight>),
 
     ClearHighlights,
+}
+
+/// A change to one alignment track's display options.
+#[derive(Debug, Clone, Eq, PartialEq)]
+pub enum AlignmentOptionUpdate {
+    /// Replaces the sort.
+    Sort(AlignmentSort),
+    /// Replaces the filter.
+    Filter(AlignmentFilter),
+    TogglePaired,
+    Reset,
+}
+
+/// What a right click opened the context menu on.
+#[derive(Debug, Clone, Eq, PartialEq)]
+pub enum ContextMenuTarget {
+    /// An alignment track's reads or coverage. `position` is the clicked base, or `None` when
+    /// a column covers several bases.
+    Alignment {
+        track: TrackId,
+        position: Option<u64>,
+    },
+    Sidebar,
 }
 
 /// Layout changes.

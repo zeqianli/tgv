@@ -74,6 +74,14 @@ pub struct Palette {
     /// Intervals that an agent highlights, behind the coordinate ruler.
     pub HIGHLIGHT: Color,
 
+    // Context menu and sidebar
+    pub MENU_BACKGROUND: Color,
+    pub MENU_HOVER_BACKGROUND: Color,
+    pub MENU_FOREGROUND: Color,
+    pub MENU_DISABLED_FOREGROUND: Color,
+    /// Alignment display options listed in the sidebar.
+    pub SIDEBAR_OPTION_COLOR: Color,
+
     // Gene track
     pub EXON_BACKGROUND_COLOR: Color,
     pub EXON_FOREGROUND_COLOR: Color,
@@ -240,6 +248,12 @@ pub const DARK_THEME: Palette = Palette {
     BED2: tailwind::INDIGO.c400,
 
     HIGHLIGHT: tailwind::AMBER.c700,
+
+    MENU_BACKGROUND: tailwind::SLATE.c700,
+    MENU_HOVER_BACKGROUND: tailwind::SKY.c700,
+    MENU_FOREGROUND: tailwind::WHITE,
+    MENU_DISABLED_FOREGROUND: tailwind::SLATE.c400,
+    SIDEBAR_OPTION_COLOR: tailwind::SKY.c300,
 
     // Gene track
     EXON_BACKGROUND_COLOR: tailwind::BLUE.c800,
