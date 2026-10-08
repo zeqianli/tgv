@@ -16,7 +16,6 @@ pub struct MouseRegister {
     last_y: u16,
     active_divider: Option<(TrackId, TrackId)>,
     sidebar_resizing: bool,
-    pub hovered_alignment: Option<TrackId>,
     pub hovered_divider: Option<(TrackId, TrackId)>,
 
     /// The cell of the last handled motion event. Terminals can report several motion events
@@ -60,13 +59,14 @@ impl MouseRegister {
 
         let mut messages = Vec::new();
         let hovered = layout.get_area_type_at_position(event.column, event.row);
-        self.hovered_alignment = match hovered {
-            HoveringAreaType::Track(track_index) => match layout.areas[track_index].0 {
-                AreaType::Alignment(id) | AreaType::Coverage(id) => Some(id),
-                _ => None,
-            },
-            _ => None,
-        };
+        // A drag keeps scrolling the track where it started, even if it crosses into another.
+        let dragging = matches!(event.kind, MouseEventKind::Drag(MouseButton::Left));
+        if !dragging
+            && let HoveringAreaType::Track(track_index) = hovered
+            && let AreaType::Alignment(id) | AreaType::Coverage(id) = layout.areas[track_index].0
+        {
+            messages.push(Action::FocusAlignment(id));
+        }
         self.hovered_divider = match hovered {
             HoveringAreaType::Track(track_index) => match layout.areas[track_index].0 {
                 AreaType::AlignmentDivider { upper, lower } => Some((upper, lower)),
@@ -114,12 +114,13 @@ impl MouseRegister {
                             } else if event.column > self.last_x {
                                 messages.push(Movement::Left(1).into());
                             }
-                            if event.row > self.last_y {
-                                let index = layout.track_registry.alignment_index(id)?;
-                                messages.push(Scroll::Up { index, n: 1 }.into());
-                            } else if event.row < self.last_y {
-                                let index = layout.track_registry.alignment_index(id)?;
-                                messages.push(Scroll::Down { index, n: 1 }.into());
+                            if event.row != self.last_y {
+                                messages.push(Action::FocusAlignment(id));
+                                messages.push(if event.row > self.last_y {
+                                    Scroll::Up(1).into()
+                                } else {
+                                    Scroll::Down(1).into()
+                                });
                             }
                         }
                         AreaType::Bed(_) | AreaType::Variant(_) => {
@@ -333,17 +334,17 @@ impl MouseRegister {
                 }
             }
             MouseEventKind::ScrollDown | MouseEventKind::ScrollUp => {
-                if let HoveringAreaType::Track(track_index) = hovered {
-                    let area = layout.areas[track_index].0;
-                    if let AreaType::Alignment(id) | AreaType::Coverage(id) = area {
-                        let index = layout.track_registry.alignment_index(id)?;
-                        let scroll = if matches!(event.kind, MouseEventKind::ScrollDown) {
-                            Scroll::Down { index, n: 1 }
-                        } else {
-                            Scroll::Up { index, n: 1 }
-                        };
-                        messages.push(scroll.into());
-                    }
+                // The focus action pushed above targets the hovered alignment.
+                if let HoveringAreaType::Track(track_index) = hovered
+                    && let AreaType::Alignment(_) | AreaType::Coverage(_) =
+                        layout.areas[track_index].0
+                {
+                    let scroll = if matches!(event.kind, MouseEventKind::ScrollDown) {
+                        Scroll::Down(1)
+                    } else {
+                        Scroll::Up(1)
+                    };
+                    messages.push(scroll.into());
                 }
             }
             MouseEventKind::ScrollLeft | MouseEventKind::ScrollRight => {
