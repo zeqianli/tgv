@@ -1218,7 +1218,7 @@ mod tests {
             .set_alignment_options(
                 0,
                 &focus,
-                vec![AlignmentDisplayOption::Sort(AlignmentSort::MappingQuality)],
+                vec![AlignmentDisplayOption::Sort(AlignmentSort::Sample)],
             )
             .unwrap_err();
 

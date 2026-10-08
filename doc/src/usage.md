@@ -34,6 +34,7 @@ Normal mode
 | `E/gE` | End of the next / previous gene | |
 | `z/o` | Zoom in / out | |
 | `s` | Toggle the sidebar | |
+| `u` / `Ctrl-r` | Go back / forward through jumps: searches, contig and gene jumps, and agent moves | |
 | `_number_` + `_movement_` | Move by `_number_` steps | `20h`: left by 20 bases |
 
 The sidebar starts open and shows the reference, current position, filenames,
@@ -45,9 +46,26 @@ are hidden too. The command and message rows remain in the main track column.
 An alignment's display options, such as `Paired` or `Sorted by base at 88108`,
 are listed above its depth.
 
+Scroll the mouse wheel over an alignment to scroll its reads. Hold Shift while
+scrolling, or scroll horizontally on a trackpad, to pan left and right. Drag a
+track to pan in both directions.
+
+Click the cytoband to go to that part of the contig, keeping the zoom.
+
+Hover over a track for details on the message line. Over a read, it shows the
+position, read name, the read's base and base quality there, CIGAR, and MAPQ.
+Click a read to see its SAM record; press `Esc` to close it. Other keys and
+clicks are ignored while it is open.
+
+Alignment tracks follow IGV's defaults: duplicate and QC-fail reads are hidden,
+reads with MAPQ 0 are drawn in a darker gray, and mismatched bases with a base
+quality below 20 are dimmed.
+
 Right-click an alignment track for a menu. It applies to the clicked track only:
 
-- Sort by base at _pos_: sort reads by their base at the clicked position.
+- Sort at _pos_: sort the reads covering the clicked position by base, strand,
+  start, mapping quality (highest first), insert size (largest first), or read
+  name. Each sorted read gets its own row.
 - Filter by base at _pos_: show only the reads with the chosen base, or a soft
   clip, at the clicked position. The submenu lists the choices present there,
   with read counts.
@@ -77,6 +95,7 @@ Search mode
 |---------|-------------|---------|
 | `/_pos_` | Go to position on same contig | `/1000` |
 | `/_contig_:_pos_` | Go to position on specific contig | `/17:7572659` |
+| `/_contig_:_start_-_end_` | Show a region, zoomed to fit. Commas are allowed. | `/chr1:1,000-2,000`, `/1000-2000` |
 | `/_gene_` | Go to `_gene_` | `/KRAS` |
 | `Esc` | Switch to normal mode | |
 
@@ -89,3 +108,4 @@ Search mode
 | `W/B/E/gE` | Gene | WORD | |
 | `j/k` | Alignment track | Line | |
 | `z/o` | Zoom | NA | `o` does a different thing in Vim |
+| `u/Ctrl-r` | Jump history | Undo / redo | Like `Ctrl-o` / `Ctrl-i` in Vim |

@@ -3,7 +3,7 @@ mod coverage;
 mod paired_alignment;
 mod repository;
 pub mod tables;
-pub use alignment::Alignment;
+pub use alignment::{Alignment, ReadBase};
 pub use coverage::{CoverageSchema, CoverageTable};
 pub use paired_alignment::{PairSchema, PairedAlignment};
 pub use repository::{AlignmentRepositoryEnum, is_url};

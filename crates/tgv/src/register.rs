@@ -2,7 +2,7 @@ use crate::{
     app::Scene,
     message::{Action, Movement, UpdateLayoutAction},
 };
-use crossterm::event::{KeyCode, KeyEvent};
+use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use gv_core::normal::update_by_char;
 use gv_core::prelude::*;
 use itertools::Itertools;
@@ -176,6 +176,12 @@ impl Registers {
                 Action::ClearAllKeyRegisters,
                 Action::SwitchKeyRegister(KeyRegisterType::Search),
             ]),
+            // Like undo and redo in vim, `u` and `Ctrl-r` move through the jump history.
+            KeyCode::Char('r') if key_event.modifiers.contains(KeyModifiers::CONTROL) => {
+                self.clear();
+                Ok(vec![Action::JumpForward])
+            }
+            KeyCode::Char('u') if self.normal.is_empty() => Ok(vec![Action::JumpBack]),
             KeyCode::Char(char) => Ok(update_by_char(&mut self.normal, char)?
                 .into_iter()
                 .map(|m| m.into())

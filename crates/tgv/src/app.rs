@@ -5,6 +5,7 @@ use futures::StreamExt;
 use ratatui::{Terminal, buffer::Buffer, layout::Rect, prelude::Backend};
 
 use crate::{
+    jumps::{JumpList, ViewPoint},
     layout::{
         AlignmentView,
         AreaType::{self, Console},
@@ -13,6 +14,7 @@ use crate::{
     menu::ContextMenu,
     message::{Action, AlignmentOptionUpdate, ContextMenuTarget, UpdateLayoutAction},
     mouse::MouseRegister,
+    popup::TextPopup,
     register::{KeyRegisterType, Registers},
     session::SessionFile,
     settings::Settings,
@@ -62,8 +64,11 @@ pub struct App {
     pub mouse_register: MouseRegister,
     /// The open right-click menu. While it is open, it takes all mouse input.
     pub context_menu: Option<ContextMenu>,
+    /// The open text popup. While it is open, it blocks all other input.
+    pub popup: Option<TextPopup>,
 
     pub alignment_view: AlignmentView,
+    pub jumps: JumpList,
     /// The alignment index that scrolls apply to: the one the mouse was last over.
     pub focused_alignment: usize,
     pub highlights: Vec<Highlight>,
@@ -132,6 +137,7 @@ impl App {
             resolved_layout: ResolvedMainLayout::default(),
             dataset,
             alignment_view,
+            jumps: JumpList::default(),
             focused_alignment: 0,
             highlights: Vec::new(),
             session,
@@ -140,6 +146,7 @@ impl App {
             registers: Registers::default(),
             mouse_register: MouseRegister::default(),
             context_menu: None,
+            popup: None,
             scene: Scene::Main,
             render_buffer: Buffer::empty(Rect::default()),
         })
@@ -157,6 +164,8 @@ impl App {
             .map_err(|e| TGVError::IOError(format!("Failed to draw the terminal: {e}")))?;
 
         self.handle(self.settings.initial_actions.clone()).await?;
+        // The startup locus is where history begins, not a jump to return from.
+        self.jumps = JumpList::default();
 
         self.alignment_view.self_correct(
             &self.resolved_layout.main_area,
@@ -223,7 +232,13 @@ impl App {
                 let events = match event {
                     Ok(Event::Key(key_event)) if key_event.kind == KeyEventKind::Press => {
                         self.mouse_register.last_hover = None;
-                        let actions = if self.context_menu.is_some() {
+                        let actions = if self.popup.is_some() {
+                            if key_event.code == event::KeyCode::Esc {
+                                vec![Action::ClosePopup]
+                            } else {
+                                Vec::new()
+                            }
+                        } else if self.context_menu.is_some() {
                             // The menu is mouse-only. Escape closes it, and other keys wait.
                             if key_event.code == event::KeyCode::Esc {
                                 vec![Action::CloseContextMenu]
@@ -239,6 +254,7 @@ impl App {
 
                     Ok(Event::Mouse(mouse_event)) if self.scene == Scene::Main => {
                         let actions = match &mut self.context_menu {
+                            _ if self.popup.is_some() => Vec::new(),
                             Some(menu) => menu.handle_mouse_event(*mouse_event),
                             None => self.mouse_register.handle_mouse_event(
                                 &self.dataset.view,
@@ -403,7 +419,7 @@ impl App {
                 .into(),
             ),
             Action::message(format!(
-                "An agent moved the view to {target}. Type :{previous} to go back."
+                "An agent moved the view to {target}. Press u to go back to {previous}."
             )),
         ])
     }
@@ -493,10 +509,60 @@ impl App {
                         previous_focus,
                         focus,
                     );
+                    let jump = matches!(
+                        movement,
+                        Movement::Position(_)
+                            | Movement::ContigNamePosition(..)
+                            | Movement::ContigIndex(_)
+                            | Movement::NextContig(_)
+                            | Movement::PreviousContig(_)
+                            | Movement::Gene(_)
+                            | Movement::Default
+                    );
+                    if jump && focus != previous_focus {
+                        self.jumps.record(ViewPoint {
+                            focus: previous_focus,
+                            zoom: self.alignment_view.zoom,
+                        });
+                    }
                     self.alignment_view.focus = focus;
                     self.load_data().await?;
                     render_events.push(RenderEvent::AllTracks);
                     render_events.push(RenderEvent::Sidebar);
+                }
+
+                Action::JumpBack | Action::JumpForward => {
+                    let current = ViewPoint {
+                        focus: self.alignment_view.focus.clone(),
+                        zoom: self.alignment_view.zoom,
+                    };
+                    let (target, edge) = if action == Action::JumpBack {
+                        (
+                            self.jumps.back(current),
+                            "No earlier position to go back to.",
+                        )
+                    } else {
+                        (
+                            self.jumps.forward(current),
+                            "No later position to go forward to.",
+                        )
+                    };
+                    match target {
+                        Some(target) => {
+                            self.alignment_view.focus = target.focus;
+                            self.alignment_view.zoom = target.zoom;
+                            self.alignment_view.self_correct(
+                                &self.resolved_layout.main_area,
+                                self.dataset
+                                    .view
+                                    .contig_length(&self.alignment_view.focus)?,
+                            );
+                            self.load_data().await?;
+                            render_events.push(RenderEvent::AllTracks);
+                            render_events.push(RenderEvent::Sidebar);
+                        }
+                        None => messages.push(edge.to_string()),
+                    }
                 }
 
                 Action::Core(gv_core::message::Message::Quit) => {
@@ -777,6 +843,20 @@ impl App {
                     ));
                     render_events.push(RenderEvent::All);
                 }
+                Action::OpenReadDetails { track, read_id } => {
+                    let index = self.dataset.tracks.alignment_index(track)?;
+                    self.popup = Some(TextPopup::read_details(
+                        self.dataset.repository.alignment_repositories[index].header(),
+                        &self.dataset.view.alignments[index].records[read_id],
+                    )?);
+                    render_events.push(RenderEvent::All);
+                }
+                Action::ClosePopup => {
+                    if self.popup.take().is_some() {
+                        self.mouse_register = MouseRegister::default();
+                        render_events.push(RenderEvent::All);
+                    }
+                }
                 Action::ContextMenuChanged => render_events.push(RenderEvent::All),
                 Action::CloseContextMenu => {
                     if self.context_menu.take().is_some() {
@@ -910,6 +990,7 @@ impl App {
                 &self.mouse_register,
                 &self.highlights,
                 self.context_menu.as_ref(),
+                self.popup.as_ref(),
                 &self.settings.palette,
                 render_events,
             ),

@@ -34,7 +34,7 @@ The response is the new view, in the same form as `view_state`:
 ### Behavior
 
 - The view centers on the region and picks the smallest zoom, in bases per column, that fits the region in the track area. The displayed interval can therefore be wider than the region.
-- The viewer's message line tells the user how to return, for example "An agent moved the view to chr20:90100. Type :chr20:88108 to go back."
+- The viewer's message line tells the user how to return, for example "An agent moved the view to chr20:90100. Press u to go back to chr20:88108."
 - The region isn't limited to 100,000 bases. Wide regions show coverage and annotations without reads, as when the user zooms out.
 
 ## `highlight`

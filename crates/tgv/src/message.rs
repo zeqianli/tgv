@@ -25,6 +25,12 @@ pub enum Action {
 
     UpdateLayout(UpdateLayoutAction),
 
+    /// Returns to the view before the last jump.
+    JumpBack,
+
+    /// Returns to the view that the last `JumpBack` left.
+    JumpForward,
+
     /// Makes the alignment track the target of later scrolls.
     FocusAlignment(TrackId),
 
@@ -40,6 +46,14 @@ pub enum Action {
         column: u16,
         row: u16,
     },
+
+    /// Shows the SAM record of a read in a popup.
+    OpenReadDetails {
+        track: TrackId,
+        read_id: usize,
+    },
+
+    ClosePopup,
 
     /// The open context menu changed its hover or submenu state.
     ContextMenuChanged,

@@ -1,8 +1,10 @@
 pub mod app;
+pub mod jumps;
 pub mod layout;
 pub mod menu;
 pub mod message;
 pub mod mouse;
+pub mod popup;
 pub mod register;
 pub mod rendering;
 pub mod session;

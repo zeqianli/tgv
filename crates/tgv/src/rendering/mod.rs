@@ -5,7 +5,7 @@ mod console;
 mod contig_list;
 mod coordinate;
 mod coverage;
-mod cytoband;
+pub(crate) mod cytoband;
 mod intervals;
 mod menu;
 mod sequence;
@@ -30,9 +30,10 @@ pub use variants::render_variants;
 
 use crate::{
     app::{Highlight, RenderEvent},
-    menu::ContextMenu,
     layout::{AlignmentView, AreaType, OnScreenCoordinate, ResolvedMainLayout, wrap_sidebar_label},
+    menu::ContextMenu,
     mouse::MouseRegister,
+    popup::TextPopup,
     register::{KeyRegisterType, Registers},
 };
 
@@ -53,6 +54,7 @@ pub fn render_main(
     mouse_register: &MouseRegister,
     highlights: &[Highlight],
     context_menu: Option<&ContextMenu>,
+    popup: Option<&TextPopup>,
     pallete: &Palette,
     render_events: &Vec<RenderEvent>,
 ) -> Result<(), TGVError> {
@@ -235,6 +237,9 @@ pub fn render_main(
     // Track redraws may have overwritten part of the menu, so it is drawn on every frame.
     if let Some(menu) = context_menu {
         menu::render_context_menu(buf, menu, pallete);
+    }
+    if let Some(popup) = popup {
+        menu::render_text_popup(buf, layout.terminal_area, popup, pallete);
     }
     Ok(())
 }

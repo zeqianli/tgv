@@ -366,7 +366,7 @@ async fn agent_navigates_and_highlights_the_view() {
         .unwrap();
     assert!(view.region.start <= 20_000 && view.region.end >= 20_200);
     assert_eq!(harness.app.alignment_view.focus.position, 20_100);
-    assert!(harness.app.dataset.view.messages[0].contains("Type :MN908947.3:100 to go back"));
+    assert!(harness.app.dataset.view.messages[0].contains("Press u to go back to MN908947.3:100"));
 
     harness
         .agent(session.highlight(HighlightRequest {

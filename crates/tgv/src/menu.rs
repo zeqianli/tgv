@@ -111,12 +111,26 @@ impl ContextMenu {
         let update = |update| Action::UpdateAlignmentOptions { track, update };
         // Without a single clicked base, the base items have no position to name.
         let at = position.map_or_else(String::new, |position| format!(" at {position}"));
-        let mut items = vec![MenuItem::entry(
-            format!("Sort by base{at}"),
-            position.map(|position| {
-                update(AlignmentOptionUpdate::Sort(AlignmentSort::BaseAt(position)))
-            }),
-        )];
+        let sort_label = format!("Sort{at}");
+        let mut items = vec![match position {
+            Some(position) => MenuItem::Submenu {
+                label: sort_label,
+                items: [
+                    ("Base", AlignmentSort::BaseAt(position)),
+                    ("Strand", AlignmentSort::StrandAt(position)),
+                    ("Start", AlignmentSort::Start(position)),
+                    ("Mapping quality", AlignmentSort::MappingQuality(position)),
+                    ("Insert size", AlignmentSort::InsertSize(position)),
+                    ("Read name", AlignmentSort::ReadName(position)),
+                ]
+                .into_iter()
+                .map(|(label, sort)| {
+                    MenuItem::entry(label, Some(update(AlignmentOptionUpdate::Sort(sort))))
+                })
+                .collect(),
+            },
+            None => MenuItem::entry(sort_label, None),
+        }];
 
         let filter_label = format!("Filter by base{at}");
         items.push(match position {

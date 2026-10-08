@@ -242,9 +242,7 @@ fn build_batch(
     let reads = DataFrame::new(height, read_columns)?
         .lazy()
         .with_columns([
-            col(ReadSchema::STACKING_START)
-                .is_not_null()
-                .alias(ReadSchema::SHOW),
+            ReadSchema::default_show().alias(ReadSchema::SHOW),
             lit(0u64).cast(DataType::UInt64).alias(ReadSchema::Y),
         ])
         .collect()?;
@@ -518,6 +516,15 @@ impl ReadSchema {
 
     /// Temporary column used while sorting reads and pairs.
     pub const SORT_KEY: &'static str = "sort_key";
+
+    /// Visibility before any display option applies: positioned reads, except duplicates and
+    /// QC failures, which IGV also hides by default.
+    pub fn default_show() -> Expr {
+        col(Self::STACKING_START)
+            .is_not_null()
+            .and(col(Self::DUPLICATE).not())
+            .and(col(Self::QC_FAILED).not())
+    }
 }
 
 impl TableSchema for ReadSchema {
@@ -753,16 +760,18 @@ impl ReferenceMismatchSchema {
     pub const RUN_OFFSET: &'static str = CigarSchema::RUN_OFFSET;
     pub const REF_POS: &'static str = "ref_pos";
     pub const BASE: &'static str = "base";
+    pub const QUAL: &'static str = "qual";
 }
 
 impl TableSchema for ReferenceMismatchSchema {
     fn schema() -> SchemaRef {
-        let mut schema = Schema::with_capacity(5);
+        let mut schema = Schema::with_capacity(6);
         schema.insert(Self::READ_ID.into(), DataType::UInt64);
         schema.insert(Self::OP_INDEX.into(), DataType::UInt32);
         schema.insert(Self::RUN_OFFSET.into(), DataType::UInt32);
         schema.insert(Self::REF_POS.into(), DataType::UInt64);
         schema.insert(Self::BASE.into(), DataType::UInt8);
+        schema.insert(Self::QUAL.into(), DataType::UInt8);
         Arc::new(schema)
     }
 
@@ -783,6 +792,10 @@ impl TableSchema for ReferenceMismatchSchema {
             ColumnDoc {
                 name: Self::BASE,
                 description: "The read base, which differs from the reference.",
+            },
+            ColumnDoc {
+                name: Self::QUAL,
+                description: "The base's Phred quality as a number, or null when the read has no qualities.",
             },
         ]
     }
@@ -864,11 +877,13 @@ pub(crate) fn reference_mismatches(
     let starts = runs.column(CigarSchema::REF_START)?.u64()?;
     let lengths = runs.column(CigarSchema::OP_LEN)?.u32()?;
     let sequences = runs.column(CigarSchema::SEQ)?.str()?;
+    let qualities = runs.column(CigarSchema::QUAL)?.binary()?;
     let mut read_id = Vec::new();
     let mut op_index = Vec::new();
     let mut run_offset = Vec::new();
     let mut ref_pos = Vec::new();
     let mut base = Vec::new();
+    let mut qual: Vec<Option<u8>> = Vec::new();
     for row in 0..runs.height() {
         let Some(start) = starts.get(row) else {
             continue;
@@ -877,6 +892,7 @@ pub(crate) fn reference_mismatches(
             continue;
         };
         let sequence = sequence.as_bytes();
+        let quality = qualities.get(row);
         let end = start + u64::from(lengths.get(row).expect("run lengths are non-null"));
         let left = start.max(reference.start);
         let right = end.min(reference.end() + 1);
@@ -892,6 +908,7 @@ pub(crate) fn reference_mismatches(
                 run_offset.push(offset);
                 ref_pos.push(pos);
                 base.push(read_base);
+                qual.push(quality.and_then(|quality| quality.get(offset as usize).copied()));
             }
         }
     }
@@ -903,6 +920,7 @@ pub(crate) fn reference_mismatches(
             Column::new(ReferenceMismatchSchema::RUN_OFFSET.into(), run_offset),
             Column::new(ReferenceMismatchSchema::REF_POS.into(), ref_pos),
             Column::new(ReferenceMismatchSchema::BASE.into(), base),
+            Column::new(ReferenceMismatchSchema::QUAL.into(), qual),
         ],
     )?)
 }

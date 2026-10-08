@@ -9,6 +9,15 @@ use crate::sequence::Sequence;
 use noodles::sam::alignment::RecordBuf;
 use polars::prelude::*;
 
+/// What a read shows at one reference position.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ReadBase {
+    /// A base, with its Phred quality when the read has qualities.
+    Base { base: u8, quality: Option<u8> },
+    /// A deletion or reference skip.
+    Deletion,
+}
+
 /// An alignment stack
 #[derive(Debug)]
 pub struct Alignment {
@@ -113,6 +122,72 @@ impl Alignment {
             .next()
             .flatten()
             .map(|id| id as usize))
+    }
+
+    /// The base that read `read_id` shows at a 1-based position: an aligned or soft-clipped
+    /// base with its Phred quality, or a deletion. `None` if the read doesn't cover the position.
+    pub fn read_base_at(
+        &self,
+        read_id: usize,
+        position: u64,
+    ) -> Result<Option<ReadBase>, TGVError> {
+        let runs = self
+            .tables
+            .cigar_runs
+            .clone()
+            .lazy()
+            .filter(
+                col(CigarSchema::READ_ID)
+                    .eq(lit(read_id as u64))
+                    // An insertion sits between reference positions, so it shows no base there.
+                    .and(col(CigarSchema::KIND).neq(lit(CigarSchema::INSERTION)))
+                    .and(col(CigarSchema::DISPLAY_START).lt_eq(lit(position)))
+                    .and(col(CigarSchema::DISPLAY_END).gt_eq(lit(position))),
+            )
+            .select([
+                col(CigarSchema::KIND),
+                col(CigarSchema::DISPLAY_START),
+                col(CigarSchema::RUN_OFFSET),
+                col(CigarSchema::SEQ),
+                col(CigarSchema::QUAL),
+            ])
+            .limit(1)
+            .collect()?;
+        if runs.height() == 0 {
+            return Ok(None);
+        }
+        let kind = runs.column(CigarSchema::KIND)?.u8()?.get(0);
+        if matches!(
+            kind,
+            Some(CigarSchema::DELETION | CigarSchema::REFERENCE_SKIP)
+        ) {
+            return Ok(Some(ReadBase::Deletion));
+        }
+        let start = runs
+            .column(CigarSchema::DISPLAY_START)?
+            .u64()?
+            .get(0)
+            .expect("displayed runs have bounds");
+        let offset = runs
+            .column(CigarSchema::RUN_OFFSET)?
+            .u32()?
+            .get(0)
+            .expect("run offsets are non-null") as usize
+            + (position - start) as usize;
+        let Some(base) = runs
+            .column(CigarSchema::SEQ)?
+            .str()?
+            .get(0)
+            .and_then(|seq| seq.as_bytes().get(offset).copied())
+        else {
+            return Ok(None);
+        };
+        let quality = runs
+            .column(CigarSchema::QUAL)?
+            .binary()?
+            .get(0)
+            .and_then(|qual| qual.get(offset).copied());
+        Ok(Some(ReadBase::Base { base, quality }))
     }
 
     pub fn from_records(
@@ -235,12 +310,10 @@ impl Alignment {
                 )
                 .with_columns([col(ReadSchema::SHOW)
                     .fill_null(lit(false))
-                    .and(col(ReadSchema::STACKING_START).is_not_null())
+                    .and(ReadSchema::default_show())
                     .alias(ReadSchema::SHOW)])
         } else {
-            reads.with_columns([col(ReadSchema::STACKING_START)
-                .is_not_null()
-                .alias(ReadSchema::SHOW)])
+            reads.with_columns([ReadSchema::default_show().alias(ReadSchema::SHOW)])
         };
         let reads = reads
             .sort([ReadSchema::READ_ID], SortMultipleOptions::default())
@@ -256,36 +329,7 @@ impl Alignment {
     }
 
     pub fn sort(&mut self, option: AlignmentSort) -> Result<(), TGVError> {
-        match option {
-            AlignmentSort::BaseAt(position) => self.sort_by_base_at(position),
-            option => Err(TGVError::ValueError(format!(
-                "Alignment sorting is not implemented yet for option {option}"
-            ))),
-        }
-    }
-
-    fn sort_by_base_at(&mut self, position: u64) -> Result<(), TGVError> {
-        self.ensure_position_has_complete_data(position)?;
-
-        let kind = col(CigarSchema::KIND);
-        let keys = self
-            .tables
-            .cigar_runs
-            .clone()
-            .lazy()
-            .filter(
-                kind.clone()
-                    .eq(lit(CigarSchema::MATCH))
-                    .or(kind.clone().eq(lit(CigarSchema::SEQUENCE_MATCH)))
-                    .or(kind.clone().eq(lit(CigarSchema::SEQUENCE_MISMATCH)))
-                    .or(kind.clone().eq(lit(CigarSchema::INSERTION)))
-                    .or(kind.clone().eq(lit(CigarSchema::DELETION)))
-                    .or(kind.eq(lit(CigarSchema::REFERENCE_SKIP)))
-                    .and(col(CigarSchema::DISPLAY_START).lt_eq(lit(position)))
-                    .and(col(CigarSchema::DISPLAY_END).gt_eq(lit(position))),
-            )
-            .group_by([col(CigarSchema::READ_ID)])
-            .agg([base_sort_key_at(position).min().alias(ReadSchema::SORT_KEY)]);
+        let keys = self.sort_keys(&option)?;
         let items = self
             .tables
             .reads
@@ -303,6 +347,67 @@ impl Alignment {
             .with_columns([lit(Series::new(ReadSchema::Y.into(), y)).alias(ReadSchema::Y)])
             .collect()?;
         Ok(())
+    }
+
+    /// Sort keys, as `READ_ID` and `SORT_KEY`, for the reads covering the sort position. Keys
+    /// sort ascending, and reads without a key keep their packed rows below the sorted ones.
+    pub(super) fn sort_keys(&self, option: &AlignmentSort) -> Result<LazyFrame, TGVError> {
+        let read_keys = |position: u64, key: Expr| {
+            self.ensure_position_has_complete_data(position)?;
+            Ok(self
+                .tables
+                .reads
+                .clone()
+                .lazy()
+                .filter(
+                    col(ReadSchema::STACKING_START)
+                        .lt_eq(lit(position))
+                        .and(col(ReadSchema::STACKING_END).gt_eq(lit(position))),
+                )
+                .select([col(ReadSchema::READ_ID), key.alias(ReadSchema::SORT_KEY)]))
+        };
+        match *option {
+            AlignmentSort::BaseAt(position) => {
+                self.ensure_position_has_complete_data(position)?;
+                let kind = col(CigarSchema::KIND);
+                Ok(self
+                    .tables
+                    .cigar_runs
+                    .clone()
+                    .lazy()
+                    .filter(
+                        kind.clone()
+                            .eq(lit(CigarSchema::MATCH))
+                            .or(kind.clone().eq(lit(CigarSchema::SEQUENCE_MATCH)))
+                            .or(kind.clone().eq(lit(CigarSchema::SEQUENCE_MISMATCH)))
+                            .or(kind.clone().eq(lit(CigarSchema::INSERTION)))
+                            .or(kind.clone().eq(lit(CigarSchema::DELETION)))
+                            .or(kind.eq(lit(CigarSchema::REFERENCE_SKIP)))
+                            .and(col(CigarSchema::DISPLAY_START).lt_eq(lit(position)))
+                            .and(col(CigarSchema::DISPLAY_END).gt_eq(lit(position))),
+                    )
+                    .group_by([col(CigarSchema::READ_ID)])
+                    .agg([base_sort_key_at(position).min().alias(ReadSchema::SORT_KEY)]))
+            }
+            // Forward reads first.
+            AlignmentSort::StrandAt(position) => read_keys(position, col(ReadSchema::REVERSE)),
+            AlignmentSort::Start(position) => read_keys(position, col(ReadSchema::POS)),
+            // Negated so that the highest MAPQ and the largest insert size come first.
+            AlignmentSort::MappingQuality(position) => read_keys(
+                position,
+                lit(0i16) - col(ReadSchema::MAPQ).cast(DataType::Int16),
+            ),
+            AlignmentSort::InsertSize(position) => read_keys(
+                position,
+                when(col(ReadSchema::TLEN).lt(lit(0i32)))
+                    .then(col(ReadSchema::TLEN))
+                    .otherwise(lit(0i32) - col(ReadSchema::TLEN)),
+            ),
+            AlignmentSort::ReadName(position) => read_keys(position, col(ReadSchema::QNAME)),
+            ref option => Err(TGVError::ValueError(format!(
+                "Alignment sorting is not implemented yet for option {option}"
+            ))),
+        }
     }
 }
 

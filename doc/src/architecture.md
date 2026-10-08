@@ -202,7 +202,7 @@ Data requests never change the screen, so `Dataset::serve` answers them without 
 
 | Request | Actions | Effect |
 |---|---|---|
-| `navigate` | `Move(ContigNamePosition)`, `Zoom(Fit { bases })`, and a status message | Centers the region, fits it to the track area, loads it into `view`, and shows "An agent moved the view to X. Type :Y to go back." |
+| `navigate` | `Move(ContigNamePosition)`, `Zoom(Fit { bases })`, and a status message | Centers the region, fits it to the track area, loads it into `view`, and shows "An agent moved the view to X. Press u to go back to Y." |
 | `highlight` | `SetHighlights` and a status message | Tints the intervals' columns in the coordinate ruler, and reports the count and label in the message line. |
 | `clear_highlights` | `ClearHighlights` | Removes the highlights. |
 | `view_state` | None; it only reads | Returns the displayed interval and zoom. |

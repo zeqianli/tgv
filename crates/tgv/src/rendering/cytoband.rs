@@ -14,7 +14,8 @@ use ratatui::{
     style::Style,
 };
 
-const CYTOBAND_TEXT_RIGHT_SPACING: u16 = 7;
+/// Columns right of the cytoband for the contig length label.
+pub(crate) const CYTOBAND_TEXT_RIGHT_SPACING: u16 = 7;
 const MIN_AREA_HEIGHT: u16 = 2;
 pub fn render_cytobands(
     area: &Rect,

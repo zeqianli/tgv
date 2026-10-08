@@ -38,9 +38,17 @@ fn alignment_depth_description(
 fn describe_option(option: &AlignmentDisplayOption) -> String {
     match option {
         AlignmentDisplayOption::ViewAsPairs => "Paired".to_string(),
-        AlignmentDisplayOption::Sort(AlignmentSort::BaseAt(position)) => {
-            format!("Sorted by base at {position}")
-        }
+        AlignmentDisplayOption::Sort(sort) => match sort {
+            AlignmentSort::BaseAt(position) => format!("Sorted by base at {position}"),
+            AlignmentSort::StrandAt(position) => format!("Sorted by strand at {position}"),
+            AlignmentSort::Start(position) => format!("Sorted by start at {position}"),
+            AlignmentSort::MappingQuality(position) => format!("Sorted by MAPQ at {position}"),
+            AlignmentSort::InsertSize(position) => {
+                format!("Sorted by insert size at {position}")
+            }
+            AlignmentSort::ReadName(position) => format!("Sorted by name at {position}"),
+            sort => format!("Sorted by {sort}"),
+        },
         AlignmentDisplayOption::Filter(AlignmentFilter::Base(position, base)) => {
             format!("Only {base} at {position}")
         }

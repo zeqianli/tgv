@@ -215,8 +215,9 @@ pub enum AlignmentSort {
     #[default]
     Default,
 
-    /// Start
-    Start,
+    /// Alignment start of reads covering a position
+    #[strum(to_string = "Start({0})")]
+    Start(u64),
 
     /// Stand of reads at the current location
     StrandAtCurrentBase,
@@ -232,8 +233,9 @@ pub enum AlignmentSort {
     #[strum(to_string = "Base({0})")]
     BaseAt(u64),
 
-    /// MAPQ, reversed order
-    MappingQuality,
+    /// MAPQ of reads covering a position, highest first
+    #[strum(to_string = "MAPQ({0})")]
+    MappingQuality(u64),
 
     ///?
     Sample,
@@ -244,14 +246,16 @@ pub enum AlignmentSort {
     /// First in pair, second in pair, unpaired
     ReadOrder,
 
-    /// read name
-    ReadName,
+    /// Name of reads covering a position
+    #[strum(to_string = "ReadName({0})")]
+    ReadName(u64),
 
     /// alignment_end - alignment_start
     AlignedReadLength,
 
-    /// ?
-    InsertSize,
+    /// Insert size of reads covering a position, largest first
+    #[strum(to_string = "InsertSize({0})")]
+    InsertSize(u64),
 
     /// ?
     ChromosomeOfMate,

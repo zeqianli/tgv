@@ -140,7 +140,7 @@ Joins on equal keys, such as `track_id` and `read_id`, work with every join type
 - Queries use Polars SQL. CTEs, subqueries, GROUP BY, window functions, and INNER, LEFT, RIGHT, FULL, CROSS, SEMI, and ANTI joins are supported.
 - An ON clause with inequalities, such as an overlap test, runs as an efficient range join, but only as an inner join. For a left overlap join, aggregate the inner join in a CTE, then LEFT JOIN it back on the left table's key.
 - Region tables hold data for the `region` argument, at most 100,000 bases. Only the `tracks` table is available without a region.
-- `reads` holds reads whose aligned span overlaps the region, while `coverage` counts all loaded reads, so coverage near the region edges can include reads outside `reads`.
+- `reads` holds reads whose aligned span overlaps the region, while `coverage` counts all loaded reads except duplicates and QC failures, so coverage near the region edges can include reads outside `reads`.
 - Results return at most `limit` rows; `truncated` reports whether more rows exist. Aggregate in SQL instead of returning raw rows when possible.
 - Tables expose the documented columns of the core data under their core names and types. Byte-coded columns, such as CIGAR operations and bases, are text, and base qualities are Phred+33 text.
 - `/` divides as floating point. Use `CAST(floor(a / b) AS BIGINT)` for integer bins.
@@ -240,6 +240,7 @@ Scope: region. Key: `track_id`, `read_id`, `ref_pos`.
 | `op_index` | `u32` | The `M` operation containing the base. |
 | `ref_pos` | `u64` | The 1-based reference position. |
 | `base` | `str` | The read base, which differs from the reference. Decoded to a one-character string. |
+| `qual` | `u8` | The base's Phred quality as a number, or null when the read has no qualities. |
 | `reference_base` | `str` | The reference base at `ref_pos`. |
 
 ### `base_mods`
@@ -259,7 +260,7 @@ Scope: region. Key: `track_id`, `read_id`, `display_pos`.
 
 ### `coverage`
 
-One row per alignment track and region position, including zero-depth positions. Counts use the viewer's coverage calculation over all loaded reads. `reference_base` is null without a reference sequence.
+One row per alignment track and region position, including zero-depth positions. Counts use the viewer's coverage calculation over all loaded reads, except duplicates and QC failures, which the viewer hides by default. `reference_base` is null without a reference sequence.
 
 Scope: region. Key: `track_id`, `pos`.
 

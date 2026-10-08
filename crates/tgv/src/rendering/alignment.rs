@@ -185,16 +185,31 @@ fn draw_reads(
             col(ReadSchema::REVERSE),
             col(ReadSchema::STACKING_START),
             col(ReadSchema::STACKING_END),
+            col(ReadSchema::MAPQ),
         ])
         .collect()?;
     if reads.height() == 0 {
         return Ok(());
     }
+    // Reads with MAPQ 0 map equally well elsewhere, so they are drawn faded, as in IGV.
+    let mut zero_mapq = vec![false; tables.reads.height()];
+    for (id, mapq) in izip!(
+        reads
+            .column(ReadSchema::READ_ID)?
+            .u64()?
+            .into_no_null_iter(),
+        reads.column(ReadSchema::MAPQ)?.u8()?.iter(),
+    ) {
+        zero_mapq[id as usize] = mapq == Some(0);
+    }
     // Read IDs are row indexes into the reads table, so drawn rows are looked up directly
     // instead of joining every annotation table with the drawn reads on each frame.
     let mut read_rows = vec![None; tables.reads.height()];
     for (id, y) in izip!(
-        reads.column(ReadSchema::READ_ID)?.u64()?.into_no_null_iter(),
+        reads
+            .column(ReadSchema::READ_ID)?
+            .u64()?
+            .into_no_null_iter(),
         reads.column(ReadSchema::Y)?.u64()?.into_no_null_iter(),
     ) {
         read_rows[id as usize] = Some(y);
@@ -219,6 +234,7 @@ fn draw_reads(
                 col(CigarSchema::DISPLAY_END),
                 col(CigarSchema::RUN_OFFSET),
                 col(CigarSchema::SEQ),
+                col(CigarSchema::QUAL),
             ])
             .collect()?,
         &read_rows,
@@ -234,9 +250,12 @@ fn draw_reads(
     let run_ends = runs.column(CigarSchema::DISPLAY_END)?.u64()?;
     let run_offsets = runs.column(CigarSchema::RUN_OFFSET)?.u32()?;
     let run_sequences = runs.column(CigarSchema::SEQ)?.str()?;
+    let run_qualities = runs.column(CigarSchema::QUAL)?.binary()?;
+    let run_read_ids = runs.column(CigarSchema::READ_ID)?.u64()?;
 
     // 1.1 Draw the main bodies.
-    for (kind, y, start, end) in izip!(
+    for (id, kind, y, start, end) in izip!(
+        run_read_ids.into_no_null_iter(),
         run_kinds.into_no_null_iter(),
         run_ys.into_no_null_iter(),
         run_starts.into_no_null_iter(),
@@ -255,7 +274,11 @@ fn draw_reads(
         for x in left..=right {
             if let Some(cell) = buf.cell_mut(Position::new(area.x + x, y)) {
                 cell.set_symbol("-")
-                    .set_bg(palette.MATCH_COLOR)
+                    .set_bg(if zero_mapq[id as usize] {
+                        palette.ZERO_MAPQ_COLOR
+                    } else {
+                        palette.MATCH_COLOR
+                    })
                     .set_fg(palette.MATCH_FG_COLOR);
             }
         }
@@ -368,13 +391,14 @@ fn draw_reads(
     }
 
     // 4. Get sequence mismatch positions and draw the bases.
-    for (kind, y, run_start, end, run_offset, seq) in izip!(
+    for (kind, y, run_start, end, run_offset, seq, qual) in izip!(
         run_kinds.into_no_null_iter(),
         run_ys.into_no_null_iter(),
         run_starts.into_no_null_iter(),
         run_ends.into_no_null_iter(),
         run_offsets.into_no_null_iter(),
         run_sequences.iter(),
+        run_qualities.iter(),
     ) {
         if kind != CigarSchema::SEQUENCE_MISMATCH {
             continue;
@@ -393,8 +417,9 @@ fn draw_reads(
                 let position = (region.start() + u64::from(x) * view.zoom + view.zoom - 1).min(end);
                 let offset = run_offset as usize + (position - run_start) as usize;
                 let base = seq[offset];
-                cell.set_char(base as char)
-                    .set_fg(palette.mismatch_color(base));
+                cell.set_char(base as char).set_style(
+                    palette.mismatch_style(base, qual.and_then(|qual| qual.get(offset).copied())),
+                );
             }
         }
     }
@@ -413,12 +438,13 @@ fn draw_reads(
                 col(ReferenceMismatchSchema::READ_ID),
                 col(ReferenceMismatchSchema::REF_POS),
                 col(ReferenceMismatchSchema::BASE),
+                col(ReferenceMismatchSchema::QUAL),
             ])
             .collect()?,
         &read_rows,
     )?;
 
-    for (position, base, y) in izip!(
+    for (position, base, y, qual) in izip!(
         mismatches
             .column(ReferenceMismatchSchema::REF_POS)?
             .u64()?
@@ -427,14 +453,18 @@ fn draw_reads(
             .column(ReferenceMismatchSchema::BASE)?
             .u8()?
             .into_no_null_iter(),
-        mismatches.column(ReadSchema::Y)?.u64()?.into_no_null_iter()
+        mismatches.column(ReadSchema::Y)?.u64()?.into_no_null_iter(),
+        mismatches
+            .column(ReferenceMismatchSchema::QUAL)?
+            .u8()?
+            .iter(),
     ) {
         if let Some(position) = pixel(position, view, area)
             .map(|x| Position::new(area.x + x, area.y + (y as usize - top) as u16))
             && let Some(cell) = buf.cell_mut(position)
         {
             cell.set_char(base as char)
-                .set_fg(palette.mismatch_color(base));
+                .set_style(palette.mismatch_style(base, qual));
         }
     }
 
