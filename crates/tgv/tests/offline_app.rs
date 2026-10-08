@@ -68,10 +68,10 @@ async fn offline_sequence_navigates_and_zooms() {
 
     harness
         .handle_core(vec![
-            CoreMessage::Scroll(Scroll::Down { index: 0, n: 2 }),
+            CoreMessage::Scroll(Scroll::Down(2)),
             CoreMessage::Zoom(Zoom::Out(4)),
             CoreMessage::Move(Movement::Position(33121140)),
-            CoreMessage::Scroll(Scroll::Up { index: 0, n: 1 }),
+            CoreMessage::Scroll(Scroll::Up(1)),
             CoreMessage::Zoom(Zoom::In(2)),
         ])
         .await

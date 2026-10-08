@@ -106,12 +106,12 @@ impl AlignmentView {
         }
     }
 
-    pub fn scroll(&mut self, scroll: Scroll, depth: usize) {
+    pub fn scroll(&mut self, index: usize, scroll: Scroll, depth: usize) {
         match scroll {
-            Scroll::Up { index, n } => self.y[index] = self.y[index].saturating_sub(n),
-            Scroll::Down { index, n } => self.y[index] = self.y[index].saturating_add(n).min(depth),
-            Scroll::Position { index, position } => self.y[index] = position,
-            Scroll::Bottom { index } => self.y[index] = depth.saturating_sub(1),
+            Scroll::Up(n) => self.y[index] = self.y[index].saturating_sub(n),
+            Scroll::Down(n) => self.y[index] = self.y[index].saturating_add(n).min(depth),
+            Scroll::Top => self.y[index] = 0,
+            Scroll::Bottom => self.y[index] = depth.saturating_sub(1),
         }
     }
 
@@ -985,24 +985,15 @@ mod tests {
         let alignments = vec![alignment_with_depth(10), alignment_with_depth(10)];
         let mut alignment_view = AlignmentView::new(Focus::default(), alignments.len());
 
-        alignment_view.scroll(
-            Scroll::Down { index: 1, n: 3 },
-            alignments[1].depth().unwrap(),
-        );
+        alignment_view.scroll(1, Scroll::Down(3), alignments[1].depth().unwrap());
         assert_eq!(alignment_view.top(0), 0);
         assert_eq!(alignment_view.top(1), 3);
 
-        alignment_view.scroll(
-            Scroll::Up { index: 1, n: 1 },
-            alignments[1].depth().unwrap(),
-        );
+        alignment_view.scroll(1, Scroll::Up(1), alignments[1].depth().unwrap());
         assert_eq!(alignment_view.top(0), 0);
         assert_eq!(alignment_view.top(1), 2);
 
-        alignment_view.scroll(
-            Scroll::Down { index: 0, n: 4 },
-            alignments[0].depth().unwrap(),
-        );
+        alignment_view.scroll(0, Scroll::Down(4), alignments[0].depth().unwrap());
         assert_eq!(alignment_view.top(0), 4);
         assert_eq!(alignment_view.top(1), 2);
     }

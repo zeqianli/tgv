@@ -24,6 +24,9 @@ pub enum Action {
 
     UpdateLayout(UpdateLayoutAction),
 
+    /// Makes the alignment track the target of later scrolls.
+    FocusAlignment(TrackId),
+
     ClearAllKeyRegisters,
 
     /// Replaces the highlighted intervals.

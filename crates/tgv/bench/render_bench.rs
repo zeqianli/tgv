@@ -177,9 +177,9 @@ async fn main() {
         let mut samples = Vec::with_capacity(iterations);
         for i in 0..iterations {
             let scroll = if (i / 20) % 2 == 0 {
-                Scroll::Down { index: 0, n: 1 }
+                Scroll::Down(1)
             } else {
-                Scroll::Up { index: 0, n: 1 }
+                Scroll::Up(1)
             };
             let started = Instant::now();
             let events = bench.handle(vec![CoreMessage::Scroll(scroll)]).await;

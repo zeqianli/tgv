@@ -70,12 +70,8 @@ fn parse_input(input: String) -> Result<Vec<Message>, TGVError> {
     match suffix.as_str() {
         "ge" => Ok(vec![Message::from(Movement::PreviousExonsEnd(n_movements))]),
         "gE" => Ok(vec![Message::from(Movement::PreviousGenesEnd(n_movements))]),
-        "gg" => Ok(vec![Message::from(Scroll::Position {
-            // FIXME: this is now a bug. It's  always modifiing the first alignment.
-            index: 0,
-            position: 0,
-        })]),
-        "gG" => Ok(vec![Message::from(Scroll::Bottom { index: 0 })]),
+        "gg" => Ok(vec![Message::from(Scroll::Top)]),
+        "gG" => Ok(vec![Message::from(Scroll::Bottom)]),
         "w" => Ok(vec![Message::from(Movement::NextExonsStart(n_movements))]),
         "b" => Ok(vec![Message::from(Movement::PreviousExonsStart(
             n_movements,
@@ -92,14 +88,12 @@ fn parse_input(input: String) -> Result<Vec<Message>, TGVError> {
         "l" => Ok(vec![Message::from(Movement::Right(
             n_movements as u64 * SMALL_HORIZONTAL_STEP,
         ))]),
-        "j" => Ok(vec![Message::from(Scroll::Down {
-            index: 0,
-            n: n_movements * SMALL_VERTICAL_STEP,
-        })]),
-        "k" => Ok(vec![Message::from(Scroll::Up {
-            index: 0,
-            n: n_movements * SMALL_VERTICAL_STEP,
-        })]),
+        "j" => Ok(vec![Message::from(Scroll::Down(
+            n_movements * SMALL_VERTICAL_STEP,
+        ))]),
+        "k" => Ok(vec![Message::from(Scroll::Up(
+            n_movements * SMALL_VERTICAL_STEP,
+        ))]),
 
         "H" => Ok(vec![Message::from(Movement::Left(
             LARGE_HORIZONTAL_STEP * n_movements as u64,
@@ -107,14 +101,12 @@ fn parse_input(input: String) -> Result<Vec<Message>, TGVError> {
         "L" => Ok(vec![Message::from(Movement::Right(
             LARGE_HORIZONTAL_STEP * n_movements as u64,
         ))]),
-        "J" => Ok(vec![Message::from(Scroll::Down {
-            index: 0,
-            n: LARGE_VERTICAL_STEP * n_movements,
-        })]),
-        "K" => Ok(vec![Message::from(Scroll::Up {
-            index: 0,
-            n: LARGE_VERTICAL_STEP * n_movements,
-        })]),
+        "J" => Ok(vec![Message::from(Scroll::Down(
+            LARGE_VERTICAL_STEP * n_movements,
+        ))]),
+        "K" => Ok(vec![Message::from(Scroll::Up(
+            LARGE_VERTICAL_STEP * n_movements,
+        ))]),
 
         "z" => Ok(vec![Message::from(Zoom::In(
             ZOOM_STEP * n_movements as u64,
@@ -138,8 +130,8 @@ mod tests {
 
     #[rstest]
     #[case("",'g', Ok(vec![]))]
-    #[case("g",'g', Ok(vec![Scroll::Position{index: 0, position:0}.into()]))]
-    #[case("g",'G', Ok(vec![Scroll::Bottom{index:0}.into()]))]
+    #[case("g",'g', Ok(vec![Scroll::Top.into()]))]
+    #[case("g",'G', Ok(vec![Scroll::Bottom.into()]))]
     #[case("",'1', Ok(vec![]))]
     #[case("g",'1', Err(TGVError::RegisterError("Invalid normal mode input: g".to_string())))]
     #[case("", 'w', Ok(vec![Movement::NextExonsStart(1).into()]))]
@@ -147,8 +139,8 @@ mod tests {
     #[case("", 'e', Ok(vec![Movement::NextExonsEnd(1).into()]))]
     #[case("", 'h', Ok(vec![Movement::Left(1).into()]))]
     #[case("", 'l', Ok(vec![Movement::Right(1).into()]))]
-    #[case("", 'j', Ok(vec![Scroll::Down { index: 0, n: 1 }.into()]))]
-    #[case("", 'k', Ok(vec![Scroll::Up { index: 0, n: 1 }.into()]))]
+    #[case("", 'j', Ok(vec![Scroll::Down(1).into()]))]
+    #[case("", 'k', Ok(vec![Scroll::Up(1).into()]))]
     #[case("", 'z', Ok(vec![Zoom::In(2).into()]))]
     #[case("", 'o', Ok(vec![Zoom::Out(2).into()]))]
     #[case("g", 'e', Ok(vec![Movement::PreviousExonsEnd(1).into()]))]

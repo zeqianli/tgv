@@ -44,37 +44,15 @@ pub enum Zoom {
     },
 }
 
+/// A vertical scroll of an alignment track. The front end decides which track it applies to.
 #[derive(Debug, Clone, Eq, PartialEq, Display)]
 pub enum Scroll {
-    /// Scroll up by n for alignment track [index]
-    Up {
-        index: usize,
-        n: usize,
-    },
-    /// Scroll down by n for alignment track [index]
-    Down {
-        index: usize,
-        n: usize,
-    },
-
-    Position {
-        index: usize,
-        position: usize,
-    },
-    Bottom {
-        index: usize,
-    },
-}
-
-impl Scroll {
-    pub fn index(&self) -> usize {
-        match self {
-            Self::Up { index, .. } => *index,
-            Self::Down { index, .. } => *index,
-            Self::Position { index, .. } => *index,
-            Self::Bottom { index, .. } => *index,
-        }
-    }
+    /// Scroll up by n rows.
+    Up(usize),
+    /// Scroll down by n rows.
+    Down(usize),
+    Top,
+    Bottom,
 }
 
 // TODO: indicate which movement requires resetting y to 0

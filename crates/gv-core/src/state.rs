@@ -191,10 +191,6 @@ impl State {
         }
     }
 
-    pub fn add_message(&mut self, message: String) {
-        self.messages.push(message);
-    }
-
     pub fn add_alignment_track(&mut self) {
         self.alignments.push(Alignment::default());
         self.alignment_options.push(Vec::new());
