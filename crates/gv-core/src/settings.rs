@@ -55,9 +55,22 @@ pub enum FilePath {
     BedPath(String),
 }
 
+impl FilePath {
+    /// The data file's path or URL, without its index.
+    pub fn path(&self) -> &str {
+        match self {
+            Self::AlignmentPath(AlignmentPath::Bam { path, .. })
+            | Self::AlignmentPath(AlignmentPath::Cram { path, .. })
+            | Self::VariantPath(path)
+            | Self::BedPath(path) => path,
+        }
+    }
+}
+
+/// Dataset settings: the reference and how to reach its services. The files a dataset shows
+/// are not settings; `TrackRegistry` records them.
 #[derive(Debug, Clone, Eq, PartialEq)]
 pub struct Settings {
-    pub file_paths: Vec<FilePath>,
     pub reference: Reference,
     pub backend: BackendType,
 
@@ -73,7 +86,6 @@ pub struct Settings {
 impl Default for Settings {
     fn default() -> Settings {
         Settings {
-            file_paths: Vec::new(),
             reference: Reference::default(),
             backend: BackendType::default(), // Default backend
             ucsc_host: UcscHost::default(),

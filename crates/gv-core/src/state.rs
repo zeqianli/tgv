@@ -5,7 +5,7 @@ use crate::{
     alignment::{Alignment, AlignmentRepository, PairedAlignment, tables},
     bed::{BedRepositoryEnum, BedTable},
     contig_header::ContigHeader,
-    cytoband::Cytoband,
+    cytoband::CytobandTable,
     error::TGVError,
     gene::{GeneSchema, GeneTable},
     intervals::{Focus, Region},
@@ -15,6 +15,7 @@ use crate::{
     //rendering::{MainLayout, layout::resize_node},
     repository::{Repository, RepositoryFileIndex},
     sequence::Sequence,
+    settings::FilePath,
     variant::VariantTable,
 };
 use itertools::Itertools;
@@ -26,6 +27,8 @@ pub struct LoadRequest<'a> {
     pub sequence: bool,
     /// Loads the gene annotations.
     pub genes: bool,
+    /// Loads the reference's cytobands, once for the whole session.
+    pub cytobands: bool,
     /// The file tracks to load.
     pub files: &'a [RepositoryFileIndex],
     /// How far loads extend beyond the region on a cache miss.
@@ -100,6 +103,8 @@ pub struct State {
 
     pub track: GeneTable,
 
+    pub cytobands: CytobandTable,
+
     pub sequence: Sequence,
 }
 
@@ -120,6 +125,7 @@ impl State {
             paired_alignments: Vec::new(),
 
             track: GeneTable::default(),
+            cytobands: CytobandTable::default(),
             sequence: Sequence::default(),
             variants: Vec::new(),
             bed_intervals: Vec::new(),
@@ -131,12 +137,6 @@ impl State {
         self.contig_header
             .try_get(focus.contig_index)
             .map(|contig| &contig.name)
-    }
-
-    pub fn current_cytoband(&self, focus: &Focus) -> Result<Option<&Cytoband>, TGVError> {
-        self.contig_header
-            .try_get(focus.contig_index)
-            .map(|contig| contig.cytoband.as_ref())
     }
 
     /// Maximum length of the contig.
@@ -191,6 +191,34 @@ impl State {
         }
     }
 
+    /// Appends an empty track slot for a file, matching [`Repository::open_file`].
+    pub fn add_track(&mut self, file_path: &FilePath) {
+        match file_path {
+            FilePath::AlignmentPath(_) => self.add_alignment_track(),
+            FilePath::VariantPath(_) => self.add_variant_track(),
+            FilePath::BedPath(_) => self.add_bed_track(),
+        }
+    }
+
+    /// Removes a track slot and the contig names its file used, matching
+    /// [`Repository::remove`].
+    pub fn remove_track(&mut self, index: RepositoryFileIndex) {
+        self.contig_header.remove_file(index);
+        match index {
+            RepositoryFileIndex::Alignment(index) => {
+                self.alignments.remove(index);
+                self.alignment_options.remove(index);
+                self.paired_alignments.remove(index);
+            }
+            RepositoryFileIndex::Variant(index) => {
+                self.variants.remove(index);
+            }
+            RepositoryFileIndex::Bed(index) => {
+                self.bed_intervals.remove(index);
+            }
+        }
+    }
+
     pub fn add_alignment_track(&mut self) {
         self.alignments.push(Alignment::default());
         self.alignment_options.push(Vec::new());
@@ -212,8 +240,12 @@ impl State {
             index,
             region,
         );
+        let name = self
+            .contig_header
+            .try_get(region.contig_index())?
+            .file_name(RepositoryFileIndex::Alignment(index));
         let alignment = match alignment_repository
-            .read_alignment(region, &self.sequence, &self.contig_header)
+            .read_alignment(region, name, &self.sequence)
             .await
         {
             Ok(alignment) => alignment,
@@ -352,7 +384,11 @@ impl State {
     ) -> Result<&mut Self, TGVError> {
         let started = Instant::now();
         log::debug!("Loading variant data: track={} region={:?}", index, region);
-        let variants = match variant_repository.read_variants(region, &self.contig_header) {
+        let name = self
+            .contig_header
+            .try_get(region.contig_index())?
+            .file_name(RepositoryFileIndex::Variant(index));
+        let variants = match variant_repository.read_variants(region, name) {
             Ok(variants) => variants,
             Err(e) => {
                 log::warn!(
@@ -387,7 +423,11 @@ impl State {
     ) -> Result<&mut Self, TGVError> {
         let started = Instant::now();
         log::debug!("Loading BED data: track={} region={:?}", index, region);
-        let bed_intervals = match bed_repository.read_bed(region, &self.contig_header) {
+        let name = self
+            .contig_header
+            .try_get(region.contig_index())?
+            .file_name(RepositoryFileIndex::Bed(index));
+        let bed_intervals = match bed_repository.read_bed(region, name) {
             Ok(bed_intervals) => bed_intervals,
             Err(e) => {
                 log::warn!(
@@ -485,6 +525,21 @@ impl State {
             }
         }
 
+        if request.cytobands
+            && !self.cytobands.loaded
+            && let Some(track_service) = repository.track_service.as_mut()
+        {
+            // Cytobands only decorate the view, so a failed query leaves them empty instead of
+            // failing the load. The empty table counts as loaded, which stops repeated queries.
+            self.cytobands = track_service
+                .query_cytobands(&self.reference, &self.contig_header)
+                .await
+                .unwrap_or_else(|e| {
+                    log::warn!("Failed to load the cytobands: error={e}");
+                    CytobandTable::loaded_empty()
+                });
+        }
+
         if request.genes
             && let Some(track_service) = repository.track_service.as_mut()
             && !self.track.has_complete_data(region)
@@ -499,37 +554,6 @@ impl State {
         }
 
         Ok(())
-    }
-
-    pub async fn ensure_complete_cytoband_data(
-        &mut self,
-        region: &Region,
-        repository: &mut Repository,
-    ) -> Result<bool, TGVError> {
-        if self
-            .contig_header
-            .cytoband_is_loaded(region.contig_index())?
-        {
-            Ok(false)
-        } else if let Some(track_service) = repository.track_service.as_mut() {
-            // The cytoband only decorates the view, so a failed query leaves it empty rather than
-            // failing the load. Recording the empty result also stops repeated queries.
-            let cytoband = track_service
-                .get_cytoband(&self.reference, region.contig_index(), &self.contig_header)
-                .await
-                .unwrap_or_else(|e| {
-                    log::warn!(
-                        "Failed to load the cytoband: contig={} error={e}",
-                        region.contig_index()
-                    );
-                    None
-                });
-            self.contig_header
-                .try_update_cytoband(region.contig_index(), cytoband)?;
-            Ok(true)
-        } else {
-            Ok(false)
-        }
     }
 }
 

@@ -1,7 +1,8 @@
 use gv_core::{
-    cytoband::{Cytoband, CytobandSegment, Stain},
+    cytoband::{CytobandSchema, Stain},
     prelude::*,
 };
+use polars::prelude::{ChunkAgg, DataFrame};
 
 use crate::{
     layout::{AlignmentView, linear_scale},
@@ -50,9 +51,12 @@ pub fn render_cytobands(
     }
 
     // Cytoband
-    if let Some(cytoband) = state.current_cytoband(&alignment_view.focus)? {
+    let bands = state
+        .cytobands
+        .query(alignment_view.focus.contig_index, 1, u64::MAX)?;
+    if bands.height() > 0 {
         for (x, string, style) in get_cytoband_xs_strings_and_styles(
-            cytoband,
+            &bands,
             cytoband_left_spacing,
             area.width - CYTOBAND_TEXT_RIGHT_SPACING,
             pallete,
@@ -95,18 +99,31 @@ pub fn render_cytobands(
     Ok(())
 }
 
+/// Lays out one contig's bands, scaled to the end of its last band.
 fn get_cytoband_xs_strings_and_styles(
-    cytoband: &Cytoband,
+    bands: &DataFrame,
     area_start: u16,
     area_end: u16,
     palette: &Palette,
 ) -> Result<Vec<(u16, String, Style)>, TGVError> {
+    let starts = bands.column(CytobandSchema::START)?.u64()?;
+    let ends = bands.column(CytobandSchema::END)?.u64()?;
+    let stains = bands.column(CytobandSchema::STAIN)?.str()?;
+    let total_length = ends.max().unwrap_or(0);
+
     let mut second_centromere = false;
     let mut output = Vec::new();
-    for segment in cytoband.segments.iter() {
+    for ((start, end), stain) in starts
+        .into_no_null_iter()
+        .zip(ends.into_no_null_iter())
+        .zip(stains.iter().map(Option::unwrap_or_default))
+    {
+        let stain = Stain::try_from(stain)?;
         if let Some((x, string, style)) = get_cytoband_segment_x_string_and_style(
-            segment,
-            cytoband.length(),
+            start,
+            end,
+            &stain,
+            total_length,
             area_start,
             area_end,
             second_centromere,
@@ -115,31 +132,35 @@ fn get_cytoband_xs_strings_and_styles(
             output.push((x, string, style));
         }
 
-        if segment.stain == Stain::Acen {
+        if stain == Stain::Acen {
             second_centromere = true;
         }
     }
     Ok(output)
 }
 
+/// Lays out one band. `start` and `end` are 1-based and inclusive.
+#[allow(clippy::too_many_arguments)]
 fn get_cytoband_segment_x_string_and_style(
-    segment: &CytobandSegment,
+    start: u64,
+    end: u64,
+    stain: &Stain,
     total_length: u64,
     area_start: u16,
     area_end: u16,
     second_centromere: bool,
     palette: &Palette,
 ) -> Result<Option<(u16, String, Style)>, TGVError> {
-    let onscreen_x_start = linear_scale(segment.start - 1, total_length, area_start, area_end)?; // 0-based, inclusive
-    let onscreen_x_end = linear_scale(segment.end, total_length, area_start, area_end)?; // 0-based, exclusive
+    let onscreen_x_start = linear_scale(start - 1, total_length, area_start, area_end)?; // 0-based, inclusive
+    let onscreen_x_end = linear_scale(end, total_length, area_start, area_end)?; // 0-based, exclusive
 
     if onscreen_x_end <= onscreen_x_start {
         return Ok(None);
     }
 
-    let style = Style::default().fg(palette.cytoband_color(segment.stain.clone()));
+    let style = Style::default().fg(palette.cytoband_color(stain.clone()));
 
-    match segment.stain {
+    match stain {
         Stain::Acen => {
             // Use unicode characters to draw the centromere
             let mut string = "-".repeat((onscreen_x_end - onscreen_x_start) as usize);

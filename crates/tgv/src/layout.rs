@@ -4,7 +4,7 @@ use gv_core::{
     prelude::*,
 };
 use ratatui::layout::Rect;
-use std::sync::Arc;
+use std::{collections::HashMap, sync::Arc};
 use unicode_width::UnicodeWidthChar;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -282,6 +282,15 @@ impl AlignmentView {
     }
 }
 
+/// The last component of a file path or URL, for labels and messages.
+pub fn file_name(path: &str) -> &str {
+    path.trim_end_matches(['/', '\\'])
+        .rsplit(['/', '\\'])
+        .next()
+        .filter(|name| !name.is_empty())
+        .unwrap_or(path)
+}
+
 /// Persistent state for the main page layout.
 pub struct MainLayout {
     /// Track area types. Length matches number of tracks to display.
@@ -349,6 +358,30 @@ impl MainLayout {
         }
     }
 
+    /// Rebuilds the track rows after tracks were added or removed. Rows that remain keep their
+    /// requested heights, and new tracks go after the existing file tracks.
+    pub fn set_tracks(&mut self, settings: &Settings, track_registry: Arc<TrackRegistry>) {
+        let ids = track_registry
+            .entries
+            .iter()
+            .map(|entry| entry.id)
+            .collect::<Vec<_>>();
+        let rebuilt = Self::new(settings, track_registry, &ids);
+        self.track_heights = rebuilt
+            .tracks
+            .iter()
+            .zip(rebuilt.track_heights)
+            .map(|(area, height)| {
+                self.tracks
+                    .iter()
+                    .position(|old| old == area)
+                    .map_or(height, |index| self.track_heights[index])
+            })
+            .collect();
+        self.tracks = rebuilt.tracks;
+        self.track_registry = rebuilt.track_registry;
+    }
+
     pub fn toggle_sidebar(&mut self) {
         self.sidebar_visible = !self.sidebar_visible;
     }
@@ -412,18 +445,11 @@ impl MainLayout {
         terminal_area: Rect,
         file_path: impl Fn(RepositoryFileIndex) -> &'a str,
     ) -> ResolvedMainLayout {
-        let file_names: Vec<&str> = self
+        let file_names: HashMap<TrackId, &str> = self
             .track_registry
             .entries
             .iter()
-            .map(|entry| {
-                let path = file_path(entry.repository_index);
-                path.trim_end_matches(['/', '\\'])
-                    .rsplit(['/', '\\'])
-                    .next()
-                    .filter(|name| !name.is_empty())
-                    .unwrap_or(path)
-            })
+            .map(|entry| (entry.id, file_name(file_path(entry.repository_index))))
             .collect();
         let sidebar_width =
             if self.sidebar_visible && terminal_area.width >= Self::SIDEBAR_MIN_WIDTH + 2 {
@@ -451,7 +477,7 @@ impl MainLayout {
                     _ => None,
                 };
                 if let Some(track_id) = track_id {
-                    let lines = wrap_sidebar_label(file_names[track_id], sidebar_width).len();
+                    let lines = wrap_sidebar_label(file_names[&track_id], sidebar_width).len();
                     *height = Some(lines.saturating_add(1).min(u16::MAX as usize) as u16);
                 }
             }
@@ -646,7 +672,7 @@ impl MainLayout {
                     AreaType::Coverage(id) | AreaType::Variant(id) | AreaType::Bed(id) => *id,
                     _ => return None,
                 };
-                let name = file_names[track_id];
+                let name = file_names[&track_id];
                 let reserved = u16::from(separator_after(index))
                     + u16::from(matches!(area_type, AreaType::Coverage(_)));
                 let label_area = Rect::new(
@@ -850,12 +876,16 @@ mod tests {
     };
     use rstest::rstest;
 
-    fn settings_without_reference(indexes: &[RepositoryFileIndex]) -> Settings {
+    fn settings_without_reference() -> Settings {
         let mut settings = Settings::default();
         settings.core.reference = Reference::NoReference;
-        settings.core.file_paths = indexes
-            .iter()
-            .map(|index| match index {
+        settings
+    }
+
+    fn registry(indexes: &[RepositoryFileIndex]) -> TrackRegistry {
+        let mut registry = TrackRegistry::default();
+        for &index in indexes {
+            let file_path = match index {
                 RepositoryFileIndex::Alignment(index) => {
                     FilePath::AlignmentPath(AlignmentPath::Bam {
                         path: format!("sample-{index}.bam"),
@@ -867,9 +897,10 @@ mod tests {
                     FilePath::VariantPath(format!("sample-{index}.vcf"))
                 }
                 RepositoryFileIndex::Bed(index) => FilePath::BedPath(format!("sample-{index}.bed")),
-            })
-            .collect();
-        settings
+            };
+            registry.push(index, file_path);
+        }
+        registry
     }
 
     fn resolve(layout: &MainLayout, area: Rect) -> ResolvedMainLayout {
@@ -877,8 +908,8 @@ mod tests {
     }
 
     fn layout_for_indexes(indexes: &[RepositoryFileIndex]) -> MainLayout {
-        let settings = settings_without_reference(indexes);
-        let registry = Arc::new(TrackRegistry::new(indexes));
+        let settings = settings_without_reference();
+        let registry = Arc::new(registry(indexes));
         let ids = registry
             .entries
             .iter()

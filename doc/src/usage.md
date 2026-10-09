@@ -84,8 +84,8 @@ Paths use shell quoting, such as `:e 'my reads.bam'`, and `~` stands for the
 home directory. New tracks go after the existing ones, in command-line order,
 and the other tracks keep their heights. tgv shows "Opening _file_…" while it
 opens them. If any file can't be opened, none are added, and the message says
-why, for example `simple.bam needs an index: simple.bam.bai` or
-`Not a file: simple.bam`.
+why, for example `/data/simple.bam needs an index: /data/simple.bam.bai` or
+`Not a file: /data/simple.bam`.
 
 Drag files from a file manager into the terminal to add them. Terminals such
 as Ghostty, iTerm2, kitty, WezTerm, and Terminal.app paste the dropped paths,

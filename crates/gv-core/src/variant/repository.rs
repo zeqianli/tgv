@@ -1,7 +1,7 @@
 //! Readers for plain VCF, indexed VCF, and BCF files.
 
 use super::variant::{VariantSchema, VariantTable};
-use crate::{contig_header::ContigHeader, error::TGVError, intervals::Region};
+use crate::{error::TGVError, intervals::Region};
 use noodles::{bcf, bgzf, vcf};
 use polars::prelude::*;
 use std::{fs::File, path::Path};
@@ -71,29 +71,24 @@ impl PlainVcf {
     }
 
     fn read_contigs(&self) -> Vec<(String, Option<u64>)> {
-        with_extra_names(self.header_contigs.clone(), &self.contigs)
+        with_header_lengths(&self.contigs, &self.header_contigs)
     }
 
     /// Returns the whole contig, filtered from the whole file.
     fn read_variants(
         &self,
         region: &Region,
-        contig_header: &ContigHeader,
+        contig_name: Option<&str>,
     ) -> Result<VariantTable, TGVError> {
         let contig_index = region.contig_index();
-        let contig = &contig_header.contigs[contig_index];
-        // The file may name the contig by its name or by one of its aliases.
-        let Some(name) = std::iter::once(&contig.name)
-            .chain(&contig.aliases)
-            .find(|name| self.contigs.contains(name))
-        else {
+        let Some(name) = contig_name else {
             return VariantTable::from_records(&[], contig_index, (1, u64::MAX));
         };
         let data = self
             .whole_file
             .clone()
             .lazy()
-            .filter(col(Self::CONTIG).eq(lit(name.as_str())))
+            .filter(col(Self::CONTIG).eq(lit(name)))
             .drop(cols([Self::CONTIG]))
             .collect()?;
         VariantTable::whole_contig(&data, contig_index)
@@ -132,8 +127,9 @@ impl IndexedVcf {
         })
     }
 
+    /// Lists the contigs in the index, since queries for others fail.
     fn read_contigs(&self) -> Vec<(String, Option<u64>)> {
-        with_extra_names(header_contigs(&self.header), &self.contigs)
+        with_header_lengths(&self.contigs, &header_contigs(&self.header))
     }
 
     /// Returns the region, or an empty table covering the whole contig when the file has no
@@ -141,20 +137,15 @@ impl IndexedVcf {
     fn read_variants(
         &mut self,
         region: &Region,
-        contig_header: &ContigHeader,
+        contig_name: Option<&str>,
     ) -> Result<VariantTable, TGVError> {
         let contig_index = region.contig_index();
-        let contig = &contig_header.contigs[contig_index];
-        // The file may name the contig by its name or by one of its aliases.
-        let Some(name) = std::iter::once(&contig.name)
-            .chain(&contig.aliases)
-            .find(|name| self.contigs.contains(name))
-        else {
+        let Some(name) = contig_name else {
             return VariantTable::from_records(&[], contig_index, (1, u64::MAX));
         };
         let records = self
             .reader
-            .query(&self.header, &region.noodles_region(name)?)?
+            .query(&self.header, &region.to_noodles_region(name)?)?
             .records()
             .map(|record| {
                 Ok(vcf::variant::RecordBuf::try_from_variant_record(
@@ -172,8 +163,6 @@ pub struct Bcf {
     path: String,
     reader: bcf::io::IndexedReader<bgzf::io::Reader<File>>,
     header: vcf::Header,
-    /// Contig names in the header, which BCF records refer to.
-    contigs: Vec<String>,
 }
 
 impl Bcf {
@@ -185,15 +174,14 @@ impl Bcf {
         }
         let mut reader = bcf::io::indexed_reader::Builder::default().build_from_path(path)?;
         let header = reader.read_header()?;
-        let contigs = header.contigs().keys().cloned().collect();
         Ok(Self {
             path: path.to_owned(),
             reader,
             header,
-            contigs,
         })
     }
 
+    /// Lists the `##contig` header lines, which BCF records refer to.
     fn read_contigs(&self) -> Vec<(String, Option<u64>)> {
         header_contigs(&self.header)
     }
@@ -203,20 +191,15 @@ impl Bcf {
     fn read_variants(
         &mut self,
         region: &Region,
-        contig_header: &ContigHeader,
+        contig_name: Option<&str>,
     ) -> Result<VariantTable, TGVError> {
         let contig_index = region.contig_index();
-        let contig = &contig_header.contigs[contig_index];
-        // The file may name the contig by its name or by one of its aliases.
-        let Some(name) = std::iter::once(&contig.name)
-            .chain(&contig.aliases)
-            .find(|name| self.contigs.contains(name))
-        else {
+        let Some(name) = contig_name else {
             return VariantTable::from_records(&[], contig_index, (1, u64::MAX));
         };
         let records = self
             .reader
-            .query(&self.header, &region.noodles_region(name)?)?
+            .query(&self.header, &region.to_noodles_region(name)?)?
             .records()
             .map(|record| {
                 Ok(vcf::variant::RecordBuf::try_from_variant_record(
@@ -268,7 +251,8 @@ impl VariantRepositoryEnum {
         !matches!(self, Self::Vcf(_))
     }
 
-    /// Lists the contigs the file uses, with their lengths when the header declares them.
+    /// Lists the contig names that reads can use, with their lengths when the header declares
+    /// them.
     pub fn read_contigs(&self) -> Vec<(String, Option<u64>)> {
         match self {
             Self::Vcf(file) => file.read_contigs(),
@@ -278,15 +262,17 @@ impl VariantRepositoryEnum {
     }
 
     /// Reads the variants overlapping a region. Plain files return the whole contig.
+    /// `contig_name` is the file's name for the region's contig, or `None` when the file
+    /// doesn't have it, which reads an empty table.
     pub fn read_variants(
         &mut self,
         region: &Region,
-        contig_header: &ContigHeader,
+        contig_name: Option<&str>,
     ) -> Result<VariantTable, TGVError> {
         match self {
-            Self::Vcf(file) => file.read_variants(region, contig_header),
-            Self::IndexedVcf(file) => file.read_variants(region, contig_header),
-            Self::Bcf(file) => file.read_variants(region, contig_header),
+            Self::Vcf(file) => file.read_variants(region, contig_name),
+            Self::IndexedVcf(file) => file.read_variants(region, contig_name),
+            Self::Bcf(file) => file.read_variants(region, contig_name),
         }
     }
 }
@@ -300,24 +286,27 @@ fn header_contigs(header: &vcf::Header) -> Vec<(String, Option<u64>)> {
         .collect()
 }
 
-/// Adds contig names that the header doesn't declare, without lengths.
-fn with_extra_names(
-    mut contigs: Vec<(String, Option<u64>)>,
+/// Pairs contig names with the lengths that the header declares for them.
+fn with_header_lengths(
     names: &[String],
+    header_contigs: &[(String, Option<u64>)],
 ) -> Vec<(String, Option<u64>)> {
-    for name in names {
-        if !contigs.iter().any(|(known, _)| known == name) {
-            contigs.push((name.clone(), None));
-        }
-    }
-    contigs
+    names
+        .iter()
+        .map(|name| {
+            let length = header_contigs
+                .iter()
+                .find(|(declared, _)| declared == name)
+                .and_then(|&(_, length)| length);
+            (name.clone(), length)
+        })
+        .collect()
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{contig_header::ContigSource, intervals::Focus, reference::Reference};
-    use crate::{intervals::IntervalTable, variant::VariantSchema};
+    use crate::{intervals::Focus, intervals::IntervalTable, variant::VariantSchema};
     use noodles::{csi, tabix, vcf::variant::io::Write as _};
     use rstest::rstest;
     use std::io::Write as _;
@@ -381,20 +370,6 @@ mod tests {
         }
     }
 
-    /// chr17 (index 0) and chr20 (index 1), which the fixture calls `20`.
-    fn contig_header() -> ContigHeader {
-        let mut header = ContigHeader::new(Reference::NoReference);
-        for (name, alias) in [("chr17", "17"), ("chr20", "20")] {
-            header.update_or_add_contig(
-                name.to_owned(),
-                None,
-                vec![alias.to_owned()],
-                ContigSource::Sequence,
-            );
-        }
-        header
-    }
-
     fn region(contig_index: usize, start: u64, end: u64) -> Region {
         Region {
             focus: Focus {
@@ -406,7 +381,7 @@ mod tests {
     }
 
     /// Every reader returns the same records for a region and covers it, and a contig the
-    /// file lacks loads as complete and empty.
+    /// file lacks loads as complete and empty. The fixture calls chr20 `20`.
     #[rstest]
     #[case::plain(Fixture::Plain, false)]
     #[case::indexed_vcf(Fixture::Indexed, true)]
@@ -419,10 +394,8 @@ mod tests {
             repository.read_contigs(),
             [("20".to_owned(), Some(62_435_964))]
         );
-        let contigs = contig_header();
-
         let viewed = region(1, 80_000, 90_000);
-        let table = repository.read_variants(&viewed, &contigs).unwrap();
+        let table = repository.read_variants(&viewed, Some("20")).unwrap();
         assert!(table.has_complete_data(&viewed));
         let rows = table.query(1, viewed.start(), viewed.end()).unwrap();
         let starts: Vec<u64> = rows
@@ -435,7 +408,7 @@ mod tests {
         assert_eq!(starts, [88_108]);
 
         let absent = region(0, 1_000, 2_000);
-        let table = repository.read_variants(&absent, &contigs).unwrap();
+        let table = repository.read_variants(&absent, None).unwrap();
         assert!(table.has_complete_data(&absent));
         assert_eq!(table.data.height(), 0);
     }

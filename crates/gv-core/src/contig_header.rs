@@ -1,13 +1,17 @@
 use crate::error::TGVError;
-use crate::{cytoband::Cytoband, reference::Reference};
+use crate::{reference::Reference, repository::RepositoryFileIndex};
 use std::collections::HashMap;
 use std::fmt;
 use std::fmt::Display;
 
-/// None: Contig not in the data source
-/// Some(None): Contig.name is in the data source
-/// Some(Some(i)): Contig.aliases[i] is in the data source
-type ContigNameSourceIndex = Option<Option<usize>>;
+/// Which of a contig's names a data source uses.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ContigName {
+    /// `Contig::name`.
+    Primary,
+    /// `Contig::aliases[i]`.
+    Alias(usize),
+}
 
 #[derive(Debug, Clone)]
 pub struct Contig {
@@ -20,15 +24,14 @@ pub struct Contig {
     pub aliases: Vec<String>,
 
     // TODO: drop the option and set it to u64::MAX if the length is unknown?
-    pub length: Option<u64>,        // Length
-    pub cytoband: Option<Cytoband>, // Cytoband
+    pub length: Option<u64>,
 
-    cytoband_loaded: bool, // Whether this contig's cytoband has been quried.
-
-    /// Name used for the track database query
-    track_name_index: ContigNameSourceIndex,
-    sequence_name_index: ContigNameSourceIndex,
-    alignment_name_index: ContigNameSourceIndex,
+    /// The names the reference sequence and the gene track use, if they have the contig.
+    sequence_name: Option<ContigName>,
+    gene_track_name: Option<ContigName>,
+    /// The name each track file uses, for the files that have the contig. Files can name one
+    /// contig differently, such as `chr1` and `1`, so each file keeps its own.
+    file_names: HashMap<RepositoryFileIndex, ContigName>,
 }
 
 impl Contig {
@@ -51,12 +54,10 @@ impl Contig {
             name: name.to_string(),
             aliases,
             length,
-            cytoband: None,
-            cytoband_loaded: false,
 
-            track_name_index: None,
-            sequence_name_index: None,
-            alignment_name_index: None,
+            sequence_name: None,
+            gene_track_name: None,
+            file_names: HashMap::new(),
         }
     }
 
@@ -132,23 +133,24 @@ impl Contig {
         a_name.cmp(b_name)
     }
 
-    fn get_name_by_source_index(&self, index: &ContigNameSourceIndex) -> Option<&str> {
-        index.map(|inner| match inner {
-            None => self.name.as_str(),
-            Some(i) => &self.aliases[i],
-        })
-    }
-
-    pub fn get_alignment_name(&self) -> Option<&str> {
-        self.get_name_by_source_index(&self.alignment_name_index)
+    fn resolve(&self, name: ContigName) -> &str {
+        match name {
+            ContigName::Primary => &self.name,
+            ContigName::Alias(i) => &self.aliases[i],
+        }
     }
 
     pub fn get_sequence_name(&self) -> Option<&str> {
-        self.get_name_by_source_index(&self.sequence_name_index)
+        self.sequence_name.map(|name| self.resolve(name))
     }
 
-    pub fn get_track_name(&self) -> Option<&str> {
-        self.get_name_by_source_index(&self.track_name_index)
+    pub fn get_gene_track_name(&self) -> Option<&str> {
+        self.gene_track_name.map(|name| self.resolve(name))
+    }
+
+    /// The name a track file uses for this contig, or `None` if the file doesn't have it.
+    pub fn file_name(&self, file: RepositoryFileIndex) -> Option<&str> {
+        self.file_names.get(&file).map(|&name| self.resolve(name))
     }
 }
 
@@ -182,11 +184,14 @@ impl PartialEq for Contig {
     }
 }
 
+/// A data source that names contigs.
 pub enum ContigSource {
+    /// The reference sequence.
     Sequence,
-    Alignment,
-    Track,
-    Annotation,
+    /// The gene annotation track of the reference.
+    GeneTrack,
+    /// A track file: a BAM, VCF, or BED file.
+    File(RepositoryFileIndex),
 }
 
 /// A collection of contigs. This helps relative contig movements.
@@ -197,12 +202,6 @@ pub struct ContigHeader {
 
     /// contig name / aliases -> index
     contig_lookup: HashMap<String, usize>,
-
-    /// What the contig name is in the bam header.
-    /// - None: contig is not in the bam
-    /// - Some(None): contig name is the bam header is the main name
-    /// - Some(Some(i)): contig name is the ith alias
-    bam_contig_str: Vec<Option<Option<usize>>>,
 }
 
 impl ContigHeader {
@@ -211,7 +210,6 @@ impl ContigHeader {
             reference,
             contigs: Vec::new(),
             contig_lookup: HashMap::new(),
-            bam_contig_str: Vec::new(),
         }
     }
 
@@ -250,23 +248,6 @@ impl ContigHeader {
             )))
     }
 
-    pub fn try_update_cytoband(
-        &mut self,
-        contig_index: usize,
-        cytoband: Option<Cytoband>,
-    ) -> Result<(), TGVError> {
-        if contig_index >= self.contigs.len() {
-            return Err(TGVError::StateError(format!(
-                "Contig index out of bounds: {}",
-                contig_index
-            )));
-        }
-
-        self.contigs[contig_index].cytoband = cytoband;
-        self.contigs[contig_index].cytoband_loaded = true; // can be None
-        Ok(())
-    }
-
     pub fn update_or_add_contig(
         &mut self,
         name: String,
@@ -301,20 +282,40 @@ impl ContigHeader {
             }
         });
 
-        let source_index = if name == contig.name {
-            None
+        // The contig was found or created by this name, so it is the name or an alias.
+        let source_name = if name == contig.name {
+            ContigName::Primary
         } else {
-            contig.aliases.iter().position(|x| *x == name)
+            ContigName::Alias(
+                contig
+                    .aliases
+                    .iter()
+                    .position(|alias| *alias == name)
+                    .expect("a looked-up name is the contig's name or an alias"),
+            )
         };
 
         match source {
-            ContigSource::Alignment => contig.alignment_name_index = Some(source_index),
-            ContigSource::Sequence => contig.sequence_name_index = Some(source_index),
-            ContigSource::Track => contig.track_name_index = Some(source_index),
-            ContigSource::Annotation => {}
+            ContigSource::Sequence => contig.sequence_name = Some(source_name),
+            ContigSource::GeneTrack => contig.gene_track_name = Some(source_name),
+            ContigSource::File(file) => {
+                contig.file_names.insert(file, source_name);
+            }
         }
 
         contig_index
+    }
+
+    /// Forgets the names a removed track file used, and shifts later files of the same kind,
+    /// matching the per-kind vectors. Contigs stay, so contig indexes remain valid.
+    pub fn remove_file(&mut self, removed: RepositoryFileIndex) {
+        for contig in &mut self.contigs {
+            contig.file_names = contig
+                .file_names
+                .drain()
+                .filter_map(|(file, name)| Some((file.after_removal(removed)?, name)))
+                .collect();
+        }
     }
 
     pub fn next(&self, contig_index: usize, k: usize) -> usize {
@@ -324,10 +325,6 @@ impl ContigHeader {
     pub fn previous(&self, contig_index: usize, k: usize) -> usize {
         (contig_index + self.contigs.len() - k % self.contigs.len()) % self.contigs.len()
         // TODO: bound check
-    }
-
-    pub fn cytoband_is_loaded(&self, contig_index: usize) -> Result<bool, TGVError> {
-        Ok(self.try_get(contig_index)?.cytoband_loaded)
     }
 }
 

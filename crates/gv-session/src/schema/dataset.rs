@@ -20,8 +20,11 @@ pub struct DatasetRequest {
 }
 
 impl DatasetRequest {
-    /// Applies the request to the current settings and validates its file paths.
-    pub fn update_settings(&self, settings: &Settings) -> Result<Settings, SessionError> {
+    /// Applies the request to the current settings, and classifies the files to open.
+    pub fn update_settings(
+        &self,
+        settings: &Settings,
+    ) -> Result<(Settings, Vec<FilePath>), SessionError> {
         let mut settings = settings.clone();
         settings.reference = match &self.reference {
             Value::Null => Reference::NoReference,
@@ -46,12 +49,12 @@ impl DatasetRequest {
                 message: "Provide a reference or at least one file.".to_owned(),
             });
         }
-        settings.file_paths =
+        let files =
             classify_and_build_tracks(&self.files).map_err(|error| SessionError::InvalidInput {
                 field: "files",
                 message: error.to_string(),
             })?;
-        Ok(settings)
+        Ok((settings, files))
     }
 }
 

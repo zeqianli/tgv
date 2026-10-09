@@ -1,6 +1,5 @@
 use crate::{
     alignment::{Alignment, AlignmentTables, QualityEncoding, QualityEncodingSetting},
-    contig_header::ContigHeader,
     error::TGVError,
     intervals::Region,
     sequence::Sequence,
@@ -38,19 +37,22 @@ impl BamRepository {
     async fn new(bam_path: &str, bai_path: &str) -> Result<Self, TGVError> {
         use tokio::fs::File;
 
+        if !Path::new(bam_path).exists() {
+            return Err(TGVError::NotAFile(bam_path.to_string()));
+        }
+        if !Path::new(bai_path).exists() {
+            return Err(TGVError::MissingIndex {
+                file: bam_path.to_string(),
+                index: bai_path.to_string(),
+            });
+        }
+
         let mut reader = File::open(bam_path)
             .await
             .map(bam::r#async::io::Reader::new)?;
         let header = reader.read_header().await?;
 
         let index = bai::r#async::fs::read(bai_path).await?;
-
-        if !Path::new(&bam_path).exists() {
-            return Err(TGVError::IOError(format!(
-                "BAM file {} not found",
-                bam_path
-            )));
-        }
 
         Ok(Self {
             bam_path: bam_path.to_string(),
@@ -216,17 +218,19 @@ impl AlignmentRepository {
         })
     }
 
+    /// Reads the alignments in a region. `contig_name` is the file's name for the region's
+    /// contig, or `None` when the file doesn't have it, which reads nothing.
     pub async fn read_alignment(
         &mut self,
         region: &Region,
+        contig_name: Option<&str>,
         reference_sequence: &Sequence,
-        contig_header: &ContigHeader,
     ) -> Result<Alignment, TGVError> {
         self.source
             .read_alignment(
                 region,
+                contig_name,
                 reference_sequence,
-                contig_header,
                 &mut self.quality_encoding,
             )
             .await
@@ -289,8 +293,8 @@ impl AlignmentRepositoryEnum {
     pub async fn read_alignment(
         &mut self,
         region: &Region,
+        contig_name: Option<&str>,
         reference_sequence: &Sequence,
-        contig_header: &ContigHeader,
         quality_encoding: &mut QualityEncodingSetting,
     ) -> Result<Alignment, TGVError> {
         let started = Instant::now();
@@ -313,20 +317,9 @@ impl AlignmentRepositoryEnum {
             region,
         );
 
-        let query_region = match region.alignment(contig_header) {
-            Ok(query_region) => query_region,
-            Err(e) => {
-                log::warn!(
-                    "Failed to resolve alignment query region: source_type={} path={} index={} region={:?} elapsed_ms={} error={e}",
-                    source_kind,
-                    data_path,
-                    index_path,
-                    region,
-                    started.elapsed().as_millis(),
-                );
-                return Err(e);
-            }
-        };
+        let query_region = contig_name
+            .map(|name| region.to_noodles_region(name))
+            .transpose()?;
 
         let mut records = Vec::new();
         let mut batch = Vec::with_capacity(RECORD_BATCH_SIZE);
@@ -413,7 +406,7 @@ impl AlignmentRepositoryEnum {
             }
             None => {
                 log::debug!(
-                    "Skipped alignment record query because the region does not map to the alignment header: source_type={} path={} index={} region={:?} elapsed_ms={}",
+                    "Skipped alignment record query because the file does not have the contig: source_type={} path={} index={} region={:?} elapsed_ms={}",
                     source_kind,
                     data_path,
                     index_path,
