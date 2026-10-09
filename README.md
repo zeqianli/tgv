@@ -1,6 +1,6 @@
 # Terminal Genome Viewer
 
-[![Crates version]](https://crates.io/crates/tgv) ![Conda Version](https://img.shields.io/conda/v/bioconda/tgv)
+[![Crates version](https://img.shields.io/crates/v/tgv)](https://crates.io/crates/tgv) [![Conda version](https://img.shields.io/conda/v/bioconda/tgv)](https://anaconda.org/bioconda/tgv)
 
 [TODO: demo video]
 
@@ -11,46 +11,43 @@
 - bioconda: `conda install bioconda::tgv`
 - Pre-built binaries: [GitHub Releases](https://github.com/zeqianli/tgv/releases/)
 
+Install tgv MCP: 
+- Codex: `codex mcp add tgv -- tgv mcp`
+- Claude: `claude mcp add tgv -- tgv mcp`
+- Others: ask your agent
 
-## Explore genomes everywhere
+### Explore genomes everywhere
 
-tgv is a blazingly-fast TUI genome viewer. SSH sessions no longer feels like a black box.
-- Keyboard-driven nagivation with vim-like commands
-- Rich file format support: common bioinformatics formats (bam, vcf, bed, bigbed), UCGC reference genomes, object storage storage (S3 / GCS)
+A blazing-fast genome viewer that lives in your terminal. Your SSH session is no longer a black box.
+- Navigate genomes with vim-style commands (but the mouse works too).
+- Rich file foramt support: BAM, VCF, BCF, BED, bigBed; object storage (s3); and any UCSC reference genome.
 
-## Designed for human-agent collaboration
+### Designed for human-agent collaboration
 
-- Before tgv: [TODO  screenshot]
-- After tgv: interactive visualization, 
+Before tgv: [TODO  screenshot]
 
-## Mise-en-place so that your agents can cook
-- Performant and flexible bioinformatics data engine for your agents 
-- tgv organized bioinformatics data as [Polars dataframes](https://pola.rs/posts/release-polars-2/), one of the most performant data engine. 
-- The internal is fully exposed to agents and agents can perform complex analysis in just a few lines of SQL queries.
-- No more pasting different bash commands together and one-offs cripts. No mismatch 1-base and 0-based standards across different bioinformatics engines, 
-- reduces pasting together
+After tgv: your agent walks you through its analysis on an interactive session.
 
+### Mise-en-place so that your agents can cook
 
+tgv runs on a [performance data engine](https://pola.rs/posts/release-polars-2/) fully exposed to agents. A multi-omics analysis takes a few lines of SQL queries. No more glue scripts chaining `samtools`, `bcftools`, and `awk`. No more off-by-one bugs from mixing 0-based and 1-based tools.
 
 ## Quick start
 
 ```bash
 # Browse the hg38 human genome (internet needed)
 tgv
-
-# Install tgv mcp
-codex mcp add tgv -- tgv mcp
-claude mcp add tgv -- tgv mcp 
 ```
 
 - `:q`: Quit
 - `h/j/k/l`: Left / down / up / right. `H/J/K/L` for faster navigation
 - `W/B/w/b`: Next gene / previous gene / next exon / previous exon
 - `z/o`: Zoom in / out
-- `/_gene_` / `/_chr_:_position_`: Go to gene: (e.g. `:TP53`) / chromosome position (e.g. `:1:2345`)
-- `_number_` + `_movement_`: Repeat movements (e.g. `20B`: left by 20 genes)
-- `:ls`: Switch chromosomes.
-- Mouse is supported
+- `/_gene_` / `/_chr_:_position_`: Go to a gene (e.g. `/TP53`) or a position (e.g. `/1:2345`)
+- `_number_` + `_movement_`: Repeat movements (e.g. `20B`: back 20 genes)
+- `:ls`: Switch chromosomes
+- `:e _file_`: Open more files, or drag them into the terminal
+- Mouse: scroll, drag, hover for details, and right-click to sort and filter reads
 
 [Full key bindings](doc/src/usage.md#key-bindings)
 
@@ -66,14 +63,8 @@ tgv download hg38
 Browse alignments:
 
 ```bash
-# View BAM file(s) aligned to the hg38 human reference genome
-tgv file1.sorted.bam file2.sorted.bam
-
-# VCF and BED support
-tgv sorted.bam variants.vcf intervals.bed
-
-# View an indexed S3 BAM, starting at TP53, using the hg19 reference genome
-tgv s3://my-bucket/sorted.bam -r TP53 -g hg19
+# View file aligned to the hg38 human reference genome
+tgv file1.sorted.bam s3://my-bucket/file2.sorted.bam variants.vcf intervals.bed
 
 # BAM file with no reference genome
 tgv non_human.bam -r 1:123 --no-reference
