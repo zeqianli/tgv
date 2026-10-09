@@ -13,8 +13,9 @@ log.workspace = true
 # Queries use SQL with joins, including inequality joins for genomic overlaps, and `abs` and
 # `log` for common read statistics. `dtype-u128` lets `count(*)` run over concatenated
 # per-track tables, whose row counts Polars sums as 128-bit integers. File I/O features stay
-# disabled so SQL table functions cannot read files.
-polars = { workspace = true, features = ["sql", "semi_anti_join", "iejoin", "cross_join", "abs", "log", "dtype-u128"] }
+# disabled so SQL table functions cannot read files. `dtype-struct` packs `cigar_ops.op` for the
+# op-at-position functions.
+polars = { workspace = true, features = ["sql", "semi_anti_join", "iejoin", "cross_join", "abs", "log", "dtype-u128", "dtype-struct"] }
 schemars.workspace = true
 serde.workspace = true
 serde_json.workspace = true

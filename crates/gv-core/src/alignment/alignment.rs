@@ -1,4 +1,5 @@
 use crate::alignment::{
+    QualityEncoding,
     coverage::CoverageTable,
     tables::{AlignmentTables, CigarSchema, ReadSchema},
 };
@@ -27,8 +28,11 @@ pub struct Alignment {
     /// The original decoded records in stable read-ID order.
     pub records: Vec<RecordBuf>,
 
-    /// The queryable alignment representation.
+    /// The queryable alignment representation, with qualities as Phred scores.
     pub tables: AlignmentTables,
+
+    /// How the source file stores qualities, so displays can show the stored values.
+    pub quality_encoding: QualityEncoding,
 
     /// Derived coverage of the visible reads.
     pub coverage: CoverageTable,
@@ -48,6 +52,7 @@ impl Default for Alignment {
             contig_index: 0,
             records: Vec::new(),
             tables: AlignmentTables::default(),
+            quality_encoding: QualityEncoding::default(),
             coverage: CoverageTable::default(),
             data_complete_left_bound: 0,
             data_complete_right_bound: 0,
@@ -182,25 +187,30 @@ impl Alignment {
         else {
             return Ok(None);
         };
-        let quality = runs
-            .column(CigarSchema::QUAL)?
-            .binary()?
-            .get(0)
-            .and_then(|qual| qual.get(offset).copied());
+        let quality = match runs.column(CigarSchema::QUAL)?.list()?.get_as_series(0) {
+            Some(scores) => scores.u8()?.get(offset),
+            None => None,
+        };
         Ok(Some(ReadBase::Base { base, quality }))
     }
 
     pub fn from_records(
         records: Vec<RecordBuf>,
+        quality_encoding: QualityEncoding,
         contig_index: usize,
         data_complete_bound: (u64, u64),
         reference_sequence: &Sequence,
     ) -> Result<Self, TGVError> {
-        let tables =
-            AlignmentTables::default().add_records(&records, reference_sequence, contig_index)?;
+        let tables = AlignmentTables::default().add_records(
+            &records,
+            quality_encoding,
+            reference_sequence,
+            contig_index,
+        )?;
         Self::from_tables(
             records,
             tables,
+            quality_encoding,
             contig_index,
             data_complete_bound,
             reference_sequence,
@@ -210,6 +220,7 @@ impl Alignment {
     pub(crate) fn from_tables(
         records: Vec<RecordBuf>,
         tables: AlignmentTables,
+        quality_encoding: QualityEncoding,
         contig_index: usize,
         data_complete_bound: (u64, u64),
         reference_sequence: &Sequence,
@@ -229,6 +240,7 @@ impl Alignment {
         let mut alignment = Self {
             records,
             tables: AlignmentTables { reads, ..tables },
+            quality_encoding,
             coverage: CoverageTable::default(),
             contig_index,
             data_complete_left_bound: data_complete_bound.0,
@@ -594,6 +606,7 @@ mod tests {
     fn alignment_with_reads(reads: Vec<RecordBuf>, data_complete_bound: (u64, u64)) -> Alignment {
         Alignment::from_records(
             reads,
+            QualityEncoding::Phred33,
             0,
             data_complete_bound,
             &Sequence {

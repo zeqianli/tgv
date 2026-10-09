@@ -17,5 +17,6 @@
 - [Design: a GUI viewer](./design/gui-viewer.md)
 - [Design: faster panning in the TUI](./design/render-cache.md)
 - [Design: adding and removing tracks at runtime](./design/runtime-tracks.md)
+- [Design: remaining MCP query improvements](./design/mcp-query-improvements.md)
 - [Design: signing and notarizing the macOS binary](./design/macos-signing.md)
 - [Feedback: MCP variant-support session](./feedback/2026-10-07-mcp-variant-support-session.md)

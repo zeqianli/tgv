@@ -3,6 +3,7 @@ use crate::{
     rendering::{DARK_THEME, Palette},
 };
 use clap::{Parser, Subcommand, ValueEnum};
+use gv_core::alignment::QualityEncodingSetting;
 use gv_core::message::Movement;
 use gv_core::prelude::*;
 use gv_core::settings::{BackendType, Settings as CoreSettings, classify_and_build_tracks};
@@ -129,6 +130,12 @@ pub struct Cli {
     #[arg(long)]
     cache_dir: Option<String>,
 
+    /// Base-quality encoding of the alignment files: 33 (Phred+33, the BAM standard) or 64
+    /// (Phred+64, from old Illumina FASTQ). Defaults to auto, which assumes 33 unless the first
+    /// loaded reads with qualities hold a score above the Phred+33 maximum, Q93.
+    #[arg(long, value_enum)]
+    phred: Option<QualityEncodingSetting>,
+
     /// Resume a saved session: a name in `~/.tgv/sessions/` or a path to a session TOML file.
     #[arg(long)]
     pub resume: Option<String>,
@@ -236,6 +243,10 @@ impl Cli {
 
         if let Some(ref d) = self.cache_dir {
             settings.core.cache_dir = shellexpand::tilde(d).to_string();
+        }
+
+        if let Some(phred) = self.phred {
+            settings.core.quality_encoding = phred;
         }
 
         settings.debug = self.debug_enabled();
@@ -372,6 +383,7 @@ impl TryFrom<Cli> for Settings {
                 backend,
                 ucsc_host: cli.host.unwrap_or(UcscHostCli::Auto).into(),
                 cache_dir,
+                quality_encoding: cli.phred.unwrap_or_default(),
             },
             initial_actions,
 

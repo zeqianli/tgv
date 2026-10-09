@@ -5,6 +5,7 @@
 //! whether values may be null. Optional tags remain in the original records.
 
 use crate::{
+    alignment::QualityEncoding,
     error::TGVError,
     sequence::Sequence,
     table_schema::{ColumnDoc, TableSchema},
@@ -25,10 +26,27 @@ use noodles::sam::{
 use polars::prelude::*;
 use std::sync::Arc;
 
-fn binary_column(name: &'static str, values: &[Option<Vec<u8>>]) -> Column {
-    BinaryChunked::from_iter_options(name.into(), values.iter().map(Option::as_deref))
-        .into_series()
-        .into()
+/// Builds a `list[u8]` column of Phred scores, with null for reads without qualities.
+fn quality_column(name: &'static str, values: &[Option<Vec<u8>>]) -> Column {
+    let total = values.iter().flatten().map(Vec::len).sum();
+    let mut builder = ListPrimitiveChunkedBuilder::<UInt8Type>::new(
+        name.into(),
+        values.len(),
+        total,
+        DataType::UInt8,
+    );
+    for value in values {
+        match value {
+            Some(scores) => builder.append_slice(scores),
+            None => builder.append_null(),
+        }
+    }
+    builder.finish().into_series().into()
+}
+
+/// Converts stored qualities to Phred scores.
+fn phred_scores(encoding: QualityEncoding, stored: &[u8]) -> Vec<u8> {
+    stored.iter().map(|&score| encoding.phred(score)).collect()
 }
 
 /// The read and CIGAR tables share stable `read_id` values with the record sidecar.
@@ -61,11 +79,13 @@ impl AlignmentTables {
     /// Append a record batch, assigning IDs after the existing reads.
     ///
     /// Batches for a region use the same reference and contig index, with
-    /// reference IDs from the same source header.
+    /// reference IDs from the same source header. Qualities are stored as Phred scores,
+    /// converted from the batch's encoding.
     /// The consuming builder returns only fully appended tables.
     pub fn add_records(
         mut self,
         records: &[RecordBuf],
+        quality_encoding: QualityEncoding,
         reference_sequence: &Sequence,
         contig_index: usize,
     ) -> Result<Self, TGVError> {
@@ -73,7 +93,13 @@ impl AlignmentTables {
             return Ok(self);
         }
         let offset = self.reads.height() as u64;
-        let batch = build_batch(records, reference_sequence, contig_index, offset)?;
+        let batch = build_batch(
+            records,
+            quality_encoding,
+            reference_sequence,
+            contig_index,
+            offset,
+        )?;
         self.reads = concat(
             [self.reads.lazy(), batch.reads.lazy()],
             UnionArgs::default(),
@@ -111,6 +137,7 @@ impl AlignmentTables {
 
 fn build_batch(
     records: &[RecordBuf],
+    quality_encoding: QualityEncoding,
     reference_sequence: &Sequence,
     contig_index: usize,
     read_id_offset: u64,
@@ -145,6 +172,7 @@ fn build_batch(
     let mut run_op_len = Vec::new();
     let mut run_seq = Vec::new();
     let mut run_qual = Vec::new();
+    let mut run_read_offset = Vec::new();
     let mut run_display_start = Vec::new();
     let mut run_display_end = Vec::new();
     let mut run_offset = Vec::new();
@@ -190,6 +218,7 @@ fn build_batch(
             record,
             id,
             sequence,
+            quality_encoding,
             &mut run_read_id,
             &mut run_op_index,
             &mut run_kind,
@@ -198,6 +227,7 @@ fn build_batch(
             &mut run_op_len,
             &mut run_seq,
             &mut run_qual,
+            &mut run_read_offset,
             &mut run_display_start,
             &mut run_display_end,
             &mut run_offset,
@@ -207,6 +237,7 @@ fn build_batch(
                 record,
                 id,
                 sequence,
+                quality_encoding,
                 &mut unmapped_read_id,
                 &mut base_count,
                 &mut unmapped_seq,
@@ -256,7 +287,8 @@ fn build_batch(
             Column::new(CigarSchema::REF_START.into(), run_ref_start),
             Column::new(CigarSchema::OP_LEN.into(), run_op_len),
             Column::new(CigarSchema::SEQ.into(), run_seq),
-            binary_column(CigarSchema::QUAL, &run_qual),
+            quality_column(CigarSchema::QUAL, &run_qual),
+            Column::new(CigarSchema::READ_OFFSET.into(), run_read_offset),
             Column::new(CigarSchema::DISPLAY_START.into(), run_display_start),
             Column::new(CigarSchema::DISPLAY_END.into(), run_display_end),
             Column::new(CigarSchema::RUN_OFFSET.into(), run_offset),
@@ -268,7 +300,7 @@ fn build_batch(
             Column::new(UnmappedReadSchema::READ_ID.into(), unmapped_read_id),
             Column::new(UnmappedReadSchema::BASE_COUNT.into(), base_count),
             Column::new(UnmappedReadSchema::SEQ.into(), unmapped_seq),
-            binary_column(UnmappedReadSchema::QUAL, &unmapped_qual),
+            quality_column(UnmappedReadSchema::QUAL, &unmapped_qual),
         ],
     )?;
     let reference_mismatches = reference_mismatches(&cigar_runs, reference_sequence, contig_index)?;
@@ -361,6 +393,7 @@ fn append_runs(
     record: &RecordBuf,
     id: u64,
     sequence: &str,
+    quality_encoding: QualityEncoding,
     run_read_id: &mut Vec<u64>,
     run_op_index: &mut Vec<u32>,
     run_kind: &mut Vec<u8>,
@@ -369,6 +402,7 @@ fn append_runs(
     run_op_len: &mut Vec<u32>,
     run_seq: &mut Vec<Option<String>>,
     run_qual: &mut Vec<Option<Vec<u8>>>,
+    run_read_offset: &mut Vec<Option<u32>>,
     run_display_start: &mut Vec<Option<u64>>,
     run_display_end: &mut Vec<Option<u64>>,
     run_offset: &mut Vec<u32>,
@@ -438,21 +472,21 @@ fn append_runs(
             run_qual.push(if quality.is_empty() {
                 None
             } else {
-                Some(
-                    quality
-                        .get(query_cursor..end)
-                        .ok_or_else(|| {
-                            TGVError::AlignmentParseError(format!(
-                                "CIGAR exceeds quality length for read {id}"
-                            ))
-                        })?
-                        .to_vec(),
-                )
+                Some(phred_scores(
+                    quality_encoding,
+                    quality.get(query_cursor..end).ok_or_else(|| {
+                        TGVError::AlignmentParseError(format!(
+                            "CIGAR exceeds quality length for read {id}"
+                        ))
+                    })?,
+                ))
             });
+            run_read_offset.push(Some(query_cursor as u32));
             query_cursor = end;
         } else {
             run_seq.push(None);
             run_qual.push(None);
+            run_read_offset.push(None);
         }
         if kind.consumes_reference() {
             reference_cursor = reference_cursor.map(|cursor| cursor + len as u64);
@@ -465,6 +499,7 @@ fn append_unmapped(
     record: &RecordBuf,
     id: u64,
     sequence: &str,
+    quality_encoding: QualityEncoding,
     unmapped_read_id: &mut Vec<u64>,
     base_count: &mut Vec<u32>,
     unmapped_seq: &mut Vec<Option<String>>,
@@ -474,7 +509,7 @@ fn append_unmapped(
     unmapped_read_id.push(id);
     base_count.push(record.sequence().len() as u32);
     unmapped_seq.push((!sequence.is_empty()).then(|| sequence.to_owned()));
-    unmapped_qual.push((!quality.is_empty()).then(|| quality.to_vec()));
+    unmapped_qual.push((!quality.is_empty()).then(|| phred_scores(quality_encoding, quality)));
 }
 
 /// The read-level table schema.
@@ -672,6 +707,7 @@ impl CigarSchema {
     pub const OP_LEN: &'static str = "op_len";
     pub const SEQ: &'static str = "seq";
     pub const QUAL: &'static str = "qual";
+    pub const READ_OFFSET: &'static str = "read_offset";
     pub const DISPLAY_START: &'static str = "display_start";
     pub const DISPLAY_END: &'static str = "display_end";
     pub const RUN_OFFSET: &'static str = "run_offset";
@@ -679,7 +715,7 @@ impl CigarSchema {
 
 impl TableSchema for CigarSchema {
     fn schema() -> SchemaRef {
-        let mut schema = Schema::with_capacity(11);
+        let mut schema = Schema::with_capacity(12);
         schema.insert(Self::READ_ID.into(), DataType::UInt64);
         schema.insert(Self::OP_INDEX.into(), DataType::UInt32);
         schema.insert(Self::KIND.into(), DataType::UInt8);
@@ -687,7 +723,8 @@ impl TableSchema for CigarSchema {
         schema.insert(Self::REF_START.into(), DataType::UInt64);
         schema.insert(Self::OP_LEN.into(), DataType::UInt32);
         schema.insert(Self::SEQ.into(), DataType::String);
-        schema.insert(Self::QUAL.into(), DataType::Binary);
+        schema.insert(Self::QUAL.into(), DataType::List(Box::new(DataType::UInt8)));
+        schema.insert(Self::READ_OFFSET.into(), DataType::UInt32);
         schema.insert(Self::DISPLAY_START.into(), DataType::UInt64);
         schema.insert(Self::DISPLAY_END.into(), DataType::UInt64);
         schema.insert(Self::RUN_OFFSET.into(), DataType::UInt32);
@@ -722,7 +759,11 @@ impl TableSchema for CigarSchema {
             },
             ColumnDoc {
                 name: Self::QUAL,
-                description: "The base qualities, aligned with `seq`.",
+                description: "The Phred base qualities as numbers, aligned with `seq`; null when the read has no qualities.",
+            },
+            ColumnDoc {
+                name: Self::READ_OFFSET,
+                description: "The zero-based offset of the operation's first base in the read's stored SEQ; null for operations that do not consume the read.",
             },
         ]
     }
@@ -746,7 +787,7 @@ impl TableSchema for UnmappedReadSchema {
         schema.insert(Self::READ_ID.into(), DataType::UInt64);
         schema.insert(Self::BASE_COUNT.into(), DataType::UInt32);
         schema.insert(Self::SEQ.into(), DataType::String);
-        schema.insert(Self::QUAL.into(), DataType::Binary);
+        schema.insert(Self::QUAL.into(), DataType::List(Box::new(DataType::UInt8)));
         Arc::new(schema)
     }
 }
@@ -877,7 +918,7 @@ pub(crate) fn reference_mismatches(
     let starts = runs.column(CigarSchema::REF_START)?.u64()?;
     let lengths = runs.column(CigarSchema::OP_LEN)?.u32()?;
     let sequences = runs.column(CigarSchema::SEQ)?.str()?;
-    let qualities = runs.column(CigarSchema::QUAL)?.binary()?;
+    let qualities = runs.column(CigarSchema::QUAL)?.list()?;
     let mut read_id = Vec::new();
     let mut op_index = Vec::new();
     let mut run_offset = Vec::new();
@@ -892,7 +933,6 @@ pub(crate) fn reference_mismatches(
             continue;
         };
         let sequence = sequence.as_bytes();
-        let quality = qualities.get(row);
         let end = start + u64::from(lengths.get(row).expect("run lengths are non-null"));
         let left = start.max(reference.start);
         let right = end.min(reference.end() + 1);
@@ -908,7 +948,12 @@ pub(crate) fn reference_mismatches(
                 run_offset.push(offset);
                 ref_pos.push(pos);
                 base.push(read_base);
-                qual.push(quality.and_then(|quality| quality.get(offset as usize).copied()));
+                // Mismatches are sparse, so the run's qualities are read only when one occurs.
+                let quality = match qualities.get_as_series(row) {
+                    Some(scores) => scores.u8()?.get(offset as usize),
+                    None => None,
+                };
+                qual.push(quality);
             }
         }
     }
@@ -1198,6 +1243,7 @@ mod tests {
         );
         let alignment = Alignment::from_records(
             vec![record],
+            QualityEncoding::Phred33,
             0,
             (1, 100),
             &Sequence {
@@ -1266,6 +1312,7 @@ mod tests {
         );
         let alignment = Alignment::from_records(
             vec![record],
+            QualityEncoding::Phred33,
             0,
             (1, 100),
             &Sequence {
@@ -1321,6 +1368,7 @@ mod tests {
         );
         let alignment = Alignment::from_records(
             vec![record],
+            QualityEncoding::Phred33,
             0,
             (1, 100),
             &Sequence {
@@ -1363,6 +1411,7 @@ mod tests {
         );
         let alignment = Alignment::from_records(
             vec![record],
+            QualityEncoding::Phred33,
             0,
             (1, 100),
             &Sequence {
@@ -1494,8 +1543,14 @@ mod tests {
             .set_sequence(sam::alignment::record_buf::Sequence::from(b"CCC"))
             .set_data(data)
             .build();
-        let alignment =
-            Alignment::from_records(vec![record], 0, (1, 100), &Sequence::default()).unwrap();
+        let alignment = Alignment::from_records(
+            vec![record],
+            QualityEncoding::Phred33,
+            0,
+            (1, 100),
+            &Sequence::default(),
+        )
+        .unwrap();
         assert_eq!(
             alignment.records[0].data().get(&Tag::new(b'M', b'm')),
             Some(&Value::from("C+m,0,0,0;")),
@@ -1620,8 +1675,14 @@ mod tests {
             )
             .set_sequence(sam::alignment::record_buf::Sequence::from(seq))
             .build();
-        let alignment =
-            Alignment::from_records(vec![record], 0, (1, 100), &reference_sequence).unwrap();
+        let alignment = Alignment::from_records(
+            vec![record],
+            QualityEncoding::Phred33,
+            0,
+            (1, 100),
+            &reference_sequence,
+        )
+        .unwrap();
         assert_eq!(
             alignment
                 .tables

@@ -6,12 +6,14 @@
 //! serves itself over a local socket so that agents in other processes can drive a viewer.
 
 mod error;
+mod functions;
 mod schema;
 mod session;
 mod socket;
 mod tables;
 
 pub use error::SessionError;
+pub use functions::{CatalogFunction, OpFunction};
 pub use schema::*;
 pub use session::{
     DataRequest, Dataset, Request, Requests, Responder, Session, SessionHandle, ViewRequest,

@@ -1,10 +1,12 @@
 mod alignment;
 mod coverage;
 mod paired_alignment;
+mod quality;
 mod repository;
 pub mod tables;
 pub use alignment::{Alignment, ReadBase};
 pub use coverage::{CoverageSchema, CoverageTable};
 pub use paired_alignment::{PairSchema, PairedAlignment};
-pub use repository::{AlignmentRepositoryEnum, is_url};
+pub use quality::{QualityEncoding, QualityEncodingSetting};
+pub use repository::{AlignmentRepository, AlignmentRepositoryEnum, is_url};
 pub use tables::AlignmentTables;

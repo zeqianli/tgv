@@ -2,12 +2,14 @@
 
 use super::inspect::{InspectInterval, InspectWarning};
 use crate::error::SessionError;
+use crate::functions::{CatalogFunction, OpFunction, OpFunctions};
 use crate::tables::{CatalogTable, TABLES};
 use gv_core::prelude::*;
 use polars::{prelude::*, sql::SQLContext};
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
-use serde_json::{Number, Value};
+use serde_json::{Map, Number, Value};
+use std::sync::Arc;
 
 /// Requests a read-only SQL query, optionally over region-scoped tables.
 #[derive(Deserialize, Serialize, JsonSchema)]
@@ -69,7 +71,7 @@ impl QueryRequest {
                 message: format!("{message}{hint}"),
             }
         };
-        let mut context = SQLContext::new();
+        let mut context = SQLContext::new().with_function_registry(Arc::new(OpFunctions));
         for (name, frame) in tables {
             context.register(name, frame);
         }
@@ -162,6 +164,23 @@ fn json_value(value: AnyValue) -> Value {
         AnyValue::String(value) => value.into(),
         AnyValue::StringOwned(value) => value.as_str().into(),
         AnyValue::List(series) => Value::Array(series.iter().map(json_value).collect()),
+        AnyValue::Struct(_, _, fields) => Value::Object(
+            fields
+                .iter()
+                .zip(value._iter_struct_av())
+                .map(|(field, value)| (field.name().to_string(), json_value(value)))
+                .collect::<Map<_, _>>(),
+        ),
+        AnyValue::StructOwned(payload) => {
+            let (values, fields) = *payload;
+            Value::Object(
+                fields
+                    .iter()
+                    .zip(values)
+                    .map(|(field, value)| (field.name().to_string(), json_value(value)))
+                    .collect::<Map<_, _>>(),
+            )
+        }
         other => other.to_string().into(),
     }
 }
@@ -170,6 +189,7 @@ fn json_value(value: AnyValue) -> Value {
 #[derive(Serialize)]
 pub struct TablesResponse {
     pub tables: Vec<CatalogTable>,
+    pub functions: Vec<CatalogFunction>,
     pub notes: &'static [&'static str],
     pub examples: &'static [QueryExample],
 }
@@ -182,20 +202,25 @@ pub struct QueryExample {
 }
 
 impl TablesResponse {
-    pub const NOTES: [&'static str; 7] = [
+    pub const NOTES: [&'static str; 8] = [
         "Coordinates are 1-based, and interval ends are inclusive.",
-        "Coordinates, counts, and IDs are unsigned, and unsigned arithmetic wraps around instead of going negative. Cast to BIGINT before subtracting, as in `CAST(pos AS BIGINT) - 88108`.",
+        "Coordinates, counts, and IDs are signed 64-bit integers, so subtracting them can go negative.",
+        "For per-base questions, call the functions in `functions` with `cigar_ops.op` and a 1-based position, such as `allele_at(c.op, 88108)`. Filter with `c.ref_start <= pos AND c.ref_end >= pos` first so they read only covering operations; `insertion_after` needs `c.kind = 'I' AND c.ref_start = pos + 1` instead. `offset_at` and `read_offset` are zero-based.",
         "Queries use Polars SQL. CTEs, subqueries, GROUP BY, window functions, and INNER, LEFT, RIGHT, FULL, CROSS, SEMI, and ANTI joins are supported.",
         "An ON clause with inequalities, such as an overlap test, runs as an efficient range join, but only as an inner join. For a left overlap join, aggregate the inner join in a CTE, then LEFT JOIN it back on the left table's key.",
         "Region tables hold data for the `region` argument, at most 100,000 bases. Only the `tracks` table is available without a region.",
-        "`reads` holds reads whose aligned span overlaps the region, while `coverage` counts all loaded reads, so coverage near the region edges can include reads outside `reads`.",
+        "`reads` holds reads whose aligned span overlaps the region, while `coverage` counts all loaded reads except duplicates and QC failures, so coverage near the region edges can include reads outside `reads`.",
         "Results return at most `limit` rows; `truncated` reports whether more rows exist. Aggregate in SQL instead of returning raw rows when possible.",
     ];
 
-    pub const EXAMPLES: [QueryExample; 5] = [
+    pub const EXAMPLES: [QueryExample; 6] = [
         QueryExample {
-            description: "Allele counts by strand at one position, excluding duplicates.",
-            sql: "SELECT r.track_id, coalesce(m.base, 'ref') AS allele, r.reverse, count(*) AS reads, avg(r.mapq) AS mean_mapq FROM reads r LEFT JOIN (SELECT * FROM mismatches WHERE ref_pos = 88108) m ON r.track_id = m.track_id AND r.read_id = m.read_id WHERE r.pos <= 88108 AND r.end >= 88108 AND NOT r.duplicate GROUP BY 1, 2, 3 ORDER BY 1, 2, 3",
+            description: "Allele counts by strand at one position, with base and mapping quality, excluding duplicate, secondary, and supplementary reads. Deletions count as `*`.",
+            sql: "SELECT c.track_id, allele_at(c.op, 88108) AS allele, r.reverse, count(*) AS reads, avg(qual_at(c.op, 88108)) AS mean_bq, avg(r.mapq) AS mean_mapq FROM cigar_ops c JOIN reads r ON c.track_id = r.track_id AND c.read_id = r.read_id WHERE c.ref_start <= 88108 AND c.ref_end >= 88108 AND c.kind IN ('M', '=', 'X', 'D') AND NOT r.duplicate AND NOT r.secondary AND NOT r.supplementary GROUP BY 1, 2, 3 ORDER BY 1, 2, 3",
+        },
+        QueryExample {
+            description: "Alleles at every position of a window, using `coverage` as the list of positions.",
+            sql: "SELECT v.pos, allele_at(c.op, v.pos) AS allele, count(*) AS reads FROM coverage v JOIN cigar_ops c ON c.ref_start <= v.pos AND c.ref_end >= v.pos WHERE v.track_id = c.track_id AND c.kind IN ('M', '=', 'X', 'D') GROUP BY 1, 2 ORDER BY 1, 2",
         },
         QueryExample {
             description: "Mean depth for every BED target in the region, including targets with no coverage.",
@@ -221,6 +246,7 @@ impl TablesResponse {
                 .iter()
                 .map(|table| table.catalog())
                 .collect::<Result<_, _>>()?,
+            functions: OpFunction::ALL.map(OpFunction::catalog).into(),
             notes: &Self::NOTES,
             examples: &Self::EXAMPLES,
         })

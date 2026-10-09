@@ -372,6 +372,7 @@ mod tests {
     fn alignment_from_reads(reads: Vec<RecordBuf>) -> Alignment {
         Alignment::from_records(
             reads,
+            crate::alignment::QualityEncoding::Phred33,
             0,
             (1, 100),
             &Sequence {

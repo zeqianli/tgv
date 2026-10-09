@@ -1,5 +1,5 @@
 use crate::{
-    alignment::AlignmentRepositoryEnum,
+    alignment::AlignmentRepository,
     bed::BedRepositoryEnum,
     contig_header::{ContigHeader, ContigSource},
     error::TGVError,
@@ -21,7 +21,7 @@ pub enum RepositoryFileIndex {
 }
 
 pub struct Repository {
-    pub alignment_repositories: Vec<AlignmentRepositoryEnum>,
+    pub alignment_repositories: Vec<AlignmentRepository>,
 
     pub variant_repositories: Vec<VariantRepositoryEnum>,
 
@@ -35,7 +35,9 @@ pub struct Repository {
 impl Repository {
     pub fn file_path(&self, index: RepositoryFileIndex) -> &str {
         match index {
-            RepositoryFileIndex::Alignment(index) => self.alignment_repositories[index].path(),
+            RepositoryFileIndex::Alignment(index) => {
+                self.alignment_repositories[index].source.path()
+            }
             RepositoryFileIndex::Variant(index) => self.variant_repositories[index].path(),
             RepositoryFileIndex::Bed(index) => self.bed_repositories[index].path(),
         }
@@ -62,8 +64,9 @@ impl Repository {
             match file_path {
                 FilePath::AlignmentPath(alignment_path) => {
                     let index = alignment_repositories.len();
-                    alignment_repositories
-                        .push(AlignmentRepositoryEnum::new(alignment_path).await?);
+                    alignment_repositories.push(
+                        AlignmentRepository::new(alignment_path, settings.quality_encoding).await?,
+                    );
                     repository_file_indexes.push(RepositoryFileIndex::Alignment(index));
                 }
                 FilePath::VariantPath(vcf_path) => {
@@ -212,6 +215,7 @@ impl Repository {
                     // FIXME
                     // Warning when the reference contig is not present in the BAM header.
                     alignment_repositories[*index]
+                        .source
                         .read_header()?
                         .into_iter()
                         .for_each(|(name, length)| {

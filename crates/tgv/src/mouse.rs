@@ -269,10 +269,17 @@ impl MouseRegister {
                                     .unwrap_or_else(|| "<missing>".into());
                                 let description = if left == right {
                                     let base = match alignment.read_base_at(read_id, left)? {
+                                        // Show the quality as the file stores it.
                                         Some(ReadBase::Base { base, quality }) => format!(
                                             "Base: {}  Qual: {}",
                                             base as char,
-                                            quality.map_or_else(|| ".".into(), |q| q.to_string())
+                                            quality.map_or_else(
+                                                || ".".into(),
+                                                |q| alignment
+                                                    .quality_encoding
+                                                    .stored(q)
+                                                    .to_string()
+                                            )
                                         ),
                                         Some(ReadBase::Deletion) => "Base: -".to_string(),
                                         None => "Base: .".to_string(),

@@ -250,7 +250,7 @@ fn draw_reads(
     let run_ends = runs.column(CigarSchema::DISPLAY_END)?.u64()?;
     let run_offsets = runs.column(CigarSchema::RUN_OFFSET)?.u32()?;
     let run_sequences = runs.column(CigarSchema::SEQ)?.str()?;
-    let run_qualities = runs.column(CigarSchema::QUAL)?.binary()?;
+    let run_qualities = runs.column(CigarSchema::QUAL)?.list()?;
     let run_read_ids = runs.column(CigarSchema::READ_ID)?.u64()?;
 
     // 1.1 Draw the main bodies.
@@ -391,21 +391,25 @@ fn draw_reads(
     }
 
     // 4. Get sequence mismatch positions and draw the bases.
-    for (kind, y, run_start, end, run_offset, seq, qual) in izip!(
+    for (row, (kind, y, run_start, end, run_offset, seq)) in izip!(
         run_kinds.into_no_null_iter(),
         run_ys.into_no_null_iter(),
         run_starts.into_no_null_iter(),
         run_ends.into_no_null_iter(),
         run_offsets.into_no_null_iter(),
         run_sequences.iter(),
-        run_qualities.iter(),
-    ) {
+    )
+    .enumerate()
+    {
         if kind != CigarSchema::SEQUENCE_MISMATCH {
             continue;
         }
         let Some(seq) = seq.map(str::as_bytes) else {
             continue;
         };
+        // `X` runs are rare, so their qualities are read only here.
+        let qual = run_qualities.get_as_series(row);
+        let qual = qual.as_ref().map(|qual| qual.u8()).transpose()?;
         let (start, end) = (run_start.max(region.start()), end.min(region.end()));
         let Some(left) = pixel(start, view, area) else {
             continue;
@@ -418,7 +422,7 @@ fn draw_reads(
                 let offset = run_offset as usize + (position - run_start) as usize;
                 let base = seq[offset];
                 cell.set_char(base as char).set_style(
-                    palette.mismatch_style(base, qual.and_then(|qual| qual.get(offset).copied())),
+                    palette.mismatch_style(base, qual.and_then(|qual| qual.get(offset))),
                 );
             }
         }

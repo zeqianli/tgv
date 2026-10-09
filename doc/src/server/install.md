@@ -6,7 +6,7 @@ Agent harnesses start `tgv mcp` as a local stdio server: the harness runs the co
 
 - **Install TGV** (see [Installation](../installation.md)) and check that `tgv --version` works in a terminal.
 - **Use the full path in desktop apps.** Apps launched from a dock, a menu, or a file manager often don't see your shell's `PATH`, so they can't find `tgv`. Run `command -v tgv` (for example, `~/.cargo/bin/tgv`) and use that path as the command.
-- **Put global options before `mcp`.** For example, `tgv --offline mcp` uses only cached reference data, and `tgv --cache-dir /scratch/tgv mcp` uses another cache. In configuration files, those become `"args": ["--offline", "mcp"]`.
+- **Put global options before `mcp`.** For example, `tgv --offline mcp` uses only cached reference data, `tgv --cache-dir /scratch/tgv mcp` uses another cache, and `tgv --phred 64 mcp` reads BAM files with Phred+64 qualities. Without `--phred`, TGV assumes Phred+33 unless the first loaded reads hold a score above the Phred+33 maximum, Q93. In configuration files, those become `"args": ["--offline", "mcp"]`.
 - **Open TGV to share a view.** With a TGV window open, the agent works on the files it shows and can move and mark the view. See [Show results in the viewer](./view.md).
 
 ## Claude Code

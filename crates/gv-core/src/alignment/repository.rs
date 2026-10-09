@@ -1,5 +1,5 @@
 use crate::{
-    alignment::{Alignment, AlignmentTables},
+    alignment::{Alignment, AlignmentTables, QualityEncoding, QualityEncodingSetting},
     contig_header::ContigHeader,
     error::TGVError,
     intervals::Region,
@@ -198,6 +198,41 @@ fn get_contig_names_and_lengths_from_header(
         .collect_vec())
 }
 
+/// An alignment file and the quality encoding its records use.
+pub struct AlignmentRepository {
+    pub source: AlignmentRepositoryEnum,
+    /// An automatic setting resolves at the first load with qualities and stays fixed after.
+    pub quality_encoding: QualityEncodingSetting,
+}
+
+impl AlignmentRepository {
+    pub async fn new(
+        alignment_path: &AlignmentPath,
+        quality_encoding: QualityEncodingSetting,
+    ) -> Result<Self, TGVError> {
+        Ok(Self {
+            source: AlignmentRepositoryEnum::new(alignment_path).await?,
+            quality_encoding,
+        })
+    }
+
+    pub async fn read_alignment(
+        &mut self,
+        region: &Region,
+        reference_sequence: &Sequence,
+        contig_header: &ContigHeader,
+    ) -> Result<Alignment, TGVError> {
+        self.source
+            .read_alignment(
+                region,
+                reference_sequence,
+                contig_header,
+                &mut self.quality_encoding,
+            )
+            .await
+    }
+}
+
 pub enum AlignmentRepositoryEnum {
     Bam(BamRepository),
     RemoteBam(RemoteBamRepository),
@@ -256,6 +291,7 @@ impl AlignmentRepositoryEnum {
         region: &Region,
         reference_sequence: &Sequence,
         contig_header: &ContigHeader,
+        quality_encoding: &mut QualityEncodingSetting,
     ) -> Result<Alignment, TGVError> {
         let started = Instant::now();
         let (source_kind, data_path, index_path) = match self {
@@ -315,6 +351,7 @@ impl AlignmentRepositoryEnum {
                             if batch.len() == RECORD_BATCH_SIZE {
                                 tables = tables.add_records(
                                     &batch,
+                                    quality_encoding.resolve(&batch),
                                     reference_sequence,
                                     region.contig_index(),
                                 )?;
@@ -348,6 +385,7 @@ impl AlignmentRepositoryEnum {
                             if batch.len() == RECORD_BATCH_SIZE {
                                 tables = tables.add_records(
                                     &batch,
+                                    quality_encoding.resolve(&batch),
                                     reference_sequence,
                                     region.contig_index(),
                                 )?;
@@ -363,6 +401,7 @@ impl AlignmentRepositoryEnum {
                             if batch.len() == RECORD_BATCH_SIZE {
                                 tables = tables.add_records(
                                     &batch,
+                                    quality_encoding.resolve(&batch),
                                     reference_sequence,
                                     region.contig_index(),
                                 )?;
@@ -384,12 +423,26 @@ impl AlignmentRepositoryEnum {
             }
         };
 
-        tables = tables.add_records(&batch, reference_sequence, region.contig_index())?;
+        tables = tables.add_records(
+            &batch,
+            quality_encoding.resolve(&batch),
+            reference_sequence,
+            region.contig_index(),
+        )?;
         records.append(&mut batch);
         let record_count = records.len();
+        // Records without qualities leave an automatic setting unresolved, and the encoding
+        // does not affect them.
+        let encoding = match *quality_encoding {
+            QualityEncodingSetting::Phred64 => QualityEncoding::Phred64,
+            QualityEncodingSetting::Phred33 | QualityEncodingSetting::Auto => {
+                QualityEncoding::Phred33
+            }
+        };
         let alignment = match Alignment::from_tables(
             records,
             tables,
+            encoding,
             region.contig_index(),
             (region.start(), region.end()),
             reference_sequence,

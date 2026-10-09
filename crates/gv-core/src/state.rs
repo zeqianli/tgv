@@ -2,7 +2,7 @@ use crate::sequence::SequenceRepositoryEnum;
 use crate::tracks::{TrackService, TrackServiceEnum};
 use crate::variant::VariantRepositoryEnum;
 use crate::{
-    alignment::{Alignment, AlignmentRepositoryEnum, PairedAlignment, tables},
+    alignment::{Alignment, AlignmentRepository, PairedAlignment, tables},
     bed::{BedRepositoryEnum, BedTable},
     contig_header::ContigHeader,
     cytoband::Cytoband,
@@ -201,7 +201,7 @@ impl State {
         &mut self,
         index: usize,
         region: &Region,
-        alignment_repository: &mut AlignmentRepositoryEnum,
+        alignment_repository: &mut AlignmentRepository,
     ) -> Result<&mut Self, TGVError> {
         // if !self.alignment.has_complete_data(&region) {
         //     Ok(false)
@@ -1094,7 +1094,14 @@ mod tests {
         reads: Vec<sam::alignment::RecordBuf>,
         data_complete_bound: (u64, u64),
     ) -> Alignment {
-        Alignment::from_records(reads, 0, data_complete_bound, &test_sequence()).unwrap()
+        Alignment::from_records(
+            reads,
+            crate::alignment::QualityEncoding::Phred33,
+            0,
+            data_complete_bound,
+            &test_sequence(),
+        )
+        .unwrap()
     }
 
     fn state_with_alignment(alignment: Alignment) -> State {

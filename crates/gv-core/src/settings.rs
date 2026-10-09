@@ -1,5 +1,9 @@
 use crate::tracks::UcscHost;
-use crate::{alignment::is_url, error::TGVError, reference::Reference};
+use crate::{
+    alignment::{QualityEncodingSetting, is_url},
+    error::TGVError,
+    reference::Reference,
+};
 use clap::ValueEnum;
 
 #[derive(Clone, Debug, PartialEq, Eq, ValueEnum, Default)]
@@ -60,6 +64,9 @@ pub struct Settings {
     pub ucsc_host: UcscHost,
 
     pub cache_dir: String,
+
+    /// The base-quality encoding of every alignment file.
+    pub quality_encoding: QualityEncodingSetting,
     //pub palette: Palette,
 }
 
@@ -71,6 +78,7 @@ impl Default for Settings {
             backend: BackendType::default(), // Default backend
             ucsc_host: UcscHost::default(),
             cache_dir: shellexpand::tilde("~/.tgv").to_string(),
+            quality_encoding: QualityEncodingSetting::default(),
         }
     }
 }

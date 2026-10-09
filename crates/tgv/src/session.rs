@@ -202,6 +202,7 @@ impl TryFrom<SessionFile> for Settings {
                 backend: BackendType::Default,
                 ucsc_host: session.ucsc_host,
                 cache_dir: gv_core::settings::Settings::default().cache_dir,
+                quality_encoding: Default::default(),
             },
             initial_actions,
             zoom: Some(session.zoom),

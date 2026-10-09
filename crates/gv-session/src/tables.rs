@@ -2,14 +2,18 @@
 //!
 //! Tables expose the documented columns of the core schemas under their core names, plus a
 //! few columns the server adds, such as `track_id` and contig names. Column descriptions come
-//! from [`TableSchema::column_docs`]. Columns keep their core types, except that byte-coded
-//! columns become text: CIGAR operations become letters, bases and modification codes become
-//! characters, and base qualities become Phred+33 text. The catalog resolves the same conversion
-//! on empty tables, so it cannot drift from what queries see.
+//! from [`TableSchema::column_docs`]. Columns keep their core types with two exceptions.
+//! Byte-coded columns become text: CIGAR operations become letters, and bases and modification
+//! codes become characters. Base qualities stay numeric Phred scores. Unsigned integers wider
+//! than a byte become `Int64`, so subtracting coordinates cannot wrap around. Some tables also
+//! pack columns into a struct, such as `cigar_ops.op`, for the functions in
+//! [`crate::functions`]. The catalog resolves the same conversion on empty tables, so it cannot
+//! drift from what queries see.
 //!
 //! Tables stay lazy. The core frames are shared rather than copied, and Polars evaluates only
 //! the tables, columns, and rows that a query uses.
 
+use crate::functions::OpStruct;
 use gv_core::{
     alignment::{
         Alignment, CoverageSchema,
@@ -92,30 +96,6 @@ impl Decode {
     }
 }
 
-const PHRED_NOTE: &str = "Encoded as Phred+33 text.";
-
-/// Encodes binary base qualities as Phred+33 text lazily, when a query uses them.
-fn phred(column: Expr) -> Expr {
-    column.map(
-        |column| {
-            let values = column.binary()?.iter().map(|scores| {
-                scores.map(|scores| {
-                    scores
-                        .iter()
-                        .map(|score| char::from(score.saturating_add(33)))
-                        .collect::<String>()
-                })
-            });
-            Ok(
-                StringChunked::from_iter_options(column.name().clone(), values)
-                    .into_series()
-                    .into_column(),
-            )
-        },
-        |_, field| Ok(Field::new(field.name().clone(), DataType::String)),
-    )
-}
-
 /// The type of a column that the server adds to a table, before decoding.
 #[derive(Clone, Copy)]
 enum AddedType {
@@ -137,6 +117,52 @@ impl AddedType {
     }
 }
 
+/// The type of a field in a packed column. `DataType` lists cannot be built in constants.
+#[derive(Clone, Copy)]
+pub(crate) enum PackedType {
+    String,
+    Int64,
+    UInt8List,
+}
+
+impl PackedType {
+    fn dtype(self) -> DataType {
+        match self {
+            Self::String => DataType::String,
+            Self::Int64 => DataType::Int64,
+            Self::UInt8List => DataType::List(Box::new(DataType::UInt8)),
+        }
+    }
+}
+
+/// Packs converted columns into one struct column, with each field cast to its declared type.
+pub(crate) struct PackedColumn {
+    pub name: &'static str,
+    pub fields: &'static [(&'static str, PackedType)],
+    pub description: &'static str,
+}
+
+impl PackedColumn {
+    pub fn dtype(&self) -> DataType {
+        DataType::Struct(
+            self.fields
+                .iter()
+                .map(|(name, r#type)| Field::new((*name).into(), r#type.dtype()))
+                .collect(),
+        )
+    }
+
+    fn expr(&self) -> Expr {
+        as_struct(
+            self.fields
+                .iter()
+                .map(|(name, r#type)| col(*name).cast(r#type.dtype()))
+                .collect(),
+        )
+        .alias(self.name)
+    }
+}
+
 /// Describes a column that the server adds to a table.
 struct AddedColumn {
     name: &'static str,
@@ -146,8 +172,8 @@ struct AddedColumn {
 
 /// Declares one SQL table: its added columns, its core schema, and byte-coded columns.
 ///
-/// Columns are ordered as the leading added columns, the documented core columns, and the
-/// trailing added columns.
+/// Columns are ordered as the leading added columns, the documented core columns, the
+/// trailing added columns, and the packed columns.
 pub(crate) struct SqlTable {
     pub name: &'static str,
     pub scope: TableScope,
@@ -158,6 +184,7 @@ pub(crate) struct SqlTable {
     core_docs: fn() -> &'static [ColumnDoc],
     core_empty: fn() -> DataFrame,
     decoded: &'static [(&'static str, Decode)],
+    packed: &'static [PackedColumn],
 }
 
 /// Describes one column in the catalog.
@@ -249,7 +276,17 @@ impl SqlTable {
                 self.sql_expr(name, column, &dtype)
             })
             .collect();
-        Ok(frame.select(conversions))
+        let frame = frame.select(conversions);
+        Ok(if self.packed.is_empty() {
+            frame
+        } else {
+            frame.with_columns(
+                self.packed
+                    .iter()
+                    .map(PackedColumn::expr)
+                    .collect::<Vec<_>>(),
+            )
+        })
     }
 
     fn decoding(&self, name: &str) -> Option<Decode> {
@@ -259,11 +296,23 @@ impl SqlTable {
             .map(|(_, decode)| *decode)
     }
 
-    /// Decodes byte-coded columns to text and leaves other columns unchanged.
+    /// Decodes byte-coded columns to text and widens unsigned integers to `Int64`.
+    ///
+    /// `UInt8` columns, such as MAPQ and base quality, stay unsigned: they hold small scores
+    /// rather than coordinates, counts, or IDs that queries subtract.
     fn sql_expr(&self, name: &'static str, column: Expr, dtype: &DataType) -> Expr {
+        let widens = |dtype: &DataType| {
+            matches!(
+                dtype,
+                DataType::UInt16 | DataType::UInt32 | DataType::UInt64
+            )
+        };
         match (self.decoding(name), dtype) {
             (Some(decode), _) => decode.expr(column),
-            (None, DataType::Binary) => phred(column),
+            (None, dtype) if widens(dtype) => column.cast(DataType::Int64),
+            (None, DataType::List(inner)) if widens(inner) => {
+                column.cast(DataType::List(Box::new(DataType::Int64)))
+            }
             (None, _) => column,
         }
     }
@@ -271,7 +320,6 @@ impl SqlTable {
     /// Describes the table's columns with their SQL types.
     pub fn catalog(&self) -> Result<CatalogTable, TGVError> {
         let schema = self.finish(Vec::new())?.collect_schema()?;
-        let core = (self.core_empty)();
         let added = |columns: &'static [AddedColumn]| {
             columns
                 .iter()
@@ -279,20 +327,18 @@ impl SqlTable {
         };
         let columns = added(self.leading)
             .chain((self.core_docs)().iter().map(|doc| {
-                let note = match self.decoding(doc.name) {
-                    Some(decode) => Some(decode.note()),
-                    None => core
-                        .column(doc.name)
-                        .is_ok_and(|column| column.dtype() == &DataType::Binary)
-                        .then_some(PHRED_NOTE),
-                };
-                let description = match note {
-                    Some(note) => format!("{} {note}", doc.description),
+                let description = match self.decoding(doc.name) {
+                    Some(decode) => format!("{} {}", doc.description, decode.note()),
                     None => doc.description.to_owned(),
                 };
                 (doc.name, description)
             }))
             .chain(added(self.trailing))
+            .chain(
+                self.packed
+                    .iter()
+                    .map(|column| (column.name, column.description.to_owned())),
+            )
             .map(|(name, description)| {
                 Ok(CatalogColumn {
                     name: name.to_owned(),
@@ -328,7 +374,14 @@ impl AddedColumns {
     pub const REFERENCE_BASE: &'static str = CoverageSchema::REFERENCE_BASE;
     pub const POS: &'static str = "pos";
     pub const BASE: &'static str = "base";
+    pub const SOFT_MASKED: &'static str = "soft_masked";
 }
+
+const SOFT_MASKED: AddedColumn = AddedColumn {
+    name: AddedColumns::SOFT_MASKED,
+    r#type: AddedType::Boolean,
+    description: "Whether the reference marks the position as soft-masked (repeat) sequence; null without a reference base. 2bit references never mark soft masking.",
+};
 
 const TRACK_ID: AddedColumn = AddedColumn {
     name: AddedColumns::TRACK_ID,
@@ -368,6 +421,7 @@ pub(crate) const TRACKS: SqlTable = SqlTable {
     core_docs: no_docs,
     core_empty: DataFrame::empty,
     decoded: &[],
+    packed: &[],
 };
 
 pub(crate) const READS: SqlTable = SqlTable {
@@ -391,6 +445,7 @@ pub(crate) const READS: SqlTable = SqlTable {
     core_docs: ReadSchema::column_docs,
     core_empty: ReadSchema::empty,
     decoded: &[],
+    packed: &[],
 };
 
 pub(crate) const CIGAR_OPS: SqlTable = SqlTable {
@@ -411,6 +466,7 @@ pub(crate) const CIGAR_OPS: SqlTable = SqlTable {
     core_docs: CigarSchema::column_docs,
     core_empty: CigarSchema::empty,
     decoded: &[(CigarSchema::KIND, Decode::CigarOp)],
+    packed: &[OpStruct::COLUMN],
 };
 
 pub(crate) const MISMATCHES: SqlTable = SqlTable {
@@ -426,7 +482,7 @@ pub(crate) const MISMATCHES: SqlTable = SqlTable {
     trailing: &[AddedColumn {
         name: AddedColumns::REFERENCE_BASE,
         r#type: AddedType::Byte,
-        description: "The reference base at `ref_pos`.",
+        description: "The uppercase reference base at `ref_pos`.",
     }],
     core_docs: ReferenceMismatchSchema::column_docs,
     core_empty: ReferenceMismatchSchema::empty,
@@ -434,6 +490,7 @@ pub(crate) const MISMATCHES: SqlTable = SqlTable {
         (ReferenceMismatchSchema::BASE, Decode::Ascii),
         (AddedColumns::REFERENCE_BASE, Decode::Ascii),
     ],
+    packed: &[],
 };
 
 pub(crate) const BASE_MODS: SqlTable = SqlTable {
@@ -450,18 +507,20 @@ pub(crate) const BASE_MODS: SqlTable = SqlTable {
     core_docs: BaseModificationSchema::column_docs,
     core_empty: BaseModificationSchema::empty,
     decoded: &[(BaseModificationSchema::CODE, Decode::Ascii)],
+    packed: &[],
 };
 
 pub(crate) const COVERAGE: SqlTable = SqlTable {
     name: "coverage",
     scope: TableScope::Region,
-    description: "One row per alignment track and region position, including zero-depth positions. Counts use the viewer's coverage calculation over all loaded reads. `reference_base` is null without a reference sequence.",
+    description: "One row per alignment track and region position, including zero-depth positions. Counts use the viewer's coverage calculation over all loaded reads, except duplicates and QC failures, which the viewer hides by default. `reference_base` is uppercase, and null without a reference sequence.",
     key: &[AddedColumns::TRACK_ID, CoverageSchema::POS],
     leading: &[TRACK_ID],
-    trailing: &[],
+    trailing: &[SOFT_MASKED],
     core_docs: CoverageSchema::column_docs,
     core_empty: CoverageSchema::empty,
     decoded: &[(CoverageSchema::REFERENCE_BASE, Decode::Ascii)],
+    packed: &[],
 };
 
 pub(crate) const REFERENCE: SqlTable = SqlTable {
@@ -478,13 +537,14 @@ pub(crate) const REFERENCE: SqlTable = SqlTable {
         AddedColumn {
             name: AddedColumns::BASE,
             r#type: AddedType::Byte,
-            description: "The reference base; lowercase marks soft-masked sequence.",
+            description: "The uppercase reference base.",
         },
     ],
-    trailing: &[],
+    trailing: &[SOFT_MASKED],
     core_docs: no_docs,
     core_empty: DataFrame::empty,
     decoded: &[(AddedColumns::BASE, Decode::Ascii)],
+    packed: &[],
 };
 
 pub(crate) const VARIANTS: SqlTable = SqlTable {
@@ -497,6 +557,7 @@ pub(crate) const VARIANTS: SqlTable = SqlTable {
     core_docs: VariantSchema::column_docs,
     core_empty: VariantSchema::empty,
     decoded: &[],
+    packed: &[],
 };
 
 pub(crate) const BED: SqlTable = SqlTable {
@@ -509,6 +570,7 @@ pub(crate) const BED: SqlTable = SqlTable {
     core_docs: BedSchema::column_docs,
     core_empty: BedSchema::empty,
     decoded: &[],
+    packed: &[],
 };
 
 pub(crate) const GENES: SqlTable = SqlTable {
@@ -521,6 +583,7 @@ pub(crate) const GENES: SqlTable = SqlTable {
     core_docs: GeneSchema::column_docs,
     core_empty: GeneSchema::empty,
     decoded: &[],
+    packed: &[],
 };
 
 pub(crate) const GENE_FEATURES: SqlTable = SqlTable {
@@ -537,6 +600,7 @@ pub(crate) const GENE_FEATURES: SqlTable = SqlTable {
     core_docs: GeneSegmentSchema::column_docs,
     core_empty: GeneSegmentSchema::empty,
     decoded: &[],
+    packed: &[],
 };
 
 /// Every SQL table, in catalog order.
@@ -609,23 +673,35 @@ impl TableSources<'_> {
 
     /// Lists the loaded reference bases on the region's contig, by position.
     ///
-    /// This copies the loaded sequence, which covers at most the regions the server loads.
+    /// Bases are uppercase so that they compare equal to read bases, and soft masking moves to
+    /// its own column. This copies the loaded sequence, which covers at most the regions the
+    /// server loads.
     fn loaded_reference(&self, region: &QueryRegion) -> Result<LazyFrame, TGVError> {
         let sequence: &Sequence = &self.state.sequence;
-        let (positions, bases): (Vec<u64>, Vec<u8>) =
+        let (positions, bases, soft_masked): (Vec<u64>, Vec<u8>, Vec<bool>) =
             if sequence.contig_index == region.contig_index {
                 (
                     (sequence.start..sequence.start + sequence.len() as u64).collect(),
-                    sequence.sequence.clone(),
+                    sequence
+                        .sequence
+                        .iter()
+                        .map(u8::to_ascii_uppercase)
+                        .collect(),
+                    sequence
+                        .sequence
+                        .iter()
+                        .map(u8::is_ascii_lowercase)
+                        .collect(),
                 )
             } else {
-                (Vec::new(), Vec::new())
+                (Vec::new(), Vec::new(), Vec::new())
             };
         Ok(DataFrame::new(
             positions.len(),
             vec![
                 Column::new(CoverageSchema::POS.into(), positions),
                 Column::new(CoverageSchema::REFERENCE_BASE.into(), bases),
+                Column::new(AddedColumns::SOFT_MASKED.into(), soft_masked),
             ],
         )?
         .lazy())
@@ -864,6 +940,7 @@ impl TableSources<'_> {
                 .select([
                     col(CoverageSchema::POS).alias(AddedColumns::POS),
                     col(CoverageSchema::REFERENCE_BASE).alias(AddedColumns::BASE),
+                    col(AddedColumns::SOFT_MASKED),
                 ]),
         ])
     }

@@ -846,7 +846,9 @@ impl App {
                 Action::OpenReadDetails { track, read_id } => {
                     let index = self.dataset.tracks.alignment_index(track)?;
                     self.popup = Some(TextPopup::read_details(
-                        self.dataset.repository.alignment_repositories[index].header(),
+                        self.dataset.repository.alignment_repositories[index]
+                            .source
+                            .header(),
                         &self.dataset.view.alignments[index].records[read_id],
                     )?);
                     render_events.push(RenderEvent::All);
