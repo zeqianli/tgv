@@ -20,7 +20,8 @@ Install tgv MCP:
 
 A blazing-fast genome viewer that lives in your terminal. Your SSH session is no longer a black box.
 - Navigate genomes with vim-style commands (but the mouse works too).
-- Rich file foramt support: BAM, VCF, BCF, BED, bigBed; object storage (s3); and any UCSC reference genome.
+- Rich file format support: BAM, VCF, BCF, BED, bigBed; object storage (s3); and any UCSC reference genome.
+- tgv GUI coming soon.
 
 ### Designed for human-agent collaboration
 
@@ -30,7 +31,7 @@ After tgv: your agent walks you through its analysis on an interactive session.
 
 ### Mise-en-place so that your agents can cook
 
-tgv runs on a [performance data engine](https://pola.rs/posts/release-polars-2/) fully exposed to agents. A multi-omics analysis takes a few lines of SQL queries. No more glue scripts chaining `samtools`, `bcftools`, and `awk`. No more off-by-one bugs from mixing 0-based and 1-based tools.
+tgv runs on a [performance data engine](https://pola.rs/posts/release-polars-2/) that's fully exposed to agents. A multi-omics analysis takes a few lines of SQL queries. No more glue scripts chaining `samtools`, `bcftools`, and `awk`. No more off-by-one bugs from mixing 0-based and 1-based tools.
 
 ## Quick start
 
