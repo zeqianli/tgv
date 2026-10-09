@@ -1,12 +1,9 @@
 use crate::error::TGVError;
-use serde::{Deserialize, Serialize};
 use std::path::Path;
 // Added: Embed the CSV content as static bytes
 const DEFAULT_DB_CSV: &[u8] = include_bytes!("resources/defaultDb.csv");
 
-#[derive(Debug, Clone, Eq, PartialEq, Serialize, Deserialize)]
-#[serde(into = "String", try_from = "String")]
-#[derive(Default)]
+#[derive(Debug, Clone, Eq, PartialEq, Default)]
 pub enum Reference {
     Hg19,
     #[default]
@@ -21,6 +18,7 @@ pub enum Reference {
 impl Reference {
     pub const HG19: &str = "hg19";
     pub const HG38: &str = "hg38";
+    pub const NO_REFERENCE: &str = "no_reference";
 
     pub fn get_common_genome_names() -> Result<Vec<(String, String)>, TGVError> {
         let mut common_genome_names = Vec::new();
@@ -66,9 +64,11 @@ impl std::fmt::Display for Reference {
         let reference = match self {
             Self::Hg19 => Self::HG19,
             Self::Hg38 => Self::HG38,
-            Self::UcscGenome(s) | Self::UcscAccession(s) => s,
-            Self::BYOIndexedFasta(s) | Self::BYOTwoBit(s) => s.split('/').next_back().unwrap_or(s),
-            Self::NoReference => "no_reference",
+            Self::UcscGenome(s)
+            | Self::UcscAccession(s)
+            | Self::BYOIndexedFasta(s)
+            | Self::BYOTwoBit(s) => s,
+            Self::NoReference => Self::NO_REFERENCE,
         };
         f.write_str(reference)
     }
@@ -83,6 +83,9 @@ impl std::str::FromStr for Reference {
         if s == Self::HG38 {
             return Ok(Self::Hg38);
         }
+        if s == Self::NO_REFERENCE {
+            return Ok(Self::NoReference);
+        }
         if s.starts_with("GCA_") || s.starts_with("GCF_") {
             // Matches an accession pattern
             return Ok(Self::UcscAccession(s.to_string()));
@@ -94,8 +97,7 @@ impl std::str::FromStr for Reference {
             || s.ends_with(".fa.gz")
             || s.ends_with(".fasta.gz")
         {
-            // check that index file exists
-            let s = shellexpand::tilde(s).to_string();
+            let s = absolute_path(s)?;
             if !std::path::Path::new(&s).exists() {
                 return Err(TGVError::IOError(format!(
                     "Reference genome file {} does not exist",
@@ -114,8 +116,7 @@ impl std::str::FromStr for Reference {
 
         // 2bit
         if s.ends_with(".2bit") {
-            // check that index file exists
-            let s = shellexpand::tilde(s).to_string();
+            let s = absolute_path(s)?;
             if !std::path::Path::new(&s).exists() {
                 return Err(TGVError::IOError(format!(
                     "2bit reference genome file {} does not exist",
@@ -147,17 +148,16 @@ impl std::str::FromStr for Reference {
         Ok(Self::UcscGenome(s.to_string()))
     }
 }
-impl From<Reference> for String {
-    fn from(r: Reference) -> Self {
-        r.to_string()
-    }
-}
-
-impl TryFrom<String> for Reference {
-    type Error = TGVError;
-    fn try_from(s: String) -> Result<Self, TGVError> {
-        s.parse()
-    }
+/// Expands `~` and makes a custom reference path absolute, so it stays valid when a session is
+/// resumed from another working directory.
+fn absolute_path(path: &str) -> Result<String, TGVError> {
+    let absolute = std::path::absolute(shellexpand::tilde(path).as_ref())?;
+    absolute.to_str().map(str::to_owned).ok_or_else(|| {
+        TGVError::IOError(format!(
+            "The reference path {} is not valid UTF-8.",
+            absolute.display()
+        ))
+    })
 }
 
 // to lowercase; remove ."-_
