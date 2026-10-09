@@ -231,7 +231,8 @@ impl TryFrom<&App> for SessionFile {
 
         let mut tracks = Vec::new();
 
-        for file_path in &app.settings.core.file_paths {
+        // The dataset's paths include files opened or removed since startup.
+        for file_path in &app.dataset.settings.file_paths {
             match file_path {
                 FilePath::AlignmentPath(alignment_path) => {
                     tracks.push(TrackEntry::try_from(alignment_path)?);

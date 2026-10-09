@@ -61,6 +61,7 @@ Dataset
 - **Every track kind loads by region.** Each table records its loaded bounds, and `State::ensure_loaded` reads a track only when `has_complete_data(region)` is false. The repository decides how to read the region:
   - Indexed files (bgzipped VCF and BED with a `.tbi` or `.csi` index, BCF, and bigBed) are queried through their index.
   - Plain VCF and BED files are parsed once into the repository, which then answers each read with the whole contig. Both states read through the one repository, so a plain file is parsed once.
+- **Tracks can be added and removed while a dataset is loaded.** `Dataset::add_files` opens the files, appends their contigs to both states' contig headers, and appends a track slot to each per-kind vector, either for every file or for none. `Dataset::remove_track` removes a track from every per-kind vector, so later tracks of the same kind shift down by one; it returns the removed `RepositoryFileIndex` so front ends can shift their own per-kind state, such as `AlignmentView::y`. Track IDs are never reused, so the remaining tracks keep their IDs.
 - **One `Repository` is safe without locks.** A host handles one request at a time, so the two states never read files concurrently.
 
 ## Requests

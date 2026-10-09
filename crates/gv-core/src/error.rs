@@ -97,6 +97,12 @@ pub enum TGVError {
     #[error("OpenDAL error")]
     OpenDALError(#[from] opendal::Error),
 
+    #[error("Not a file: {0}")]
+    NotAFile(String),
+
+    #[error("{file} needs an index: {index}")]
+    MissingIndex { file: String, index: String },
+
     #[error("Alignment Parse error")]
     AlignmentParseError(String),
 
