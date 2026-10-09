@@ -1,7 +1,7 @@
 //! Readers for plain BED, indexed BED, and bigBed files.
 
 use super::bed::{BedColumns, BedSchema, BedTable, is_data_line};
-use crate::{contig_header::ContigHeader, error::TGVError, intervals::Region};
+use crate::{error::TGVError, intervals::Region};
 use bigtools::{BigBedRead, utils::reopen::ReopenableFile};
 use noodles::{bgzf, csi, csi::BinningIndex, tabix};
 use polars::prelude::*;
@@ -79,25 +79,16 @@ impl PlainBed {
     }
 
     /// Returns the whole contig, filtered from the whole file.
-    fn read_bed(
-        &self,
-        region: &Region,
-        contig_header: &ContigHeader,
-    ) -> Result<BedTable, TGVError> {
+    fn read_bed(&self, region: &Region, contig_name: Option<&str>) -> Result<BedTable, TGVError> {
         let contig_index = region.contig_index();
-        let contig = &contig_header.contigs[contig_index];
-        // The file may name the contig by its name or by one of its aliases.
-        let Some(name) = std::iter::once(&contig.name)
-            .chain(&contig.aliases)
-            .find(|name| self.contigs.contains(name))
-        else {
+        let Some(name) = contig_name else {
             return BedColumns::default().into_table(contig_index, (1, u64::MAX));
         };
         let data = self
             .whole_file
             .clone()
             .lazy()
-            .filter(col(Self::CONTIG).eq(lit(name.as_str())))
+            .filter(col(Self::CONTIG).eq(lit(name)))
             .drop(cols([Self::CONTIG]))
             .collect()?;
         BedTable::whole_contig(&data, contig_index)
@@ -143,19 +134,14 @@ impl IndexedBed {
     fn read_bed(
         &mut self,
         region: &Region,
-        contig_header: &ContigHeader,
+        contig_name: Option<&str>,
     ) -> Result<BedTable, TGVError> {
         let contig_index = region.contig_index();
         let mut columns = BedColumns::default();
-        let contig = &contig_header.contigs[contig_index];
-        // The file may name the contig by its name or by one of its aliases.
-        let Some(name) = std::iter::once(&contig.name)
-            .chain(&contig.aliases)
-            .find(|name| self.contigs.contains(name))
-        else {
+        let Some(name) = contig_name else {
             return columns.into_table(contig_index, (1, u64::MAX));
         };
-        for record in self.reader.query(&region.noodles_region(name)?)? {
+        for record in self.reader.query(&region.to_noodles_region(name)?)? {
             columns.push_line(record?.as_ref(), contig_index)?;
         }
         columns.into_table(contig_index, (region.start(), region.end()))
@@ -190,22 +176,11 @@ impl BigBed {
     fn read_bed(
         &mut self,
         region: &Region,
-        contig_header: &ContigHeader,
+        contig_name: Option<&str>,
     ) -> Result<BedTable, TGVError> {
         let contig_index = region.contig_index();
         let mut columns = BedColumns::default();
-        let file_contigs: Vec<String> = self
-            .reader
-            .chroms()
-            .iter()
-            .map(|chrom| chrom.name.clone())
-            .collect();
-        let contig = &contig_header.contigs[contig_index];
-        // The file may name the contig by its name or by one of its aliases.
-        let Some(name) = std::iter::once(&contig.name)
-            .chain(&contig.aliases)
-            .find(|name| file_contigs.contains(name))
-        else {
+        let Some(name) = contig_name else {
             return columns.into_table(contig_index, (1, u64::MAX));
         };
         let end = u32::try_from(region.end()).unwrap_or(u32::MAX);
@@ -275,7 +250,7 @@ impl BedRepositoryEnum {
         !matches!(self, Self::Bed(_))
     }
 
-    /// Lists the contigs the file uses, with their lengths when known.
+    /// Lists the contig names that reads can use, with their lengths when known.
     pub fn read_contigs(&self) -> Vec<(String, Option<u64>)> {
         match self {
             Self::Bed(file) => file.read_contigs(),
@@ -285,15 +260,17 @@ impl BedRepositoryEnum {
     }
 
     /// Reads the features overlapping a region. Plain files return the whole contig.
+    /// `contig_name` is the file's name for the region's contig, or `None` when the file
+    /// doesn't have it, which reads an empty table.
     pub fn read_bed(
         &mut self,
         region: &Region,
-        contig_header: &ContigHeader,
+        contig_name: Option<&str>,
     ) -> Result<BedTable, TGVError> {
         match self {
-            Self::Bed(file) => file.read_bed(region, contig_header),
-            Self::IndexedBed(file) => file.read_bed(region, contig_header),
-            Self::BigBed(file) => file.read_bed(region, contig_header),
+            Self::Bed(file) => file.read_bed(region, contig_name),
+            Self::IndexedBed(file) => file.read_bed(region, contig_name),
+            Self::BigBed(file) => file.read_bed(region, contig_name),
         }
     }
 }
@@ -307,8 +284,7 @@ fn index_path(path: &str, extension: &str) -> Option<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{bed::BedSchema, intervals::IntervalTable};
-    use crate::{contig_header::ContigSource, intervals::Focus, reference::Reference};
+    use crate::{bed::BedSchema, intervals::Focus, intervals::IntervalTable};
     use rstest::rstest;
     use std::io::Write as _;
     use tempfile::TempDir;
@@ -327,14 +303,6 @@ mod tests {
             },
             half_width: (end - start) / 2,
         }
-    }
-
-    fn contig_header(names: impl IntoIterator<Item = String>) -> ContigHeader {
-        let mut header = ContigHeader::new(Reference::NoReference);
-        for name in names {
-            header.update_or_add_contig(name, None, Vec::new(), ContigSource::Sequence);
-        }
-        header
     }
 
     /// Plain and indexed BED files return the same features for a region and cover it.
@@ -366,10 +334,8 @@ mod tests {
         };
         let mut repository = BedRepositoryEnum::new(&path).unwrap();
         assert_eq!(repository.is_indexed(), indexed);
-        let contigs = contig_header(["chr17".to_owned(), "chr20".to_owned()]);
-
         let viewed = region(1, 88_000, 88_300);
-        let table = repository.read_bed(&viewed, &contigs).unwrap();
+        let table = repository.read_bed(&viewed, Some("chr20")).unwrap();
         assert!(table.has_complete_data(&viewed));
         let rows = table.query(1, viewed.start(), viewed.end()).unwrap();
         let column = |name: &str| -> Vec<u64> {
@@ -389,11 +355,10 @@ mod tests {
     fn reads_bigbed_by_region() {
         let mut repository = BedRepositoryEnum::new(BIGBED).unwrap();
         assert!(repository.is_indexed());
-        let file_contigs = repository.read_contigs();
-        let contigs = contig_header(file_contigs.iter().map(|(name, _)| name.clone()));
+        let (name, _) = repository.read_contigs().remove(0);
 
         let viewed = region(0, 1, 20_000);
-        let table = repository.read_bed(&viewed, &contigs).unwrap();
+        let table = repository.read_bed(&viewed, Some(&name)).unwrap();
         assert!(table.has_complete_data(&viewed));
         let rows = table.query(0, viewed.start(), viewed.end()).unwrap();
         assert!(rows.height() > 0);

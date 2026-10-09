@@ -46,21 +46,25 @@ A `Dataset` owns everything loaded from one set of files:
 
 ```text
 Dataset
-├── settings     reference, files, backend, cache directory
+├── settings     reference, backend, cache directory
 ├── repository   open readers, shared by both states
-├── tracks       TrackRegistry: track IDs → repository indexes
+├── tracks       TrackRegistry: track IDs → files and repository indexes
 ├── view: State  what a viewer draws
-│   └── alignments, sequence, genes, variants, BED features
+│   └── alignments, sequence, genes, variants, BED features, cytobands
 │                                       ← the region on screen, padded (CachePolicy::VIEWER)
 └── query: State what agent requests load
     └── alignments, sequence, genes, variants, BED features
                                         ← the requested region exactly (CachePolicy::EXACT)
 ```
 
+- **Cytobands load once.** The view loads the reference's cytobands for every contig the first time it needs them, in one query, and keeps them for the session. The query state doesn't load them.
 - **The two states load regions separately.** An agent query on another contig loads into `query` and never replaces what `view` shows.
 - **Every track kind loads by region.** Each table records its loaded bounds, and `State::ensure_loaded` reads a track only when `has_complete_data(region)` is false. The repository decides how to read the region:
   - Indexed files (bgzipped VCF and BED with a `.tbi` or `.csi` index, BCF, and bigBed) are queried through their index.
   - Plain VCF and BED files are parsed once into the repository, which then answers each read with the whole contig. Both states read through the one repository, so a plain file is parsed once.
+- **The registry records the files.** Each `TrackEntry` holds the track's ID, its `RepositoryFileIndex`, and its `FilePath`. Settings describe only the reference, and `Dataset::new` takes the startup files separately, so `get_dataset` and `:w` read the current files from the registry.
+- **Each file keeps its own contig names.** A `ContigHeader` groups names that mean the same contig, such as `chr1` and `1`, into one `Contig`. Each contig records the name that each track file uses, keyed by `RepositoryFileIndex`, so a read asks the file for exactly the name the file listed. A file that doesn't list the contig reads an empty table.
+- **Tracks can be added and removed while a dataset is loaded.** `Dataset::add_files` opens the files, records their contig names in both states' contig headers, and appends a track slot to each per-kind vector, either for every file or for none. `Dataset::remove_track` removes a track from every per-kind vector and from the contig headers, so later tracks of the same kind shift down by one; it returns the removed `RepositoryFileIndex` so front ends can shift their own per-kind state, such as `AlignmentView::y`. Track IDs are never reused, so the remaining tracks keep their IDs.
 - **One `Repository` is safe without locks.** A host handles one request at a time, so the two states never read files concurrently.
 
 ## Requests

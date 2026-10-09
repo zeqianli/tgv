@@ -147,7 +147,15 @@ impl MouseRegister {
             }
             MouseEventKind::Down(MouseButton::Right) => {
                 let target = match hovered {
-                    HoveringAreaType::Sidebar(_) => Some(ContextMenuTarget::Sidebar),
+                    HoveringAreaType::Sidebar(index) => Some(ContextMenuTarget::Sidebar {
+                        track: match layout.areas[index].0 {
+                            AreaType::Coverage(id)
+                            | AreaType::Alignment(id)
+                            | AreaType::Variant(id)
+                            | AreaType::Bed(id) => Some(id),
+                            _ => None,
+                        },
+                    }),
                     HoveringAreaType::Track(track_index) => match &layout.areas[track_index] {
                         (AreaType::Alignment(id) | AreaType::Coverage(id), area) => {
                             Some(ContextMenuTarget::Alignment {

@@ -1,7 +1,7 @@
 use crate::tracks::{TRACK_PREFERENCES, TrackCache, TrackService};
 use crate::{
     contig_header::{Contig, ContigHeader},
-    cytoband::Cytoband,
+    cytoband::CytobandTable,
     error::TGVError,
     gene::GeneTable,
     intervals::IntervalTable,
@@ -232,21 +232,16 @@ impl TrackService for UcscApiTrackService {
         Ok(output)
     }
 
-    async fn get_cytoband(
+    async fn query_cytobands(
         &mut self,
         reference: &Reference,
-        contig_index: usize,
-
         contig_header: &ContigHeader,
-    ) -> Result<Option<Cytoband>, TGVError> {
-        let contig_name = match contig_header.try_get(contig_index)?.get_track_name() {
-            Some(contig_name) => contig_name,
-            None => return Ok(None), // contig not included in the UCSC API
-        };
+    ) -> Result<CytobandTable, TGVError> {
+        // Without a `chrom` parameter, the API returns the bands of every contig.
         let query_url = match reference {
             Reference::Hg19 | Reference::Hg38 | Reference::UcscGenome(_) => format!(
-                "https://api.genome.ucsc.edu/getData/track?genome={}&track=cytoBandIdeo&chrom={}",
-                reference, contig_name
+                "https://api.genome.ucsc.edu/getData/track?genome={}&track=cytoBandIdeo",
+                reference
             ),
             Reference::UcscAccession(genome) => {
                 if self.hub_url.is_none() {
@@ -255,8 +250,8 @@ impl TrackService for UcscApiTrackService {
                 }
                 let hub_url = self.hub_url.as_ref().unwrap();
                 format!(
-                    "https://api.genome.ucsc.edu/getData/track?hubUrl={}&genome={}&track=cytoBandIdeo&chrom={}",
-                    hub_url, genome, contig_name
+                    "https://api.genome.ucsc.edu/getData/track?hubUrl={}&genome={}&track=cytoBandIdeo",
+                    hub_url, genome
                 )
             }
             _ => {
@@ -267,11 +262,9 @@ impl TrackService for UcscApiTrackService {
         };
 
         log::info!(
-            "HTTP request: method=GET url={} context=UCSC cytoband track reference={} contig={} contig_index={}",
+            "HTTP request: method=GET url={} context=UCSC cytoband track reference={}",
             query_url,
             reference,
-            contig_name,
-            contig_index
         );
         let started = Instant::now();
         let response = self.client.get(&query_url).send().await?;
@@ -281,9 +274,9 @@ impl TrackService for UcscApiTrackService {
             query_url,
             started.elapsed().as_millis()
         );
+        // A genome without a cytoband track gets an error body, which reads as no bands.
         let response: UcscApiCytobandResponse = response.json().await.unwrap_or_default();
-
-        response.to_cytoband(reference, contig_index)
+        response.into_table(contig_header)
     }
 
     async fn get_preferred_track_name(
@@ -362,7 +355,7 @@ impl TrackService for UcscApiTrackService {
     ) -> Result<DataFrame, TGVError> {
         let contig_name = match contig_header
             .try_get(region.contig_index())?
-            .get_track_name()
+            .get_gene_track_name()
         {
             Some(contig_name) => contig_name,
             None => return Ok(GeneTable::default().data), // Contig doesn't have track data
@@ -398,7 +391,7 @@ impl TrackService for UcscApiTrackService {
     ) -> Result<DataFrame, TGVError> {
         // query all possible tracks until the gene is found
         for (contig_index, contig) in contig_header.contigs.iter().enumerate() {
-            if let Some(contig_name) = contig.get_track_name() {
+            if let Some(contig_name) = contig.get_gene_track_name() {
                 self.query_track_if_not_cached(reference, contig_name, contig_index, contig_header)
                     .await?;
 
@@ -420,7 +413,7 @@ impl TrackService for UcscApiTrackService {
         k: usize,
         contig_header: &ContigHeader,
     ) -> Result<DataFrame, TGVError> {
-        let contig_name = match contig_header.try_get(contig_index)?.get_track_name() {
+        let contig_name = match contig_header.try_get(contig_index)?.get_gene_track_name() {
             Some(contig_name) => contig_name,
             None => {
                 return Err(TGVError::StateError(format!(
@@ -458,7 +451,7 @@ impl TrackService for UcscApiTrackService {
         k: usize,
         contig_header: &ContigHeader,
     ) -> Result<DataFrame, TGVError> {
-        let contig_name = match contig_header.try_get(contig_index)?.get_track_name() {
+        let contig_name = match contig_header.try_get(contig_index)?.get_gene_track_name() {
             Some(contig_name) => contig_name,
             None => {
                 return Err(TGVError::StateError(format!(
@@ -497,7 +490,7 @@ impl TrackService for UcscApiTrackService {
 
         contig_header: &ContigHeader,
     ) -> Result<DataFrame, TGVError> {
-        let contig_name = match contig_header.try_get(contig_index)?.get_track_name() {
+        let contig_name = match contig_header.try_get(contig_index)?.get_gene_track_name() {
             Some(contig_name) => contig_name,
             None => {
                 return Err(TGVError::StateError(format!(
@@ -535,7 +528,7 @@ impl TrackService for UcscApiTrackService {
         k: usize,
         contig_header: &ContigHeader,
     ) -> Result<DataFrame, TGVError> {
-        let contig_name = match contig_header.try_get(contig_index)?.get_track_name() {
+        let contig_name = match contig_header.try_get(contig_index)?.get_gene_track_name() {
             Some(contig_name) => contig_name,
             None => {
                 return Err(TGVError::StateError(format!(

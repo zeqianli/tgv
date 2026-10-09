@@ -192,11 +192,21 @@ impl ContextMenu {
         Ok(items)
     }
 
-    pub fn sidebar_items() -> Vec<MenuItem> {
-        vec![MenuItem::entry(
+    /// Items for the sidebar. `track` is the file track whose section was clicked, with its
+    /// file name.
+    pub fn sidebar_items(track: Option<(TrackId, &str)>) -> Vec<MenuItem> {
+        let mut items = Vec::new();
+        if let Some((id, file_name)) = track {
+            items.push(MenuItem::entry(
+                format!("Remove {file_name}"),
+                Some(Action::RemoveTrack(id)),
+            ));
+        }
+        items.push(MenuItem::entry(
             "Hide sidebar (s)",
             Some(Action::UpdateLayout(UpdateLayoutAction::ToggleSidebar)),
-        )]
+        ));
+        items
     }
 
     /// Translates a mouse event while the menu is open.

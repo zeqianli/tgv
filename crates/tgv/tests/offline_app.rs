@@ -1,8 +1,12 @@
 mod support;
 
 use crossterm::event::{KeyCode, KeyModifiers, MouseButton, MouseEvent, MouseEventKind};
-use gv_core::message::{
-    AlignmentDisplayOption, AlignmentSort, Message as CoreMessage, Movement, Scroll, Zoom,
+use gv_core::{
+    message::{
+        AlignmentDisplayOption, AlignmentSort, Message as CoreMessage, Movement, Scroll, Zoom,
+    },
+    repository::RepositoryFileIndex,
+    track_registry::TrackId,
 };
 use gv_session::{
     DatasetRequest, HighlightRequest, InspectInterval, NavigateRequest, QueryRequest, SessionError,
@@ -12,6 +16,7 @@ use support::{AppHarness, test_data_path};
 use tempfile::TempDir;
 use tgv::{
     app::{Highlight, Scene},
+    layout::AreaType,
     message::{Action, UpdateLayoutAction},
     session::SessionFile,
 };
@@ -333,6 +338,144 @@ async fn offline_sequence_saves_session_and_save_and_quit() {
     assert!(harness.app.exit);
     assert_eq!(harness.app.settings.session_path, Some(quit_path.clone()));
     assert!(quit_path.exists());
+
+    harness.close().await.unwrap();
+}
+
+fn track_indexes(harness: &AppHarness) -> Vec<(TrackId, RepositoryFileIndex)> {
+    harness
+        .app
+        .dataset
+        .tracks
+        .entries
+        .iter()
+        .map(|entry| (entry.id, entry.repository_index))
+        .collect()
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn offline_tracks_open_and_remove_at_runtime() {
+    use RepositoryFileIndex::{Alignment, Bed, Variant};
+
+    let mut harness = covid_harness().await;
+    let opened = [
+        "ncbi.sorted.bam",
+        "simple.vcf",
+        "covid.sorted.bam",
+        "simple.bed",
+    ]
+    .map(test_data_path);
+    harness
+        .handle_command(&format!("e {}", opened.join(" ")))
+        .await
+        .unwrap();
+    assert!(harness.app.dataset.view.messages[0].starts_with("Opening ncbi.sorted.bam, "));
+    harness.open_pending().await.unwrap();
+
+    assert_eq!(
+        harness.app.dataset.view.messages,
+        vec!["Opened 4 files.".to_string()]
+    );
+    assert_eq!(
+        track_indexes(&harness),
+        vec![
+            (0, Alignment(0)),
+            (1, Alignment(1)),
+            (2, Variant(0)),
+            (3, Alignment(2)),
+            (4, Bed(0)),
+        ]
+    );
+    assert_eq!(harness.app.alignment_view.y.len(), 3);
+    assert_eq!(
+        harness.app.layout.tracks,
+        vec![
+            AreaType::Coordinate,
+            AreaType::Coverage(0),
+            AreaType::Alignment(0),
+            AreaType::AlignmentDivider { upper: 0, lower: 1 },
+            AreaType::Coverage(1),
+            AreaType::Alignment(1),
+            AreaType::Variant(2),
+            AreaType::AlignmentDivider { upper: 1, lower: 3 },
+            AreaType::Coverage(3),
+            AreaType::Alignment(3),
+            AreaType::Bed(4),
+            AreaType::Sequence,
+            AreaType::Console,
+            AreaType::Error,
+        ]
+    );
+
+    harness.app.alignment_view.y = vec![1, 2, 3];
+    harness.app.focused_alignment = 2;
+    harness.handle(vec![Action::RemoveTrack(1)]).await.unwrap();
+
+    assert_eq!(
+        harness.app.dataset.view.messages,
+        vec!["Removed ncbi.sorted.bam.".to_string()]
+    );
+    assert_eq!(
+        track_indexes(&harness),
+        vec![
+            (0, Alignment(0)),
+            (2, Variant(0)),
+            (3, Alignment(1)),
+            (4, Bed(0)),
+        ]
+    );
+    assert_eq!(harness.app.alignment_view.y, vec![1, 3]);
+    assert_eq!(harness.app.focused_alignment, 1);
+    assert_eq!(harness.app.dataset.view.alignments.len(), 2);
+    let layout_tracks = &harness.app.layout.tracks;
+    assert!(!layout_tracks.contains(&AreaType::Alignment(1)));
+    assert!(layout_tracks.contains(&AreaType::AlignmentDivider { upper: 0, lower: 3 }));
+    assert_eq!(harness.app.layout.track_heights.len(), layout_tracks.len());
+
+    let temp_dir = TempDir::new().unwrap();
+    let save_path = temp_dir.path().join("runtime-tracks.toml");
+    harness
+        .handle_command(&format!("w {}", save_path.display()))
+        .await
+        .unwrap();
+    let session = SessionFile::from_path(&save_path).unwrap();
+    assert_eq!(session.genome, test_data_path("covid.fa"));
+    let saved: Vec<String> = session.tracks.into_iter().map(|track| track.path).collect();
+    assert_eq!(
+        saved,
+        vec![
+            test_data_path("covid.sorted.bam"),
+            opened[1].clone(),
+            opened[2].clone(),
+            opened[3].clone(),
+        ]
+    );
+
+    harness.close().await.unwrap();
+}
+
+#[rstest]
+#[case::missing_file("open missing.bam", "Not a file: missing.bam")]
+#[case::unsupported_type("e notes.txt", "CLI error: Unrecognized file format: notes.txt.")]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn offline_track_open_errors_leave_tracks_unchanged(
+    #[case] command: &str,
+    #[case] message_prefix: &str,
+) {
+    let mut harness = covid_harness().await;
+    harness.handle_command(command).await.unwrap();
+    harness.open_pending().await.unwrap();
+
+    assert!(
+        harness.app.dataset.view.messages[0].starts_with(message_prefix),
+        "{:?}",
+        harness.app.dataset.view.messages
+    );
+    assert_eq!(
+        track_indexes(&harness),
+        vec![(0, RepositoryFileIndex::Alignment(0))]
+    );
+    assert_eq!(harness.app.alignment_view.y.len(), 1);
 
     harness.close().await.unwrap();
 }

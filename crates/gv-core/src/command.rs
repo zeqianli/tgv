@@ -9,6 +9,8 @@ use crate::{
 /// - `:q`: Quit.
 /// - `:w [name|path]`: Save the session. Without an argument, save to the active session.
 /// - `:wq [name|path]`: Save the session and quit.
+/// - `:e PATH…`, `:open PATH…`: Add file tracks. Paths use shell quoting, and `~` expands to the
+///   home directory.
 /// - `:paired`: Show alignments as read pairs.
 /// - `:clear`, `:default`: Restore the default alignment display.
 ///
@@ -25,6 +27,10 @@ pub fn parse(input: &str) -> Result<Vec<Message>, TGVError> {
 
     if let Some(message) = parse_session_command(input, "wq", Message::SaveAndQuit) {
         return Ok(vec![message]);
+    }
+
+    if let Some(message) = parse_open_command(input) {
+        return message.map(|message| vec![message]);
     }
 
     if input.eq_ignore_ascii_case("clear") || input.eq_ignore_ascii_case("default") {
@@ -108,6 +114,33 @@ fn parse_locus(locus: &str) -> Option<SearchLocus> {
     }
 }
 
+fn parse_open_command(input: &str) -> Option<Result<Message, TGVError>> {
+    let (command, arguments) = input.split_once(char::is_whitespace).unwrap_or((input, ""));
+    if command != "e" && command != "open" {
+        return None;
+    }
+
+    let paths = match shlex::split(arguments) {
+        Some(paths) if !paths.is_empty() => paths,
+        Some(_) => {
+            return Some(Err(TGVError::RegisterError(format!(
+                "Name the files to open: :{command} PATH…"
+            ))));
+        }
+        None => {
+            return Some(Err(TGVError::RegisterError(format!(
+                "Unmatched quote in: {arguments}"
+            ))));
+        }
+    };
+    Some(Ok(Message::OpenFiles(
+        paths
+            .iter()
+            .map(|path| shellexpand::tilde(path).into_owned())
+            .collect(),
+    )))
+}
+
 fn parse_session_command(
     input: &str,
     command: &str,
@@ -144,6 +177,15 @@ mod tests {
     #[case("TP53", None)]
     #[case("sort base", None)]
     #[case("wfoo", None)]
+    #[case("e a.bam", Some(vec![Message::OpenFiles(vec!["a.bam".to_string()])]))]
+    #[case("open a.bam  b.vcf", Some(vec![Message::OpenFiles(vec!["a.bam".to_string(), "b.vcf".to_string()])]))]
+    #[case("e 'my file.bed'", Some(vec![Message::OpenFiles(vec!["my file.bed".to_string()])]))]
+    #[case(r"e my\ file.bed", Some(vec![Message::OpenFiles(vec!["my file.bed".to_string()])]))]
+    #[case("e", None)]
+    #[case("open", None)]
+    #[case("e 'a.bam", None)]
+    #[case("efoo", None)]
+    #[case("opena.bam", None)]
     fn test_command_parse(#[case] input: &str, #[case] expected: Option<Vec<Message>>) {
         assert_eq!(parse(input).ok(), expected);
     }

@@ -14,6 +14,8 @@ pub enum Message {
     SaveSession(Option<String>),
     SaveAndQuit(Option<String>),
     SetAlignmentOption(Vec<AlignmentDisplayOption>),
+    /// Adds file tracks from these paths, in order.
+    OpenFiles(Vec<String>),
 
     Message(String),
 }

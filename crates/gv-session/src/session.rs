@@ -9,8 +9,13 @@ use crate::{
     schema::*,
     tables::{QueryRegion, TableSources},
 };
-use gv_core::{prelude::*, settings::Settings};
-use std::sync::Arc;
+use gv_core::{
+    alignment::is_url,
+    prelude::*,
+    settings::{Settings, classify_and_build_tracks},
+    track_registry::TrackEntry,
+};
+use std::{path::Path, sync::Arc};
 use tokio::{
     sync::{mpsc, oneshot},
     task::JoinHandle,
@@ -281,7 +286,7 @@ impl Dataset {
                 .map(|entry| TrackDescription {
                     id: entry.id,
                     r#type: entry.repository_index.into(),
-                    source: self.repository.file_path(entry.repository_index).to_owned(),
+                    source: entry.file_path.path().to_owned(),
                 })
                 .collect(),
         }
@@ -296,9 +301,9 @@ impl Dataset {
         let prior_settings = current
             .as_ref()
             .map_or(defaults, |dataset| &dataset.settings);
-        let new_settings = request.update_settings(prior_settings)?;
+        let (new_settings, files) = request.update_settings(prior_settings)?;
         let replacement =
-            Self::new(new_settings)
+            Self::new(new_settings, files)
                 .await
                 .map_err(|error| SessionError::InvalidInput {
                     field: "files",
@@ -313,30 +318,103 @@ impl Dataset {
         Ok(description)
     }
 
-    /// Opens the dataset's repositories and creates empty view and query states.
-    pub async fn new(settings: Settings) -> Result<Self, TGVError> {
-        let (repository, contigs, file_indexes) = Repository::new(&settings).await?;
-        let empty_state = |contigs: ContigHeader| -> Result<State, TGVError> {
-            let mut state = State::new(settings.reference.clone(), contigs)?;
-            for file in &settings.file_paths {
-                match file {
-                    FilePath::AlignmentPath(_) => state.add_alignment_track(),
-                    FilePath::VariantPath(_) => state.add_variant_track(),
-                    FilePath::BedPath(_) => state.add_bed_track(),
-                }
-            }
-            Ok(state)
-        };
-        let view = empty_state(contigs.clone())?;
-        let query = empty_state(contigs)?;
-        let tracks = Arc::new(TrackRegistry::new(&file_indexes));
-        Ok(Self {
+    /// Opens the reference and the files, and creates empty view and query states.
+    pub async fn new(settings: Settings, files: Vec<FilePath>) -> Result<Self, TGVError> {
+        let (repository, contigs) = Repository::new(&settings).await?;
+        let mut dataset = Self {
+            view: State::new(settings.reference.clone(), contigs.clone())?,
+            query: State::new(settings.reference.clone(), contigs)?,
             settings,
             repository,
-            tracks,
-            view,
-            query,
-        })
+            tracks: Arc::new(TrackRegistry::default()),
+        };
+        dataset.add_file_paths(files).await?;
+        Ok(dataset)
+    }
+
+    /// Classifies paths by file type, then adds them like [`Dataset::add_file_paths`].
+    pub async fn add_files(&mut self, files: &[String]) -> Result<Vec<TrackId>, TGVError> {
+        self.add_file_paths(classify_and_build_tracks(files)?).await
+    }
+
+    /// Opens files and appends them as tracks with fresh IDs, in order.
+    ///
+    /// Either every file is added or none is. Each file's contig names are recorded in both
+    /// states' contig headers before the tracks are added. New contigs are appended, so existing
+    /// contig indexes stay valid.
+    pub async fn add_file_paths(
+        &mut self,
+        file_paths: Vec<FilePath>,
+    ) -> Result<Vec<TrackId>, TGVError> {
+        if let Some(missing) = file_paths
+            .iter()
+            .map(FilePath::path)
+            .find(|path| !is_url(path) && !Path::new(path).is_file())
+        {
+            return Err(TGVError::NotAFile(missing.to_owned()));
+        }
+
+        let mut opened = Vec::with_capacity(file_paths.len());
+        let mut view_contigs = self.view.contig_header.clone();
+        let mut query_contigs = self.query.contig_header.clone();
+        if let Err(error) = self
+            .open_files(
+                &file_paths,
+                &mut opened,
+                &mut view_contigs,
+                &mut query_contigs,
+            )
+            .await
+        {
+            // Later files of a kind sit after earlier ones, so remove them last-first.
+            for &index in opened.iter().rev() {
+                self.repository.remove(index);
+            }
+            return Err(error);
+        }
+        self.view.contig_header = view_contigs;
+        self.query.contig_header = query_contigs;
+
+        let tracks = Arc::make_mut(&mut self.tracks);
+        let mut ids = Vec::with_capacity(opened.len());
+        for (file_path, index) in file_paths.into_iter().zip(opened) {
+            self.view.add_track(&file_path);
+            self.query.add_track(&file_path);
+            ids.push(tracks.push(index, file_path));
+        }
+        Ok(ids)
+    }
+
+    /// Opens repositories into `opened` and merges their contigs, stopping at the first error.
+    async fn open_files(
+        &mut self,
+        file_paths: &[FilePath],
+        opened: &mut Vec<RepositoryFileIndex>,
+        view_contigs: &mut ContigHeader,
+        query_contigs: &mut ContigHeader,
+    ) -> Result<(), TGVError> {
+        for file_path in file_paths {
+            let index = self
+                .repository
+                .open_file(file_path, self.settings.quality_encoding)
+                .await?;
+            opened.push(index);
+            self.repository.merge_contigs(index, view_contigs)?;
+            self.repository.merge_contigs(index, query_contigs)?;
+        }
+        Ok(())
+    }
+
+    /// Removes a track and returns its entry. Later tracks of the same kind shift down by one
+    /// in the per-kind state, and front ends apply the same shift to theirs.
+    pub fn remove_track(&mut self, id: TrackId) -> Result<TrackEntry, TGVError> {
+        let entry = Arc::make_mut(&mut self.tracks)
+            .remove(id)
+            .ok_or_else(|| TGVError::StateError(format!("Track {id} does not exist.")))?;
+        self.repository.remove(entry.repository_index);
+        self.view.remove_track(entry.repository_index);
+        self.query.remove_track(entry.repository_index);
+        Ok(entry)
     }
 
     /// Loads the selected tracks, the reference sequence, and gene annotations for a region
@@ -359,6 +437,7 @@ impl Dataset {
                 &LoadRequest {
                     sequence: true,
                     genes: true,
+                    cytobands: false,
                     files: &files,
                     cache: CachePolicy::EXACT,
                 },
@@ -374,7 +453,7 @@ impl Dataset {
                 || tracks
                     .iter()
                     .enumerate()
-                    .any(|(i, id)| tracks[..i].contains(id) || *id >= self.tracks.entries.len())
+                    .any(|(i, id)| tracks[..i].contains(id) || !self.tracks.contains(*id))
             {
                 return Err(SessionError::InvalidInput {
                     field: "tracks",
@@ -504,17 +583,21 @@ impl Dataset {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use gv_core::settings::classify_and_build_tracks;
 
     const CONTIG: &str = "MN908947.3";
 
+    const DATA: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/../tgv/tests/data");
+
     fn covid_settings() -> Settings {
-        let data = concat!(env!("CARGO_MANIFEST_DIR"), "/../tgv/tests/data");
         Settings {
-            reference: format!("{data}/covid.fa").parse().unwrap(),
-            file_paths: classify_and_build_tracks(&[format!("{data}/covid.sorted.bam")]).unwrap(),
+            reference: format!("{DATA}/covid.fa").parse().unwrap(),
             ..Settings::default()
         }
+    }
+
+    async fn covid_dataset() -> Dataset {
+        let files = classify_and_build_tracks(&[format!("{DATA}/covid.sorted.bam")]).unwrap();
+        Dataset::new(covid_settings(), files).await.unwrap()
     }
 
     fn region(dataset: &Dataset, start: u64, end: u64) -> Region {
@@ -532,7 +615,7 @@ mod tests {
     // Polars blocks in place inside Tokio, which needs the multi-threaded runtime.
     #[tokio::test(flavor = "multi_thread")]
     async fn queries_leave_the_view_loaded() {
-        let mut dataset = Dataset::new(covid_settings()).await.unwrap();
+        let mut dataset = covid_dataset().await;
         let viewed = region(&dataset, 100, 300);
         let files: Vec<RepositoryFileIndex> = dataset
             .tracks
@@ -547,6 +630,7 @@ mod tests {
                 &LoadRequest {
                     sequence: true,
                     genes: true,
+                    cytobands: false,
                     files: &files,
                     cache: CachePolicy::VIEWER,
                 },

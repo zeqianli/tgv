@@ -73,8 +73,34 @@ Right-click an alignment track for a menu. It applies to the clicked track only:
 - Reset display options.
 
 The base items need one base per column, so they are disabled when zoomed out.
-Right-click the sidebar for an option to hide it (also `s`). Click outside the
-menu or press `Esc` to close it.
+Right-click the sidebar for an option to hide it (also `s`). Right-clicking a
+file's section in the sidebar also offers "Remove _file name_", which removes
+that track. Click outside the menu or press `Esc` to close it.
+
+### Adding and removing files
+
+Add files while tgv runs with `:e` or `:open`, followed by one or more paths.
+Paths use shell quoting, such as `:e 'my reads.bam'`, and `~` stands for the
+home directory. New tracks go after the existing ones, in command-line order,
+and the other tracks keep their heights. tgv shows "Opening _file_…" while it
+opens them. If any file can't be opened, none are added, and the message says
+why, for example `/data/simple.bam needs an index: /data/simple.bam.bai` or
+`Not a file: /data/simple.bam`.
+
+Drag files from a file manager into the terminal to add them. Terminals such
+as Ghostty, iTerm2, kitty, WezTerm, and Terminal.app paste the dropped paths,
+and in normal mode tgv opens them like `:e`. A paste is handled the same way,
+so pasting paths also opens them. In command and search mode, a paste is
+inserted into the command line instead, so you can paste a locus after `/`.
+
+- The terminal doesn't report where a file was dropped, so dropped tracks are
+  added at the end.
+- Over SSH, a dropped path names a file on your local machine, so tgv reports
+  it as not a file.
+
+Remove a track by right-clicking its section in the sidebar. `:w` saves the
+current files, including the ones you added and leaving out the ones you
+removed.
 
 Command mode
 
@@ -84,6 +110,7 @@ Command mode
 | `:w _name_` | Save the session to `~/.tgv/sessions/_name_.toml`, or to a path | `:w brca`, `:w ./brca.toml` |
 | `:w` | Save to the active session (from `--resume` or the last `:w _name_`) | |
 | `:wq [_name_]` | Save the session like `:w` and quit | `:wq brca` |
+| `:e _path_…` / `:open _path_…` | Add file tracks | `:e /data/simple.vcf /data/simple.bed` |
 | `:ls` / `:contigs` | List contigs (`j/k` to select, `Esc`, `Enter`) | |
 | `:paired` | Show alignments as read pairs | |
 | `:clear` / `:default` | Restore the default alignment display | |

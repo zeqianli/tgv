@@ -32,8 +32,15 @@ impl IndexedFastaSequenceRepository {
         region: &Region,
         contig_header: &ContigHeader,
     ) -> Result<Sequence, TGVError> {
-        let sequence = if let Some(region) = region.noodles_sequence(contig_header)? {
-            self.reader.query(&region)?.sequence().as_ref().to_vec()
+        let name = contig_header
+            .try_get(region.contig_index())?
+            .get_sequence_name();
+        let sequence = if let Some(name) = name {
+            self.reader
+                .query(&region.to_noodles_region(name)?)?
+                .sequence()
+                .as_ref()
+                .to_vec()
         } else {
             vec![]
         };

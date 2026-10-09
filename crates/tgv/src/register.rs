@@ -3,9 +3,11 @@ use crate::{
     message::{Action, Movement, UpdateLayoutAction},
 };
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+use gv_core::alignment::is_url;
 use gv_core::normal::update_by_char;
 use gv_core::prelude::*;
 use itertools::Itertools;
+use std::path::Path;
 #[derive(Debug, Clone, Eq, PartialEq)]
 pub enum KeyRegisterType {
     Normal,
@@ -51,6 +53,34 @@ impl Registers {
 }
 
 impl Registers {
+    /// Handles a bracketed paste. Terminals paste dropped files as shell-escaped paths, so in
+    /// normal mode a paste of existing files opens them. On the command line, the text is
+    /// inserted at the cursor.
+    pub fn handle_paste(&mut self, text: &str) -> Vec<Action> {
+        match self.current {
+            KeyRegisterType::Normal => {
+                let paths = shlex::split(text.trim()).unwrap_or_default();
+                if paths.is_empty() {
+                    return vec![Action::message(format!("Not a file: {}", text.trim()))];
+                }
+                match paths
+                    .iter()
+                    .find(|path| !is_url(path) && !Path::new(path).is_file())
+                {
+                    Some(missing) => vec![Action::message(format!("Not a file: {missing}"))],
+                    None => vec![Action::Core(gv_core::message::Message::OpenFiles(paths))],
+                }
+            }
+            KeyRegisterType::Command | KeyRegisterType::Search => {
+                let text: String = text.chars().filter(|c| !matches!(c, '\n' | '\r')).collect();
+                self.command.insert_str(self.command_cursor, &text);
+                self.command_cursor += text.len();
+                vec![Action::CommandChanged]
+            }
+            KeyRegisterType::ContigList => Vec::new(),
+        }
+    }
+
     /// Move the selected contig up or down.
     fn handle_contig_list(
         &mut self,

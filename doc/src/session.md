@@ -2,7 +2,8 @@
 
 A session file captures the current state of a tgv session so it can be restored later.
 Sessions are opt-in: tgv reads a session only when you pass `--resume`, and writes one
-only when you save it with `:w`. Nothing is saved automatically on exit.
+only when you save it with `:w`. Nothing is saved automatically on exit. `:w` saves the
+files shown when you save, including files added with `:e` and leaving out removed ones.
 
 Sessions are plain TOML files and can be edited by hand.
 
@@ -37,7 +38,7 @@ path = "/data/annotations.bed"
 |---|---|---|---|
 | `version` | integer | required | Schema version. TGV writes version `2` and reads versions `1` and `2`. |
 | `locus` | string | required | Starting genomic position. See [locus format](#locus-format). |
-| `genome` | string | `"hg38"` | Reference genome. Same as the `-g` / `--reference` flag. |
+| `genome` | string | `"hg38"` | Reference genome. Same as the `-g` / `--reference` flag. `:w` saves a custom FASTA or 2bit reference as an absolute path, and no reference as `"no_reference"`. |
 | `ucsc_host` | string | `"auto"` | UCSC mirror: `"auto"`, `"us"`, or `"eu"`. |
 | `zoom` | integer | `1` | Initial zoom level, stored as bases per character. |
 

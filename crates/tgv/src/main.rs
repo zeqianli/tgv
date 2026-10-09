@@ -1,6 +1,6 @@
 use clap::Parser;
 use crossterm::{
-    event::{DisableMouseCapture, EnableMouseCapture},
+    event::{DisableBracketedPaste, DisableMouseCapture, EnableBracketedPaste, EnableMouseCapture},
     execute,
 };
 use gv_core::logging::{init_file_logging_with_level, timestamped_log_file_name};
@@ -66,10 +66,7 @@ async fn main() -> Result<(), TGVError> {
             let mut settings = SessionFile::from_path(&path)
                 .and_then(Settings::try_from)
                 .map_err(|e| {
-                    TGVError::CliError(format!(
-                        "Failed to resume session {}: {e}",
-                        path.display()
-                    ))
+                    TGVError::CliError(format!("Failed to resume session {}: {e}", path.display()))
                 })?;
             log::info!("Resumed session from {}", path.display());
             cli.apply_overrides(&mut settings)?;
@@ -82,7 +79,7 @@ async fn main() -> Result<(), TGVError> {
         "Settings are ready: session={:?} reference={} tracks={} test_mode={}",
         settings.session_path,
         settings.core.reference,
-        settings.core.file_paths.len(),
+        settings.files.len(),
         settings.test_mode,
     );
 
@@ -90,7 +87,7 @@ async fn main() -> Result<(), TGVError> {
 
     set_panic_hook();
 
-    execute!(stdout(), EnableMouseCapture)?;
+    execute!(stdout(), EnableMouseCapture, EnableBracketedPaste)?;
 
     // Gather resources before starting the app.
     let mut app = match App::new(settings).await {
@@ -98,9 +95,9 @@ async fn main() -> Result<(), TGVError> {
         Err(e) => {
             log::error!("Failed to initialize the app: {e}");
             ratatui::restore();
-            if let Err(err) = execute!(stdout(), DisableMouseCapture) {
-                log::error!("Error disabling mouse capture: {err}");
-                eprintln!("Error disabling mouse capture: {err}");
+            if let Err(err) = execute!(stdout(), DisableMouseCapture, DisableBracketedPaste) {
+                log::error!("Error disabling mouse capture and bracketed paste: {err}");
+                eprintln!("Error disabling mouse capture and bracketed paste: {err}");
             }
             return Err(e);
         }
@@ -113,9 +110,9 @@ async fn main() -> Result<(), TGVError> {
     drop(socket);
 
     ratatui::restore();
-    if let Err(err) = execute!(stdout(), DisableMouseCapture) {
-        log::error!("Error disabling mouse capture: {err}");
-        eprintln!("Error disabling mouse capture: {err}");
+    if let Err(err) = execute!(stdout(), DisableMouseCapture, DisableBracketedPaste) {
+        log::error!("Error disabling mouse capture and bracketed paste: {err}");
+        eprintln!("Error disabling mouse capture and bracketed paste: {err}");
     }
 
     app.close().await?;
@@ -155,8 +152,8 @@ fn set_panic_hook() {
     std::panic::set_hook(Box::new(move |info| {
         log::error!("The app panicked: {info}");
         hook(info);
-        if let Err(err) = execute!(stdout(), DisableMouseCapture) {
-            eprintln!("Error disabling mouse capture: {err}");
+        if let Err(err) = execute!(stdout(), DisableMouseCapture, DisableBracketedPaste) {
+            eprintln!("Error disabling mouse capture and bracketed paste: {err}");
         }
     }));
 }

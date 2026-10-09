@@ -25,7 +25,8 @@ const CURRENT_VERSION: u32 = 2;
 pub struct SessionFile {
     pub version: u32,
     pub locus: String,
-    pub genome: Reference,
+    /// A [`Reference`] in its displayed form, parsed when the session becomes settings.
+    pub genome: String,
     /// `"us"`, `"eu"`, or `"auto"`. Resolved to a concrete host on load.
     pub ucsc_host: UcscHost,
     /// Bases per character.
@@ -197,13 +198,18 @@ impl TryFrom<SessionFile> for Settings {
 
         Ok(Settings {
             core: gv_core::settings::Settings {
-                file_paths,
-                reference: session.genome,
+                reference: session.genome.parse().map_err(|e| {
+                    TGVError::ParsingError(format!(
+                        "Invalid genome \"{}\" in the session file: {e}",
+                        session.genome
+                    ))
+                })?,
                 backend: BackendType::Default,
                 ucsc_host: session.ucsc_host,
                 cache_dir: gv_core::settings::Settings::default().cache_dir,
                 quality_encoding: Default::default(),
             },
+            files: file_paths,
             initial_actions,
             zoom: Some(session.zoom),
             test_mode: false,
@@ -231,8 +237,9 @@ impl TryFrom<&App> for SessionFile {
 
         let mut tracks = Vec::new();
 
-        for file_path in &app.settings.core.file_paths {
-            match file_path {
+        // The registry includes files opened since startup and leaves out removed ones.
+        for entry in &app.dataset.tracks.entries {
+            match &entry.file_path {
                 FilePath::AlignmentPath(alignment_path) => {
                     tracks.push(TrackEntry::try_from(alignment_path)?);
                 }
@@ -250,7 +257,7 @@ impl TryFrom<&App> for SessionFile {
         Ok(SessionFile {
             version: CURRENT_VERSION,
             locus,
-            genome: app.settings.core.reference.clone(),
+            genome: app.settings.core.reference.to_string(),
             ucsc_host: app.settings.core.ucsc_host.clone(),
             zoom: app.alignment_view.zoom,
             tracks,

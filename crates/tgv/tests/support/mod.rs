@@ -93,6 +93,14 @@ impl AppHarness {
         self.handle_key_codes(key_codes).await
     }
 
+    /// Opens the files that `:e` or a paste requested, as the event loop does after a frame.
+    pub async fn open_pending(&mut self) -> Result<(), TGVError> {
+        let render_events = self.app.open_pending().await?;
+        self.self_correct()?;
+        self.render(&render_events);
+        Ok(())
+    }
+
     pub async fn handle_movement(&mut self, movement: Movement) -> Result<(), TGVError> {
         self.handle_core(vec![CoreMessage::Move(movement)]).await
     }

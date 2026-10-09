@@ -222,7 +222,7 @@ impl Cli {
 
         // Track override: if any files were provided, replace all session tracks.
         if !self.files.is_empty() {
-            settings.core.file_paths = classify_and_build_tracks(&self.files)?;
+            settings.files = classify_and_build_tracks(&self.files)?;
         }
 
         // Backend override: only when explicitly requested.
@@ -267,8 +267,7 @@ impl Cli {
         }
 
         // Validate: input data and reference cannot both be absent.
-        if settings.core.file_paths.is_empty() && settings.core.reference == Reference::NoReference
-        {
+        if settings.files.is_empty() && settings.core.reference == Reference::NoReference {
             return Err(TGVError::CliError(
                 "Input files and reference cannot both be none".to_string(),
             ));
@@ -281,6 +280,9 @@ impl Cli {
 #[derive(Debug, Clone, Eq, PartialEq)]
 pub struct Settings {
     pub core: gv_core::settings::Settings,
+    /// The files to open at startup. Once the app runs, its dataset's track registry records
+    /// the files it shows.
+    pub files: Vec<FilePath>,
     pub initial_actions: Vec<Action>,
     pub test_mode: bool,
 
@@ -298,6 +300,7 @@ impl Default for Settings {
     fn default() -> Self {
         Settings {
             core: gv_core::settings::Settings::default(),
+            files: Vec::new(),
 
             initial_actions: vec![Movement::Default.into()],
 
@@ -370,7 +373,7 @@ impl TryFrom<Cli> for Settings {
             ));
         }
 
-        let file_paths = classify_and_build_tracks(&cli.files)?;
+        let files = classify_and_build_tracks(&cli.files)?;
 
         let cache_dir =
             shellexpand::tilde(cli.cache_dir.as_deref().unwrap_or("~/.tgv")).to_string();
@@ -378,13 +381,13 @@ impl TryFrom<Cli> for Settings {
 
         Ok(Self {
             core: gv_core::settings::Settings {
-                file_paths,
                 reference,
                 backend,
                 ucsc_host: cli.host.unwrap_or(UcscHostCli::Auto).into(),
                 cache_dir,
                 quality_encoding: cli.phred.unwrap_or_default(),
             },
+            files,
             initial_actions,
 
             test_mode: false,
@@ -416,109 +419,92 @@ mod tests {
         ..Settings::default()}
     ))]
     #[case("tgv input.bam", Ok(Settings {
-        core: gv_core::settings::Settings {
-        file_paths: vec![FilePath::AlignmentPath(bam("input.bam"))],
-        ..gv_core::settings::Settings::default()
-        },
+        files: vec![FilePath::AlignmentPath(bam("input.bam"))],
         ..Settings::default()
     }))]
     #[case("tgv input.bam some.bed", Ok(Settings {
-        core: gv_core::settings::Settings {
-        file_paths: vec![
+        files: vec![
             FilePath::AlignmentPath(bam("input.bam")),
             FilePath::BedPath("some.bed".to_string()),
         ],
-        ..gv_core::settings::Settings::default()
-        },
         ..Settings::default()
     }))]
     #[case("tgv input.bam some.vcf", Ok(Settings {
-        core: gv_core::settings::Settings {
-        file_paths: vec![
+        files: vec![
             FilePath::AlignmentPath(bam("input.bam")),
             FilePath::VariantPath("some.vcf".to_string()),
         ],
-        ..gv_core::settings::Settings::default()
-        },
         ..Settings::default()
     }))]
     #[case("tgv input.bam --offline", Ok(Settings {
         core: gv_core::settings::Settings {
-        file_paths: vec![FilePath::AlignmentPath(bam("input.bam"))],
         backend: BackendType::Local,
         ..gv_core::settings::Settings::default()
         },
+        files: vec![FilePath::AlignmentPath(bam("input.bam"))],
         ..Settings::default()
     }))]
     #[case("tgv input.bam --online", Ok(Settings {
         core: gv_core::settings::Settings {
-        file_paths: vec![FilePath::AlignmentPath(bam("input.bam"))],
         backend: BackendType::Ucsc,
         ..gv_core::settings::Settings::default()},
+        files: vec![FilePath::AlignmentPath(bam("input.bam"))],
         ..Settings::default()
     }))]
     #[case("tgv input.bam --debug", Ok(Settings {
-        core: gv_core::settings::Settings {
-        file_paths: vec![FilePath::AlignmentPath(bam("input.bam"))],
-        ..gv_core::settings::Settings::default()},
         debug: true,
+        files: vec![FilePath::AlignmentPath(bam("input.bam"))],
         ..Settings::default()
     }))]
     #[case("tgv input.bam -r chr1:12345", Ok(Settings {
-        core: gv_core::settings::Settings {
-        file_paths: vec![FilePath::AlignmentPath(bam("input.bam"))],
-        ..gv_core::settings::Settings::default()},
         initial_actions: vec![Movement::ContigNamePosition(
             "chr1".to_string(),
             12345,
         ).into()],
+        files: vec![FilePath::AlignmentPath(bam("input.bam"))],
         ..Settings::default()
     }))]
     #[case("tgv input.bam -r chr1:invalid", Err(TGVError::CliError("".to_string())))]
     #[case("tgv input.bam -r chr1:12:12345", Err(TGVError::CliError("".to_string())))]
     #[case("tgv input.bam -r TP53", Ok(Settings {
-        core: gv_core::settings::Settings {
-        file_paths: vec![FilePath::AlignmentPath(bam("input.bam"))],
-        ..gv_core::settings::Settings::default()},
         initial_actions: vec![Movement::Gene("TP53".to_string()).into()],
+        files: vec![FilePath::AlignmentPath(bam("input.bam"))],
         ..Settings::default()
     }))]
     #[case("tgv input.bam -r TP53 -g hg19", Ok(Settings {
         core: gv_core::settings::Settings {
-        file_paths: vec![FilePath::AlignmentPath(bam("input.bam"))],
         reference: Reference::Hg19,
         ..gv_core::settings::Settings::default()},
         initial_actions: vec![Movement::Gene("TP53".to_string()).into()],
+        files: vec![FilePath::AlignmentPath(bam("input.bam"))],
         ..Settings::default()
     }))]
     #[case("tgv input.bam -r TP53 -g mm39", Ok(Settings {
         core: gv_core::settings::Settings {
-        file_paths: vec![FilePath::AlignmentPath(bam("input.bam"))],
         reference: Reference::UcscGenome("mm39".to_string()),
         ..gv_core::settings::Settings::default()},
         initial_actions: vec![Movement::Gene("TP53".to_string()).into()],
+        files: vec![FilePath::AlignmentPath(bam("input.bam"))],
         ..Settings::default()
     }))]
     #[case("tgv input.bam -r 1:12345 --no-reference", Ok(Settings {
         core: gv_core::settings::Settings {
-        file_paths: vec![FilePath::AlignmentPath(bam("input.bam"))],
         reference: Reference::NoReference,
         ..gv_core::settings::Settings::default()},
         initial_actions: vec![Movement::ContigNamePosition(
             "1".to_string(),
             12345,
         ).into()],
+        files: vec![FilePath::AlignmentPath(bam("input.bam"))],
         ..Settings::default()
     }))]
     #[case("tgv input.bam -r TP53 -g hg19 --no-reference", Err(TGVError::CliError("".to_string())))]
     #[case("tgv --no-reference", Err(TGVError::CliError("".to_string())))]
     #[case("tgv input.bam input2.bam", Ok(Settings {
-        core: gv_core::settings::Settings {
-        file_paths: vec![
+        files: vec![
             FilePath::AlignmentPath(bam("input.bam")),
             FilePath::AlignmentPath(bam("input2.bam")),
         ],
-        ..gv_core::settings::Settings::default()},
         ..Settings::default()
     }))]
     #[case("tgv input.txt", Err(TGVError::CliError("".to_string())))]

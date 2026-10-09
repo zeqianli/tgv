@@ -1,6 +1,6 @@
 use crate::{
     contig_header::{Contig, ContigHeader},
-    cytoband::{Cytoband, CytobandSegment},
+    cytoband::CytobandTable,
     error::TGVError,
     gene::GeneTable,
     intervals::Region,
@@ -307,49 +307,25 @@ impl TrackService for UcscDbTrackService {
         return Ok(contigs);
     }
 
-    async fn get_cytoband(
+    async fn query_cytobands(
         &mut self,
         reference: &Reference,
-        contig_index: usize,
-
         contig_header: &ContigHeader,
-    ) -> Result<Option<Cytoband>, TGVError> {
-        let contig_name = match contig_header.try_get(contig_index)?.get_track_name() {
-            Some(contig_name) => contig_name,
-            None => return Ok(None),
-        };
-        let sql =
-            "SELECT chrom, chromStart, chromEnd, name, gieStain FROM cytoBandIdeo WHERE chrom = ?";
+    ) -> Result<CytobandTable, TGVError> {
+        let sql = "SELECT chrom, chromStart, chromEnd, name, gieStain FROM cytoBandIdeo";
         log::info!(
-            "Database query: database=ucsc-mysql sql=\"{}\" context=get cytoband reference={} contig={}",
+            "Database query: database=ucsc-mysql sql=\"{}\" context=get cytobands reference={}",
             sql,
             reference,
-            contig_name
         );
         let started = Instant::now();
-        let cytoband_segment_rows: Vec<CytobandSegmentRow> = sqlx::query_as(sql)
-            .bind(contig_name)
-            .fetch_all(&*self.pool)
-            .await?;
+        let rows: Vec<CytobandSegmentRow> = sqlx::query_as(sql).fetch_all(&*self.pool).await?;
         log::info!(
-            "Database query result: database=ucsc-mysql context=get cytoband rows={} elapsed_ms={}",
-            cytoband_segment_rows.len(),
+            "Database query result: database=ucsc-mysql context=get cytobands rows={} elapsed_ms={}",
+            rows.len(),
             started.elapsed().as_millis()
         );
-
-        if cytoband_segment_rows.is_empty() {
-            return Ok(None);
-        }
-
-        // Cytoband table is not available.
-        Ok(Some(Cytoband {
-            reference: Some(reference.clone()),
-            contig_index,
-            segments: cytoband_segment_rows
-                .into_iter()
-                .map(|segment| segment.to_cytoband_segment(contig_index))
-                .collect::<Result<Vec<CytobandSegment>, TGVError>>()?,
-        }))
+        CytobandSegmentRow::into_table(rows, contig_header)
     }
 
     async fn get_preferred_track_name(
@@ -398,7 +374,7 @@ impl TrackService for UcscDbTrackService {
     ) -> Result<DataFrame, TGVError> {
         let contig_name = match contig_header
             .try_get(region.contig_index())?
-            .get_track_name()
+            .get_gene_track_name()
         {
             Some(contig_name) => contig_name,
             None => return Ok(GeneTable::default().data), // Contig doesn't have track data
@@ -489,7 +465,7 @@ impl TrackService for UcscDbTrackService {
 
         contig_header: &ContigHeader,
     ) -> Result<DataFrame, TGVError> {
-        let contig_name = match contig_header.try_get(contig_index)?.get_track_name() {
+        let contig_name = match contig_header.try_get(contig_index)?.get_gene_track_name() {
             Some(contig_name) => contig_name,
             None => {
                 return Err(TGVError::StateError(format!(
@@ -553,7 +529,7 @@ impl TrackService for UcscDbTrackService {
         k: usize,
         contig_header: &ContigHeader,
     ) -> Result<DataFrame, TGVError> {
-        let contig_name = match contig_header.try_get(contig_index)?.get_track_name() {
+        let contig_name = match contig_header.try_get(contig_index)?.get_gene_track_name() {
             Some(contig_name) => contig_name,
             None => {
                 return Err(TGVError::StateError(format!(
@@ -617,7 +593,7 @@ impl TrackService for UcscDbTrackService {
 
         contig_header: &ContigHeader,
     ) -> Result<DataFrame, TGVError> {
-        let contig_name = match contig_header.try_get(contig_index)?.get_track_name() {
+        let contig_name = match contig_header.try_get(contig_index)?.get_gene_track_name() {
             Some(contig_name) => contig_name,
             None => {
                 return Err(TGVError::StateError(format!(
@@ -680,7 +656,7 @@ impl TrackService for UcscDbTrackService {
         k: usize,
         contig_header: &ContigHeader,
     ) -> Result<DataFrame, TGVError> {
-        let contig_name = match contig_header.try_get(contig_index)?.get_track_name() {
+        let contig_name = match contig_header.try_get(contig_index)?.get_gene_track_name() {
             Some(contig_name) => contig_name,
             None => {
                 return Err(TGVError::StateError(format!(

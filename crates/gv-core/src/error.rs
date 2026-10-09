@@ -91,11 +91,20 @@ pub enum TGVError {
     #[error("an Interval must have a Range with a positive width")]
     InvalidRange,
 
+    #[error("Invalid noodles position: {0}")]
+    NoodlesPositionError(#[from] noodles::core::position::TryFromIntError),
+
     #[error("Noodles parse error")]
     NoodlesParseError(#[from] noodles::core::region::ParseError),
 
     #[error("OpenDAL error")]
     OpenDALError(#[from] opendal::Error),
+
+    #[error("Not a file: {0}")]
+    NotAFile(String),
+
+    #[error("{file} needs an index: {index}")]
+    MissingIndex { file: String, index: String },
 
     #[error("Alignment Parse error")]
     AlignmentParseError(String),

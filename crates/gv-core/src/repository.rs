@@ -1,5 +1,5 @@
 use crate::{
-    alignment::AlignmentRepository,
+    alignment::{AlignmentRepository, QualityEncodingSetting},
     bed::BedRepositoryEnum,
     contig_header::{ContigHeader, ContigSource},
     error::TGVError,
@@ -13,11 +13,29 @@ use crate::{
 use itertools::Itertools;
 use std::{path::Path, time::Instant};
 
-#[derive(Debug, Clone, Copy, Eq, PartialEq)]
+#[derive(Debug, Clone, Copy, Eq, PartialEq, Hash)]
 pub enum RepositoryFileIndex {
     Alignment(usize),
     Variant(usize),
     Bed(usize),
+}
+
+impl RepositoryFileIndex {
+    /// This index after `removed` leaves the per-kind vectors: `None` for the removed file
+    /// itself, and one lower for later files of the same kind.
+    pub fn after_removal(self, removed: Self) -> Option<Self> {
+        match (self, removed) {
+            _ if self == removed => None,
+            (Self::Alignment(index), Self::Alignment(gone)) if index > gone => {
+                Some(Self::Alignment(index - 1))
+            }
+            (Self::Variant(index), Self::Variant(gone)) if index > gone => {
+                Some(Self::Variant(index - 1))
+            }
+            (Self::Bed(index), Self::Bed(gone)) if index > gone => Some(Self::Bed(index - 1)),
+            _ => Some(self),
+        }
+    }
 }
 
 pub struct Repository {
@@ -43,49 +61,27 @@ impl Repository {
         }
     }
 
-    pub async fn new(
-        settings: &Settings,
-    ) -> Result<(Self, ContigHeader, Vec<RepositoryFileIndex>), TGVError> {
+    /// Opens the reference services and reads the reference's contigs. Track files open later,
+    /// with [`Repository::open_file`].
+    pub async fn new(settings: &Settings) -> Result<(Self, ContigHeader), TGVError> {
         let started = Instant::now();
         log::info!(
-            "Initializing repository resources: reference={} files={}",
+            "Initializing repository resources: reference={}",
             settings.reference,
-            settings.file_paths.len(),
         );
 
-        let mut track_service = TrackServiceEnum::new(settings).await?;
-        let mut sequence_service = SequenceRepositoryEnum::new(settings)?;
-        let mut alignment_repositories = Vec::new();
-        let mut variant_repositories = Vec::new();
-        let mut bed_repositories = Vec::new();
-        let mut repository_file_indexes = Vec::new();
-
-        for file_path in &settings.file_paths {
-            match file_path {
-                FilePath::AlignmentPath(alignment_path) => {
-                    let index = alignment_repositories.len();
-                    alignment_repositories.push(
-                        AlignmentRepository::new(alignment_path, settings.quality_encoding).await?,
-                    );
-                    repository_file_indexes.push(RepositoryFileIndex::Alignment(index));
-                }
-                FilePath::VariantPath(vcf_path) => {
-                    let index = variant_repositories.len();
-                    variant_repositories.push(VariantRepositoryEnum::new(vcf_path)?);
-                    repository_file_indexes.push(RepositoryFileIndex::Variant(index));
-                }
-                FilePath::BedPath(bed_path) => {
-                    let index = bed_repositories.len();
-                    bed_repositories.push(BedRepositoryEnum::new(bed_path)?);
-                    repository_file_indexes.push(RepositoryFileIndex::Bed(index));
-                }
-            }
-        }
+        let mut repository = Self {
+            alignment_repositories: Vec::new(),
+            variant_repositories: Vec::new(),
+            bed_repositories: Vec::new(),
+            track_service: TrackServiceEnum::new(settings).await?,
+            sequence_service: SequenceRepositoryEnum::new(settings)?,
+        };
 
         // Contig header collect contigs from multiple sources.
         // - If the reference is a ucsc genome: ucsc database (local, mariadb, or api)
         // - If the reference is a custom indexed fasta or a 2bit file: from the reference file
-        // - If bam file is provided: from bam header
+        // Track files add theirs when they open, through `merge_contigs`.
         let mut contig_header = ContigHeader::new(settings.reference.clone());
 
         // Sync contigs from tracks
@@ -94,7 +90,8 @@ impl Repository {
             | Reference::Hg38
             | Reference::UcscGenome(_)
             | Reference::UcscAccession(_) => {
-                track_service
+                repository
+                    .track_service
                     .as_mut()
                     .unwrap()
                     .get_all_contigs(&settings.reference)
@@ -105,13 +102,13 @@ impl Repository {
                             contig.name,
                             contig.length,
                             contig.aliases,
-                            ContigSource::Track,
+                            ContigSource::GeneTrack,
                         );
                     });
             }
             Reference::BYOIndexedFasta(_) => {
                 if let Some(SequenceRepositoryEnum::IndexedFasta(fasta_sr)) =
-                    sequence_service.as_mut()
+                    repository.sequence_service.as_mut()
                 {
                     fasta_sr
                         .get_all_contigs()
@@ -131,7 +128,9 @@ impl Repository {
             }
 
             Reference::BYOTwoBit(path) => {
-                if let Some(SequenceRepositoryEnum::TwoBit(twobit_sr)) = sequence_service.as_mut() {
+                if let Some(SequenceRepositoryEnum::TwoBit(twobit_sr)) =
+                    repository.sequence_service.as_mut()
+                {
                     twobit_sr.add_2bit_file(path)?;
                 } else {
                     unreachable!()
@@ -146,8 +145,11 @@ impl Repository {
             | Reference::Hg38
             | Reference::UcscGenome(_)
             | Reference::UcscAccession(_) => {
-                if let Some(SequenceRepositoryEnum::TwoBit(twobit_sr)) = sequence_service.as_mut() {
-                    track_service
+                if let Some(SequenceRepositoryEnum::TwoBit(twobit_sr)) =
+                    repository.sequence_service.as_mut()
+                {
+                    repository
+                        .track_service
                         .as_mut()
                         .unwrap()
                         .get_contig_2bit_file_lookup(&settings.reference, &contig_header)
@@ -168,7 +170,7 @@ impl Repository {
             }
             Reference::BYOIndexedFasta(_) => {
                 if let Some(SequenceRepositoryEnum::IndexedFasta(fasta_sr)) =
-                    sequence_service.as_mut()
+                    repository.sequence_service.as_mut()
                 {
                     fasta_sr
                         .get_all_contigs()
@@ -188,7 +190,9 @@ impl Repository {
             }
 
             Reference::BYOTwoBit(path) => {
-                if let Some(SequenceRepositoryEnum::TwoBit(twobit_sr)) = sequence_service.as_mut() {
+                if let Some(SequenceRepositoryEnum::TwoBit(twobit_sr)) =
+                    repository.sequence_service.as_mut()
+                {
                     twobit_sr.add_2bit_file(path)?;
                 } else {
                     unreachable!()
@@ -197,7 +201,7 @@ impl Repository {
             _ => {}
         }
 
-        if let Some(sr) = sequence_service.as_mut() {
+        if let Some(sr) = repository.sequence_service.as_mut() {
             sr.get_all_contigs().await?.into_iter().for_each(|contig| {
                 contig_header.update_or_add_contig(
                     contig.name,
@@ -208,72 +212,77 @@ impl Repository {
             })
         }
 
-        // Sync bioinformatics files
-        for repository_file_index in &repository_file_indexes {
-            match repository_file_index {
-                RepositoryFileIndex::Alignment(index) => {
-                    // FIXME
-                    // Warning when the reference contig is not present in the BAM header.
-                    alignment_repositories[*index]
-                        .source
-                        .read_header()?
-                        .into_iter()
-                        .for_each(|(name, length)| {
-                            contig_header.update_or_add_contig(
-                                name,
-                                length.map(|l| l as u64),
-                                Vec::new(),
-                                ContigSource::Alignment,
-                            );
-                        });
-                }
-                RepositoryFileIndex::Variant(index) => variant_repositories[*index]
-                    .read_contigs()
-                    .into_iter()
-                    .for_each(|(name, length)| {
-                        contig_header.update_or_add_contig(
-                            name,
-                            length,
-                            Vec::new(),
-                            ContigSource::Annotation,
-                        );
-                    }),
-                RepositoryFileIndex::Bed(index) => bed_repositories[*index]
-                    .read_contigs()
-                    .into_iter()
-                    .for_each(|(name, length)| {
-                        contig_header.update_or_add_contig(
-                            name,
-                            length,
-                            Vec::new(),
-                            ContigSource::Annotation,
-                        );
-                    }),
-            }
-        }
-
         log::info!(
-            "Repository resources are ready: alignment_repositories={} variant_repositories={} bed_repositories={} file_order={:?} contigs={} elapsed_ms={}",
-            alignment_repositories.len(),
-            variant_repositories.len(),
-            bed_repositories.len(),
-            repository_file_indexes,
+            "Repository resources are ready: contigs={} elapsed_ms={}",
             contig_header.contigs.len(),
             started.elapsed().as_millis(),
         );
 
         // PERF: async
-        Ok((
-            Self {
-                alignment_repositories,
-                variant_repositories,
-                bed_repositories,
-                track_service,
-                sequence_service,
-            },
-            contig_header,
-            repository_file_indexes,
-        ))
+        Ok((repository, contig_header))
+    }
+
+    /// Opens a track file and appends its repository to the vector of its kind.
+    pub async fn open_file(
+        &mut self,
+        file_path: &FilePath,
+        quality_encoding: QualityEncodingSetting,
+    ) -> Result<RepositoryFileIndex, TGVError> {
+        Ok(match file_path {
+            FilePath::AlignmentPath(alignment_path) => {
+                self.alignment_repositories
+                    .push(AlignmentRepository::new(alignment_path, quality_encoding).await?);
+                RepositoryFileIndex::Alignment(self.alignment_repositories.len() - 1)
+            }
+            FilePath::VariantPath(vcf_path) => {
+                self.variant_repositories
+                    .push(VariantRepositoryEnum::new(vcf_path)?);
+                RepositoryFileIndex::Variant(self.variant_repositories.len() - 1)
+            }
+            FilePath::BedPath(bed_path) => {
+                self.bed_repositories
+                    .push(BedRepositoryEnum::new(bed_path)?);
+                RepositoryFileIndex::Bed(self.bed_repositories.len() - 1)
+            }
+        })
+    }
+
+    /// Removes a track file's repository. Later repositories of the same kind shift down by one.
+    pub fn remove(&mut self, index: RepositoryFileIndex) {
+        match index {
+            RepositoryFileIndex::Alignment(index) => {
+                self.alignment_repositories.remove(index);
+            }
+            RepositoryFileIndex::Variant(index) => {
+                self.variant_repositories.remove(index);
+            }
+            RepositoryFileIndex::Bed(index) => {
+                self.bed_repositories.remove(index);
+            }
+        }
+    }
+
+    /// Merges the contigs that a track file names into a contig header, recording the name
+    /// the file uses for each.
+    pub fn merge_contigs(
+        &self,
+        index: RepositoryFileIndex,
+        contig_header: &mut ContigHeader,
+    ) -> Result<(), TGVError> {
+        let contigs = match index {
+            RepositoryFileIndex::Alignment(i) => self.alignment_repositories[i]
+                .source
+                .read_header()?
+                .into_iter()
+                .map(|(name, length)| (name, length.map(|length| length as u64)))
+                .collect(),
+            RepositoryFileIndex::Variant(i) => self.variant_repositories[i].read_contigs(),
+            RepositoryFileIndex::Bed(i) => self.bed_repositories[i].read_contigs(),
+        };
+        for (name, length) in contigs {
+            contig_header.update_or_add_contig(name, length, Vec::new(), ContigSource::File(index));
+        }
+        Ok(())
     }
 
     pub fn track_service_checked(&mut self) -> Result<&mut TrackServiceEnum, TGVError> {

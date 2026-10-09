@@ -9,7 +9,7 @@ use crate::{
     layout::{
         AlignmentView,
         AreaType::{self, Console},
-        MainLayout, ResolvedMainLayout,
+        MainLayout, ResolvedMainLayout, file_name,
     },
     menu::ContextMenu,
     message::{Action, AlignmentOptionUpdate, ContextMenuTarget, UpdateLayoutAction},
@@ -72,6 +72,9 @@ pub struct App {
     /// The alignment index that scrolls apply to: the one the mouse was last over.
     pub focused_alignment: usize,
     pub highlights: Vec<Highlight>,
+    /// Files from `:e` or a paste. They open after the next frame, which shows that they are
+    /// opening.
+    pub pending_open: Option<Vec<String>>,
 
     /// Sends requests to this viewer, for agents and tests.
     pub session: SessionHandle,
@@ -104,7 +107,7 @@ impl App {
             settings.session_path
         );
 
-        let mut dataset = Dataset::new(settings.core.clone()).await?;
+        let mut dataset = Dataset::new(settings.core.clone(), settings.files.clone()).await?;
         let focus = dataset.view.default_focus(&mut dataset.repository).await?;
 
         let mut alignment_view = AlignmentView::new(focus, dataset.view.alignments.len());
@@ -140,6 +143,7 @@ impl App {
             jumps: JumpList::default(),
             focused_alignment: 0,
             highlights: Vec::new(),
+            pending_open: None,
             session,
             requests,
             settings: settings.clone(),
@@ -190,6 +194,16 @@ impl App {
                 render_result?;
             }
             render_events.clear();
+
+            if self.pending_open.is_some() {
+                // The frame just drawn shows that the files are opening while this waits.
+                render_events = self.open_pending().await.unwrap_or_else(|e| {
+                    log::warn!("Error while opening files: {e}");
+                    self.dataset.view.messages = vec![format!("{e}")];
+                    vec![RenderEvent::All]
+                });
+                continue;
+            }
 
             if self.settings.test_mode {
                 break;
@@ -265,6 +279,13 @@ impl App {
                         };
 
                         self.handle(actions).await // TODO: this should not error out?
+                    }
+
+                    Ok(Event::Paste(text))
+                        if self.popup.is_none() && self.context_menu.is_none() =>
+                    {
+                        let actions = self.registers.handle_paste(text);
+                        self.handle(actions).await
                     }
 
                     Ok(Event::Resize(width, height)) => {
@@ -699,6 +720,33 @@ impl App {
                     render_events.push(RenderEvent::Sidebar);
                 }
 
+                Action::Core(gv_core::message::Message::OpenFiles(paths)) => {
+                    let names = paths
+                        .iter()
+                        .map(|path| file_name(path))
+                        .collect::<Vec<_>>()
+                        .join(", ");
+                    messages.push(format!("Opening {names}…"));
+                    self.pending_open = Some(paths);
+                }
+
+                Action::RemoveTrack(id) => {
+                    let entry = self.dataset.remove_track(id)?;
+                    let name = file_name(entry.file_path.path());
+                    if let RepositoryFileIndex::Alignment(index) = entry.repository_index {
+                        self.alignment_view.y.remove(index);
+                        if self.focused_alignment > index {
+                            self.focused_alignment -= 1;
+                        } else if self.focused_alignment == index {
+                            self.focused_alignment = 0;
+                        }
+                    }
+                    log::info!("Removed track: id={id} file={name}");
+                    self.apply_track_change().await?;
+                    messages.push(format!("Removed {name}."));
+                    render_events.push(RenderEvent::All);
+                }
+
                 Action::Core(gv_core::message::Message::Message(message)) => {
                     log::trace!("Adding transient status message: bytes={}", message.len());
                     messages.push(message);
@@ -833,7 +881,13 @@ impl App {
                                 &self.dataset.view.alignment_options[index],
                             )?
                         }
-                        ContextMenuTarget::Sidebar => ContextMenu::sidebar_items(),
+                        ContextMenuTarget::Sidebar { track } => {
+                            let track = track.map(|id| {
+                                let index = self.dataset.tracks.get(id).repository_index;
+                                (id, file_name(self.dataset.repository.file_path(index)))
+                            });
+                            ContextMenu::sidebar_items(track)
+                        }
                     };
                     self.context_menu = Some(ContextMenu::new(
                         items,
@@ -892,6 +946,50 @@ impl App {
         Ok(render_events)
     }
 
+    /// Opens the files in `pending_open` and returns the areas to redraw. An error opening them
+    /// becomes the status message, and the tracks stay as they were.
+    pub async fn open_pending(&mut self) -> Result<Vec<RenderEvent>, TGVError> {
+        let Some(paths) = self.pending_open.take() else {
+            return Ok(Vec::new());
+        };
+        let ids = match self.dataset.add_files(&paths).await {
+            Ok(ids) => ids,
+            Err(error) => {
+                log::warn!("Failed to open files: paths={paths:?} error={error}");
+                self.dataset.view.messages = vec![format!("{error}")];
+                return Ok(vec![RenderEvent::Area(AreaType::Error)]);
+            }
+        };
+        log::info!("Opened tracks: ids={ids:?} paths={paths:?}");
+        self.alignment_view
+            .y
+            .resize(self.dataset.view.alignments.len(), 0);
+        self.apply_track_change().await?;
+        self.dataset.view.messages = vec![match paths.as_slice() {
+            [path] => format!("Opened {}.", file_name(path)),
+            paths => format!("Opened {} files.", paths.len()),
+        }];
+        Ok(vec![RenderEvent::All])
+    }
+
+    /// Rebuilds the layout after tracks were added or removed, and loads the visible region.
+    async fn apply_track_change(&mut self) -> Result<(), TGVError> {
+        // Divider state names tracks, which may no longer be adjacent or present.
+        self.mouse_register = MouseRegister::default();
+        self.layout
+            .set_tracks(&self.settings, Arc::clone(&self.dataset.tracks));
+        self.resolved_layout = self
+            .layout
+            .resolve(self.resolved_layout.terminal_area, &self.dataset.repository);
+        self.alignment_view.self_correct(
+            &self.resolved_layout.main_area,
+            self.dataset
+                .view
+                .contig_length(&self.alignment_view.focus)?,
+        );
+        self.load_data().await
+    }
+
     async fn load_data(&mut self) -> Result<(), TGVError> {
         if self.resolved_layout.main_area.width == 0 {
             return Ok(());
@@ -945,17 +1043,13 @@ impl App {
                     sequence: self.alignment_view.zoom
                         <= AlignmentView::MAX_ZOOM_TO_DISPLAY_SEQUENCES,
                     genes: true,
+                    // Cytobands load once for every contig, whatever the zoom.
+                    cytobands: true,
                     files: &files,
                     cache: CachePolicy::VIEWER,
                 },
                 &mut self.dataset.repository,
             )
-            .await?;
-
-        // The cytoband is queried once per contig, whatever the zoom.
-        self.dataset
-            .view
-            .ensure_complete_cytoband_data(&region, &mut self.dataset.repository)
             .await?;
 
         log::debug!(

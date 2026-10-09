@@ -1,6 +1,6 @@
 use crate::{
     contig_header::{Contig, ContigHeader},
-    cytoband::{Cytoband, CytobandSegment, Stain},
+    cytoband::{CytobandBand, CytobandTable},
     error::TGVError,
     gene::{GeneSchema, GeneTable},
     reference::Reference,
@@ -190,6 +190,7 @@ impl GeneTable {
 #[allow(non_snake_case)]
 #[derive(Debug, Deserialize)]
 pub struct CytobandSegmentRow {
+    chrom: String,
     chromStart: u64, // sqlite doesn't support unsigned int
     chromEnd: u64,
     name: String,
@@ -202,6 +203,7 @@ impl FromRow<'_, SqliteRow> for CytobandSegmentRow {
         let chromStart: i64 = row.try_get("chromStart")?;
         let chromEnd: i64 = row.try_get("chromEnd")?;
         Ok(CytobandSegmentRow {
+            chrom: row.try_get("chrom")?,
             chromStart: chromStart as u64,
             chromEnd: chromEnd as u64,
             name: row.try_get("name")?,
@@ -214,6 +216,7 @@ impl FromRow<'_, SqliteRow> for CytobandSegmentRow {
 impl FromRow<'_, MySqlRow> for CytobandSegmentRow {
     fn from_row(row: &MySqlRow) -> sqlx::Result<Self> {
         Ok(CytobandSegmentRow {
+            chrom: row.try_get("chrom")?,
             chromStart: row.try_get("chromStart")?,
             chromEnd: row.try_get("chromEnd")?,
             name: row.try_get("name")?,
@@ -223,14 +226,25 @@ impl FromRow<'_, MySqlRow> for CytobandSegmentRow {
 }
 
 impl CytobandSegmentRow {
-    pub fn to_cytoband_segment(self, contig_index: usize) -> Result<CytobandSegment, TGVError> {
-        Ok(CytobandSegment {
-            contig_index,
-            start: self.chromStart + 1,
-            end: self.chromEnd,
-            name: self.name,
-            stain: Stain::try_from(self.gieStain.as_str())?,
-        })
+    /// Builds the cytoband table, converting UCSC's 0-based starts to 1-based. Bands on
+    /// contigs the header doesn't know are skipped.
+    pub fn into_table(
+        rows: impl IntoIterator<Item = Self>,
+        contig_header: &ContigHeader,
+    ) -> Result<CytobandTable, TGVError> {
+        CytobandTable::from_bands(
+            rows.into_iter()
+                .filter_map(|row| {
+                    Some(CytobandBand {
+                        contig_index: contig_header.try_get_index_by_str(&row.chrom).ok()?,
+                        start: row.chromStart + 1,
+                        end: row.chromEnd,
+                        name: row.name,
+                        stain: row.gieStain,
+                    })
+                })
+                .collect(),
+        )
     }
 }
 
@@ -440,41 +454,38 @@ pub struct UcscListChromosomeResponse {
     pub chromosomes: HashMap<String, u64>,
 }
 
-///{
-//   ...
-//   "cytoBandIdeo": [
-//     {
-//       "chrom": "chr1",
-//       "chromStart": 0,
-//       "chromEnd": 8918386,
-//       "name": "qA1",
-//       "gieStain": "gpos100"
-//     },
+/// The UCSC API's cytoband response. Without a `chrom` parameter, the API groups the bands by
+/// contig:
+///
+/// ```json
+/// { "cytoBandIdeo": { "chr1": [{ "chrom": "chr1", "chromStart": 0, "chromEnd": 2300000,
+///   "name": "p36.33", "gieStain": "gneg" }, ...], ... } }
+/// ```
 #[allow(non_snake_case)]
 #[derive(Debug, Deserialize, Default)]
 pub struct UcscApiCytobandResponse {
-    cytoBandIdeo: Vec<CytobandSegmentRow>,
+    #[serde(default)]
+    cytoBandIdeo: Option<UcscApiCytobands>,
 }
 
-#[allow(non_snake_case)]
+/// Bands grouped by contig, or one flat list, which some hubs may return for single-contig
+/// genomes.
+#[derive(Debug, Deserialize)]
+#[serde(untagged)]
+enum UcscApiCytobands {
+    ByContig(HashMap<String, Vec<CytobandSegmentRow>>),
+    Flat(Vec<CytobandSegmentRow>),
+}
+
 impl UcscApiCytobandResponse {
-    pub fn to_cytoband(
-        self,
-        reference: &Reference,
-        contig_index: usize,
-    ) -> Result<Option<Cytoband>, TGVError> {
-        if self.cytoBandIdeo.is_empty() {
-            Ok(None)
-        } else {
-            Ok(Some(Cytoband {
-                reference: Some(reference.clone()),
-                contig_index,
-                segments: self
-                    .cytoBandIdeo
-                    .into_iter()
-                    .map(|cytoband| cytoband.to_cytoband_segment(contig_index))
-                    .collect::<Result<Vec<CytobandSegment>, TGVError>>()?,
-            }))
-        }
+    pub fn into_table(self, contig_header: &ContigHeader) -> Result<CytobandTable, TGVError> {
+        let rows: Vec<CytobandSegmentRow> = match self.cytoBandIdeo {
+            Some(UcscApiCytobands::ByContig(by_contig)) => {
+                by_contig.into_values().flatten().collect()
+            }
+            Some(UcscApiCytobands::Flat(rows)) => rows,
+            None => Vec::new(),
+        };
+        CytobandSegmentRow::into_table(rows, contig_header)
     }
 }

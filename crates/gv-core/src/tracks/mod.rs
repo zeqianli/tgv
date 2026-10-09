@@ -6,7 +6,7 @@ mod ucsc_db;
 
 use crate::{
     contig_header::{Contig, ContigHeader},
-    cytoband::Cytoband,
+    cytoband::CytobandTable,
     error::TGVError,
     gene::GeneTable,
     intervals::Region,
@@ -83,13 +83,12 @@ pub trait TrackService {
     // Query contigs data given a reference.
     async fn get_all_contigs(&mut self, reference: &Reference) -> Result<Vec<Contig>, TGVError>;
 
-    // Return the cytoband data given a reference and a contig.
-    async fn get_cytoband(
+    /// Returns the reference's cytobands for every contig in the header.
+    async fn query_cytobands(
         &mut self,
         reference: &Reference,
-        contig_index: usize,
         contig_header: &ContigHeader,
-    ) -> Result<Option<Cytoband>, TGVError>;
+    ) -> Result<CytobandTable, TGVError>;
 
     /// Return a GeneTable that covers a region.
     async fn query_gene_track(
@@ -255,27 +254,20 @@ impl TrackService for TrackServiceEnum {
         }
     }
 
-    async fn get_cytoband(
+    async fn query_cytobands(
         &mut self,
         reference: &Reference,
-        contig_index: usize,
         contig_header: &ContigHeader,
-    ) -> Result<Option<Cytoband>, TGVError> {
+    ) -> Result<CytobandTable, TGVError> {
         match self {
             TrackServiceEnum::Api(service) => {
-                service
-                    .get_cytoband(reference, contig_index, contig_header)
-                    .await
+                service.query_cytobands(reference, contig_header).await
             }
             TrackServiceEnum::Db(service) => {
-                service
-                    .get_cytoband(reference, contig_index, contig_header)
-                    .await
+                service.query_cytobands(reference, contig_header).await
             }
             TrackServiceEnum::LocalDb(service) => {
-                service
-                    .get_cytoband(reference, contig_index, contig_header)
-                    .await
+                service.query_cytobands(reference, contig_header).await
             }
         }
     }

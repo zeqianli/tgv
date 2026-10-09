@@ -41,6 +41,8 @@ Each track has a numeric `id`, a `type` of `alignment`, `variant`, or `bed`, and
 
 - Loading always replaces the entire dataset. To add or remove a file, call `load_dataset` again with the full list.
 - Track IDs reset on replacement.
+- The description's `reference` is a FASTA or 2bit reference's absolute path, and `no_reference` for a dataset without one, so it can be passed back to `load_dataset`.
+- In a viewer, the user can add and remove files. The remaining tracks keep their IDs, and removed IDs aren't reused, so IDs can have gaps. Call `get_dataset` again to see the current tracks.
 - If loading fails, the previous dataset stays loaded.
 - `reference` is required so that omitting it cannot be confused with choosing no reference.
 

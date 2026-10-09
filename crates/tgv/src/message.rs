@@ -47,6 +47,9 @@ pub enum Action {
         row: u16,
     },
 
+    /// Removes a file track from the dataset and the layout.
+    RemoveTrack(TrackId),
+
     /// Shows the SAM record of a read in a popup.
     OpenReadDetails {
         track: TrackId,
@@ -88,7 +91,8 @@ pub enum ContextMenuTarget {
         track: TrackId,
         position: Option<u64>,
     },
-    Sidebar,
+    /// The sidebar, and the file track whose section was clicked, if any.
+    Sidebar { track: Option<TrackId> },
 }
 
 /// Layout changes.
