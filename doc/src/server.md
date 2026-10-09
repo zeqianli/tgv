@@ -4,7 +4,7 @@ TGV runs as a local [MCP](https://modelcontextprotocol.io) server so that agents
 
 ## Setup
 
-Configure an MCP client to start `tgv mcp` as a stdio server. You should install tgv first before installing the mcp.
+Configure an MCP client to start `tgv mcp` as a stdio server. Install tgv first, then add it to your MCP client.
 
 ```sh
 # Codex
@@ -16,20 +16,23 @@ claude mcp add tgv -- tgv mcp
 # Other harnesses: ask your agent how to install MCPs
 ```
 
-The client launches TGV and communicates through standard input and output. No port, URL, or separate background process is needed. `tgv serve` is an alias for `tgv mcp`. Global options precede the subcommand, for example `tgv --offline mcp`. Positional file arguments and `--resume` are rejected; load files with [`load_dataset`](./server/dataset.md) instead. Standard output is reserved for MCP messages; diagnostics go to the log file or standard error.
+The client launches TGV and communicates through standard input and output. No port, URL, or separate background process is needed. `tgv serve` is an alias for `tgv mcp`. Global options precede the subcommand, for example `tgv --offline mcp`. Positional file arguments and `--resume` are rejected; load files with the `load_dataset` tool instead. Standard output is reserved for MCP messages; diagnostics go to standard error and to a log file at `~/.tgv/<timestamp>.log`.
 
 ## Tools
 
-| Tool | Chapter | Purpose |
-|------|---------|---------|
-| `get_dataset` | [Load and describe a dataset](./server/dataset.md) | Describes the loaded reference and tracks. |
-| `load_dataset` | [Load and describe a dataset](./server/dataset.md) | Loads or replaces the dataset. |
-| `inspect_interval` | [Inspect an interval](./server/inspect.md) | Returns an overview of reads, depth, variants, BED intervals, and genes in an interval. |
-| `describe_tables` | [Query data with SQL](./server/query.md) | Lists the SQL tables, their columns, and example queries. |
-| `query` | [Query data with SQL](./server/query.md) | Runs a read-only SQL query over reads, coverage, variants, BED intervals, genes, and the reference. |
-| `navigate` | [Show results in the viewer](./server/view.md) | Moves the user's viewer to a region. |
-| `highlight` | [Show results in the viewer](./server/view.md) | Marks intervals in the user's viewer. |
-| `clear_highlights` | [Show results in the viewer](./server/view.md) | Removes the marks. |
-| `view_state` | [Show results in the viewer](./server/view.md) | Reports what the user's viewer shows. |
+| Tool | Purpose |
+|------|---------|
+| `get_dataset` | Describes the loaded reference and tracks. |
+| `load_dataset` | Loads or replaces the dataset. |
+| `inspect_interval` | Returns an overview of reads, depth, variants, BED intervals, and genes in an interval. |
+| `describe_tables` | Lists the SQL tables, their columns, and example queries. |
+| `query` | Runs a read-only SQL query over reads, coverage, variants, BED intervals, genes, and the reference. |
+| `navigate` | Moves the user's viewer to a region. |
+| `highlight` | Marks intervals in the user's viewer. |
+| `clear_highlights` | Removes the marks. |
+| `view_state` | Reports what the user's viewer shows. |
 
-The examples in each chapter use the same dataset: an HG002 chr20 BAM, a small VCF, and a small BED file on hg38, inspected around `chr20:88108`.
+- `navigate`, `highlight`, `clear_highlights`, and `view_state` need a running viewer.
+- `load_dataset` can't replace a dataset that a viewer is showing. Add or remove files in the viewer instead.
+- `inspect_interval` and the region tables in `query` cover at most 100,000 bases.
+- Coordinates are one-based, with inclusive interval endpoints.

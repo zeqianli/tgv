@@ -2,28 +2,7 @@
 
 [![Crates version]](https://crates.io/crates/tgv) ![Conda Version](https://img.shields.io/conda/v/bioconda/tgv)
 
-<https://github.com/user-attachments/assets/d811a987-cac2-4c01-b21e-d38efe7789f6>
-
-Explore genomes everywhere
-
-- tgv is a blazingly-fast TUI genome viewer. SSH sessions no longer feels like a black box.
-- Keyboard-driven nagivation with vim-like commands
-- Rich file format support: common bioinformatics formats (bam, vcf, bed, bigbed), UCGC reference genomes, object storage storage (S3 / GCS)
-
-
-First-class agent support
-- Performant and flexible bioinformatics data engine for your agents 
-- Mise-en-place so that your agents can cook
-- tgv organized bioinformatics data as [Polars dataframes](https://pola.rs/posts/release-polars-2/), one of the most performant data engine. 
-- The internal is fully exposed to agents and agents can perform complex analysis in just a few lines of SQL queries.
-- No more pasting different bash commands together and one-offs cripts. No mismatch 1-base and 0-based standards across different bioinformatics engines, 
-- reduces pasting together
-
-Designed for human-agent collaboration
-
-- Before tgv: [TODO  screenshot]
-- After tgv: interactive visualization, 
-
+[TODO: demo video]
 
 [**Installation**](doc/src/installation.md)
 
@@ -31,6 +10,27 @@ Designed for human-agent collaboration
 - brew: `brew tap zeqianli/tgv && brew install tgv`
 - bioconda: `conda install bioconda::tgv`
 - Pre-built binaries: [GitHub Releases](https://github.com/zeqianli/tgv/releases/)
+
+
+## Explore genomes everywhere
+
+tgv is a blazingly-fast TUI genome viewer. SSH sessions no longer feels like a black box.
+- Keyboard-driven nagivation with vim-like commands
+- Rich file format support: common bioinformatics formats (bam, vcf, bed, bigbed), UCGC reference genomes, object storage storage (S3 / GCS)
+
+## Designed for human-agent collaboration
+
+- Before tgv: [TODO  screenshot]
+- After tgv: interactive visualization, 
+
+## Mise-en-place so that your agents can cook
+- Performant and flexible bioinformatics data engine for your agents 
+- tgv organized bioinformatics data as [Polars dataframes](https://pola.rs/posts/release-polars-2/), one of the most performant data engine. 
+- The internal is fully exposed to agents and agents can perform complex analysis in just a few lines of SQL queries.
+- No more pasting different bash commands together and one-offs cripts. No mismatch 1-base and 0-based standards across different bioinformatics engines, 
+- reduces pasting together
+
+
 
 ## Quick start
 
