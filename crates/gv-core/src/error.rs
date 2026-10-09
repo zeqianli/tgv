@@ -91,6 +91,9 @@ pub enum TGVError {
     #[error("an Interval must have a Range with a positive width")]
     InvalidRange,
 
+    #[error("Invalid noodles position: {0}")]
+    NoodlesPositionError(#[from] noodles::core::position::TryFromIntError),
+
     #[error("Noodles parse error")]
     NoodlesParseError(#[from] noodles::core::region::ParseError),
 

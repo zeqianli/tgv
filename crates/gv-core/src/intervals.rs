@@ -63,55 +63,11 @@ impl Region {
         self.half_width * 2 + 1
     }
 
-    /// Converts to a noodles region on the contig named `name`, as a file names it.
-    pub fn noodles_region(&self, name: &str) -> Result<noodles::core::Region, TGVError> {
-        let position = |coordinate: u64| {
-            noodles::core::Position::try_from(coordinate as usize).map_err(|_| {
-                TGVError::StateError(format!("Failed to convert to a noodles region: {:?}", self))
-            })
-        };
-        Ok(noodles::core::Region::new(
-            name,
-            position(self.start())?..=position(self.end())?,
-        ))
-    }
-
-    pub fn alignment(
-        &self,
-        header: &ContigHeader,
-    ) -> Result<Option<noodles::core::Region>, TGVError> {
-        let start = noodles::core::Position::try_from(self.start() as usize).map_err(|_| {
-            TGVError::StateError(format!("Failed to convert to alignment region: {:?}", self))
-        })?;
-        let end = noodles::core::Position::try_from(self.end() as usize).map_err(|_| {
-            TGVError::StateError(format!("Failed to convert to alignment region: {:?}", self))
-        })?;
-        Ok(header
-            .try_get(self.contig_index())?
-            .get_alignment_name()
-            .map(|name| noodles::core::Region::new(name, start..=end)))
-    }
-
-    pub fn noodles_sequence(
-        &self,
-        header: &ContigHeader,
-    ) -> Result<Option<noodles::core::Region>, TGVError> {
-        let start = noodles::core::Position::try_from(self.start() as usize).map_err(|_| {
-            TGVError::StateError(format!(
-                "Failed to convert to noodles sequence region: {:?}",
-                self
-            ))
-        })?;
-        let end = noodles::core::Position::try_from(self.end() as usize).map_err(|_| {
-            TGVError::StateError(format!(
-                "Failed to convert to noodles sequence region: {:?}",
-                self
-            ))
-        })?;
-        Ok(header
-            .try_get(self.contig_index())?
-            .get_sequence_name()
-            .map(|name| noodles::core::Region::new(name, start..=end)))
+    /// Converts to a noodles region
+    pub fn to_noodles_region(&self, contig_name: &str) -> Result<noodles::core::Region, TGVError> {
+        let start = noodles::core::Position::try_from(self.start() as usize)?;
+        let end = noodles::core::Position::try_from(self.end() as usize)?;
+        Ok(noodles::core::Region::new(contig_name, start..=end))
     }
 
     /// Validate and convert a InspectInterval (with explict contig names, start, and end) to a tgv Region query.
