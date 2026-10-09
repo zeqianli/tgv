@@ -1,13 +1,3 @@
 # Introduction
 
 Welcome to the tgv documentation.
-
-## TGV's goal: Vim for omics
-
-- The fastest and most versatile way to explore omics files
-- Bring [IGV](https://igv.org/)'s functionality into the terminal
-- Powerful key bindings
-
-# Contributing
-
-Contribution is welcome!

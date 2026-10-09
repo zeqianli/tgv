@@ -1,4 +1,4 @@
-# Session files
+# Session files (experimental feature)
 
 A session file captures the current state of a tgv session so it can be restored later.
 Sessions are opt-in: tgv reads a session only when you pass `--resume`, and writes one

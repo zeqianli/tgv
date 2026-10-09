@@ -37,6 +37,13 @@ Normal mode
 | `u` / `Ctrl-r` | Go back / forward through jumps: searches, contig and gene jumps, and agent moves | |
 | `_number_` + `_movement_` | Move by `_number_` steps | `20h`: left by 20 bases |
 
+### Normal mode: TODO
+
+### Command mode : TODO
+
+### Search mode: TODO
+
+
 The sidebar starts open and shows the reference, current position, filenames,
 and alignment depths alongside their tracks. Drag its vertical divider to
 change its width. Drag a line between alignment tracks to resize the adjacent
