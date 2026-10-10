@@ -4,27 +4,27 @@
 https://github.com/user-attachments/assets/8b630f0e-6bcc-4aff-88f3-9e2465550f32
 
 
-### Explore genomes everywhere
+### Explore genomes everywhere.
 
 A blazing-fast genome viewer that lives in your terminal. Your SSH session is no longer a black box.
 - Navigate genomes with vim-style commands (but the mouse works too).
 - Rich file format support: BAM, VCF, BCF, BED, bigBed; object storage (s3); and any UCSC reference genome.
 - tgv GUI coming soon.
 
-### Designed for human-agent collaboration
+### Designed for human-agent collaboration.
 
 <table>
   <tr>
-    <td valign="top"><img src="doc/assets/mismatch.png" alt="An agent describing a read mismatch in ASCII art"></td>
-    <td valign="top"><img src="doc/assets/agent-highlight.png" alt="An agent highlighting a poly-A run in tgv while explaining strand-biased mismatches"></td>
+    <td width="50%" valign="top"><img width="100%" src="doc/assets/mismatch.png" alt="An agent describing a read mismatch in ASCII art"></td>
+    <td width="50%" valign="top"><img width="100%" src="doc/assets/agent-highlight.png" alt="An agent highlighting a poly-A run in tgv while explaining strand-biased mismatches"></td>
   </tr>
   <tr>
-    <td valign="top">Before tgv: your agent draws questionable ASCII art.</td>
-    <td valign="top">After tgv: Your agent walks you through its analysis in an interactive session.</td>
+    <td width="50%" valign="top">Before tgv: your agent draws questionable ASCII art.</td>
+    <td width="50%" valign="top">After tgv: Your agent walks you through its analysis in an interactive session.</td>
   </tr>
 </table>
 
-### Mise-en-place so that your agents can cook
+### Mise-en-place so that your agents can cook.
 
 tgv organizes messy omics data to a [performant data engine](https://pola.rs/posts/release-polars-2/) that's fully exposed to agents through MCP. A multi-omics analysis takes a few lines of SQL queries. 
 - No more glue scripts chaining `samtools`, `bcftools`, and `awk`. 
