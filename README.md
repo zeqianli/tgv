@@ -1,8 +1,8 @@
 # Terminal Genome Viewer
 
-[![Crates version](https://img.shields.io/crates/v/tgv)](https://crates.io/crates/tgv) [![Conda version](https://img.shields.io/conda/v/bioconda/tgv)](https://anaconda.org/bioconda/tgv)
 
-[TODO: demo video]
+https://github.com/user-attachments/assets/8b630f0e-6bcc-4aff-88f3-9e2465550f32
+
 
 ### Explore genomes everywhere
 
@@ -32,6 +32,8 @@ tgv organizes messy omics data to a [performant data engine](https://pola.rs/pos
 - No more wasted tokens.
 
 ## [**Installation**](doc/src/installation.md)
+
+[![Crates version](https://img.shields.io/crates/v/tgv)](https://crates.io/crates/tgv) [![Conda version](https://img.shields.io/conda/v/bioconda/tgv)](https://anaconda.org/bioconda/tgv)
 
 > [!NOTE]
 > tgv is in early development. Please report bugs and we will fix them asap.
