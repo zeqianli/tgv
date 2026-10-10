@@ -6,7 +6,7 @@ https://github.com/user-attachments/assets/8b630f0e-6bcc-4aff-88f3-9e2465550f32
 
 ### Explore genomes everywhere.
 
-A blazing-fast genome viewer that lives in your terminal. Your SSH session is no longer a black box.
+tgv (Terminal Genome Viewer) is blazing-fast. Your SSH session is no longer a black box.
 - Navigate genomes with vim-style commands (but the mouse works too).
 - Rich file format support: BAM, VCF, BCF, BED, bigBed; object storage (s3); and any UCSC reference genome.
 - tgv GUI coming soon.
@@ -19,8 +19,8 @@ A blazing-fast genome viewer that lives in your terminal. Your SSH session is no
     <td width="50%" valign="top"><img width="100%" src="doc/assets/agent-highlight.png" alt="An agent highlighting a poly-A run in tgv while explaining strand-biased mismatches"></td>
   </tr>
   <tr>
-    <td width="50%" valign="top">Before tgv: your agent draws questionable ASCII art.</td>
-    <td width="50%" valign="top">After tgv: Your agent walks you through its analysis in an interactive session.</td>
+    <td width="50%" valign="top">Before tgv: agents draw questionable ASCII art.</td>
+    <td width="50%" valign="top">After tgv: agents explain the analysis in an interactive session.</td>
   </tr>
 </table>
 
