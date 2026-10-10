@@ -4,7 +4,37 @@
 
 [TODO: demo video]
 
-[**Installation**](doc/src/installation.md)
+### Explore genomes everywhere
+
+A blazing-fast genome viewer that lives in your terminal. Your SSH session is no longer a black box.
+- Navigate genomes with vim-style commands (but the mouse works too).
+- Rich file format support: BAM, VCF, BCF, BED, bigBed; object storage (s3); and any UCSC reference genome.
+- tgv GUI coming soon.
+
+### Designed for human-agent collaboration
+
+<table>
+  <tr>
+    <td valign="top"><img src="doc/assets/mismatch.png" alt="An agent describing a read mismatch in ASCII art"></td>
+    <td valign="top"><img src="doc/assets/agent-highlight.png" alt="An agent highlighting a poly-A run in tgv while explaining strand-biased mismatches"></td>
+  </tr>
+  <tr>
+    <td valign="top">Before tgv: your agent draws questionable ASCII art.</td>
+    <td valign="top">After tgv: Your agent walks you through its analysis in an interactive session.</td>
+  </tr>
+</table>
+
+### Mise-en-place so that your agents can cook
+
+tgv organizes messy omics data to a [performant data engine](https://pola.rs/posts/release-polars-2/) that's fully exposed to agents through MCP. A multi-omics analysis takes a few lines of SQL queries. 
+- No more glue scripts chaining `samtools`, `bcftools`, and `awk`. 
+- No more off-by-one bugs from mixing 0-based and 1-based tools. 
+- No more wasted tokens.
+
+## [**Installation**](doc/src/installation.md)
+
+> [!NOTE]
+> tgv is in early development. Please report bugs and we will fix them asap.
 
 - cargo: `cargo install tgv --locked`
 - brew: `brew tap zeqianli/tgv && brew install tgv`
@@ -16,24 +46,7 @@ Install tgv MCP:
 - Claude: `claude mcp add tgv -- tgv mcp`
 - Others: ask your agent
 
-### Explore genomes everywhere
-
-A blazing-fast genome viewer that lives in your terminal. Your SSH session is no longer a black box.
-- Navigate genomes with vim-style commands (but the mouse works too).
-- Rich file format support: BAM, VCF, BCF, BED, bigBed; object storage (s3); and any UCSC reference genome.
-- tgv GUI coming soon.
-
-### Designed for human-agent collaboration
-
-Before tgv: [TODO  screenshot]
-
-After tgv: your agent walks you through its analysis on an interactive session.
-
-### Mise-en-place so that your agents can cook
-
-tgv runs on a [performance data engine](https://pola.rs/posts/release-polars-2/) that's fully exposed to agents. A multi-omics analysis takes a few lines of SQL queries. No more glue scripts chaining `samtools`, `bcftools`, and `awk`. No more off-by-one bugs from mixing 0-based and 1-based tools.
-
-## Quick start
+## TUI quick start
 
 ```bash
 # Browse the hg38 human genome (internet needed)
@@ -48,9 +61,9 @@ tgv
 - `_number_` + `_movement_`: Repeat movements (e.g. `20B`: back 20 genes)
 - `:ls`: Switch chromosomes
 - `:e _file_`: Open more files, or drag them into the terminal
-- Mouse: scroll, drag, hover for details, and right-click to sort and filter reads
+- Mouse: click, scroll, drag and hover.
 
-[Full key bindings](doc/src/usage.md#key-bindings)
+[Full bindings](doc/src/usage.md)
 
 ## Usage
 
