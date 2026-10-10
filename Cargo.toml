@@ -41,9 +41,9 @@ unicode-width = "0.2"
 
 # local crates
 
-gv-core = { path = "crates/gv-core", version = "=0.3.0" }
-gv-mcp = { path = "crates/gv-mcp", version = "=0.3.0" }
-gv-session = { path = "crates/gv-session", version = "=0.3.0" }
+gv-core = { path = "crates/gv-core", version = "=0.4.0" }
+gv-mcp = { path = "crates/gv-mcp", version = "=0.4.0" }
+gv-session = { path = "crates/gv-session", version = "=0.4.0" }
 
 [profile.dev]
 # Full debug info for Polars and noodles makes each test binary about 2 GB, so linking

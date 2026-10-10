@@ -1,38 +1,69 @@
 # Terminal Genome Viewer
 
-[![Discord Badge]][Discord Server] [![Crates version]](https://crates.io/crates/tgv) ![Conda Version](https://img.shields.io/conda/v/bioconda/tgv)
+[![Crates version](https://img.shields.io/crates/v/tgv)](https://crates.io/crates/tgv) [![Conda version](https://img.shields.io/conda/v/bioconda/tgv)](https://anaconda.org/bioconda/tgv)
 
-<https://github.com/user-attachments/assets/d811a987-cac2-4c01-b21e-d38efe7789f6>
+[TODO: demo video]
 
+### Explore genomes everywhere
 
-[**Installation**](doc/src/installation.md)
+A blazing-fast genome viewer that lives in your terminal. Your SSH session is no longer a black box.
+- Navigate genomes with vim-style commands (but the mouse works too).
+- Rich file format support: BAM, VCF, BCF, BED, bigBed; object storage (s3); and any UCSC reference genome.
+- tgv GUI coming soon.
+
+### Designed for human-agent collaboration
+
+<table>
+  <tr>
+    <td valign="top"><img src="doc/assets/mismatch.png" alt="An agent describing a read mismatch in ASCII art"></td>
+    <td valign="top"><img src="doc/assets/agent-highlight.png" alt="An agent highlighting a poly-A run in tgv while explaining strand-biased mismatches"></td>
+  </tr>
+  <tr>
+    <td valign="top">Before tgv: your agent draws questionable ASCII art.</td>
+    <td valign="top">After tgv: Your agent walks you through its analysis in an interactive session.</td>
+  </tr>
+</table>
+
+### Mise-en-place so that your agents can cook
+
+tgv organizes messy omics data to a [performant data engine](https://pola.rs/posts/release-polars-2/) that's fully exposed to agents through MCP. A multi-omics analysis takes a few lines of SQL queries. 
+- No more glue scripts chaining `samtools`, `bcftools`, and `awk`. 
+- No more off-by-one bugs from mixing 0-based and 1-based tools. 
+- No more wasted tokens.
+
+## [**Installation**](doc/src/installation.md)
+
+> [!NOTE]
+> tgv is in early development. Please report bugs and we will fix them asap.
 
 - cargo: `cargo install tgv --locked`
 - brew: `brew tap zeqianli/tgv && brew install tgv`
 - bioconda: `conda install bioconda::tgv`
 - Pre-built binaries: [GitHub Releases](https://github.com/zeqianli/tgv/releases/)
 
-## Quick start
+Install tgv MCP: 
+- Codex: `codex mcp add tgv -- tgv mcp`
+- Claude: `claude mcp add tgv -- tgv mcp`
+- Others: ask your agent
+
+## TUI quick start
 
 ```bash
 # Browse the hg38 human genome (internet needed)
 tgv
-
-# Or your favorite genome (see `tgv list` or `tgv list --all`)
-tgv -g cat
 ```
 
 - `:q`: Quit
-- `:w _name_`: Save the session to `~/.tgv/sessions/_name_.toml`. Resume it with `tgv --resume _name_`.
-- `h/j/k/l`: Left / down / up / right
+- `h/j/k/l`: Left / down / up / right. `H/J/K/L` for faster navigation
 - `W/B/w/b`: Next gene / previous gene / next exon / previous exon
 - `z/o`: Zoom in / out
-- `:_gene_` / `:_chr_:_position_`: Go to gene: (e.g. `:TP53`) / chromosome position (e.g. `:1:2345`)
-- `_number_` + `_movement_`: Repeat movements (e.g. `20B`: left by 20 genes)
-- `:ls`: Switch chromosomes.
-- Mouse is supported
+- `/_gene_` / `/_chr_:_position_`: Go to a gene (e.g. `/TP53`) or a position (e.g. `/1:2345`)
+- `_number_` + `_movement_`: Repeat movements (e.g. `20B`: back 20 genes)
+- `:ls`: Switch chromosomes
+- `:e _file_`: Open more files, or drag them into the terminal
+- Mouse: click, scroll, drag and hover.
 
-[Full key bindings](doc/src/usage.md#key-bindings)
+[Full bindings](doc/src/usage.md)
 
 ## Usage
 
@@ -46,47 +77,13 @@ tgv download hg38
 Browse alignments:
 
 ```bash
-# View BAM file(s) aligned to the hg38 human reference genome
-tgv file1.sorted.bam file2.sorted.bam
-
-# VCF and BED support
-tgv sorted.bam variants.vcf intervals.bed
-
-# View an indexed S3 BAM, starting at TP53, using the hg19 reference genome
-tgv s3://my-bucket/sorted.bam -r TP53 -g hg19
+# View file aligned to the hg38 human reference genome
+tgv file1.sorted.bam s3://my-bucket/file2.sorted.bam variants.vcf intervals.bed
 
 # BAM file with no reference genome
 tgv non_human.bam -r 1:123 --no-reference
 ```
 
-[Supported formats](doc/src/usage.md#supported-formats)
-
-
-## FAQ
-
-**Why?**
-
-Browsing alignment files is essential for genomics. Genomics research is often in the terminal (SSH session to HPCs or the cloud). [IGV](https://github.com/igvteam/igv) is popular but cumbersome for remote sessions. Terminal-based applications ([1](https://github.com/dariober/ASCIIGenomecu), [2](https://www.htslib.org/doc/samtools-tview.html)) are not as feature-rich. Rust bioinformatics community is vibrant ([3](https://lh3.github.io/2024/03/05/what-high-performance-language-to-learn) [4](https://github.com/sharkLoc/rust-in-bioinformatics)) and Ratatui makes powerful terminal UIs. So TGV is born!
-
-**How to quit TGV?**  
-[Just like vim :)](https://stackoverflow.com/questions/11828270/how-do-i-exit-vim) Press `Esc` to ensure you're in normal mode, then type `:q` and press Enter.
-
-## Contribution is welcome
- 
-**I'm new to Rust and I want a learning project**
-
-Contributing to tgv is a great way to learn Rust. There are many small, isolated components that need improvement, some requiring <10 lines of code change. You can find them by searching for `FIXME` comments. You can also find issues that are extra friendly to new contributors tagged with "contributor friendly".
-
-AI-assisted contribution is welcome but must be disclosed and human-reviewed. See [Ghostty's AI policy](https://github.com/ghostty-org/ghostty/blob/main/AI_POLICY.md). 
-
-## Acknowledgements
-
-- [ratatui](https://ratatui.rs/)
-- [UCSC Genome Browser](https://genome.ucsc.edu/)
-- [rust-htslib](https://github.com/rust-bio/rust-htslib), [htslib](https://github.com/samtools/htslib), [noodles](https://github.com/zaeleus/noodles), [twobit](https://github.com/jbethune/rust-twobit), [bigtools](https://github.com/jackh726/bigtools)
+[Documentation](doc/src/SUMMARY.md)
 
 [![Star History Chart](https://api.star-history.com/svg?repos=zeqianli/tgv&type=Date)](https://www.star-history.com/#zeqianli/tgv&Date)
-
-[Discord Badge]: https://img.shields.io/discord/1358313687399792662?label=discord&logo=discord&style=flat-square&color=1370D3&logoColor=1370D3
-[Discord Server]: https://discord.gg/rZkgjHqPR8
-[Crates version]: https://img.shields.io/crates/v/tgv

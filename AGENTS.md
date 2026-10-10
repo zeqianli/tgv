@@ -46,20 +46,11 @@
 - `gv-session`: the session worker that owns a loaded dataset and serves typed commands through `SessionHandle`, plus the SQL tables and the local socket (`SessionSocket` and `SessionConnection`) that lets agents drive a viewer. Requests, responses, `Call`, and `SessionError` with its stable error codes live here.
 - `gv-mcp`: the MCP tools, which translate MCP calls into session calls and send them to a running viewer or a headless session. It owns the MCP tool results and `McpError`.
 - `tgv`: the TUI and the `tgv` binary, including the `tgv mcp` subcommand.
-- Dependencies point away from front ends: no crate depends on `tgv`. The current design is in `doc/src/architecture.md`.
-- Each crate declares the Polars features it needs in its own manifest. For example, SQL features belong to `gv-session`, not the workspace root.
 
 ## Documentation
 
-- User documentation is an mdBook in `doc/`. `doc/src/SUMMARY.md` defines the chapter tree; every page must be listed there.
-- MCP server docs:
-  - `doc/src/server.md` is the overview: setup, lifecycle, the tool index, shared conventions (coordinates, track IDs, and file paths), and the error format.
-  - `doc/src/server/install.md` explains how to add `tgv mcp` to each agent harness. Keep its commands in line with the CLI.
-  - `doc/src/server/` has one chapter per MCP interface, nested under the overview in `SUMMARY.md`. Closely related tools share a chapter, such as `get_dataset` and `load_dataset` in `dataset.md`.
-  - Each tool chapter follows the same template: a purpose paragraph, a request field table, an example request, an example response, behavior notes, and bounds and errors with the `code` and `field` values the tool reports.
-  - Examples use `"reference":"hg38"`, `HG002.GRCh38.300x_chr20.bam`, `simple.vcf`, and `simple.bed`, around `chr20:88108`. Show file paths as `/data/<file name>`.
-  - Capture example responses by running `tgv mcp` against these files; do not write them by hand. Shorten only long arrays, and say where something is shortened.
-  - When a tool's schema, defaults, bounds, warnings, or errors change, update its chapter in the same change.
+- `doc/src` is the user-facing mdBook. `doc/src/SUMMARY.md` defines the chapter tree; every page must be listed there.
+- `doc/dev` is developer-only: the architecture, design notes, feedback, and the MCP tool reference. It is not part of the mdBook, and pages in `doc/src` must not link into it.
 
 ## Testing practices
 
