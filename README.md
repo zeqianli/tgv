@@ -6,7 +6,7 @@ https://github.com/user-attachments/assets/8b630f0e-6bcc-4aff-88f3-9e2465550f32
 
 ### Explore genomes everywhere.
 
-tgv (Terminal Genome Viewer) is blazing-fast. Your SSH session is no longer a black box.
+tgv (Terminal Genome Viewer) is fast. Your SSH session is no longer a black box.
 - Navigate genomes with vim-style commands (but the mouse works too).
 - Rich file format support: BAM, VCF, BCF, BED, bigBed; object storage (s3); and any UCSC reference genome.
 - tgv GUI coming soon.
