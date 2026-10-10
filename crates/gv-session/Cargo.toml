@@ -1,6 +1,6 @@
 [package]
 name = "gv-session"
-version = "0.3.0"
+version = "0.4.0"
 edition = "2024"
 description = "The dataset session and SQL tables shared by TGV front ends and agents."
 license = "MIT"
