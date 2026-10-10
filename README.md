@@ -1,4 +1,4 @@
-# Terminal Genome Viewer
+# tgv: Genome viewer for you and your agents
 
 
 https://github.com/user-attachments/assets/8b630f0e-6bcc-4aff-88f3-9e2465550f32
