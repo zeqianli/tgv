@@ -1,9 +1,12 @@
-use crate::register::{KeyRegisterType, Registers};
+use crate::{
+    register::{KeyRegisterType, Registers},
+    rendering::TrackFocus,
+};
 use gv_core::prelude::*;
 use ratatui::{
     buffer::Buffer,
     layout::Rect,
-    style::{Color, Style},
+    style::{Color, Modifier, Style},
 };
 
 /// Render the command line for command (`:`) and search (`/`) mode.
@@ -47,4 +50,26 @@ pub fn render_console(area: &Rect, buf: &mut Buffer, buffer: &Registers) -> Resu
         );
     }
     Ok(())
+}
+
+/// Shows the mode and the focused track in track and insert mode, as vim does:
+/// `-- INSERT -- peaks.bed [+]`. Normal mode shows nothing.
+pub fn render_mode_line(area: &Rect, buf: &mut Buffer, registers: &Registers, focus: &TrackFocus) {
+    let mode = match registers.current {
+        KeyRegisterType::Track => "-- TRACK --",
+        KeyRegisterType::Insert { .. } => "-- INSERT --",
+        _ => return,
+    };
+    let text = match &focus.name {
+        Some(name) if focus.modified => format!("{mode} {name} [+]"),
+        Some(name) => format!("{mode} {name}"),
+        None => format!("{mode} (no tracks)"),
+    };
+    buf.set_stringn(
+        area.x,
+        area.y,
+        text,
+        area.width as usize,
+        Style::default().add_modifier(Modifier::BOLD),
+    );
 }

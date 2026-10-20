@@ -196,7 +196,7 @@ impl State {
         match file_path {
             FilePath::AlignmentPath(_) => self.add_alignment_track(),
             FilePath::VariantPath(_) => self.add_variant_track(),
-            FilePath::BedPath(_) => self.add_bed_track(),
+            FilePath::BedPath(_) | FilePath::UntitledBed(_) => self.add_bed_track(),
         }
     }
 

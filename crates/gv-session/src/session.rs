@@ -11,8 +11,10 @@ use crate::{
 };
 use gv_core::{
     alignment::is_url,
+    bed::{BedEdit, BedEditKind, BedTable, PlainBed},
+    contig_header::ContigSource,
     prelude::*,
-    settings::{Settings, classify_and_build_tracks},
+    settings::{Settings, classify_and_build_tracks, file_name},
     track_registry::TrackEntry,
 };
 use std::{path::Path, sync::Arc};
@@ -20,6 +22,15 @@ use tokio::{
     sync::{mpsc, oneshot},
     task::JoinHandle,
 };
+
+/// Whether two paths name the same file, including through different spellings of one path.
+fn is_same_file(a: &str, b: &str) -> bool {
+    Path::new(a) == Path::new(b)
+        || matches!(
+            (Path::new(a).canonicalize(), Path::new(b).canonicalize()),
+            (Ok(a), Ok(b)) if a == b
+        )
+}
 
 /// Sends one command's result back to the caller.
 pub struct Responder<T>(oneshot::Sender<Result<T, SessionError>>);
@@ -239,6 +250,17 @@ pub struct Dataset {
     pub tracks: Arc<TrackRegistry>,
     pub view: State,
     query: State,
+    /// The number of the last untitled track, so names aren't reused after one is removed.
+    untitled_count: u32,
+}
+
+/// Where [`Dataset::write_bed`] wrote a track's features.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum BedWrite {
+    /// The track's own file, which now holds its features.
+    Saved { features: usize },
+    /// Another file. The track still shows its own file.
+    Copy { path: String, features: usize },
 }
 
 impl Dataset {
@@ -286,7 +308,7 @@ impl Dataset {
                 .map(|entry| TrackDescription {
                     id: entry.id,
                     r#type: entry.repository_index.into(),
-                    source: entry.file_path.path().to_owned(),
+                    source: entry.file_path.to_string(),
                 })
                 .collect(),
         }
@@ -327,6 +349,7 @@ impl Dataset {
             settings,
             repository,
             tracks: Arc::new(TrackRegistry::default()),
+            untitled_count: 0,
         };
         dataset.add_file_paths(files).await?;
         Ok(dataset)
@@ -348,7 +371,7 @@ impl Dataset {
     ) -> Result<Vec<TrackId>, TGVError> {
         if let Some(missing) = file_paths
             .iter()
-            .map(FilePath::path)
+            .filter_map(FilePath::path)
             .find(|path| !is_url(path) && !Path::new(path).is_file())
         {
             return Err(TGVError::NotAFile(missing.to_owned()));
@@ -415,6 +438,145 @@ impl Dataset {
         self.view.remove_track(entry.repository_index);
         self.query.remove_track(entry.repository_index);
         Ok(entry)
+    }
+
+    /// Adds an empty BED track without a file, named `untitled-1`, `untitled-2`, and so on.
+    pub async fn new_bed_track(&mut self) -> Result<TrackId, TGVError> {
+        self.untitled_count += 1;
+        let ids = self
+            .add_file_paths(vec![FilePath::UntitledBed(self.untitled_count)])
+            .await?;
+        Ok(ids[0])
+    }
+
+    /// Whether a track has edits that aren't written to its file.
+    pub fn is_modified(&self, id: TrackId) -> bool {
+        match self.tracks.get(id).repository_index {
+            RepositoryFileIndex::Bed(index) => {
+                self.repository.bed_repositories[index].is_modified()
+            }
+            RepositoryFileIndex::Alignment(_) | RepositoryFileIndex::Variant(_) => false,
+        }
+    }
+
+    /// The BED index and the editable file of a track, or an error naming the track when it
+    /// isn't a BED track or can't be edited.
+    fn editable_bed(&mut self, id: TrackId) -> Result<(usize, &mut PlainBed), TGVError> {
+        let entry = self.tracks.get(id);
+        let RepositoryFileIndex::Bed(index) = entry.repository_index else {
+            return Err(TGVError::NotBedTrack {
+                name: file_name(&entry.file_path.to_string()).to_owned(),
+            });
+        };
+        Ok((
+            index,
+            self.repository.bed_repositories[index].as_editable_mut()?,
+        ))
+    }
+
+    /// Adds or removes bases on a BED track and returns whether any feature changed. The range
+    /// is 1-based and inclusive, on a contig of the dataset.
+    ///
+    /// Both states drop the track's loaded features, so their next loads read the edit.
+    pub fn edit_bed(
+        &mut self,
+        id: TrackId,
+        kind: BedEditKind,
+        contig_index: usize,
+        start: u64,
+        end: u64,
+    ) -> Result<bool, TGVError> {
+        let (index, _) = self.editable_bed(id)?;
+        let file = RepositoryFileIndex::Bed(index);
+        let contig = self.view.contig_header.try_get(contig_index)?;
+        // A contig the file doesn't have yet gets the reference's name.
+        let file_contig = contig.file_name(file).map(str::to_owned);
+        let edit = BedEdit {
+            kind,
+            contig: file_contig.clone().unwrap_or_else(|| contig.name.clone()),
+            start,
+            end,
+        };
+        let (_, bed) = self.editable_bed(id)?;
+        if !bed.apply(&edit)? {
+            return Ok(false);
+        }
+        if file_contig.is_none() {
+            for header in [&mut self.view.contig_header, &mut self.query.contig_header] {
+                header.update_or_add_contig(
+                    edit.contig.clone(),
+                    None,
+                    Vec::new(),
+                    ContigSource::File(file),
+                );
+            }
+        }
+        self.invalidate_bed(index);
+        Ok(true)
+    }
+
+    /// Makes the next edit of a BED track start a new undo step.
+    pub fn begin_edit_step(&mut self, id: TrackId) -> Result<(), TGVError> {
+        self.editable_bed(id)?.1.history.begin_step();
+        Ok(())
+    }
+
+    /// Undoes a BED track's last edit step and returns whether there was one.
+    pub fn undo(&mut self, id: TrackId) -> Result<bool, TGVError> {
+        let (index, bed) = self.editable_bed(id)?;
+        let undone = bed.undo();
+        if undone {
+            self.invalidate_bed(index);
+        }
+        Ok(undone)
+    }
+
+    /// Redoes a BED track's last undone step and returns whether there was one.
+    pub fn redo(&mut self, id: TrackId) -> Result<bool, TGVError> {
+        let (index, bed) = self.editable_bed(id)?;
+        let redone = bed.redo();
+        if redone {
+            self.invalidate_bed(index);
+        }
+        Ok(redone)
+    }
+
+    /// Writes a BED track to its own file, or to `path`.
+    ///
+    /// An untitled track written to a path takes that path as its file. A track with a file
+    /// written to another path leaves a copy there, as in vim.
+    pub fn write_bed(&mut self, id: TrackId, path: Option<&str>) -> Result<BedWrite, TGVError> {
+        let file_path = self.tracks.get(id).file_path.clone();
+        let (_, bed) = self.editable_bed(id)?;
+        let target = match (path, file_path.path()) {
+            (None, None) => {
+                return Err(TGVError::UntitledTrack {
+                    name: file_path.to_string(),
+                });
+            }
+            (None, Some(own)) => own.to_owned(),
+            (Some(path), Some(own)) if !is_same_file(path, own) => {
+                let features = bed.write(path)?;
+                return Ok(BedWrite::Copy {
+                    path: path.to_owned(),
+                    features,
+                });
+            }
+            (Some(path), _) => path.to_owned(),
+        };
+        let features = bed.write(&target)?;
+        bed.history.mark_saved();
+        if file_path.path().is_none() {
+            bed.path = target.clone();
+            Arc::make_mut(&mut self.tracks).get_mut(id).file_path = FilePath::BedPath(target);
+        }
+        Ok(BedWrite::Saved { features })
+    }
+
+    /// Drops both states' loaded features of a BED track, so the next loads read its edits.
+    fn invalidate_bed(&mut self, index: usize) {
+        self.view.bed_intervals[index] = BedTable::default();
+        self.query.bed_intervals[index] = BedTable::default();
     }
 
     /// Loads the selected tracks, the reference sequence, and gene annotations for a region

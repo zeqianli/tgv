@@ -9,13 +9,14 @@ use crate::{
     layout::{
         AlignmentView,
         AreaType::{self, Console},
-        MainLayout, ResolvedMainLayout, file_name,
+        MainLayout, OnScreenCoordinate, ResolvedMainLayout, file_name,
     },
     menu::ContextMenu,
-    message::{Action, AlignmentOptionUpdate, ContextMenuTarget, UpdateLayoutAction},
+    message::{Action, AlignmentOptionUpdate, ContextMenuTarget, FocusMove, UpdateLayoutAction},
     mouse::MouseRegister,
     popup::TextPopup,
     register::{KeyRegisterType, Registers},
+    rendering::TrackFocus,
     session::SessionFile,
     settings::Settings,
 };
@@ -24,16 +25,18 @@ use gv_core::{
     prelude::*,
 };
 use gv_session::{
-    Dataset, HighlightRequest, InspectInterval, NavigateRequest, Request, Requests, Session,
-    SessionError, SessionHandle, ViewRequest, ViewState,
+    BedWrite, Dataset, HighlightRequest, InspectInterval, NavigateRequest, Request, Requests,
+    Session, SessionError, SessionHandle, ViewRequest, ViewState,
 };
+use itertools::Itertools;
 use std::{
     path::PathBuf,
     sync::Arc,
     time::{Duration, Instant},
 };
 
-const NO_ACTIVE_SESSION_MESSAGE: &str = "No active session. Use :w NAME or :w PATH to save.";
+const NO_ACTIVE_SESSION_MESSAGE: &str = "No active session. Use :ws NAME or :ws PATH to save.";
+const NO_FOCUS_MESSAGE: &str = "No track has focus.";
 
 #[derive(Debug, Clone, Eq, PartialEq)]
 pub enum Scene {
@@ -69,8 +72,9 @@ pub struct App {
 
     pub alignment_view: AlignmentView,
     pub jumps: JumpList,
-    /// The alignment index that scrolls apply to: the one the mouse was last over.
-    pub focused_alignment: usize,
+    /// The track that track-mode keys, insert mode, `:w`, and `:bd` act on, and that normal
+    /// mode scrolls when it is an alignment. `None` when there are no file tracks.
+    pub focused_track: Option<TrackId>,
     pub highlights: Vec<Highlight>,
     /// Files from `:e` or a paste. They open after the next frame, which shows that they are
     /// opening.
@@ -134,6 +138,7 @@ impl App {
             .collect::<Vec<_>>();
         let layout = MainLayout::new(&settings, Arc::clone(&dataset.tracks), &track_ids);
         let (session, requests) = Session::channel();
+        let focused_track = layout.track_order.first().copied();
         Ok(Self {
             exit: false,
             layout,
@@ -141,7 +146,7 @@ impl App {
             dataset,
             alignment_view,
             jumps: JumpList::default(),
-            focused_alignment: 0,
+            focused_track,
             highlights: Vec::new(),
             pending_open: None,
             session,
@@ -496,6 +501,52 @@ impl App {
         Ok(())
     }
 
+    /// Moves the view, records jumps in the history, and loads the new region.
+    async fn apply_movement(&mut self, movement: Movement) -> Result<(), TGVError> {
+        let previous_focus = self.alignment_view.focus.clone();
+        log::debug!(
+            "Handling movement: movement={:?} previous_focus={:?} zoom={}",
+            movement,
+            previous_focus,
+            self.alignment_view.zoom,
+        );
+        let focus = self
+            .dataset
+            .view
+            .movement(
+                self.alignment_view.focus.clone(),
+                self.alignment_view.zoom,
+                &mut self.dataset.repository,
+                movement.clone(),
+            )
+            .await?;
+
+        log::debug!(
+            "Movement applied: movement={:?} previous_focus={:?} new_focus={:?}",
+            movement,
+            previous_focus,
+            focus,
+        );
+        let jump = matches!(
+            movement,
+            Movement::Position(_)
+                | Movement::ContigNamePosition(..)
+                | Movement::ContigIndex(_)
+                | Movement::NextContig(_)
+                | Movement::PreviousContig(_)
+                | Movement::Gene(_)
+                | Movement::Default
+        );
+        if jump && focus != previous_focus {
+            self.jumps.record(ViewPoint {
+                focus: previous_focus,
+                zoom: self.alignment_view.zoom,
+            });
+        }
+        self.alignment_view.focus = focus;
+        self.load_data().await
+    }
+
     /// Applies actions after initialization and returns the areas that need redrawing.
     pub async fn handle(&mut self, actions: Vec<Action>) -> Result<Vec<RenderEvent>, TGVError> {
         let mut render_events = Vec::new();
@@ -506,48 +557,7 @@ impl App {
         for action in actions {
             match action {
                 Action::Core(gv_core::message::Message::Move(movement)) => {
-                    let previous_focus = self.alignment_view.focus.clone();
-                    log::debug!(
-                        "Handling movement: movement={:?} previous_focus={:?} zoom={}",
-                        movement,
-                        previous_focus,
-                        self.alignment_view.zoom,
-                    );
-                    let focus = self
-                        .dataset
-                        .view
-                        .movement(
-                            self.alignment_view.focus.clone(),
-                            self.alignment_view.zoom,
-                            &mut self.dataset.repository,
-                            movement.clone(),
-                        )
-                        .await?;
-
-                    log::debug!(
-                        "Movement applied: movement={:?} previous_focus={:?} new_focus={:?}",
-                        movement,
-                        previous_focus,
-                        focus,
-                    );
-                    let jump = matches!(
-                        movement,
-                        Movement::Position(_)
-                            | Movement::ContigNamePosition(..)
-                            | Movement::ContigIndex(_)
-                            | Movement::NextContig(_)
-                            | Movement::PreviousContig(_)
-                            | Movement::Gene(_)
-                            | Movement::Default
-                    );
-                    if jump && focus != previous_focus {
-                        self.jumps.record(ViewPoint {
-                            focus: previous_focus,
-                            zoom: self.alignment_view.zoom,
-                        });
-                    }
-                    self.alignment_view.focus = focus;
-                    self.load_data().await?;
+                    self.apply_movement(movement).await?;
                     render_events.push(RenderEvent::AllTracks);
                     render_events.push(RenderEvent::Sidebar);
                 }
@@ -588,7 +598,57 @@ impl App {
 
                 Action::Core(gv_core::message::Message::Quit) => {
                     log::info!("Quit requested");
+                    match self.unsaved_changes_message() {
+                        Some(message) => messages.push(message),
+                        None => self.exit = true,
+                    }
+                }
+
+                Action::Core(gv_core::message::Message::ForceQuit) => {
+                    log::info!("Quit without writing requested");
                     self.exit = true;
+                }
+
+                Action::Core(gv_core::message::Message::WriteTrack(path)) => {
+                    let (Ok(message) | Err(message)) = self.write_track(path.as_deref());
+                    messages.push(message);
+                    render_events.push(RenderEvent::All);
+                }
+
+                Action::Core(gv_core::message::Message::WriteAll) => {
+                    let (Ok(message) | Err(message)) = self.write_all();
+                    messages.push(message);
+                    render_events.push(RenderEvent::All);
+                }
+
+                Action::Core(
+                    ref message @ (gv_core::message::Message::WriteAndQuit(_)
+                    | gv_core::message::Message::WriteAllAndQuit),
+                ) => {
+                    let written = match message {
+                        gv_core::message::Message::WriteAndQuit(path) => {
+                            self.write_track(path.as_deref())
+                        }
+                        _ => self.write_all(),
+                    };
+                    render_events.push(RenderEvent::All);
+                    match written {
+                        Ok(written) => match self.unsaved_changes_message() {
+                            Some(unsaved) => messages.extend([written, unsaved]),
+                            None => self.exit = true,
+                        },
+                        Err(error) => messages.push(error),
+                    }
+                }
+
+                Action::Core(gv_core::message::Message::CloseTrack { force }) => {
+                    match self.focused_track {
+                        Some(id) => {
+                            messages.push(self.remove_track(id, force).await?);
+                            render_events.push(RenderEvent::All);
+                        }
+                        None => messages.push(NO_FOCUS_MESSAGE.to_string()),
+                    }
                 }
 
                 Action::Core(gv_core::message::Message::SaveSession(path)) => {
@@ -609,7 +669,8 @@ impl App {
                     match self.save_session_to_path(path.clone()) {
                         Ok(()) => {
                             log::info!("Session saved: path={}", path.display());
-                            messages.push(format!("Session saved to {}", path.display()));
+                            messages.push(format!("Session saved to {}.", path.display()));
+                            messages.extend(self.session_notes());
                         }
                         Err(e) => {
                             log::warn!("Failed to save session: path={} error={e}", path.display());
@@ -619,6 +680,10 @@ impl App {
                 }
 
                 Action::Core(gv_core::message::Message::SaveAndQuit(path)) => {
+                    if let Some(unsaved) = self.unsaved_changes_message() {
+                        messages.push(unsaved);
+                        continue;
+                    }
                     let explicit_path = path.is_some();
                     let Some(path) = path
                         .as_deref()
@@ -646,30 +711,17 @@ impl App {
                 }
 
                 Action::Core(gv_core::message::Message::Scroll(scroll)) => {
-                    let previous_y = self.alignment_view.y.clone();
-                    log::debug!(
-                        "Handling scroll: scroll={:?} y_before={:?}",
-                        scroll,
-                        previous_y
-                    );
-                    let index = self.focused_alignment;
-                    if !self.dataset.view.alignments.is_empty() {
-                        let depth = match &self.dataset.view.paired_alignments[index] {
-                            Some(paired) => paired.depth()?,
-                            None => self.dataset.view.alignments[index].depth()?,
-                        };
-                        self.alignment_view.scroll(index, scroll.clone(), depth);
-                        render_events.push(RenderEvent::Area(AreaType::Alignment(
-                            self.dataset.tracks.alignment_id(index),
-                        )));
-                        render_events.push(RenderEvent::Sidebar);
+                    // Normal mode scrolls the focused track when it is an alignment.
+                    if let Some(id) = self.focused_track
+                        && let RepositoryFileIndex::Alignment(_) =
+                            self.dataset.tracks.get(id).repository_index
+                    {
+                        render_events.extend(self.scroll_alignment(id, scroll)?);
                     }
-                    log::debug!(
-                        "Scroll applied: scroll={:?} y_before={:?} y_after={:?}",
-                        scroll,
-                        previous_y,
-                        self.alignment_view.y,
-                    );
+                }
+
+                Action::ScrollAlignment { track, scroll } => {
+                    render_events.extend(self.scroll_alignment(track, scroll)?);
                 }
 
                 Action::Core(gv_core::message::Message::Zoom(zoom)) => {
@@ -731,19 +783,7 @@ impl App {
                 }
 
                 Action::RemoveTrack(id) => {
-                    let entry = self.dataset.remove_track(id)?;
-                    let name = file_name(entry.file_path.path());
-                    if let RepositoryFileIndex::Alignment(index) = entry.repository_index {
-                        self.alignment_view.y.remove(index);
-                        if self.focused_alignment > index {
-                            self.focused_alignment -= 1;
-                        } else if self.focused_alignment == index {
-                            self.focused_alignment = 0;
-                        }
-                    }
-                    log::info!("Removed track: id={id} file={name}");
-                    self.apply_track_change().await?;
-                    messages.push(format!("Removed {name}."));
+                    messages.push(self.remove_track(id, false).await?);
                     render_events.push(RenderEvent::All);
                 }
 
@@ -776,6 +816,20 @@ impl App {
                     if register == KeyRegisterType::ContigList {
                         self.registers.contig_list_cursor = self.alignment_view.focus.contig_index
                     }
+                    if matches!(register, KeyRegisterType::Command | KeyRegisterType::Search)
+                        && matches!(
+                            previous_register,
+                            KeyRegisterType::Normal | KeyRegisterType::Track
+                        )
+                    {
+                        self.registers.return_to = previous_register.clone();
+                    }
+                    if let KeyRegisterType::Insert { track } = previous_register {
+                        // The cursor cell goes away.
+                        render_events.push(RenderEvent::Area(AreaType::Bed(track)));
+                    }
+                    // The focus bar shows the mode.
+                    render_events.push(RenderEvent::Sidebar);
                     self.registers.current = register;
                     log::debug!(
                         "Switching key register: from={:?} to={:?}",
@@ -816,12 +870,135 @@ impl App {
                     }
                     render_events.push(RenderEvent::All)
                 }
-                Action::FocusAlignment(id) => {
-                    let index = self.dataset.tracks.alignment_index(id)?;
-                    if index != self.focused_alignment {
-                        self.focused_alignment = index;
+                Action::FocusTrack(id) => {
+                    if self.focused_track != Some(id) {
+                        self.focused_track = Some(id);
+                        // Insert mode stays on its track, so focusing another track leaves it.
+                        if let KeyRegisterType::Insert { track } = self.registers.current {
+                            self.registers.current = KeyRegisterType::Normal;
+                            render_events.push(RenderEvent::Area(AreaType::Bed(track)));
+                        }
                         render_events.push(RenderEvent::Sidebar);
+                        render_events.push(RenderEvent::Area(AreaType::Console));
                     }
+                }
+                Action::MoveFocus(movement) => {
+                    let order = &self.layout.track_order;
+                    if order.is_empty() {
+                        continue;
+                    }
+                    let last = order.len() - 1;
+                    let current = self
+                        .focused_track
+                        .and_then(|id| order.iter().position(|&track| track == id));
+                    let target = match (movement, current) {
+                        (FocusMove::Last, _) => last,
+                        (FocusMove::First, _) | (_, None) => 0,
+                        (FocusMove::Next(n), Some(position)) => {
+                            position.saturating_add(n).min(last)
+                        }
+                        (FocusMove::Previous(n), Some(position)) => position.saturating_sub(n),
+                    };
+                    let id = order[target];
+                    if self.focused_track != Some(id) {
+                        self.focused_track = Some(id);
+                        render_events.push(RenderEvent::Sidebar);
+                        render_events.push(RenderEvent::Area(AreaType::Console));
+                    }
+                }
+                Action::EnterInsertMode { append } => {
+                    let Some(id) = self.focused_track.filter(|&id| {
+                        matches!(
+                            self.dataset.tracks.get(id).repository_index,
+                            RepositoryFileIndex::Bed(_)
+                        )
+                    }) else {
+                        messages.push("Insert mode is only available for BED tracks.".to_string());
+                        continue;
+                    };
+                    if let Err(error) = self.dataset.begin_edit_step(id) {
+                        messages.push(error.to_string());
+                        continue;
+                    }
+                    if append {
+                        self.apply_movement(Movement::Right(1)).await?;
+                        render_events.push(RenderEvent::AllTracks);
+                    }
+                    self.registers.current = KeyRegisterType::Insert { track: id };
+                    render_events.push(RenderEvent::Area(AreaType::Bed(id)));
+                    render_events.push(RenderEvent::Sidebar);
+                    render_events.push(RenderEvent::Area(AreaType::Console));
+                }
+                Action::EditBed { track, edit } => {
+                    let area = self.resolved_layout.main_area;
+                    let focus = self.alignment_view.focus.clone();
+                    // The cursor column covers one base, or `zoom` bases when zoomed out.
+                    let OnScreenCoordinate::OnScreen(column) = self
+                        .alignment_view
+                        .onscreen_x_coordinate(focus.position, &area)
+                    else {
+                        continue;
+                    };
+                    let Some((start, end)) = self
+                        .alignment_view
+                        .coordinates_of_onscreen_x(area.x + column as u16, &area)
+                    else {
+                        continue;
+                    };
+                    let end = match self.dataset.view.contig_length(&focus)? {
+                        Some(length) => end.min(length),
+                        None => end,
+                    };
+                    let was_modified = self.dataset.is_modified(track);
+                    if self
+                        .dataset
+                        .edit_bed(track, edit, focus.contig_index, start, end)?
+                    {
+                        self.load_data().await?;
+                        render_events.push(RenderEvent::Area(AreaType::Bed(track)));
+                        render_events.push(RenderEvent::Area(AreaType::Console));
+                        // The sidebar marker can change the label's height.
+                        if self.dataset.is_modified(track) != was_modified {
+                            render_events.push(RenderEvent::All);
+                        }
+                    }
+                }
+                Action::Undo | Action::Redo => {
+                    let Some(id) = self.focused_track else {
+                        messages.push(NO_FOCUS_MESSAGE.to_string());
+                        continue;
+                    };
+                    let (result, edge) = if action == Action::Undo {
+                        (self.dataset.undo(id), "Already at oldest change")
+                    } else {
+                        (self.dataset.redo(id), "Already at newest change")
+                    };
+                    match result {
+                        Ok(true) => {
+                            self.load_data().await?;
+                            render_events.push(RenderEvent::All);
+                        }
+                        Ok(false) => messages.push(edge.to_string()),
+                        Err(error) => messages.push(error.to_string()),
+                    }
+                }
+                Action::NewBedTrack { below } => {
+                    let id = self.dataset.new_bed_track().await?;
+                    let order = &self.layout.track_order;
+                    let position = match self
+                        .focused_track
+                        .and_then(|focused| order.iter().position(|&track| track == focused))
+                    {
+                        Some(position) if below => position + 1,
+                        Some(position) => position,
+                        None => order.len(),
+                    };
+                    self.layout.track_order.insert(position, id);
+                    log::info!("Created track: id={id} position={position}");
+                    self.apply_track_change().await?;
+                    self.focused_track = Some(id);
+                    self.registers.current = KeyRegisterType::Insert { track: id };
+                    render_events.push(RenderEvent::All);
                 }
                 Action::UpdateAlignmentOptions { track, update } => {
                     let index = self.dataset.tracks.alignment_index(track)?;
@@ -946,6 +1123,189 @@ impl App {
         Ok(render_events)
     }
 
+    /// The name a track shows, such as `peaks.bed` or `untitled-1`.
+    fn track_name(&self, id: TrackId) -> String {
+        file_name(&self.dataset.tracks.get(id).file_path.to_string()).to_owned()
+    }
+
+    /// The tracks with unsaved changes, in display order.
+    fn modified_tracks(&self) -> Vec<TrackId> {
+        self.layout
+            .track_order
+            .iter()
+            .copied()
+            .filter(|&id| self.dataset.is_modified(id))
+            .collect()
+    }
+
+    /// Why quitting has to wait, if any track has unsaved changes.
+    fn unsaved_changes_message(&self) -> Option<String> {
+        let names = self
+            .modified_tracks()
+            .into_iter()
+            .map(|id| self.track_name(id))
+            .collect_vec();
+        match names.as_slice() {
+            [] => None,
+            [name] => Some(format!(
+                "{name} has unsaved changes. Use :w, or :q! to quit without writing."
+            )),
+            names => Some(format!(
+                "{} have unsaved changes. Use :wa, or :q! to quit without writing.",
+                join_names(names)
+            )),
+        }
+    }
+
+    /// Writes the focused BED track to its file, or to `path`. Returns the message to show,
+    /// as an error when nothing was written.
+    fn write_track(&mut self, path: Option<&str>) -> Result<String, String> {
+        let id = self.focused_track.ok_or(NO_FOCUS_MESSAGE.to_string())?;
+        if !matches!(
+            self.dataset.tracks.get(id).repository_index,
+            RepositoryFileIndex::Bed(_)
+        ) {
+            return Err(":w writes BED tracks. Use :ws to save the session.".to_string());
+        }
+        let written = self
+            .dataset
+            .write_bed(id, path)
+            .map_err(|error| error.to_string())?;
+        let name = self.track_name(id);
+        log::info!("Wrote track: id={id} name={name} result={written:?}");
+        Ok(match written {
+            BedWrite::Saved { features } => {
+                format!("{name}: {} written.", feature_count(features))
+            }
+            BedWrite::Copy { path, .. } if self.dataset.is_modified(id) => {
+                format!("Wrote a copy to {path}. {name} still has unsaved changes.")
+            }
+            BedWrite::Copy { path, .. } => format!("Wrote a copy to {path}."),
+        })
+    }
+
+    /// Writes every modified BED track that has a file. Returns the message to show, as an
+    /// error when a track is still modified afterwards.
+    fn write_all(&mut self) -> Result<String, String> {
+        let modified = self.modified_tracks();
+        if modified.is_empty() {
+            return Ok("No tracks have unsaved changes.".to_string());
+        }
+        let mut written = Vec::new();
+        let mut untitled = Vec::new();
+        let mut errors = Vec::new();
+        for id in modified {
+            let name = self.track_name(id);
+            if self.dataset.tracks.get(id).file_path.path().is_none() {
+                untitled.push(name);
+                continue;
+            }
+            match self.dataset.write_bed(id, None) {
+                Ok(_) => written.push(name),
+                Err(error) => errors.push(error.to_string()),
+            }
+        }
+        let mut parts = Vec::new();
+        if !written.is_empty() {
+            parts.push(format!("Wrote {}.", join_names(&written)));
+        }
+        match untitled.as_slice() {
+            [] => {}
+            [name] => parts.push(format!("{name} has no file name. Use :w <path>.")),
+            names => parts.push(format!(
+                "{} have no file names. Use :w <path> on each.",
+                join_names(names)
+            )),
+        }
+        let failed = !untitled.is_empty() || !errors.is_empty();
+        parts.extend(errors);
+        let message = parts.join(" ");
+        if failed { Err(message) } else { Ok(message) }
+    }
+
+    /// Notes about edited tracks for a saved session: untitled tracks are left out, and
+    /// modified tracks are saved by path without their edits.
+    fn session_notes(&self) -> Vec<String> {
+        let (untitled, modified): (Vec<_>, Vec<_>) = self
+            .modified_tracks()
+            .into_iter()
+            .partition(|&id| self.dataset.tracks.get(id).file_path.path().is_none());
+        let names = |ids: Vec<TrackId>| ids.into_iter().map(|id| self.track_name(id)).collect_vec();
+        let mut notes = Vec::new();
+        match names(untitled).as_slice() {
+            [] => {}
+            [name] => notes.push(format!("{name} is left out because it has no file.")),
+            names => notes.push(format!(
+                "{} are left out because they have no files.",
+                join_names(names)
+            )),
+        }
+        let modified = names(modified);
+        if !modified.is_empty() {
+            notes.push(format!(
+                "The session points to {} on disk, without the unsaved changes.",
+                join_names(&modified)
+            ));
+        }
+        notes
+    }
+
+    /// Scrolls an alignment track and returns the areas to redraw.
+    fn scroll_alignment(
+        &mut self,
+        id: TrackId,
+        scroll: gv_core::message::Scroll,
+    ) -> Result<Vec<RenderEvent>, TGVError> {
+        let index = self.dataset.tracks.alignment_index(id)?;
+        let depth = match &self.dataset.view.paired_alignments[index] {
+            Some(paired) => paired.depth()?,
+            None => self.dataset.view.alignments[index].depth()?,
+        };
+        let previous_y = self.alignment_view.y[index];
+        self.alignment_view.scroll(index, scroll.clone(), depth);
+        log::debug!(
+            "Scroll applied: track={id} scroll={scroll:?} y_before={previous_y} y_after={}",
+            self.alignment_view.y[index],
+        );
+        Ok(vec![
+            RenderEvent::Area(AreaType::Alignment(id)),
+            RenderEvent::Sidebar,
+        ])
+    }
+
+    /// Removes a track and returns the message to show. Without `force`, a track with unsaved
+    /// changes stays. The focus moves to the next track in display order, or else the previous
+    /// one.
+    async fn remove_track(&mut self, id: TrackId, force: bool) -> Result<String, TGVError> {
+        let name = self.track_name(id);
+        if !force && self.dataset.is_modified(id) {
+            return Ok(format!(
+                "{name} has unsaved changes. Write it with :w, or remove it with :bd!."
+            ));
+        }
+        if self.focused_track == Some(id) {
+            let order = &self.layout.track_order;
+            let position = order
+                .iter()
+                .position(|&track| track == id)
+                .expect("file tracks are in the display order");
+            self.focused_track = order
+                .get(position + 1)
+                .or_else(|| position.checked_sub(1).map(|previous| &order[previous]))
+                .copied();
+        }
+        if self.registers.current == (KeyRegisterType::Insert { track: id }) {
+            self.registers.current = KeyRegisterType::Normal;
+        }
+        let entry = self.dataset.remove_track(id)?;
+        if let RepositoryFileIndex::Alignment(index) = entry.repository_index {
+            self.alignment_view.y.remove(index);
+        }
+        log::info!("Removed track: id={id} file={name}");
+        self.apply_track_change().await?;
+        Ok(format!("Removed {name}."))
+    }
+
     /// Opens the files in `pending_open` and returns the areas to redraw. An error opening them
     /// becomes the status message, and the tracks stay as they were.
     pub async fn open_pending(&mut self) -> Result<Vec<RenderEvent>, TGVError> {
@@ -965,6 +1325,9 @@ impl App {
             .y
             .resize(self.dataset.view.alignments.len(), 0);
         self.apply_track_change().await?;
+        if self.focused_track.is_none() {
+            self.focused_track = ids.first().copied();
+        }
         self.dataset.view.messages = vec![match paths.as_slice() {
             [path] => format!("Opened {}.", file_name(path)),
             paths => format!("Opened {} files.", paths.len()),
@@ -1073,6 +1436,13 @@ impl App {
             render_events
         };
         self.resolved_layout = self.layout.resolve(buf.area, &self.dataset.repository);
+        let focus = TrackFocus {
+            track: self.focused_track,
+            name: self.focused_track.map(|id| self.track_name(id)),
+            modified: self
+                .focused_track
+                .is_some_and(|id| self.dataset.is_modified(id)),
+        };
         if render_events.contains(&RenderEvent::All) || self.scene != Scene::Main {
             self.render_buffer.reset();
         }
@@ -1085,6 +1455,7 @@ impl App {
                 &self.alignment_view,
                 &self.mouse_register,
                 &self.highlights,
+                &focus,
                 self.context_menu.as_ref(),
                 self.popup.as_ref(),
                 &self.settings.palette,
@@ -1101,5 +1472,23 @@ impl App {
         // Ratatui expects a complete frame even when only some areas change.
         buf.clone_from(&self.render_buffer);
         Ok(())
+    }
+}
+
+/// Joins names with commas and "and", using the Oxford comma.
+fn join_names(names: &[String]) -> String {
+    match names {
+        [] => String::new(),
+        [name] => name.clone(),
+        [first, second] => format!("{first} and {second}"),
+        [rest @ .., last] => format!("{}, and {last}", rest.join(", ")),
+    }
+}
+
+/// "1 feature" or "42 features".
+fn feature_count(features: usize) -> String {
+    match features {
+        1 => "1 feature".to_string(),
+        features => format!("{features} features"),
     }
 }

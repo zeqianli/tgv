@@ -237,9 +237,10 @@ impl TryFrom<&App> for SessionFile {
 
         let mut tracks = Vec::new();
 
-        // The registry includes files opened since startup and leaves out removed ones.
-        for entry in &app.dataset.tracks.entries {
-            match &entry.file_path {
+        // The display order includes files opened since startup and leaves out removed ones.
+        // Untitled tracks have no file to point to, so they are left out.
+        for &id in &app.layout.track_order {
+            match &app.dataset.tracks.get(id).file_path {
                 FilePath::AlignmentPath(alignment_path) => {
                     tracks.push(TrackEntry::try_from(alignment_path)?);
                 }
@@ -251,6 +252,7 @@ impl TryFrom<&App> for SessionFile {
                         reference_index: None,
                     });
                 }
+                FilePath::UntitledBed(_) => {}
             }
         }
 

@@ -5,6 +5,7 @@ use crate::{
     reference::Reference,
 };
 use clap::ValueEnum;
+use std::fmt;
 
 #[derive(Clone, Debug, PartialEq, Eq, ValueEnum, Default)]
 pub enum BackendType {
@@ -53,18 +54,44 @@ pub enum FilePath {
     AlignmentPath(AlignmentPath),
     VariantPath(String),
     BedPath(String),
+    /// A BED track created in the viewer, which has no file until it is first written. The
+    /// number makes its name, such as `untitled-1`.
+    UntitledBed(u32),
 }
 
 impl FilePath {
-    /// The data file's path or URL, without its index.
-    pub fn path(&self) -> &str {
+    /// The data file's path or URL, without its index. `None` for a track without a file.
+    pub fn path(&self) -> Option<&str> {
         match self {
             Self::AlignmentPath(AlignmentPath::Bam { path, .. })
             | Self::AlignmentPath(AlignmentPath::Cram { path, .. })
             | Self::VariantPath(path)
-            | Self::BedPath(path) => path,
+            | Self::BedPath(path) => Some(path),
+            Self::UntitledBed(_) => None,
         }
     }
+}
+
+/// Shows the path, or the name of a track without a file.
+impl fmt::Display for FilePath {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::UntitledBed(number) => write!(f, "untitled-{number}"),
+            _ => f.write_str(
+                self.path()
+                    .expect("tracks other than untitled ones have a path"),
+            ),
+        }
+    }
+}
+
+/// The last component of a file path or URL, for labels and messages.
+pub fn file_name(path: &str) -> &str {
+    path.trim_end_matches(['/', '\\'])
+        .rsplit(['/', '\\'])
+        .next()
+        .filter(|name| !name.is_empty())
+        .unwrap_or(path)
 }
 
 /// Dataset settings: the reference and how to reach its services. The files a dataset shows

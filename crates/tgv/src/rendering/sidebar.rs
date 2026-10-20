@@ -2,8 +2,8 @@ use crate::{
     app::RenderEvent,
     layout::{AlignmentView, AreaType, ResolvedMainLayout, wrap_sidebar_label},
     mouse::MouseRegister,
-    register::Registers,
-    rendering::colors::Palette,
+    register::{KeyRegisterType, Registers},
+    rendering::{TrackFocus, colors::Palette},
 };
 
 use gv_core::{
@@ -14,7 +14,7 @@ use itertools::Itertools;
 use ratatui::{
     buffer::Buffer,
     layout::Rect,
-    style::{Color, Style},
+    style::{Color, Modifier, Style},
 };
 
 fn alignment_depth_description(
@@ -81,10 +81,18 @@ pub fn render_sidebar(
     layout: &ResolvedMainLayout,
     alignment_view: &AlignmentView,
     mouse_register: &MouseRegister,
+    focus: &TrackFocus,
     pallete: &Palette,
     render_events: &Vec<RenderEvent>,
 ) -> Result<(), TGVError> {
     let sidebar_style = Style::default().fg(Color::Gray);
+    // Command and search input keep showing the mode they return to.
+    let mode = match &registers.current {
+        KeyRegisterType::Command | KeyRegisterType::Search | KeyRegisterType::ContigList => {
+            &registers.return_to
+        }
+        mode => mode,
+    };
     if layout.sidebar_width > 0 {
         let separator_style = Style::default().fg(Color::DarkGray);
         for area in &layout.sidebar_section_dividers {
@@ -129,6 +137,14 @@ pub fn render_sidebar(
                     );
                 }
             }
+            let label_style = match label.area_type {
+                AreaType::Coverage(id) | AreaType::Variant(id) | AreaType::Bed(id)
+                    if *mode == KeyRegisterType::Track && focus.track == Some(id) =>
+                {
+                    sidebar_style.add_modifier(Modifier::BOLD)
+                }
+                _ => sidebar_style,
+            };
             let lines = wrap_sidebar_label(&label.name, area.width);
             let visible_lines = lines.len().min(area.height as usize);
             let first_row = area.y + (area.height as usize - visible_lines) as u16 / 2;
@@ -138,7 +154,7 @@ pub fn render_sidebar(
                     first_row + offset as u16,
                     line,
                     area.width as usize,
-                    sidebar_style,
+                    label_style,
                 );
             }
         }
@@ -190,6 +206,27 @@ pub fn render_sidebar(
         };
         for y in layout.sidebar_divider_area.top()..layout.sidebar_divider_area.bottom() {
             buf.set_string(layout.sidebar_divider_area.x, y, "│", divider_style);
+        }
+        // The divider beside the focused track becomes a bar, colored by mode like Jupyter's
+        // cell border.
+        if let Some(focused) = focus.track {
+            let bar_style = Style::default().fg(match mode {
+                KeyRegisterType::Track => Color::Blue,
+                KeyRegisterType::Insert { .. } => Color::Green,
+                _ => Color::DarkGray,
+            });
+            for (area_type, area) in &layout.areas {
+                if let AreaType::Coverage(id)
+                | AreaType::Alignment(id)
+                | AreaType::Variant(id)
+                | AreaType::Bed(id) = area_type
+                    && *id == focused
+                {
+                    for y in area.top()..area.bottom() {
+                        buf.set_string(layout.sidebar_divider_area.x, y, "┃", bar_style);
+                    }
+                }
+            }
         }
     }
     Ok(())

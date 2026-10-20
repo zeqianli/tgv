@@ -244,6 +244,11 @@ impl Repository {
                     .push(BedRepositoryEnum::new(bed_path)?);
                 RepositoryFileIndex::Bed(self.bed_repositories.len() - 1)
             }
+            FilePath::UntitledBed(_) => {
+                self.bed_repositories
+                    .push(BedRepositoryEnum::untitled(file_path)?);
+                RepositoryFileIndex::Bed(self.bed_repositories.len() - 1)
+            }
         })
     }
 

@@ -282,14 +282,7 @@ impl AlignmentView {
     }
 }
 
-/// The last component of a file path or URL, for labels and messages.
-pub fn file_name(path: &str) -> &str {
-    path.trim_end_matches(['/', '\\'])
-        .rsplit(['/', '\\'])
-        .next()
-        .filter(|name| !name.is_empty())
-        .unwrap_or(path)
-}
+pub use gv_core::settings::file_name;
 
 /// Persistent state for the main page layout.
 pub struct MainLayout {
@@ -301,6 +294,9 @@ pub struct MainLayout {
     pub sidebar_width: u16,
     pub sidebar_visible: bool,
     pub track_registry: Arc<TrackRegistry>,
+    /// File tracks in display order. The registry stays in ID order for lookups, so the order
+    /// lives here.
+    pub track_order: Vec<TrackId>,
 }
 
 impl MainLayout {
@@ -355,17 +351,24 @@ impl MainLayout {
             sidebar_width: Self::SIDEBAR_DEFAULT_WIDTH,
             sidebar_visible: true,
             track_registry,
+            track_order: visible.to_vec(),
         }
     }
 
     /// Rebuilds the track rows after tracks were added or removed. Rows that remain keep their
-    /// requested heights, and new tracks go after the existing file tracks.
+    /// requested heights and order. Tracks missing from `track_order` go after the others.
     pub fn set_tracks(&mut self, settings: &Settings, track_registry: Arc<TrackRegistry>) {
-        let ids = track_registry
-            .entries
+        let mut ids = self
+            .track_order
             .iter()
-            .map(|entry| entry.id)
+            .copied()
+            .filter(|&id| track_registry.contains(id))
             .collect::<Vec<_>>();
+        for entry in &track_registry.entries {
+            if !ids.contains(&entry.id) {
+                ids.push(entry.id);
+            }
+        }
         let rebuilt = Self::new(settings, track_registry, &ids);
         self.track_heights = rebuilt
             .tracks
@@ -380,6 +383,7 @@ impl MainLayout {
             .collect();
         self.tracks = rebuilt.tracks;
         self.track_registry = rebuilt.track_registry;
+        self.track_order = rebuilt.track_order;
     }
 
     pub fn toggle_sidebar(&mut self) {
@@ -436,20 +440,30 @@ impl MainLayout {
     }
 
     /// Resolve the requested layout within the terminal area.
+    ///
+    /// Labels are file names. Tracks with unsaved changes get a `● ` before theirs.
     pub fn resolve(&self, terminal_area: Rect, repository: &Repository) -> ResolvedMainLayout {
-        self.resolve_with_file_path(terminal_area, |index| repository.file_path(index))
+        self.resolve_with_labels(terminal_area, |index| {
+            let name = file_name(repository.file_path(index));
+            match index {
+                RepositoryFileIndex::Bed(bed) if repository.bed_repositories[bed].is_modified() => {
+                    format!("● {name}")
+                }
+                _ => name.to_owned(),
+            }
+        })
     }
 
-    fn resolve_with_file_path<'a>(
+    fn resolve_with_labels(
         &self,
         terminal_area: Rect,
-        file_path: impl Fn(RepositoryFileIndex) -> &'a str,
+        label: impl Fn(RepositoryFileIndex) -> String,
     ) -> ResolvedMainLayout {
-        let file_names: HashMap<TrackId, &str> = self
+        let file_names: HashMap<TrackId, String> = self
             .track_registry
             .entries
             .iter()
-            .map(|entry| (entry.id, file_name(file_path(entry.repository_index))))
+            .map(|entry| (entry.id, label(entry.repository_index)))
             .collect();
         let sidebar_width =
             if self.sidebar_visible && terminal_area.width >= Self::SIDEBAR_MIN_WIDTH + 2 {
@@ -477,7 +491,7 @@ impl MainLayout {
                     _ => None,
                 };
                 if let Some(track_id) = track_id {
-                    let lines = wrap_sidebar_label(file_names[&track_id], sidebar_width).len();
+                    let lines = wrap_sidebar_label(&file_names[&track_id], sidebar_width).len();
                     *height = Some(lines.saturating_add(1).min(u16::MAX as usize) as u16);
                 }
             }
@@ -672,7 +686,7 @@ impl MainLayout {
                     AreaType::Coverage(id) | AreaType::Variant(id) | AreaType::Bed(id) => *id,
                     _ => return None,
                 };
-                let name = file_names[&track_id];
+                let name = &file_names[&track_id];
                 let reserved = u16::from(separator_after(index))
                     + u16::from(matches!(area_type, AreaType::Coverage(_)));
                 let label_area = Rect::new(
@@ -684,7 +698,7 @@ impl MainLayout {
                 (label_area.height > 0 && label_area.width > 0).then(|| SidebarLabel {
                     area: label_area,
                     area_type: *area_type,
-                    name: name.to_owned(),
+                    name: name.clone(),
                 })
             })
             .collect();
@@ -904,7 +918,7 @@ mod tests {
     }
 
     fn resolve(layout: &MainLayout, area: Rect) -> ResolvedMainLayout {
-        layout.resolve_with_file_path(area, |_| "sample.bam")
+        layout.resolve_with_labels(area, |_| "sample.bam".to_owned())
     }
 
     fn layout_for_indexes(indexes: &[RepositoryFileIndex]) -> MainLayout {

@@ -103,6 +103,17 @@ pub enum TGVError {
     #[error("Not a file: {0}")]
     NotAFile(String),
 
+    #[error(
+        "{name} is read-only: tgv edits BED files that load whole (.bed and unindexed .bed.gz)."
+    )]
+    ReadOnlyBed { name: String },
+
+    #[error("{name} is not a BED track.")]
+    NotBedTrack { name: String },
+
+    #[error("{name} has no file name. Use :w <path>.")]
+    UntitledTrack { name: String },
+
     #[error("{file} needs an index: {index}")]
     MissingIndex { file: String, index: String },
 

@@ -10,9 +10,24 @@ pub enum Message {
 
     Zoom(Zoom),
 
+    /// Quits, unless a track has unsaved changes.
     Quit,
+    /// Quits without writing tracks.
+    ForceQuit,
     SaveSession(Option<String>),
     SaveAndQuit(Option<String>),
+    /// Writes the focused BED track to its file, or to the path.
+    WriteTrack(Option<String>),
+    /// Writes every modified BED track that has a file.
+    WriteAll,
+    /// `WriteTrack`, then `Quit`.
+    WriteAndQuit(Option<String>),
+    /// `WriteAll`, then `Quit`.
+    WriteAllAndQuit,
+    /// Removes the focused track. Without `force`, a track with unsaved changes stays.
+    CloseTrack {
+        force: bool,
+    },
     SetAlignmentOption(Vec<AlignmentDisplayOption>),
     /// Adds file tracks from these paths, in order.
     OpenFiles(Vec<String>),

@@ -2,6 +2,7 @@ use crate::{
     app::{Highlight, Scene},
     register::KeyRegisterType,
 };
+use gv_core::bed::BedEditKind;
 use gv_core::message::{AlignmentFilter, AlignmentSort};
 pub use gv_core::message::{Movement, Scroll};
 use gv_core::track_registry::TrackId;
@@ -31,8 +32,41 @@ pub enum Action {
     /// Returns to the view that the last `JumpBack` left.
     JumpForward,
 
-    /// Makes the alignment track the target of later scrolls.
-    FocusAlignment(TrackId),
+    /// Focuses a file track: the track that track mode, insert mode, `:w`, and `:bd` act on.
+    FocusTrack(TrackId),
+
+    /// Moves the focus along the file tracks in display order.
+    MoveFocus(FocusMove),
+
+    /// Scrolls one alignment track, whatever has focus.
+    ScrollAlignment {
+        track: TrackId,
+        scroll: Scroll,
+    },
+
+    /// Enters insert mode on the focused track. `append` first moves the cursor right by one
+    /// column, like vim's `a`.
+    EnterInsertMode {
+        append: bool,
+    },
+
+    /// Adds or removes the bases under the cursor column on a BED track.
+    EditBed {
+        track: TrackId,
+        edit: BedEditKind,
+    },
+
+    /// Undoes the focused BED track's last edit step.
+    Undo,
+
+    /// Redoes the focused BED track's last undone step.
+    Redo,
+
+    /// Creates an untitled BED track next to the focused track, focuses it, and enters insert
+    /// mode.
+    NewBedTrack {
+        below: bool,
+    },
 
     /// Changes one display option of an alignment track and keeps the others.
     UpdateAlignmentOptions {
@@ -69,6 +103,15 @@ pub enum Action {
     SetHighlights(Vec<Highlight>),
 
     ClearHighlights,
+}
+
+/// A focus move along the file tracks. Moves stop at the first and last tracks.
+#[derive(Debug, Clone, Copy, Eq, PartialEq)]
+pub enum FocusMove {
+    Next(usize),
+    Previous(usize),
+    First,
+    Last,
 }
 
 /// A change to one alignment track's display options.

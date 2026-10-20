@@ -18,7 +18,7 @@ use std::collections::BTreeSet;
 pub use alignment::{render_alignment, render_paired_alignment};
 pub use bed::render_bed;
 pub use colors::{DARK_THEME, Palette};
-pub use console::render_console;
+pub use console::{render_console, render_mode_line};
 pub use contig_list::render_contig_list;
 pub use coordinate::render_coordinates;
 pub use coverage::render_coverage;
@@ -41,8 +41,16 @@ use gv_core::{message::AlignmentDisplayOption, prelude::*};
 use ratatui::{
     buffer::Buffer,
     layout::Rect,
-    style::{Color, Style},
+    style::{Color, Modifier, Style},
 };
+
+/// What the screen shows about the focused track.
+pub struct TrackFocus {
+    pub track: Option<TrackId>,
+    /// The focused track's name, such as `peaks.bed` or `untitled-1`.
+    pub name: Option<String>,
+    pub modified: bool,
+}
 
 /// Render all areas in the layout
 pub fn render_main(
@@ -53,6 +61,7 @@ pub fn render_main(
     alignment_view: &AlignmentView,
     mouse_register: &MouseRegister,
     highlights: &[Highlight],
+    focus: &TrackFocus,
     context_menu: Option<&ContextMenu>,
     popup: Option<&TextPopup>,
     pallete: &Palette,
@@ -114,6 +123,7 @@ pub fn render_main(
             layout,
             alignment_view,
             mouse_register,
+            focus,
             pallete,
             render_events,
         )?;
@@ -213,6 +223,8 @@ pub fn render_main(
                     KeyRegisterType::Command | KeyRegisterType::Search
                 ) {
                     render_console(rect, buf, registers)?;
+                } else {
+                    render_mode_line(rect, buf, registers, focus);
                 }
             }
             AreaType::Error => {
@@ -228,6 +240,14 @@ pub fn render_main(
                 let index = layout.track_registry.bed_index(*id)?;
                 if let Some(bed_intervals) = state.bed_intervals.get(index) {
                     render_bed(rect, buf, bed_intervals, alignment_view, pallete)?;
+                }
+                // Insert mode draws the cursor as one reversed cell.
+                if registers.current == (KeyRegisterType::Insert { track: *id })
+                    && let OnScreenCoordinate::OnScreen(x) =
+                        alignment_view.onscreen_x_coordinate(alignment_view.focus.position, rect)
+                {
+                    buf[(rect.x + x as u16, rect.y)]
+                        .set_style(Style::default().add_modifier(Modifier::REVERSED));
                 }
             }
             AreaType::Fill => {}

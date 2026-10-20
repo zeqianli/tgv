@@ -408,7 +408,7 @@ async fn offline_tracks_open_and_remove_at_runtime() {
     );
 
     harness.app.alignment_view.y = vec![1, 2, 3];
-    harness.app.focused_alignment = 2;
+    harness.app.focused_track = Some(3);
     harness.handle(vec![Action::RemoveTrack(1)]).await.unwrap();
 
     assert_eq!(
@@ -425,7 +425,7 @@ async fn offline_tracks_open_and_remove_at_runtime() {
         ]
     );
     assert_eq!(harness.app.alignment_view.y, vec![1, 3]);
-    assert_eq!(harness.app.focused_alignment, 1);
+    assert_eq!(harness.app.focused_track, Some(3));
     assert_eq!(harness.app.dataset.view.alignments.len(), 2);
     let layout_tracks = &harness.app.layout.tracks;
     assert!(!layout_tracks.contains(&AreaType::Alignment(1)));
@@ -435,7 +435,7 @@ async fn offline_tracks_open_and_remove_at_runtime() {
     let temp_dir = TempDir::new().unwrap();
     let save_path = temp_dir.path().join("runtime-tracks.toml");
     harness
-        .handle_command(&format!("w {}", save_path.display()))
+        .handle_command(&format!("ws {}", save_path.display()))
         .await
         .unwrap();
     let session = SessionFile::from_path(&save_path).unwrap();

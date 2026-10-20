@@ -49,6 +49,20 @@ Each run writes a log file to `~/.tgv/<timestamp>.log`.
 
 Quit: `:q`
 
+tgv has vim-like modes, with a track layer on top, like cells in a Jupyter notebook:
+
+- Normal mode moves along the genome. `j/k` scroll the focused track when it is an alignment.
+- Track mode, reached with `Esc`, moves the focus between tracks, and creates, removes, and
+  undoes edits on them. `Enter` returns to normal mode.
+- Insert mode, reached with `i` or `a`, edits the focused BED track at the cursor. `Esc`
+  returns to normal mode.
+
+The focused track has a bar beside it on the sidebar divider: gray in normal mode, blue in
+track mode, and green in insert mode. In track and insert mode, the command row shows the
+mode and the focused track, such as `-- INSERT -- peaks.bed [+]`. `[+]` marks unsaved
+changes. When the sidebar is hidden, this line is the only place the focus is named. At
+startup, the first file track has focus.
+
 ### Normal mode
 
 | Command  | Notes | Example |
@@ -62,24 +76,72 @@ Quit: `:q`
 | `W/B` | Beginning of the next / previous gene | |
 | `E/gE` | End of the next / previous gene | |
 | `gg/gG` | Scroll to the first / last alignment row | |
+| `Esc` | Enter track mode. With a count or `g` pending, `Esc` only clears it. | |
+| `i` / `a` | Enter insert mode on the focused BED track. `a` first moves right by one column. | |
 | `z/o` | Zoom in / out | |
 | `s` | Toggle the sidebar | |
 | `u` / `Ctrl-r` | Go back / forward through jumps: searches, contig and gene jumps, cytoband clicks, and agent moves | |
 | `_number_` + `_movement_` | Move by `_number_` steps | `20h`: left by 20 bases |
 
+### Track mode
+
+| Command | Notes | Example |
+|---------|-------------|---------|
+| `j/k` or arrow keys | Focus the next / previous track. Stops at the first and last tracks. | `3j` |
+| `gg/gG` | Focus the first / last track | |
+| `Enter` | Go to normal mode on the focused track | |
+| `i` / `a` | Enter insert mode on the focused BED track | |
+| `o` / `O` | Create an untitled BED track below / above the focused track, and enter insert mode on it | |
+| `dd` | Remove the focused track. A track with unsaved changes stays; use `:bd!` to remove it anyway. | |
+| `u` / `Ctrl-r` | Undo / redo the focused BED track's last edit step | |
+| `h/l`, `H/L`, `w/b/e/ge`, `W/B/E/gE`, `z`, `s`, `:`, `/` | The same as in normal mode | |
+
+`o` zooms out in normal mode, but creates a track in track mode. Press `Enter` first to zoom
+out.
+
+### Insert mode
+
+Insert mode edits BED files that load whole: `.bed` files and `.bed.gz` files without an
+index. Indexed `.bed.gz` and bigBed files are read-only. The cursor is the current position,
+drawn as a reversed cell in the focused BED track. When zoomed out, the cursor column covers
+`zoom` bases, and edits apply to all of them.
+
+| Command | Notes |
+|---------|-------------|
+| `Space` | Add the bases under the cursor, then move right by one column. Hold it to paint a run. |
+| `Backspace` | Move left by one column, then remove the bases under the cursor |
+| `Delete` | Remove the bases under the cursor |
+| `h/l`, `H/L`, `w/b/e/ge`, `W/B/E/gE`, `z/o`, arrow keys | Move and zoom as in normal mode |
+| `Esc` | Go to normal mode. Everything changed since entering insert mode is one undo step. |
+
+- Adding bases leaves covered bases alone. An uncovered run that touches the end of a
+  feature on its left extends that feature; otherwise, one that touches the start of a
+  feature on its right extends that one. Otherwise, the run becomes a new feature with no
+  name, score, or strand. Features never merge, so their names and extra columns are kept.
+- Removing bases deletes features inside the range, trims features that cross one end of
+  it, and splits features that contain it. The right part of a split copies the name,
+  score, strand, and extra columns.
+
 ### Command mode
 
 | Command | Notes | Example |
 |---------|-------------|---------|
-| `:q` | Quit | |
-| `:w _name_` | Save the session to `~/.tgv/sessions/_name_.toml`, or to a path | `:w brca`, `:w ./brca.toml` |
-| `:w` | Save to the active session (from `--resume` or the last `:w _name_`) | |
-| `:wq [_name_]` | Save the session like `:w` and quit | `:wq brca` |
+| `:q` | Quit. If a track has unsaved changes, tgv stays open and names it. | |
+| `:q!` | Quit without writing tracks | |
+| `:w` | Write the focused BED track to its file | |
+| `:w _path_` | Write an untitled track to the path, which becomes its file. For a track with a file, write a copy; the track keeps its own file. | `:w ./peaks.bed` |
+| `:wa` | Write every modified BED track. Untitled tracks are skipped and named. | |
+| `:wq [_path_]` | `:w`, then `:q` | |
+| `:wqa` / `:xa` | `:wa`, then `:q` | |
+| `:ws _name_` | Save the session to `~/.tgv/sessions/_name_.toml`, or to a path | `:ws brca`, `:ws ./brca.toml` |
+| `:ws` | Save to the active session (from `--resume` or the last `:ws _name_`) | |
+| `:wsq [_name_]` | Save the session like `:ws` and quit. Refuses while tracks have unsaved changes, like `:q`. | `:wsq brca` |
+| `:bd` / `:bd!` | Remove the focused track. `:bd` keeps a track with unsaved changes; `:bd!` removes it anyway. | |
 | `:e _path_…` / `:open _path_…` | Add file tracks | `:e /data/simple.vcf /data/simple.bed` |
 | `:ls` / `:contigs` | List contigs (`j/k` or arrow keys to select, `{`/`}` to move by 30, `Esc`, `Enter`) | |
 | `:paired` | Show all alignment tracks as read pairs, clearing their sort and filter | |
 | `:clear` / `:default` | Restore the default display on all alignment tracks | |
-| `Esc` | Switch to normal mode | |
+| `Esc` | Return to normal or track mode, whichever you came from | |
 
 ### Search mode
 
@@ -89,7 +151,7 @@ Quit: `:q`
 | `/_contig_:_pos_` | Go to position on specific contig | `/17:7572659` |
 | `/_contig_:_start_-_end_` | Show a region, zoomed to fit. Commas are allowed. | `/chr1:1,000-2,000`, `/1000-2000` |
 | `/_gene_` | Go to `_gene_` | `/KRAS` |
-| `Esc` | Switch to normal mode | |
+| `Esc` | Return to normal or track mode, whichever you came from | |
 
 ## Mouse and sidebar
 
@@ -102,7 +164,10 @@ are hidden too. The command and message rows remain in the main track column.
 An alignment's display options, such as `Paired` or `Sorted by base at 88108`,
 are listed above its depth.
 
-Scroll the mouse wheel over an alignment to scroll its reads. Hold Shift while
+Click a track, or its section in the sidebar, to focus it. Clicking another track in insert
+mode returns to normal mode. Hovering doesn't move the focus.
+
+Scroll the mouse wheel over an alignment to scroll its reads, whatever has focus. Hold Shift while
 scrolling, or scroll horizontally on a trackpad, to pan left and right. Drag an
 alignment track to pan in both directions, or drag a variant or BED track to
 pan left and right.
@@ -157,9 +222,34 @@ you can paste a locus after `/`.
 - Over SSH, a dropped path names a file on your local machine, so tgv reports
   it as not a file.
 
-Remove a track by right-clicking its section in the sidebar. `:w` saves the
-current files, including the ones you added and leaving out the ones you
-removed.
+Remove a track by right-clicking its section in the sidebar, or with `dd` in track mode or
+`:bd`. A track with unsaved changes stays until you write it or remove it with `:bd!`. `:ws`
+saves the current files in the session, including the ones you added and leaving out the
+ones you removed.
+
+## Editing BED tracks
+
+Edit a BED track in insert mode, and write it with `:w`. Tracks with unsaved changes show
+`● ` before their name in the sidebar, and `[+]` in the mode line. Undoing back to the
+written state clears the marker. Tracks created with `o` or `O` are named `untitled-1`,
+`untitled-2`, and so on, and stay marked until they are first written with `:w _path_`.
+
+A written file keeps its layout:
+
+- Rows keep their file order. New features and the right parts of split features go in
+  sorted position if the file was sorted when it loaded, and at the end otherwise. New
+  tracks are always written sorted.
+- Every row has the file's column count, at least three. Missing names, scores, and
+  strands are written as `.`. Columns 7 and up are written back as they were.
+- Comment, `track`, and `browser` lines are written back at the top, in their original
+  order.
+- Contig names are the file's own. A contig the file didn't have gets the reference's name.
+- The file is written to a temporary file in the same directory and renamed over the
+  target, so a crash can't leave half a file. Paths ending in `.gz` are written with bgzip.
+
+`:ws` saves edited tracks by path, with a note that the session points to the file on disk.
+Untitled tracks are left out, and tgv says so. Agents see unsaved edits in `inspect_interval`
+and in the `query` tool's `bed` table.
 
 ## Compare TGV and Vim concepts
 
@@ -168,6 +258,9 @@ removed.
 | `h/l` | Horizontal movement | Character | |
 | `w/b/e/ge` | Exon | word | |
 | `W/B/E/gE` | Gene | WORD | |
-| `j/k` | Alignment track | Line | |
+| `j/k` | Alignment track, or the focused track in track mode | Line | |
 | `z/o` | Zoom | NA | `o` does a different thing in Vim |
-| `u/Ctrl-r` | Jump history | Undo / redo | Like `Ctrl-o` / `Ctrl-i` in Vim |
+| `o/O` in track mode | New BED track below / above | Open a line below / above | |
+| `u/Ctrl-r` | Jump history in normal mode, edits in track mode | Undo / redo | In normal mode, like `Ctrl-o` / `Ctrl-i` in Vim |
+| `:w` / `:ws` | Write the BED track / save the session | Write the buffer | |
+| `:bd` | Remove the track | Delete the buffer | |
