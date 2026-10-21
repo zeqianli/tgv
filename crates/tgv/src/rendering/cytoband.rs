@@ -1,12 +1,15 @@
+use crate::layout::CellView;
+use crate::rendering::colors::ToColor;
 use gv_core::{
     cytoband::{CytobandSchema, Stain},
     prelude::*,
 };
+use gv_viewer::prepare::coordinate::get_abbreviated_length_string;
 use polars::prelude::{ChunkAgg, DataFrame};
 
 use crate::{
     layout::{AlignmentView, linear_scale},
-    rendering::{colors::Palette, get_abbreviated_length_string},
+    rendering::colors::Palette,
 };
 
 use ratatui::{
@@ -91,7 +94,7 @@ pub fn render_cytobands(
             let cell = buf.cell_mut(Position::new(area.x + x, area.y));
             if let Some(cell) = cell {
                 cell.set_char(' ');
-                cell.set_bg(pallete.HIGHLIGHT_COLOR);
+                cell.set_bg(pallete.HIGHLIGHT_COLOR.color());
             }
         }
     }
@@ -158,7 +161,7 @@ fn get_cytoband_segment_x_string_and_style(
         return Ok(None);
     }
 
-    let style = Style::default().fg(palette.cytoband_color(stain.clone()));
+    let style = Style::default().fg(palette.cytoband_color(stain.clone()).color());
 
     match stain {
         Stain::Acen => {

@@ -10,10 +10,10 @@ use gv_core::logging::{init_file_logging_with_level, timestamped_log_file_name};
 use gv_core::prelude::*;
 use gv_core::tracks::{UCSCDownloader, UcscDbTrackService};
 use gv_session::SessionSocket;
+use gv_viewer::session::SessionFile;
 use std::{io::stdout, path::PathBuf};
 use tgv::{
     app::App,
-    session::SessionFile,
     settings::{Cli, Commands, Settings},
 };
 #[tokio::main]
@@ -118,9 +118,9 @@ async fn main() -> Result<(), TGVError> {
             return Err(e);
         }
     };
-    app.warn_shift_backspace = !keyboard_enhanced;
+    app.viewer.warn_shift_backspace = !keyboard_enhanced;
     // Agents reach the viewer through `tgv mcp`; without the socket, the viewer still works.
-    let socket = SessionSocket::bind(app.session.clone())
+    let socket = SessionSocket::bind(app.viewer.session.clone())
         .inspect_err(|e| log::warn!("Agents can't connect to this viewer: {e}"))
         .ok();
     let app_result = app.run(&mut terminal).await;

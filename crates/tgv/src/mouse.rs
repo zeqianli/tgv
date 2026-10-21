@@ -1,17 +1,9 @@
-use crate::{
-    layout::{AlignmentView, AreaType, HoveringAreaType, ResolvedMainLayout},
-    message::{Action, ContextMenuTarget, FocusTarget, Movement, Scroll, UpdateLayoutAction},
-};
+use crate::layout::{AlignmentView, AreaType, CellView, HoveringAreaType, ResolvedMainLayout};
 use crossterm::event::{KeyModifiers, MouseButton, MouseEvent, MouseEventKind};
+use gv_core::message::{Movement, Scroll};
 use gv_core::prelude::*;
-use gv_core::{
-    alignment::{CoverageSchema, ReadBase},
-    bed::BedSchema,
-    gene::{GeneSchema, GeneSegmentSchema, query_segments},
-    variant::VariantSchema,
-};
-use itertools::Itertools;
-use polars::prelude::ChunkAgg;
+use gv_viewer::message::{Action, Anchor, ContextMenuTarget, FocusTarget, UpdateLayoutAction};
+use gv_viewer::prepare::hover;
 use ratatui::layout::Rect;
 
 /// Columns panned per Shift+wheel notch. A wheel notch is coarser than a trackpad's
@@ -35,12 +27,7 @@ fn read_at(
     ) else {
         return Ok(None);
     };
-    let alignment = &state.alignments[index];
-    let read_id = match &state.paired_alignments[index] {
-        Some(paired) => paired.read_overlapping(alignment, left, right, y)?,
-        None => alignment.read_overlapping(left, right, y)?,
-    };
-    Ok(read_id.map(|read_id| (index, read_id)))
+    Ok(hover::read_at(state, index, left, right, y)?.map(|read_id| (index, read_id)))
 }
 
 /// Mouse interaction state for the currently displayed layout.
@@ -96,6 +83,8 @@ impl MouseRegister {
         }
 
         let mut messages = Vec::new();
+        // Pans move by whole columns.
+        let column = alignment_view.zoom.0;
         let hovered = layout.get_area_type_at_position(event.column, event.row);
         self.hovered_divider = match hovered {
             HoveringAreaType::Track(track_index) => match layout.areas[track_index].0 {
@@ -184,8 +173,10 @@ impl MouseRegister {
                 if let Some(target) = target {
                     messages.push(Action::OpenContextMenu {
                         target,
-                        column: event.column,
-                        row: event.row,
+                        anchor: Anchor {
+                            x: f32::from(event.column),
+                            y: f32::from(event.row),
+                        },
                     });
                 }
             }
@@ -194,27 +185,25 @@ impl MouseRegister {
                     self.dragged = true;
                 }
                 if self.sidebar_resizing {
-                    messages.push(Action::UpdateLayout(UpdateLayoutAction::SetSidebarWidth(
+                    messages.push(Action::from(UpdateLayoutAction::SetSidebarWidth(
                         event.column,
                     )));
                 } else if let Some((upper, lower)) = self.active_divider {
                     let delta_rows = event.row as i32 - self.last_y as i32;
                     if delta_rows != 0 {
-                        messages.push(Action::UpdateLayout(
-                            UpdateLayoutAction::ResizeAlignmentPair {
-                                upper,
-                                lower,
-                                delta_rows,
-                            },
-                        ));
+                        messages.push(Action::from(UpdateLayoutAction::ResizeAlignmentPair {
+                            upper,
+                            lower,
+                            delta_rows,
+                        }));
                     }
                 } else if let Some(area) = self.mouse_down_area {
                     match area {
                         AreaType::Alignment(id) | AreaType::Coverage(id) => {
                             if event.column < self.last_x {
-                                messages.push(Movement::Right(1).into());
+                                messages.push(Movement::Right(column).into());
                             } else if event.column > self.last_x {
-                                messages.push(Movement::Left(1).into());
+                                messages.push(Movement::Left(column).into());
                             }
                             // A drag keeps scrolling the track where it started, even if it
                             // crosses into another.
@@ -231,9 +220,9 @@ impl MouseRegister {
                         }
                         AreaType::Bed(_) | AreaType::Variant(_) => {
                             if event.column < self.last_x {
-                                messages.push(Movement::Right(1).into());
+                                messages.push(Movement::Right(column).into());
                             } else if event.column > self.last_x {
-                                messages.push(Movement::Left(1).into());
+                                messages.push(Movement::Left(column).into());
                             }
                         }
                         _ => {}
@@ -268,9 +257,15 @@ impl MouseRegister {
             MouseEventKind::Moved => {
                 if let HoveringAreaType::Track(track_index) = hovered {
                     let (area_type, area) = &layout.areas[track_index];
-                    match area_type {
+                    let contig_index = alignment_view.focus.contig_index;
+                    let Some((left, right)) =
+                        alignment_view.coordinates_of_onscreen_x(event.column, area)
+                    else {
+                        return Ok(messages);
+                    };
+                    let descriptions = match area_type {
                         AreaType::Alignment(id) => {
-                            if let Some((index, read_id)) = read_at(
+                            match read_at(
                                 state,
                                 layout,
                                 alignment_view,
@@ -278,259 +273,37 @@ impl MouseRegister {
                                 area,
                                 event.column,
                                 event.row,
-                            )? && let Some((left, right)) =
-                                alignment_view.coordinates_of_onscreen_x(event.column, area)
-                            {
-                                let alignment = &state.alignments[index];
-                                let record = &alignment.records[read_id];
-                                let contig = &state.contig_header.contigs
-                                    [alignment_view.focus.contig_index]
-                                    .name;
-                                let name = record
-                                    .name()
-                                    .map(|name| name.to_string())
-                                    .unwrap_or_else(|| "<missing>".into());
-                                let description = if left == right {
-                                    let base = match alignment.read_base_at(read_id, left)? {
-                                        // Show the quality as the file stores it.
-                                        Some(ReadBase::Base { base, quality }) => format!(
-                                            "Base: {}  Qual: {}",
-                                            base as char,
-                                            quality.map_or_else(
-                                                || ".".into(),
-                                                |q| alignment
-                                                    .quality_encoding
-                                                    .stored(q)
-                                                    .to_string()
-                                            )
-                                        ),
-                                        Some(ReadBase::Deletion) => "Base: -".to_string(),
-                                        None => "Base: .".to_string(),
-                                    };
-                                    format!("{contig}:{left}  {name}  {base}")
-                                } else {
-                                    format!("{contig}:{left}-{right}  {name}")
-                                };
-                                let mut cigar = Vec::new();
-                                noodles::sam::io::writer::record::write_cigar(
-                                    &mut cigar,
-                                    record.cigar(),
-                                )?;
-                                let mapq = record
-                                    .mapping_quality()
-                                    .map(|quality| quality.get().to_string())
-                                    .unwrap_or_else(|| ".".into());
-                                messages.push(Action::message(format!(
-                                    "{description}  Cigar: {}  MAPQ: {mapq}",
-                                    String::from_utf8(cigar)?
-                                )));
+                            )? {
+                                Some((index, read_id)) => vec![hover::describe_read(
+                                    state,
+                                    index,
+                                    read_id,
+                                    contig_index,
+                                    left,
+                                    right,
+                                )?],
+                                None => Vec::new(),
                             }
                         }
                         AreaType::GeneTrack => {
-                            if let Some((left, right)) =
-                                alignment_view.coordinates_of_onscreen_x(event.column, area)
-                            {
-                                let genes = state.track.query(
-                                    alignment_view.focus.contig_index,
-                                    left,
-                                    right,
-                                )?;
-                                let segments = query_segments(genes.clone(), left, right)?;
-                                let contig_index = alignment_view.focus.contig_index;
-                                let contig = &state.contig_header.contigs[contig_index].name;
-                                let locus = if left == right {
-                                    format!("{contig}:{left}")
-                                } else {
-                                    format!("{contig}:{left}-{right}")
-                                };
-                                let segment_genes =
-                                    segments.column(GeneSegmentSchema::GENE_ROW_ID)?.u64()?;
-                                let segment_kinds =
-                                    segments.column(GeneSegmentSchema::KIND)?.str()?;
-                                let segment_numbers =
-                                    segments.column(GeneSegmentSchema::FEATURE_INDEX)?.u64()?;
-                                let row_ids = genes.column(GeneSchema::ROW_ID)?.u64()?;
-                                let names = genes.column(GeneSchema::NAME)?.str()?;
-                                let ids = genes.column(GeneSchema::ID)?.str()?;
-                                let strands = genes.column(GeneSchema::STRAND)?.str()?;
-                                let exon_starts = genes.column(GeneSchema::EXON_STARTS)?.list()?;
-                                for row in 0..genes.height() {
-                                    let row_id =
-                                        row_ids.get(row).expect("gene row IDs are non-null");
-                                    let label = [names.get(row), ids.get(row)]
-                                        .into_iter()
-                                        .flatten()
-                                        .dedup()
-                                        .join(" ");
-                                    let strand = strands.get(row).unwrap_or(".");
-                                    let exons = exon_starts
-                                        .get_as_series(row)
-                                        .map_or(0, |starts| starts.len());
-                                    let part = (0..segments.height())
-                                        .find(|&segment| segment_genes.get(segment) == Some(row_id))
-                                        .map(|segment| {
-                                            let number = segment_numbers
-                                                .get(segment)
-                                                .expect("segment numbers are non-null");
-                                            match segment_kinds.get(segment) {
-                                                Some("intron") => format!(
-                                                    ": intron {number} of {}",
-                                                    exons.saturating_sub(1)
-                                                ),
-                                                Some("noncoding_exon") => format!(
-                                                    ": exon {number} of {exons}, untranslated"
-                                                ),
-                                                _ => format!(": exon {number} of {exons}"),
-                                            }
-                                        })
-                                        .unwrap_or_default();
-                                    messages.push(Action::message(format!(
-                                        "{locus}  {label} ({strand}){part}"
-                                    )));
-                                }
-                            }
+                            hover::describe_genes(state, contig_index, left, right)?
                         }
-                        AreaType::Sequence => {
-                            if let Some((left, right)) =
-                                alignment_view.coordinates_of_onscreen_x(event.column, area)
-                            {
-                                let description = (left..=right)
-                                    .filter_map(|coordinate| {
-                                        state
-                                            .sequence
-                                            .base_at(coordinate)
-                                            .map(|base| format!("{}: {}", coordinate, base as char))
-                                    })
-                                    .join(", ");
-                                messages.push(Action::message(description));
-                            }
-                        }
+                        AreaType::Sequence => vec![hover::describe_sequence(state, left, right)],
                         AreaType::Coverage(id) => {
                             let index = layout.track_registry.alignment_index(*id)?;
-                            if let Some((left, right)) =
-                                alignment_view.coordinates_of_onscreen_x(event.column, area)
-                                && let Some(alignment) = state.alignments.get(index)
-                            {
-                                let coverage = alignment.coverage.query(left, right)?;
-                                let counts = format!(
-                                    "A:{}, T:{}, C:{}, G:{}, N:{}, total:{}",
-                                    coverage
-                                        .column(CoverageSchema::A)?
-                                        .u64()?
-                                        .sum()
-                                        .unwrap_or(0),
-                                    coverage
-                                        .column(CoverageSchema::T)?
-                                        .u64()?
-                                        .sum()
-                                        .unwrap_or(0),
-                                    coverage
-                                        .column(CoverageSchema::C)?
-                                        .u64()?
-                                        .sum()
-                                        .unwrap_or(0),
-                                    coverage
-                                        .column(CoverageSchema::G)?
-                                        .u64()?
-                                        .sum()
-                                        .unwrap_or(0),
-                                    coverage
-                                        .column(CoverageSchema::N)?
-                                        .u64()?
-                                        .sum()
-                                        .unwrap_or(0),
-                                    coverage
-                                        .column(CoverageSchema::TOTAL)?
-                                        .u64()?
-                                        .sum()
-                                        .unwrap_or(0)
-                                );
-                                let description = if left == right {
-                                    format!("{}: {}", left, counts)
-                                } else {
-                                    format!("{} - {}: {}", left, right, counts)
-                                };
-                                messages.push(Action::message(description));
-                            }
+                            vec![hover::describe_coverage(state, index, left, right)?]
                         }
                         AreaType::Variant(id) => {
                             let index = layout.track_registry.variant_index(*id)?;
-                            if let Some((left, right)) =
-                                alignment_view.coordinates_of_onscreen_x(event.column, area)
-                                && let Some(variants) = state.variants.get(index)
-                            {
-                                let rows = variants.query(
-                                    alignment_view.focus.contig_index,
-                                    left,
-                                    right,
-                                )?;
-                                let starts = rows.column(VariantSchema::START)?.u64()?;
-                                let references = rows.column(VariantSchema::REFERENCE)?.str()?;
-                                let alternates = rows.column(VariantSchema::ALTERNATE)?.list()?;
-                                let qualities = rows.column(VariantSchema::QUALITY_SCORE)?.f32()?;
-                                let contig = &state.contig_header.contigs
-                                    [alignment_view.focus.contig_index]
-                                    .name;
-                                for row in 0..rows.height() {
-                                    let alleles = alternates.get_as_series(row);
-                                    let alternate = match alleles {
-                                        Some(alleles) => alleles
-                                            .str()?
-                                            .iter()
-                                            .map(|allele| {
-                                                allele.expect("alternate alleles are non-null")
-                                            })
-                                            .join(","),
-                                        None => String::new(),
-                                    };
-                                    let quality = qualities
-                                        .get(row)
-                                        .map(|q| q.to_string())
-                                        .unwrap_or_else(|| "?".into());
-                                    messages.push(Action::message(format!(
-                                        "Variant: {}:{} {}>{} QUAL={}",
-                                        contig,
-                                        starts.get(row).expect("variant starts are non-null"),
-                                        references.get(row).expect("reference bases are non-null"),
-                                        alternate,
-                                        quality
-                                    )));
-                                }
-                            }
+                            hover::describe_variants(state, index, contig_index, left, right)?
                         }
                         AreaType::Bed(id) => {
                             let index = layout.track_registry.bed_index(*id)?;
-                            if let Some((left, right)) =
-                                alignment_view.coordinates_of_onscreen_x(event.column, area)
-                                && let Some(intervals) = state.bed_intervals.get(index)
-                            {
-                                let rows = intervals.query(
-                                    alignment_view.focus.contig_index,
-                                    left,
-                                    right,
-                                )?;
-                                let starts = rows.column(BedSchema::START)?.u64()?;
-                                let ends = rows.column(BedSchema::END)?.u64()?;
-                                let names = rows.column(BedSchema::NAME)?.str()?;
-                                let contig = &state.contig_header.contigs
-                                    [alignment_view.focus.contig_index]
-                                    .name;
-                                for row in 0..rows.height() {
-                                    let name = names
-                                        .get(row)
-                                        .map_or_else(String::new, |name| format!(" {name}"));
-                                    messages.push(Action::message(format!(
-                                        "BED interval: {}:{}-{}{}",
-                                        contig,
-                                        starts.get(row).expect("BED starts are non-null"),
-                                        ends.get(row).expect("BED ends are non-null"),
-                                        name
-                                    )));
-                                }
-                            }
+                            hover::describe_bed(state, index, contig_index, left, right)?
                         }
-                        _ => {}
-                    }
+                        _ => Vec::new(),
+                    };
+                    messages.extend(descriptions.into_iter().map(Action::message));
                 }
             }
             // Shift turns the vertical wheel into horizontal panning, as in browsers.
@@ -539,9 +312,9 @@ impl MouseRegister {
             {
                 if matches!(hovered, HoveringAreaType::Track(_)) {
                     let movement = if event.kind == MouseEventKind::ScrollDown {
-                        Movement::Right(SHIFT_SCROLL_COLUMNS)
+                        Movement::Right(SHIFT_SCROLL_COLUMNS * column)
                     } else {
-                        Movement::Left(SHIFT_SCROLL_COLUMNS)
+                        Movement::Left(SHIFT_SCROLL_COLUMNS * column)
                     };
                     messages.push(movement.into());
                 }
@@ -564,9 +337,9 @@ impl MouseRegister {
             MouseEventKind::ScrollLeft | MouseEventKind::ScrollRight => {
                 if matches!(hovered, HoveringAreaType::Track(_)) {
                     let movement = if matches!(event.kind, MouseEventKind::ScrollLeft) {
-                        Movement::Left(1)
+                        Movement::Left(column)
                     } else {
-                        Movement::Right(1)
+                        Movement::Right(column)
                     };
                     messages.push(movement.into());
                 }

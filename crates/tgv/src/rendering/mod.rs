@@ -1,3 +1,13 @@
+use crate::layout::CellView;
+use crate::rendering::colors::ToColor;
+use gv_viewer::viewport::ColumnScale;
+use gv_viewer::{
+    layout::RenderEvent,
+    message::FocusTarget,
+    message::Highlight,
+    popup::TextPopup,
+    register::{KeyRegisterType, Registers},
+};
 mod alignment;
 mod bed;
 mod colors;
@@ -29,13 +39,9 @@ pub use track::render_track;
 pub use variants::render_variants;
 
 use crate::{
-    app::{Highlight, RenderEvent},
     layout::{AlignmentView, AreaType, OnScreenCoordinate, ResolvedMainLayout, wrap_sidebar_label},
     menu::ContextMenu,
-    message::FocusTarget,
     mouse::MouseRegister,
-    popup::TextPopup,
-    register::{KeyRegisterType, Registers},
 };
 
 use gv_core::{message::AlignmentDisplayOption, prelude::*};
@@ -161,7 +167,7 @@ pub fn render_main(
             }
             AreaType::Coverage(id) => {
                 let index = layout.track_registry.alignment_index(*id)?;
-                if alignment_view.zoom <= AlignmentView::MAX_ZOOM_TO_DISPLAY_ALIGNMENTS
+                if alignment_view.zoom.0 <= ColumnScale::MAX_TO_DISPLAY_ALIGNMENTS
                     && let Some(alignment) = state.alignments.get(index)
                 {
                     render_coverage(rect, buf, &alignment.coverage, alignment_view, pallete)?;
@@ -169,7 +175,7 @@ pub fn render_main(
             }
             AreaType::Alignment(id) => {
                 let index = layout.track_registry.alignment_index(*id)?;
-                if alignment_view.zoom <= AlignmentView::MAX_ZOOM_TO_DISPLAY_ALIGNMENTS {
+                if alignment_view.zoom.0 <= ColumnScale::MAX_TO_DISPLAY_ALIGNMENTS {
                     let top = alignment_view.top(index);
                     if state.alignment_options[index].contains(&AlignmentDisplayOption::ViewAsPairs)
                     {
@@ -211,7 +217,7 @@ pub fn render_main(
                 mouse_register.is_divider_highlighted(area_type),
             ),
             AreaType::Sequence => {
-                if alignment_view.zoom <= AlignmentView::MAX_ZOOM_TO_DISPLAY_SEQUENCES {
+                if alignment_view.zoom.0 <= ColumnScale::MAX_TO_DISPLAY_SEQUENCES {
                     render_sequence(rect, buf, state, alignment_view, pallete)?;
                 }
             }
@@ -274,7 +280,7 @@ pub fn render_main(
 
 fn render_alignment_divider(area: &Rect, buf: &mut Buffer, palette: &Palette, highlighted: bool) {
     let style = if highlighted {
-        Style::default().bg(palette.HIGHLIGHT_COLOR)
+        Style::default().bg(palette.HIGHLIGHT_COLOR.color())
     } else {
         Style::default()
     };
@@ -282,29 +288,6 @@ fn render_alignment_divider(area: &Rect, buf: &mut Buffer, palette: &Palette, hi
     for y in area.top()..area.bottom() {
         buf.set_string(area.x, y, "-".repeat(area.width as usize), style);
     }
-}
-
-pub fn get_abbreviated_length_string(length: u64) -> String {
-    let mut length = length;
-    let mut power = 0;
-
-    while length >= 1000 {
-        length /= 1000;
-        power += 1;
-    }
-
-    format!(
-        "{}{}",
-        length,
-        match power {
-            0 => "bp",
-            1 => "kb",
-            2 => "Mb",
-            3 => "Gb",
-            4 => "Tb",
-            _ => "",
-        }
-    )
 }
 
 /// Tints the columns of highlighted intervals on the focused contig, keeping the ruler text.
@@ -325,7 +308,7 @@ fn render_highlights(
         {
             buf.set_style(
                 Rect::new(area.x + x, area.y, width, area.height),
-                Style::default().bg(pallete.HIGHLIGHT),
+                Style::default().bg(pallete.HIGHLIGHT.color()),
             );
         }
     }

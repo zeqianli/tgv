@@ -31,8 +31,11 @@ The client launches TGV and communicates through standard input and output. No p
 | `highlight` | Marks intervals in the user's viewer. |
 | `clear_highlights` | Removes the marks. |
 | `view_state` | Reports what the user's viewer shows. |
+| `list_viewers` | Lists the open viewers: the terminal UI and windows. |
+| `attach` | Chooses the viewer that later calls use. |
 
 - `navigate`, `highlight`, `clear_highlights`, and `view_state` need a running viewer.
+- With one viewer open, the tools use it. With several open, such as `tgv` in a terminal and `tgv-gui` in a window, the agent chooses one from your question, asks you when it can't tell, and calls `attach`.
 - `load_dataset` can't replace a dataset that a viewer is showing. Add or remove files in the viewer instead.
 - `inspect_interval` and the region tables in `query` cover at most 100,000 bases.
 - Coordinates are one-based, with inclusive interval endpoints.

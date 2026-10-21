@@ -10,7 +10,7 @@ use polars::prelude::*;
 use std::sync::Arc;
 
 /// Variants overlapping the loaded region of one track.
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct VariantTable {
     /// Rows are sorted by contig, start, end, and row ID.
     pub data: DataFrame,

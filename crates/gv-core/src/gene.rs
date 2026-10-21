@@ -8,7 +8,7 @@ use crate::{
 use polars::prelude::*;
 use std::sync::Arc;
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct GeneTable {
     /// Rows are sorted by contig, transcription bounds, and stable row ID.
     pub data: DataFrame,

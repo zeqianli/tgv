@@ -11,15 +11,15 @@ use gv_core::{
 use gv_session::{
     DatasetRequest, HighlightRequest, InspectInterval, NavigateRequest, QueryRequest, SessionError,
 };
+use gv_viewer::{
+    message::{Action, FocusTarget, Highlight, UpdateLayoutAction},
+    session::SessionFile,
+    viewer::Scene,
+};
 use rstest::rstest;
 use support::{AppHarness, test_data_path};
 use tempfile::TempDir;
-use tgv::{
-    app::{Highlight, Scene},
-    layout::AreaType,
-    message::{Action, FocusTarget, UpdateLayoutAction},
-    session::SessionFile,
-};
+use tgv::layout::AreaType;
 
 fn absolutize_fixture_args(args: &str) -> String {
     args.replace(
@@ -68,8 +68,8 @@ async fn offline_sequence_navigates_and_zooms() {
     );
     let mut harness = AppHarness::from_args(&args).await.unwrap();
 
-    let initial_focus = harness.app.alignment_view.focus.clone();
-    let initial_zoom = harness.app.alignment_view.zoom;
+    let initial_focus = harness.app.viewer.viewport.focus.clone();
+    let initial_zoom = harness.app.viewer.viewport.zoom;
 
     harness
         .handle_core(vec![
@@ -83,13 +83,13 @@ async fn offline_sequence_navigates_and_zooms() {
         .unwrap();
 
     assert_eq!(
-        harness.app.alignment_view.focus.contig_index,
+        harness.app.viewer.viewport.focus.contig_index,
         initial_focus.contig_index
     );
-    assert_eq!(harness.app.alignment_view.focus.position, 33_121_140);
-    assert_eq!(harness.app.alignment_view.zoom, initial_zoom * 2);
-    assert_eq!(harness.app.alignment_view.top(0), 1);
-    assert!(harness.app.dataset.view.messages.is_empty());
+    assert_eq!(harness.app.viewer.viewport.focus.position, 33_121_140);
+    assert_eq!(harness.app.viewer.viewport.zoom.0, initial_zoom.0 * 2);
+    assert_eq!(harness.app.viewer.viewport.top(0), 1);
+    assert!(harness.app.viewer.dataset.view.messages.is_empty());
 
     harness.close().await.unwrap();
 }
@@ -181,9 +181,9 @@ async fn offline_sequence_updates_tracks_and_scenes() {
         .app
         .mouse_register
         .handle_mouse_event(
-            &harness.app.dataset.view,
+            &harness.app.viewer.dataset.view,
             &harness.app.resolved_layout,
-            &harness.app.alignment_view,
+            &harness.app.viewer.viewport,
             down,
         )
         .unwrap();
@@ -196,9 +196,9 @@ async fn offline_sequence_updates_tracks_and_scenes() {
         .app
         .mouse_register
         .handle_mouse_event(
-            &harness.app.dataset.view,
+            &harness.app.viewer.dataset.view,
             &harness.app.resolved_layout,
-            &harness.app.alignment_view,
+            &harness.app.viewer.viewport,
             drag,
         )
         .unwrap();
@@ -214,9 +214,7 @@ async fn offline_sequence_updates_tracks_and_scenes() {
         .unwrap();
     assert_eq!(harness.app.resolved_layout.sidebar_width, 24);
     harness
-        .handle(vec![Action::UpdateLayout(
-            UpdateLayoutAction::SetSidebarWidth(6),
-        )])
+        .handle(vec![Action::from(UpdateLayoutAction::SetSidebarWidth(6))])
         .await
         .unwrap();
     let vcf_area = harness.app.resolved_layout.sidebar_labels[1].area;
@@ -259,16 +257,13 @@ async fn offline_sequence_updates_tracks_and_scenes() {
         .await
         .unwrap();
 
-    assert_eq!(harness.app.scene, Scene::Main);
-    let displayed = harness
-        .app
-        .alignment_view
-        .region(&harness.app.resolved_layout.main_area);
-    assert!(harness.app.dataset.view.variants[0].has_complete_data(&displayed));
-    assert!(harness.app.dataset.view.bed_intervals[0].has_complete_data(&displayed));
-    assert_eq!(harness.app.alignment_view.focus.position, 33_121_130);
+    assert_eq!(harness.app.viewer.scene, Scene::Main);
+    let displayed = harness.app.viewer.region();
+    assert!(harness.app.viewer.dataset.view.variants[0].has_complete_data(&displayed));
+    assert!(harness.app.viewer.dataset.view.bed_intervals[0].has_complete_data(&displayed));
+    assert_eq!(harness.app.viewer.viewport.focus.position, 33_121_130);
     assert_eq!(
-        harness.app.dataset.view.messages,
+        harness.app.viewer.dataset.view.messages,
         vec!["scripted-note".to_string()]
     );
 
@@ -282,8 +277,8 @@ async fn offline_sequence_handles_sorting_command() {
         "-r chr22:33121120 --no-reference --offline",
     );
     let mut harness = AppHarness::from_args(&args).await.unwrap();
-    let sort_position = harness.app.alignment_view.focus.position;
-    let initial_messages = harness.app.dataset.view.messages.clone();
+    let sort_position = harness.app.viewer.viewport.focus.position;
+    let initial_messages = harness.app.viewer.dataset.view.messages.clone();
 
     harness
         .handle_core(vec![CoreMessage::SetAlignmentOption(vec![
@@ -293,13 +288,18 @@ async fn offline_sequence_handles_sorting_command() {
         .unwrap();
 
     assert_eq!(
-        harness.app.dataset.view.alignment_options[0],
+        harness.app.viewer.dataset.view.alignment_options[0],
         vec![AlignmentDisplayOption::Sort(AlignmentSort::BaseAt(
             sort_position
         ))]
     );
-    assert_eq!(harness.app.dataset.view.messages, initial_messages);
-    assert!(harness.app.dataset.view.alignments[0].depth().unwrap() > 0);
+    assert_eq!(harness.app.viewer.dataset.view.messages, initial_messages);
+    assert!(
+        harness.app.viewer.dataset.view.alignments[0]
+            .depth()
+            .unwrap()
+            > 0
+    );
 
     harness.close().await.unwrap();
 }
@@ -321,7 +321,10 @@ async fn offline_sequence_saves_session_and_save_and_quit() {
         .await
         .unwrap();
 
-    assert_eq!(harness.app.settings.session_path, Some(save_path.clone()));
+    assert_eq!(
+        harness.app.viewer.settings.session_path,
+        Some(save_path.clone())
+    );
     assert!(save_path.exists());
 
     let session = SessionFile::from_path(&save_path).unwrap();
@@ -335,8 +338,11 @@ async fn offline_sequence_saves_session_and_save_and_quit() {
         .await
         .unwrap();
 
-    assert!(harness.app.exit);
-    assert_eq!(harness.app.settings.session_path, Some(quit_path.clone()));
+    assert!(harness.app.viewer.exit);
+    assert_eq!(
+        harness.app.viewer.settings.session_path,
+        Some(quit_path.clone())
+    );
     assert!(quit_path.exists());
 
     harness.close().await.unwrap();
@@ -345,6 +351,7 @@ async fn offline_sequence_saves_session_and_save_and_quit() {
 fn track_indexes(harness: &AppHarness) -> Vec<(TrackId, RepositoryFileIndex)> {
     harness
         .app
+        .viewer
         .dataset
         .tracks
         .entries
@@ -369,11 +376,11 @@ async fn offline_tracks_open_and_remove_at_runtime() {
         .handle_command(&format!("e {}", opened.join(" ")))
         .await
         .unwrap();
-    assert!(harness.app.dataset.view.messages[0].starts_with("Opening ncbi.sorted.bam, "));
+    assert!(harness.app.viewer.dataset.view.messages[0].starts_with("Opening ncbi.sorted.bam, "));
     harness.open_pending().await.unwrap();
 
     assert_eq!(
-        harness.app.dataset.view.messages,
+        harness.app.viewer.dataset.view.messages,
         vec!["Opened 4 files.".to_string()]
     );
     assert_eq!(
@@ -386,7 +393,7 @@ async fn offline_tracks_open_and_remove_at_runtime() {
             (4, Bed(0)),
         ]
     );
-    assert_eq!(harness.app.alignment_view.y.len(), 3);
+    assert_eq!(harness.app.viewer.viewport.y.len(), 3);
     assert_eq!(
         harness.app.layout.tracks,
         vec![
@@ -407,8 +414,8 @@ async fn offline_tracks_open_and_remove_at_runtime() {
         ]
     );
 
-    harness.app.alignment_view.y = vec![1, 2, 3];
-    harness.app.focused = FocusTarget::Track(3);
+    harness.app.viewer.viewport.y = vec![1, 2, 3];
+    harness.app.viewer.focused = FocusTarget::Track(3);
     harness
         .handle(vec![Action::RemoveTrack {
             track: 1,
@@ -418,7 +425,7 @@ async fn offline_tracks_open_and_remove_at_runtime() {
         .unwrap();
 
     assert_eq!(
-        harness.app.dataset.view.messages,
+        harness.app.viewer.dataset.view.messages,
         vec!["Removed ncbi.sorted.bam.".to_string()]
     );
     assert_eq!(
@@ -430,9 +437,9 @@ async fn offline_tracks_open_and_remove_at_runtime() {
             (4, Bed(0)),
         ]
     );
-    assert_eq!(harness.app.alignment_view.y, vec![1, 3]);
-    assert_eq!(harness.app.focused, FocusTarget::Track(3));
-    assert_eq!(harness.app.dataset.view.alignments.len(), 2);
+    assert_eq!(harness.app.viewer.viewport.y, vec![1, 3]);
+    assert_eq!(harness.app.viewer.focused, FocusTarget::Track(3));
+    assert_eq!(harness.app.viewer.dataset.view.alignments.len(), 2);
     let layout_tracks = &harness.app.layout.tracks;
     assert!(!layout_tracks.contains(&AreaType::Alignment(1)));
     assert!(layout_tracks.contains(&AreaType::AlignmentDivider { upper: 0, lower: 3 }));
@@ -473,15 +480,15 @@ async fn offline_track_open_errors_leave_tracks_unchanged(
     harness.open_pending().await.unwrap();
 
     assert!(
-        harness.app.dataset.view.messages[0].starts_with(message_prefix),
+        harness.app.viewer.dataset.view.messages[0].starts_with(message_prefix),
         "{:?}",
-        harness.app.dataset.view.messages
+        harness.app.viewer.dataset.view.messages
     );
     assert_eq!(
         track_indexes(&harness),
         vec![(0, RepositoryFileIndex::Alignment(0))]
     );
-    assert_eq!(harness.app.alignment_view.y.len(), 1);
+    assert_eq!(harness.app.viewer.viewport.y.len(), 1);
 
     harness.close().await.unwrap();
 }
@@ -505,7 +512,7 @@ async fn covid_harness() -> AppHarness {
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn agent_navigates_and_highlights_the_view() {
     let mut harness = covid_harness().await;
-    let session = harness.app.session.clone();
+    let session = harness.app.viewer.session.clone();
 
     let view = harness
         .agent(session.navigate(NavigateRequest {
@@ -514,8 +521,11 @@ async fn agent_navigates_and_highlights_the_view() {
         .await
         .unwrap();
     assert!(view.region.start <= 20_000 && view.region.end >= 20_200);
-    assert_eq!(harness.app.alignment_view.focus.position, 20_100);
-    assert!(harness.app.dataset.view.messages[0].contains("Press u to go back to MN908947.3:100"));
+    assert_eq!(harness.app.viewer.viewport.focus.position, 20_100);
+    assert!(
+        harness.app.viewer.dataset.view.messages[0]
+            .contains("Press u to go back to MN908947.3:100")
+    );
 
     harness
         .agent(session.highlight(HighlightRequest {
@@ -525,7 +535,7 @@ async fn agent_navigates_and_highlights_the_view() {
         .await
         .unwrap();
     assert_eq!(
-        harness.app.highlights,
+        harness.app.viewer.highlights,
         [Highlight {
             contig_index: 0,
             start: 20_050,
@@ -534,7 +544,7 @@ async fn agent_navigates_and_highlights_the_view() {
     );
 
     harness.agent(session.clear_highlights()).await.unwrap();
-    assert!(harness.app.highlights.is_empty());
+    assert!(harness.app.viewer.highlights.is_empty());
 
     harness.close().await.unwrap();
 }
@@ -542,13 +552,13 @@ async fn agent_navigates_and_highlights_the_view() {
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn agent_queries_leave_the_view_and_cannot_replace_the_dataset() {
     let mut harness = covid_harness().await;
-    let session = harness.app.session.clone();
-    let focus = harness.app.alignment_view.focus.clone();
-    let viewed = harness
-        .app
-        .alignment_view
-        .region(&harness.app.resolved_layout.main_area);
-    let viewed_reads = harness.app.dataset.view.alignments[0].tables.reads.height();
+    let session = harness.app.viewer.session.clone();
+    let focus = harness.app.viewer.viewport.focus.clone();
+    let viewed = harness.app.viewer.region();
+    let viewed_reads = harness.app.viewer.dataset.view.alignments[0]
+        .tables
+        .reads
+        .height();
 
     let response = harness
         .agent(session.query(QueryRequest {
@@ -559,10 +569,13 @@ async fn agent_queries_leave_the_view_and_cannot_replace_the_dataset() {
         .await
         .unwrap();
     assert_eq!(response.row_count, 1);
-    assert_eq!(harness.app.alignment_view.focus, focus);
-    assert!(harness.app.dataset.view.alignments[0].has_complete_data(&viewed));
+    assert_eq!(harness.app.viewer.viewport.focus, focus);
+    assert!(harness.app.viewer.dataset.view.alignments[0].has_complete_data(&viewed));
     assert_eq!(
-        harness.app.dataset.view.alignments[0].tables.reads.height(),
+        harness.app.viewer.dataset.view.alignments[0]
+            .tables
+            .reads
+            .height(),
         viewed_reads
     );
 

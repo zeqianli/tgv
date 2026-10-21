@@ -2,7 +2,8 @@
 //!
 //! Each tool translates an MCP call into a session [`Call`] and its reply into a tool result.
 //! Calls go to a running TGV viewer when one is found, so the agent sees and moves what the
-//! user sees. Otherwise they go to a headless session in this process.
+//! user sees. Otherwise they go to a headless session in this process. When several viewers
+//! are open, such as a terminal and a window, the agent chooses one with `attach`.
 
 use gv_core::{error::TGVError, settings::Settings};
 use gv_session::*;
@@ -14,6 +15,8 @@ use rmcp::{
     tool, tool_handler, tool_router,
     transport::stdio,
 };
+use schemars::JsonSchema;
+use serde::Deserialize;
 use serde_json::{Value, json};
 use std::sync::Arc;
 use thiserror::Error;
@@ -49,8 +52,8 @@ impl From<McpError> for TGVError {
 
 /// Where tool calls go.
 struct Target {
-    /// The viewer's session, once attached.
-    viewer: Option<SessionConnection>,
+    /// The viewer's session and process ID, once attached.
+    viewer: Option<(SessionConnection, u32)>,
     /// Whether the agent has loaded a dataset into the headless session. From then on, calls
     /// stay headless, so the agent keeps the dataset it loaded.
     headless_loaded: bool,
@@ -67,16 +70,27 @@ impl McpHandler {
     /// headless session.
     ///
     /// Until the agent loads a dataset headlessly, each call looks for a viewer, so TGV can be
-    /// opened after the agent starts.
+    /// opened after the agent starts. With one viewer open, the call goes to it. With several,
+    /// the call fails with `viewer_ambiguous` until the agent attaches to one.
     async fn call(&self, call: Call) -> Result<Value, SessionError> {
         let mut target = self.target.lock().await;
         if target.viewer.is_none() && !target.headless_loaded {
-            target.viewer = SessionConnection::find_viewer().await;
-            if let Some(viewer) = &target.viewer {
-                log::info!("Attached to the viewer at {}", viewer.path.display());
+            let mut viewers = SessionConnection::list_viewers().await;
+            match viewers.len() {
+                0 => {}
+                1 => {
+                    let (connection, info) = viewers.remove(0);
+                    log::info!("Attached to the viewer at {}", connection.path.display());
+                    target.viewer = Some((connection, info.pid));
+                }
+                _ => {
+                    return Err(SessionError::ViewerAmbiguous(
+                        viewers.into_iter().map(|(_, info)| info).collect(),
+                    ));
+                }
             }
         }
-        if let Some(viewer) = target.viewer.as_mut() {
+        if let Some((viewer, _)) = target.viewer.as_mut() {
             let result = viewer.call(&call).await;
             if matches!(result, Err(SessionError::Connection(_))) {
                 log::warn!("Detached from the viewer at {}", viewer.path.display());
@@ -93,8 +107,52 @@ impl McpHandler {
     }
 }
 
+/// Chooses a viewer by its process ID.
+#[derive(Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+struct AttachRequest {
+    /// The viewer's process ID, from `list_viewers`.
+    pid: u32,
+}
+
 #[tool_router]
 impl McpHandler {
+    #[tool(
+        description = "List the open TGV viewers: each one's pid, kind (tui or gui), reference, files, displayed locus, and start time, and which one this server uses. Use it to choose a viewer when several are open."
+    )]
+    async fn list_viewers(&self) -> CallToolResult {
+        let viewers = SessionConnection::list_viewers()
+            .await
+            .into_iter()
+            .map(|(_, info)| info)
+            .collect::<Vec<_>>();
+        let target = self.target.lock().await;
+        tool_result(Ok(json!({
+            "viewers": viewers,
+            "attached": target.viewer.as_ref().map(|(_, pid)| pid),
+        })))
+    }
+
+    #[tool(
+        description = "Send later calls to the TGV viewer with this pid, from list_viewers. When several viewers are open and the question doesn't say which one, ask the user before attaching."
+    )]
+    async fn attach(&self, Parameters(request): Parameters<AttachRequest>) -> CallToolResult {
+        let result = match SessionConnection::connect_to(request.pid).await {
+            Ok(mut connection) => match connection.call(&Call::ViewerInfo).await {
+                Ok(info) => {
+                    log::info!("Attached to the viewer at {}", connection.path.display());
+                    let mut target = self.target.lock().await;
+                    target.viewer = Some((connection, request.pid));
+                    target.headless_loaded = false;
+                    Ok(info)
+                }
+                Err(_) => Err(SessionError::ViewerNotFound(request.pid)),
+            },
+            Err(_) => Err(SessionError::ViewerNotFound(request.pid)),
+        };
+        tool_result(result)
+    }
+
     #[tool(
         description = "Describe the loaded reference and tracks, or report that no dataset is loaded."
     )]
@@ -172,7 +230,7 @@ impl McpHandler {
 
 #[tool_handler(
     name = "tgv",
-    instructions = "When the user has TGV open, tools use the dataset it displays, and navigate and highlight show results in it. Otherwise, load a dataset before inspecting or querying. File paths refer to the server's filesystem."
+    instructions = "When the user has TGV open, tools use the dataset it displays, and navigate and highlight show results in it. Otherwise, load a dataset before inspecting or querying. File paths refer to the server's filesystem. If several TGV viewers are open, calls fail with viewer_ambiguous: choose the viewer from the question's context, such as a file, a locus, or the TUI or the GUI, ask the user when it is still unclear, and call attach."
 )]
 impl ServerHandler for McpHandler {}
 

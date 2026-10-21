@@ -109,8 +109,9 @@ impl WordMotion {
 // TODO: indicate which movement requires resetting y to 0
 #[derive(Debug, Clone, Eq, PartialEq, Display)]
 pub enum Movement {
-    /// State messages
+    /// Moves left by a number of bases. Front ends convert screen columns to bases.
     Left(u64),
+    /// Moves right by a number of bases.
     Right(u64),
 
     Position(u64),

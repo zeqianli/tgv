@@ -45,7 +45,9 @@
 - `gv-core`: the data model, repositories, `State`, data loading, `TrackRegistry`, and file classification. It knows nothing about front ends or MCP.
 - `gv-session`: the session worker that owns a loaded dataset and serves typed commands through `SessionHandle`, plus the SQL tables and the local socket (`SessionSocket` and `SessionConnection`) that lets agents drive a viewer. Requests, responses, `Call`, and `SessionError` with its stable error codes live here.
 - `gv-mcp`: the MCP tools, which translate MCP calls into session calls and send them to a running viewer or a headless session. It owns the MCP tool results and `McpError`.
+- `gv-viewer`: the viewer logic both front ends share: `Viewer` (which owns the `Dataset` and applies actions), `Action`, the vim key grammar over a neutral `Key`, `Registers`, `JumpList`, `Viewport<Z>` with its `Scale`, menu items, popups, session files, settings, the RGB `Palette`, and the screen-independent data preparation in `prepare`. It knows nothing about terminals or windows.
 - `tgv`: the TUI and the `tgv` binary, including the `tgv mcp` subcommand.
+- `gv-gui`: the window and the `tgv-gui` binary, built with gpui. Its modules mirror `tgv`'s, plus `worker`, which runs the `Viewer` on its own thread.
 
 ## Documentation
 

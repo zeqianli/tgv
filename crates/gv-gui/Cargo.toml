@@ -1,0 +1,23 @@
+[package]
+name = "gv-gui"
+version = "0.4.0"
+edition = "2024"
+description = "A graphical genome viewer with TGV's keys and layout."
+license = "MIT"
+repository = "https://github.com/zeqianli/tgv"
+homepage = "https://github.com/zeqianli/tgv"
+
+[[bin]]
+name = "tgv-gui"
+path = "src/main.rs"
+
+[dependencies]
+clap.workspace = true
+gpui.workspace = true
+gv-core.workspace = true
+gv-session.workspace = true
+gv-viewer.workspace = true
+log.workspace = true
+polars.workspace = true
+shellexpand.workspace = true
+tokio.workspace = true

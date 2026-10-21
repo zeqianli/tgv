@@ -45,7 +45,7 @@ All top-level fields except `tracks` are required.
 | `locus` | string | Starting genomic position. See [locus format](#locus-format). |
 | `genome` | string | Reference genome, such as `"hg38"`. Same as the `-g` / `--reference` flag. `:ws` saves a custom FASTA or 2bit reference as an absolute path, and no reference as `"no_reference"`. |
 | `ucsc_host` | string | UCSC mirror: `"auto"`, `"us"`, or `"eu"`. `"auto"` picks a mirror when the session loads, and `:ws` saves the chosen `"us"` or `"eu"`. |
-| `zoom` | integer | Initial zoom level, stored as bases per character. Use `1` for one base per character. |
+| `zoom` | number | Initial zoom level, in bases per screen unit: per character in the terminal, and per pixel in the window. Use `1` for one base per character. The terminal rounds it to a whole number, so a zoom saved in the window opens about as wide in a terminal, not exactly. |
 
 ### Tracks
 

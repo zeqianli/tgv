@@ -1,9 +1,10 @@
+//! The input modes, and the command line that command and search mode share.
+
 use crate::{
-    app::Scene,
-    keys::{Mode, PendingKeys},
+    keys::{Key, KeyCode, Mode, PendingKeys},
     message::{Action, Movement},
+    viewer::Scene,
 };
-use crossterm::event::{KeyCode, KeyEvent};
 use gv_core::alignment::is_url;
 use gv_core::prelude::*;
 use itertools::Itertools;
@@ -23,6 +24,7 @@ pub enum KeyRegisterType {
     // ContigListCommand,
 }
 
+#[derive(Debug, Clone)]
 pub struct Registers {
     pub current: KeyRegisterType,
     /// The mode that command, search, and contig list input return to: normal or insert mode.
@@ -104,7 +106,7 @@ impl Registers {
     /// Move the selected contig up or down.
     fn handle_contig_list(
         &mut self,
-        key_event: KeyEvent,
+        key_event: Key,
         state: &State,
     ) -> Result<Vec<Action>, TGVError> {
         match key_event.code {
@@ -154,7 +156,7 @@ impl Registers {
     /// `submit`.
     fn handle_command_line(
         &mut self,
-        key_event: KeyEvent,
+        key_event: Key,
         submit: fn(&str) -> Result<Vec<Action>, TGVError>,
     ) -> Result<Vec<Action>, TGVError> {
         match key_event.code {
@@ -215,7 +217,7 @@ impl Registers {
 
     pub fn handle_key_event(
         &mut self,
-        key_event: KeyEvent,
+        key_event: Key,
         state: &State,
     ) -> Result<Vec<Action>, TGVError> {
         Ok(match self.current {

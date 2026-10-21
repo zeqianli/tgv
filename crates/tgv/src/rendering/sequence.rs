@@ -1,3 +1,4 @@
+use crate::rendering::colors::ToColor;
 use crate::{layout::AlignmentView, rendering::colors::Palette};
 use gv_core::{prelude::*, sequence::Sequence};
 use ratatui::{buffer::Buffer, layout::Rect, style::Style};
@@ -12,9 +13,9 @@ pub fn render_sequence(
     alignment_view: &AlignmentView,
     pallete: &Palette,
 ) -> Result<(), TGVError> {
-    let region = alignment_view.region(area);
+    let region = alignment_view.region(f64::from(area.width));
 
-    match alignment_view.zoom {
+    match alignment_view.zoom.0 {
         1 => render_sequence_at_1x(area, buf, &region, &state.sequence, pallete),
         2 => render_sequence_at_2x(area, buf, &region, &state.sequence, pallete),
         _ => Ok(()),
@@ -40,8 +41,8 @@ fn render_sequence_at_1x(
             area.y,
             base.to_string(),
             Style::default()
-                .fg(pallete.SEQUENCE_FOREGROUND_COLOR)
-                .bg(pallete.base_color(base as u8)),
+                .fg(pallete.SEQUENCE_FOREGROUND_COLOR.color())
+                .bg(pallete.base_color(base as u8).color()),
         );
     }
 
@@ -73,8 +74,8 @@ fn render_sequence_at_2x(
                 area.y,
                 "▌",
                 Style::default()
-                    .fg(palette.base_color(base1))
-                    .bg(palette.base_color(base2)),
+                    .fg(palette.base_color(base1).color())
+                    .bg(palette.base_color(base2).color()),
             );
         }
     }

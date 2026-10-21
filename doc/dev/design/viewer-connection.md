@@ -15,7 +15,7 @@ Status: to do.
 1. **Report which viewer answered.** Add the viewer's identity, its process ID and socket path, to `get_dataset` along with its files, and to the `navigate`, `highlight`, and `view_state` replies. The agent can then tell when the viewer changes.
 2. **Make a viewer switch explicit.** When `tgv mcp` connects to a viewer other than the one it was last connected to, the first call fails with a new `viewer_changed` error instead of switching silently. The error names the new viewer and tells the agent to call `get_dataset` before reusing track IDs. Connecting for the first time stays silent.
 3. **Explain why viewer tools fail when a window is open.** When a viewer is running but the server keeps its headless dataset, fail viewer tools with a message that says so, for example "A TGV window is open, but this server uses the dataset it loaded; …".
-4. **Let the user see and choose.** The TUI shows "An agent connected" when a connection opens. Optionally, `list_viewers` and `attach` tools let the agent pick the window the user means instead of the newest.
+4. **Let the user see and choose.** The TUI shows "An agent connected" when a connection opens. The `list_viewers` and `attach` tools, and the `viewer_ambiguous` error, now let the agent pick the viewer the user means (see `gui-viewer.md`).
 
 ## Where the changes go
 

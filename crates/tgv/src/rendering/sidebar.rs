@@ -1,64 +1,23 @@
+use crate::rendering::colors::ToColor;
 use crate::{
-    app::RenderEvent,
     layout::{AlignmentView, AreaType, ResolvedMainLayout, wrap_sidebar_label},
-    message::FocusTarget,
     mouse::MouseRegister,
-    register::{KeyRegisterType, Registers},
     rendering::{TrackFocus, colors::Palette},
 };
-
-use gv_core::{
-    message::{AlignmentDisplayOption, AlignmentFilter, AlignmentSort},
-    prelude::*,
+use gv_viewer::prepare::sidebar::{alignment_depth_description, describe_option};
+use gv_viewer::{
+    layout::RenderEvent,
+    message::FocusTarget,
+    register::{KeyRegisterType, Registers},
 };
+
+use gv_core::prelude::*;
 use itertools::Itertools;
 use ratatui::{
     buffer::Buffer,
     layout::Rect,
     style::{Color, Modifier, Style},
 };
-
-fn alignment_depth_description(
-    state: &State,
-    alignment_view: &AlignmentView,
-    index: usize,
-) -> Result<String, TGVError> {
-    let depth = match &state.paired_alignments[index] {
-        Some(paired) => paired.depth()?,
-        None => state.alignments[index].depth()?,
-    };
-    Ok(if depth == 0 {
-        "0% (0 / 0)".to_string()
-    } else {
-        let y = usize::min(alignment_view.top(index), depth.saturating_sub(1)) + 1;
-        format!("{}% ({} / {})", y as u128 * 100 / depth as u128, y, depth)
-    })
-}
-
-/// Describe an alignment display option in a few words.
-fn describe_option(option: &AlignmentDisplayOption) -> String {
-    match option {
-        AlignmentDisplayOption::ViewAsPairs => "Paired".to_string(),
-        AlignmentDisplayOption::Sort(sort) => match sort {
-            AlignmentSort::BaseAt(position) => format!("Sorted by base at {position}"),
-            AlignmentSort::StrandAt(position) => format!("Sorted by strand at {position}"),
-            AlignmentSort::Start(position) => format!("Sorted by start at {position}"),
-            AlignmentSort::MappingQuality(position) => format!("Sorted by MAPQ at {position}"),
-            AlignmentSort::InsertSize(position) => {
-                format!("Sorted by insert size at {position}")
-            }
-            AlignmentSort::ReadName(position) => format!("Sorted by name at {position}"),
-            sort => format!("Sorted by {sort}"),
-        },
-        AlignmentDisplayOption::Filter(AlignmentFilter::Base(position, base)) => {
-            format!("Only {base} at {position}")
-        }
-        AlignmentDisplayOption::Filter(AlignmentFilter::BaseSoftclip(position)) => {
-            format!("Only soft clips at {position}")
-        }
-        option => option.to_string(),
-    }
-}
 
 /// Wrap text at spaces to fit `width`, breaking words that are longer than a line.
 fn wrap_words(text: &str, width: u16) -> Vec<String> {
@@ -98,7 +57,7 @@ pub fn render_sidebar(
                 separator_style,
             );
         }
-        let option_style = Style::default().fg(pallete.SIDEBAR_OPTION_COLOR);
+        let option_style = Style::default().fg(pallete.SIDEBAR_OPTION_COLOR.color());
         for label in &layout.sidebar_labels {
             let mut area = label.area;
             // An alignment's display options sit at the bottom of its label area, just above the
@@ -185,7 +144,7 @@ pub fn render_sidebar(
             );
         }
         let divider_style = if mouse_register.is_sidebar_divider_highlighted() {
-            Style::default().fg(pallete.HIGHLIGHT_COLOR)
+            Style::default().fg(pallete.HIGHLIGHT_COLOR.color())
         } else {
             sidebar_style
         };
@@ -213,8 +172,8 @@ pub fn render_sidebar(
         }
         // The focused target's whole section is filled, colored by mode.
         let fill = match registers.shown_mode() {
-            KeyRegisterType::Insert { .. } => pallete.FOCUS_INSERT,
-            _ => pallete.FOCUS_NORMAL,
+            KeyRegisterType::Insert { .. } => pallete.FOCUS_INSERT.color(),
+            _ => pallete.FOCUS_NORMAL.color(),
         };
         for (area_type, section) in &layout.sidebar_sections {
             let focused = match (area_type, focus.target) {

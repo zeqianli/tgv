@@ -1,9 +1,10 @@
+use crate::rendering::colors::ToColor;
 use crate::{
     layout::wrap_sidebar_label,
-    menu::{ContextMenu, MenuItem, MenuPanel},
-    popup::TextPopup,
+    menu::{ContextMenu, MenuPanel},
     rendering::colors::Palette,
 };
+use gv_viewer::{menu::MenuItem, popup::TextPopup};
 use ratatui::{buffer::Buffer, layout::Rect, style::Style};
 
 /// Draw the context menu over everything else.
@@ -19,14 +20,14 @@ fn render_panel(buf: &mut Buffer, panel: &MenuPanel, palette: &Palette) {
     let width = area.width as usize;
     for (index, item) in panel.items.iter().enumerate().take(area.height as usize) {
         let background = if panel.hovered == Some(index) && item.enabled() {
-            palette.MENU_HOVER_BACKGROUND
+            palette.MENU_HOVER_BACKGROUND.color()
         } else {
-            palette.MENU_BACKGROUND
+            palette.MENU_BACKGROUND.color()
         };
         let foreground = if item.enabled() {
-            palette.MENU_FOREGROUND
+            palette.MENU_FOREGROUND.color()
         } else {
-            palette.MENU_DISABLED_FOREGROUND
+            palette.MENU_DISABLED_FOREGROUND.color()
         };
         let marker = if matches!(item, MenuItem::Submenu { .. }) {
             "▸"
@@ -100,16 +101,18 @@ pub fn render_text_popup(buf: &mut Buffer, area: Rect, popup: &TextPopup, palett
     .intersection(buf.area);
     for (row, line) in lines.iter().enumerate().take(panel.height as usize) {
         let foreground = if row == 0 {
-            palette.MENU_DISABLED_FOREGROUND
+            palette.MENU_DISABLED_FOREGROUND.color()
         } else {
-            palette.MENU_FOREGROUND
+            palette.MENU_FOREGROUND.color()
         };
         buf.set_stringn(
             panel.x,
             panel.y + row as u16,
             format!(" {line:<content_width$} "),
             panel.width as usize,
-            Style::default().fg(foreground).bg(palette.MENU_BACKGROUND),
+            Style::default()
+                .fg(foreground)
+                .bg(palette.MENU_BACKGROUND.color()),
         );
     }
 }

@@ -84,7 +84,7 @@ pub struct CytobandBand {
 /// The reference's cytobands for every contig.
 ///
 /// Cytobands are small, so the whole table loads once, the first time the view needs it.
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct CytobandTable {
     /// Rows are sorted by contig, start, and row ID.
     pub data: DataFrame,

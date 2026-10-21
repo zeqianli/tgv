@@ -1,5 +1,5 @@
 [workspace]
-members = ["crates/gv-core", "crates/gv-mcp", "crates/gv-session", "crates/tgv"]
+members = ["crates/gv-core", "crates/gv-mcp", "crates/gv-session", "crates/gv-gui", "crates/gv-viewer", "crates/tgv"]
 resolver = "3"
 
 [workspace.dependencies]
@@ -14,6 +14,9 @@ clap = { version = "4", features = ["derive"] }
 # Match the versions ratatui uses, so the TUI shares one copy of each.
 crossterm = "0.28"
 futures = "0"
+# The GUI's UI framework. Only `gv-gui` depends on it, so the `tgv` binary stays free of it.
+# Metal shaders compile when the app starts, so building doesn't need Xcode's Metal toolchain.
+gpui = { version = "0.2.2", features = ["runtime_shaders"] }
 itertools = "0.13"
 log = { version = "0.4", features = ["std"] }
 noodles = { version = "0", features = ["async", "bam", "bcf", "bed", "bgzf", "core", "cram", "csi", "fasta", "sam", "tabix", "vcf"] }
@@ -44,6 +47,7 @@ unicode-width = "0.2"
 gv-core = { path = "crates/gv-core", version = "=0.4.0" }
 gv-mcp = { path = "crates/gv-mcp", version = "=0.4.0" }
 gv-session = { path = "crates/gv-session", version = "=0.4.0" }
+gv-viewer = { path = "crates/gv-viewer", version = "=0.4.0" }
 
 [profile.dev]
 # Full debug info for Polars and noodles makes each test binary about 2 GB, so linking

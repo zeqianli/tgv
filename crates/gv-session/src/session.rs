@@ -80,6 +80,8 @@ pub enum ViewRequest {
     ClearHighlights(Responder<()>),
     /// Reports what the view shows.
     Current(Responder<ViewState>),
+    /// Describes the viewer.
+    Info(Responder<ViewerInfo>),
 }
 
 impl ViewRequest {
@@ -88,6 +90,7 @@ impl ViewRequest {
         match self {
             Self::Navigate(_, reply) | Self::Current(reply) => reply.respond(Err(error)),
             Self::Highlight(_, reply) | Self::ClearHighlights(reply) => reply.respond(Err(error)),
+            Self::Info(reply) => reply.respond(Err(error)),
         }
     }
 }
@@ -114,6 +117,7 @@ impl Request {
             Self::View(ViewRequest::Highlight(_, reply) | ViewRequest::ClearHighlights(reply)) => {
                 reply.is_closed()
             }
+            Self::View(ViewRequest::Info(reply)) => reply.is_closed(),
             Self::Shutdown => false,
         }
     }
@@ -190,6 +194,11 @@ impl SessionHandle {
     /// Reports what the viewer shows.
     pub async fn view_state(&self) -> Result<ViewState, SessionError> {
         self.request(|reply| Request::View(ViewRequest::Current(reply)))
+            .await
+    }
+
+    pub async fn viewer_info(&self) -> Result<ViewerInfo, SessionError> {
+        self.request(|reply| Request::View(ViewRequest::Info(reply)))
             .await
     }
 

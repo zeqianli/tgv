@@ -1,3 +1,4 @@
+use crate::rendering::colors::ToColor;
 use crate::{
     layout::AlignmentView,
     rendering::{
@@ -15,7 +16,7 @@ pub fn render_variants(
     alignment_view: &AlignmentView,
     palette: &Palette,
 ) -> Result<(), TGVError> {
-    let region = alignment_view.region(area);
+    let region = alignment_view.region(f64::from(area.width));
     if !variants.has_complete_data(&region) {
         render_zoom_in_notice(area, buf, "variants");
         return Ok(());
@@ -28,7 +29,7 @@ pub fn render_variants(
         buf,
         &rows,
         alignment_view,
-        &[palette.VCF1, palette.VCF2],
+        &[palette.VCF1.color(), palette.VCF2.color()],
         0,
     )
 }

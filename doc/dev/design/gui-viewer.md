@@ -1,6 +1,8 @@
 # Design: a GUI viewer
 
-Status: proposed, not implemented.
+Status: the first version is implemented, in `gv-viewer` and `gv-gui`. See [As built](#as-built)
+for where it differs from the plan below. Not yet done: animated zooms, IME input, an app
+bundle and signing, and Linux and Windows.
 
 ## Context
 
@@ -47,6 +49,37 @@ What stops the TUI code from being shared today:
   (`calculate_binned_coverage`), ruler ticks (`calculate_intermarker_distance`), coordinate
   text, the visible-window filters for gene segments and reads, sidebar option descriptions,
   read details, and hover descriptions.
+
+## As built
+
+The plan below held, with these changes:
+
+- **One shared action enum.** Instead of a front-end `Action` that wraps the shared one,
+  `gv_viewer::message::Action` has an `Ui(UiAction)` variant for the actions only a front end
+  applies: layout changes and closing menus and popups. `Viewer::handle` leaves them, and the
+  context menus and popups it builds, as `Effect`s that the front end takes with
+  `Viewer::take_effects`. The window adds its own `GuiAction` for the gestures it predicts.
+- **Keys go to the worker.** `Registers` live in the `Viewer`, so the window sends keys and
+  the worker parses them, as the terminal does in its loop. Only gestures are predicted in the
+  window: drags, scrolls, and zooms around the pointer. `h`, `z`, and the other keys wait for
+  the worker's frame, which takes about a millisecond unless a load runs.
+- **No `phase` in the viewport.** The window keeps the pixels of a pan that haven't added up to
+  a base as an offset of its own, so the shared `Viewport` stays in whole bases.
+- **Insert mode zooms in further.** One `h` step is `PixelScale::KEY_STEP_PIXELS` (8) pixels,
+  so insert mode keeps a base at least 8 pixels wide. A column is then one base, and the cursor
+  is one base, as the decision below intends.
+- **No pinch.** gpui 0.2.2 has no pinch events, so the window zooms with Control or Command and
+  a vertical scroll, a double click, `⌘=` and `⌘-`, and `z` and `o`.
+- **More shared preparation.** `gv_viewer::prepare` holds `alignment` (the `AlignmentScene` of
+  bodies, clips, deletions, arrows, insertions, mismatches, and modifications), `track` (genes
+  and their segments), `coverage`, `coordinate`, `sidebar`, and `hover` (the message line's
+  descriptions). The terminal draws from the same scenes, cell for cell as before.
+- **The popup has no front-end file.** `TextPopup` is data in `gv-viewer`, and each front end
+  draws it in `rendering/menu.rs`.
+- **`ViewerInfo` has no socket path.** Agents attach by process ID, and the socket path follows
+  from it. `SessionConnection::find_viewer` is gone; `list_viewers` replaces it.
+- **Metal shaders compile at startup.** gpui's `runtime_shaders` feature is on, so building
+  doesn't need Xcode's Metal toolchain.
 
 ## Crates
 

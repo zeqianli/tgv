@@ -1,3 +1,5 @@
+use crate::layout::CellView;
+use crate::rendering::colors::ToColor;
 use crate::{
     layout::{AlignmentView, OnScreenCoordinate},
     rendering::{colors::Palette, intervals::render_zoom_in_notice},
@@ -21,7 +23,7 @@ pub fn render_bed(
     alignment_view: &AlignmentView,
     palette: &Palette,
 ) -> Result<(), TGVError> {
-    let region = alignment_view.region(area);
+    let region = alignment_view.region(f64::from(area.width));
     if !bed.has_complete_data(&region) {
         render_zoom_in_notice(area, buf, "BED features");
         return Ok(());
@@ -31,7 +33,7 @@ pub fn render_bed(
     let ends = rows.column(BedSchema::END)?.u64()?;
     let names = rows.column(BedSchema::NAME)?.str()?;
     let strands = rows.column(BedSchema::STRAND)?.str()?;
-    let colors = [palette.BED1, palette.BED2];
+    let colors = [palette.BED1.color(), palette.BED2.color()];
     for row in 0..rows.height() {
         let start = alignment_view
             .onscreen_x_coordinate(starts.get(row).expect("BED starts are non-null"), area);

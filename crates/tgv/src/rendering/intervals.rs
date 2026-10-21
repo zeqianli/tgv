@@ -1,3 +1,4 @@
+use crate::layout::CellView;
 use crate::layout::{AlignmentView, OnScreenCoordinate};
 use gv_core::intervals::IntervalSchema;
 use gv_core::prelude::*;

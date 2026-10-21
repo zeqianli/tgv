@@ -11,7 +11,7 @@ use polars::prelude::*;
 use std::sync::Arc;
 
 /// State and utilities for paired alignment display.
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct PairedAlignment {
     /// Stable pair IDs and their member read IDs.
     pub pairs: DataFrame,
