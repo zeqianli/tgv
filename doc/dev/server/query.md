@@ -364,8 +364,9 @@ Scope: region. Key: `track_id`, `row_id`.
 | `track_id` | `i64` | The track ID from `get_dataset`. |
 | `contig` | `str` | The contig name. |
 | `row_id` | `i64` | The zero-based record index within the loaded data, in file order: within the whole file for plain VCF files, and within the loaded region for indexed VCF and BCF files. |
+| `lane` | `i64` | The zero-based packed lane. Overlapping inclusive intervals occupy separate lanes; packing covers the whole contig for plain files and the loaded window for indexed files. |
 | `start` | `i64` | The 1-based VCF POS. |
-| `end` | `i64` | The last reference position covered by the reference allele. |
+| `end` | `i64` | The last reference position, inclusive, using INFO/END when present or the reference allele span otherwise. |
 | `ids` | `list[str]` | The VCF ID values. |
 | `reference` | `str` | The reference allele. |
 | `alternate` | `list[str]` | The alternate alleles. |
@@ -383,6 +384,7 @@ Scope: region. Key: `track_id`, `row_id`.
 | `track_id` | `i64` | The track ID from `get_dataset`. |
 | `contig` | `str` | The contig name. |
 | `row_id` | `i64` | The zero-based feature index within the loaded data, in file order: within the whole file for plain BED files, and within the loaded region for indexed BED and bigBed files. |
+| `lane` | `i64` | The zero-based packed lane. Overlapping inclusive intervals occupy separate lanes; packing covers the whole contig for plain files and the loaded window for indexed files. |
 | `start` | `i64` | The 1-based first position, converted from the BED 0-based start. |
 | `end` | `i64` | The last position, inclusive. |
 | `name` | `str` | The BED name, or null when absent. |
@@ -390,7 +392,8 @@ Scope: region. Key: `track_id`, `row_id`.
 | `strand` | `str` | `+` or `-`, or null when absent. |
 | `extra` | `str` | Columns 7 and up as the file has them, joined by tabs, or null when the line has six or fewer columns. |
 
-Plain BED tracks include unsaved edits from the viewer.
+Plain BED tracks include unsaved edits from the viewer. Their `lane` values retain
+editor-assigned positions after lane insertion and editing, including gaps for empty lanes.
 
 ### `genes`
 

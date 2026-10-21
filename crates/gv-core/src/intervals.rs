@@ -1,8 +1,11 @@
+//! Shared genomic coordinates, interval queries, lane packing, and display density.
+
 use crate::table_schema::TableSchema;
 use crate::{contig_header::ContigHeader, error::TGVError};
 use noodles;
-use polars::prelude::{DataFrame, DataType, Schema, SchemaRef};
+use polars::prelude::*;
 use std::sync::Arc;
+use std::{cmp::Reverse, collections::BinaryHeap};
 
 /// The common columns shared by genomic interval tables.
 pub struct IntervalSchema;
@@ -11,6 +14,7 @@ impl IntervalSchema {
     pub const ROW_ID: &'static str = "row_id";
     pub const CONTIG_INDEX: &'static str = "contig_index";
     pub const START: &'static str = "start";
+    pub const LANE: &'static str = "lane";
     pub const END: &'static str = "end";
 }
 
@@ -149,4 +153,104 @@ impl Focus {
         let contig = contig_header.try_get(self.contig_index)?;
         Ok(format!("{}:{}", contig.name, self.position))
     }
+}
+
+/// Packs inclusive intervals into the lowest available lane without changing row order.
+pub fn pack_lanes(data: &mut DataFrame) -> Result<(), TGVError> {
+    let contigs = data.column(IntervalSchema::CONTIG_INDEX)?.u64()?;
+    let starts = data.column(IntervalSchema::START)?.u64()?;
+    let ends = data.column(IntervalSchema::END)?.u64()?;
+    let ids = data.column(IntervalSchema::ROW_ID)?.u64()?;
+    let mut order: Vec<_> = (0..data.height()).collect();
+    order.sort_unstable_by_key(|&row| {
+        (
+            contigs.get(row),
+            starts.get(row),
+            ends.get(row),
+            ids.get(row),
+        )
+    });
+    let mut lanes = vec![0u32; data.height()];
+    let mut occupied = BinaryHeap::new();
+    let mut available = BinaryHeap::new();
+    let mut next_lane = 0u32;
+    let mut contig = None;
+    for row in order {
+        if contig != contigs.get(row) {
+            occupied.clear();
+            available.clear();
+            next_lane = 0;
+            contig = contigs.get(row);
+        }
+        let start = starts.get(row).expect("interval starts are non-null");
+        while let Some(&Reverse((end, lane))) = occupied.peek() {
+            if end >= start {
+                break;
+            }
+            occupied.pop();
+            available.push(Reverse(lane));
+        }
+        let lane = match available.pop() {
+            Some(Reverse(lane)) => lane,
+            None => {
+                let lane = next_lane;
+                next_lane += 1;
+                lane
+            }
+        };
+        lanes[row] = lane;
+        occupied.push(Reverse((
+            ends.get(row).expect("interval ends are non-null"),
+            lane,
+        )));
+    }
+    data.with_column(Column::new(IntervalSchema::LANE.into(), lanes))?;
+    Ok(())
+}
+
+/// The density of an interval track, independent of its file format.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum IntervalDisplayMode {
+    #[default]
+    Expanded,
+    Squished,
+    Collapsed,
+}
+
+impl IntervalDisplayMode {
+    pub const MAX_ROWS: u16 = 5;
+
+    pub fn height(self, lanes: u32) -> u16 {
+        match self {
+            Self::Expanded => lanes.clamp(1, u32::from(Self::MAX_ROWS)) as u16,
+            Self::Squished => lanes.div_ceil(2).clamp(1, u32::from(Self::MAX_ROWS)) as u16,
+            Self::Collapsed => 1,
+        }
+    }
+
+    pub fn visible_lanes(self, height: u16) -> u32 {
+        let rows = u32::from(height.min(Self::MAX_ROWS));
+        match self {
+            Self::Expanded => rows,
+            Self::Squished => rows * 2,
+            Self::Collapsed => u32::MAX,
+        }
+    }
+
+    pub fn contains_lane(self, row: u16, lane: u32) -> bool {
+        match self {
+            Self::Expanded => lane == u32::from(row),
+            Self::Squished => lane / 2 == u32::from(row),
+            Self::Collapsed => row == 0,
+        }
+    }
+}
+
+/// Counts lanes across the entire loaded table, independently of the viewport.
+pub fn lane_count(data: &DataFrame) -> Result<u32, TGVError> {
+    Ok(data
+        .column(IntervalSchema::LANE)?
+        .u32()?
+        .max()
+        .map_or(0, |lane| lane + 1))
 }

@@ -6,7 +6,7 @@ mod contig_list;
 mod coordinate;
 mod coverage;
 pub(crate) mod cytoband;
-mod intervals;
+pub(crate) mod intervals;
 mod menu;
 mod sequence;
 mod sidebar;
@@ -240,22 +240,48 @@ pub fn render_main(
             }
             AreaType::Variant(id) => {
                 let index = layout.track_registry.variant_index(*id)?;
-                if let Some(variants) = state.variants.get(index) {
-                    render_variants(rect, buf, variants, alignment_view, pallete)?;
-                }
+                render_variants(
+                    rect,
+                    buf,
+                    &state.variants[index],
+                    alignment_view,
+                    pallete,
+                    state.variant_display_modes[index],
+                )?;
             }
             AreaType::Bed(id) => {
                 let index = layout.track_registry.bed_index(*id)?;
-                if let Some(bed_intervals) = state.bed_intervals.get(index) {
-                    render_bed(rect, buf, bed_intervals, alignment_view, pallete)?;
-                }
-                // Insert mode draws the cursor as one reversed cell.
+                render_bed(
+                    rect,
+                    buf,
+                    &state.bed_intervals[index],
+                    alignment_view,
+                    pallete,
+                    state.bed_display_modes[index],
+                )?;
+                // A selected lane limits both editing and the insert cursor.
                 if *registers.shown_mode() == (KeyRegisterType::Insert { track: *id })
                     && let OnScreenCoordinate::OnScreen(x) =
                         alignment_view.onscreen_x_coordinate(alignment_view.focus.position, rect)
                 {
-                    buf[(rect.x + x as u16, rect.y)]
-                        .set_style(Style::default().add_modifier(Modifier::REVERSED));
+                    let bed = &state.bed_intervals[index];
+                    let mode = crate::layout::IntervalMode::from(state.bed_display_modes[index]);
+                    let first = match mode {
+                        crate::layout::IntervalMode::Expanded => {
+                            bed.lanes.first_visible(mode.visible_lanes(rect.height))
+                        }
+                        crate::layout::IntervalMode::Collapsed => 0,
+                    };
+                    for row in 0..rect.height {
+                        if bed
+                            .lanes
+                            .active
+                            .is_none_or(|lane| mode.contains_lane(row, lane.saturating_sub(first)))
+                        {
+                            buf[(rect.x + x as u16, rect.y + row)]
+                                .set_style(Style::default().add_modifier(Modifier::REVERSED));
+                        }
+                    }
                 }
             }
             AreaType::Fill => {}

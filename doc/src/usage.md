@@ -22,6 +22,39 @@ For example, `tgv -g hg38 -r chr20:88108 /data/simple.bam /data/simple.vcf /data
 - Custom FASTA and 2bit reference genomes are passed with `-g` / `--reference`, not as positional track files. FASTA references require a `.fai` index beside the FASTA file.
 - CRAM is not supported as a CLI input format. Configure CRAM tracks in a [session file](./session.md).
 
+## Interval display modes
+
+BED, bigBed, VCF, and BCF tracks pack overlapping features into separate lanes. Right-click
+on the track or its sidebar section, and choose **Display mode**:
+
+- **Expanded** (the default) shows one lane per row, with BED names or VCF IDs when they fit.
+- **Collapsed** summarizes all features in one row. Cells with two features are darker;
+  cells with three or more show a count (`+` for ten or more). When zoomed out, nearby
+  disjoint features can share a cell and contribute to its count.
+
+Expanded tracks show at most five rows and five lanes.
+When lanes are hidden, `+N` appears on the last row and beside the sidebar name. The height
+uses the whole contig for plain files or the loaded window for indexed files, so panning
+within loaded data does not move features between lanes or change the height. Indexed
+tracks can repack when a new window loads. Display modes last for the current viewer session.
+
+Hover and right-click identify the feature in the pointed lane. Collapsed mode picks the
+last painted matching feature across all lanes. The `+N` marker does not select hidden features.
+
+In BED insert mode, `o` opens a lane below the selected lane, and `O` opens one above it.
+With no lane selected, these use the first lane as their starting point. Counts work, such as
+`3o`. The new lane is selected, the track expands, and the cursor marks only that lane.
+Use `j` and `k` to move down and up between existing lanes; counts work and stop at the
+first or last lane. These movements keep the genomic cursor position and do not modify
+the file or add an undo step.
+Painting and erasing then affect only the selected lane, allowing new features to overlap
+features in other lanes. The viewport follows the selection beyond the five visible rows.
+Before a lane is selected, editing applies across all lanes as before.
+
+Lane creation, lane selection, and edits are preserved by undo and redo. Lane positions stay
+fixed during editing, including empty lanes. BED files store features rather than display
+lanes, so writing preserves the features, while reopening the file packs its lanes again.
+
 ## Command-line options
 
 | Option | Description |
@@ -104,8 +137,9 @@ previous one for `b/ge`.
 
 Insert mode edits BED files that load whole: `.bed` files and `.bed.gz` files without an
 index. Indexed `.bed.gz` and bigBed files are read-only. The cursor is the current position,
-drawn as a reversed cell in the BED track being edited. Other tracks don't show it. When zoomed out, one column covers `zoom` bases, and edits apply to all of
-them.
+drawn in the selected lane, or across every displayed lane when none is selected. Other
+tracks don't show it. When zoomed out, one column covers `zoom` bases, and edits apply to all
+of those bases.
 
 Insert mode types no text, so it takes vim's editing keys. Counts come first, as in vim:
 `3x`, `5Space`, `d3l`.
@@ -117,9 +151,11 @@ Insert mode types no text, so it takes vim's editing keys. Counts come first, as
 | `Shift-Backspace` | Move left by one column, then add the bases there: painting to the left |
 | `x` / `Delete` | Remove the bases under the cursor |
 | `X` | Remove the bases left of the cursor, and move onto them |
-| `d` + _motion_ | Remove the bases from the cursor to where the motion goes. `d3l` removes three columns from the cursor; `de` removes through the end of the feature; `dw` removes up to the next feature. |
+| `d` + _motion_ | Remove the bases from the cursor to where the motion goes. `d3l` removes three columns and moves right by three, so repeated `dl` commands erase successive columns. `dh` erases to the left and moves left. `de` removes through the end of the feature; `dw` removes up to the next feature. |
+| `[n]j` / `[n]k` | Move the insert cursor down or up through existing lanes, stopping at the ends |
+| `[n]o` / `[n]O` | Insert n lanes below or above the selected lane, and edit a new lane. These keys do not zoom in insert mode. |
 | `u` / `Ctrl-r` | Undo / redo the track's last edit step |
-| `h/l`, `H/L`, `w/b/e/ge`, `W/B/E/gE`, `z/o`, arrow keys | Move and zoom as in normal mode. `w/b/e/ge` move between the track's features. |
+| `h/l`, `H/L`, `w/b/e/ge`, `W/B/E/gE`, `z` (zoom in), arrow keys | Move and zoom as in normal mode. `w/b/e/ge` move between the track's features. |
 | `Ctrl-j` / `Ctrl-k`, `Ctrl-w` keys | Go to normal mode and move the focus |
 | `:` / `/` | Enter command or search mode, then return to insert mode |
 | `Esc` | Clear a pending count or `d`, or go to normal mode |

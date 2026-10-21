@@ -2,7 +2,7 @@
 
 use crate::{
     error::TGVError,
-    intervals::{IntervalSchema, IntervalTable, Region},
+    intervals::{IntervalSchema, IntervalTable, Region, pack_lanes},
     table_schema::{ColumnDoc, TableSchema},
 };
 use noodles::bed::{self, feature::record::Strand};
@@ -15,14 +15,32 @@ pub struct BedTable {
     /// Rows are sorted by contig, start, end, and row ID.
     pub data: DataFrame,
     pub contig_index: usize,
+    pub lanes: BedLanes,
     data_complete_left_bound: u64,
     data_complete_right_bound: u64,
+}
+
+/// Editable lane positions for one contig, including lanes with no features.
+#[derive(Debug, Clone, Copy, Default)]
+pub struct BedLanes {
+    pub count: u32,
+    /// No selection means that edits apply across all lanes.
+    pub active: Option<u32>,
+}
+
+impl BedLanes {
+    /// Keeps a selected lane inside a bounded lane viewport.
+    pub fn first_visible(self, visible: u32) -> u32 {
+        self.active
+            .map_or(0, |lane| lane.saturating_sub(visible.saturating_sub(1)))
+    }
 }
 
 /// The ordered columns for BED features.
 pub struct BedSchema;
 
 impl BedSchema {
+    pub const LANE: &'static str = IntervalSchema::LANE;
     pub const ROW_ID: &'static str = IntervalSchema::ROW_ID;
     pub const CONTIG_INDEX: &'static str = IntervalSchema::CONTIG_INDEX;
     pub const START: &'static str = IntervalSchema::START;
@@ -36,7 +54,7 @@ impl BedSchema {
 
 impl TableSchema for BedSchema {
     fn schema() -> SchemaRef {
-        let mut schema = Schema::with_capacity(8);
+        let mut schema = Schema::with_capacity(9);
         schema.insert(Self::ROW_ID.into(), DataType::UInt64);
         schema.insert(Self::CONTIG_INDEX.into(), DataType::UInt64);
         schema.insert(Self::START.into(), DataType::UInt64);
@@ -45,6 +63,7 @@ impl TableSchema for BedSchema {
         schema.insert(Self::SCORE.into(), DataType::UInt16);
         schema.insert(Self::STRAND.into(), DataType::String);
         schema.insert(Self::EXTRA.into(), DataType::String);
+        schema.insert(Self::LANE.into(), DataType::UInt32);
         Arc::new(schema)
     }
 
@@ -78,6 +97,10 @@ impl TableSchema for BedSchema {
                 name: Self::EXTRA,
                 description: "Columns 7 and up as the file has them, joined by tabs, or null when the line has six or fewer columns.",
             },
+            ColumnDoc {
+                name: Self::LANE,
+                description: "The zero-based packed lane, computed per contig for plain files and per loaded window for indexed files. Overlapping inclusive intervals occupy different lanes.",
+            },
         ]
     }
 }
@@ -87,6 +110,7 @@ impl Default for BedTable {
         Self {
             data: BedSchema::empty(),
             contig_index: 0,
+            lanes: BedLanes::default(),
             data_complete_left_bound: u64::MAX,
             data_complete_right_bound: 0,
         }
@@ -126,14 +150,22 @@ impl BedTable {
     }
 
     /// Wraps a frame holding every feature of one contig, read before contig indexes were known.
-    pub(super) fn whole_contig(data: &DataFrame, contig_index: usize) -> Result<Self, TGVError> {
+    pub(super) fn whole_contig(
+        data: &DataFrame,
+        contig_index: usize,
+        lanes: BedLanes,
+    ) -> Result<Self, TGVError> {
+        let data = data
+            .clone()
+            .lazy()
+            .with_columns([lit(contig_index as u64)
+                .cast(DataType::UInt64)
+                .alias(BedSchema::CONTIG_INDEX)])
+            .collect()?;
         Ok(Self {
-            data: data
-                .clone()
-                .lazy()
-                .with_columns([lit(contig_index as u64).alias(BedSchema::CONTIG_INDEX)])
-                .collect()?,
+            data,
             contig_index,
+            lanes,
             data_complete_left_bound: 1,
             data_complete_right_bound: u64::MAX,
         })
@@ -251,6 +283,7 @@ impl BedColumns {
 
     /// Builds the columns into a frame in the order rows were added, numbering them from 0.
     pub(super) fn into_frame(self) -> Result<DataFrame, TGVError> {
+        let count = self.starts.len();
         Ok(DataFrame::new(
             self.starts.len(),
             vec![
@@ -265,6 +298,7 @@ impl BedColumns {
                 Column::new(BedSchema::SCORE.into(), self.scores),
                 Column::new(BedSchema::STRAND.into(), self.strands),
                 Column::new(BedSchema::EXTRA.into(), self.extras),
+                Column::new(BedSchema::LANE.into(), vec![0u32; count]),
             ],
         )?)
     }
@@ -274,7 +308,7 @@ impl BedColumns {
         contig_index: usize,
         loaded_bounds: (u64, u64),
     ) -> Result<BedTable, TGVError> {
-        let data = self
+        let mut data = self
             .into_frame()?
             .lazy()
             .sort(
@@ -287,7 +321,13 @@ impl BedColumns {
                 SortMultipleOptions::default(),
             )
             .collect()?;
+        pack_lanes(&mut data)?;
+        let lanes = BedLanes {
+            count: crate::intervals::lane_count(&data)?,
+            active: None,
+        };
         Ok(BedTable {
+            lanes,
             data,
             contig_index,
             data_complete_left_bound: loaded_bounds.0,

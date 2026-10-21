@@ -53,6 +53,19 @@ pub enum Action {
         append: bool,
     },
 
+    /// Opens new BED lanes above or below the selected lane in insert mode.
+    InsertBedLanes {
+        track: TrackId,
+        below: bool,
+        count: u32,
+    },
+
+    /// Moves the insert cursor between existing BED lanes.
+    MoveBedLane {
+        track: TrackId,
+        scroll: Scroll,
+    },
+
     /// Adds or removes the bases of whole columns next to the cursor on a BED track.
     EditColumns {
         track: TrackId,
@@ -93,6 +106,12 @@ pub enum Action {
     UpdateAlignmentOptions {
         track: TrackId,
         update: AlignmentOptionUpdate,
+    },
+
+    /// Changes the density of a BED or variant track.
+    SetIntervalDisplayMode {
+        track: TrackId,
+        mode: gv_core::intervals::IntervalDisplayMode,
     },
 
     /// Opens the context menu for `target`, anchored at a terminal cell.

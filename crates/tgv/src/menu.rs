@@ -229,6 +229,37 @@ impl ContextMenu {
         items
     }
 
+    /// Density choices shared by BED, bigBed, VCF, and BCF tracks.
+    pub fn interval_items(
+        track: TrackId,
+        current: gv_core::intervals::IntervalDisplayMode,
+    ) -> Vec<MenuItem> {
+        use gv_core::intervals::IntervalDisplayMode;
+        let current = match current {
+            IntervalDisplayMode::Squished => IntervalDisplayMode::Expanded,
+            mode => mode,
+        };
+        vec![MenuItem::Submenu {
+            label: "Display mode".into(),
+            items: [
+                ("Expanded", IntervalDisplayMode::Expanded),
+                ("Collapsed", IntervalDisplayMode::Collapsed),
+            ]
+            .into_iter()
+            .map(|(label, mode)| {
+                MenuItem::entry(
+                    if mode == current {
+                        format!("✓ {label}")
+                    } else {
+                        label.into()
+                    },
+                    Some(Action::SetIntervalDisplayMode { track, mode }),
+                )
+            })
+            .collect(),
+        }]
+    }
+
     /// Items for the sidebar. A file track's section has the track's items and items to insert
     /// a track next to it, then the sidebar's own.
     pub fn sidebar_items(track: Option<(TrackId, Vec<MenuItem>)>) -> Vec<MenuItem> {

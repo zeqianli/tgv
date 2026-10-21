@@ -46,3 +46,45 @@ to a genomic position first.
 - **Where parsing lives.** The parser belongs in `gv_core::command::parse_search`. Mapping to
   a position needs the track service, like `Movement::Gene`, so it becomes a new `Movement`
   variant.
+
+## Further BED editing
+
+The main BED editing implementation ships: track focus, insert mode, painting, erasing,
+undo, redo, writing, copying tracks, and track menus. The following work remains:
+
+- **Visual mode.**
+  - `v` starts a selection at the cursor. Any motion extends it, including `/` search. The
+    selection is highlighted in the BED row.
+  - `Space` paints the selection, `d`/`x` erases it, and `y` yanks it.
+  - It becomes `KeyRegisterType::Visual { track, anchor }`, and the operator code runs on
+    the selection range.
+- **Yank and paste.**
+  - `y{motion}` and visual `y` copy the features in the range, clipped to it, into an unnamed
+    register on `App`. The features are stored as offsets from the range start, with their
+    name, score, strand, and extra columns.
+  - `p` pastes the span starting at the column after the cursor, and `P` pastes it ending
+    just before the cursor, as in vim.
+  - The register works across tracks and contigs.
+  - Open question: should pasted features add rows as they are (BED allows overlaps), or
+    follow the paint rules, which merge their coverage into existing features?
+- **Text objects** for `d`, `y`, and `v`:
+  - `if`: the BED feature under the cursor.
+  - `ie` / `ig`: the exon or gene under the cursor, from the gene track.
+  - For example, `vie Space` annotates the exon under the cursor.
+  - These are Zed's `Object` and vim's `current_*` functions.
+- **`J`**, vim's "join lines": join the feature under the cursor with the next one, filling
+  the gap and keeping the left feature's name and columns. Waiting on the user's decision.
+- **Uppercase word motions on BED and VCF** tracks. They do the same as lowercase for now.
+- **Alignment word motions.** They use exons for now.
+- **Undo moving the cursor** back to where the step began, as vim does.
+- **Copying indexed BED and bigBed tracks.**
+- **Mouse painting:** drag on a BED row in insert mode to paint, and drag with a modifier to
+  erase.
+- **Not planned:** `.` (repeat the last edit), `dd`/`D`, and bracket motions (`]e`, `[g`).
+
+## Background track opening
+
+Runtime track creation, removal, `:e` / `:open`, and bracketed-paste file loading ship.
+Opening a file currently shows “Opening …” before waiting. A follow-up can open repositories
+on a background task and send completed repositories to the event loop, so navigation stays
+responsive during slow remote opens.

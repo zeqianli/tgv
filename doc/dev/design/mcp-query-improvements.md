@@ -84,7 +84,7 @@ Each base is stored twice: in the noodles `RecordBuf` and in `cigar_runs.seq` an
 
 ## Not planned
 
-- **Adding tracks to a live viewer.** This comes with [adding and removing tracks at runtime](./runtime-tracks.md).
+- **Agent tools for adding tracks to a live viewer.** The TUI already adds and removes tracks at runtime; matching MCP tools remain outside this query plan.
 - **Per-interval highlight labels.**
 - **A `pileup` table or an `allele_support` tool.** Rows grow with depth times width, and the per-base functions answer the same questions on demand.
 - **More `coverage` counts,** such as by strand, by indel, or above Q20. These are GROUP BY queries over `cigar_ops` with the per-base functions.

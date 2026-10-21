@@ -1,89 +1,81 @@
-# BED display: lanes for overlapping features
+# Interval display: lanes for overlapping features
 
-Status: the next feature to implement, after BED editing (`bed-editing.md`).
+Status: implemented for BED, bigBed, VCF, and BCF.
 
-## Context
+## Scope
 
-`crates/tgv/src/rendering/bed.rs` draws every feature on one terminal row, and the BED track
-has a fixed height of 1 (`AreaType::Bed` in `crates/tgv/src/layout.rs`). Overlapping features
-are painted over each other in load order, so the last one wins. The two alternating colours
-(`BED1` and `BED2`) tell neighbours apart, but they can't show overlaps. With three or four
-stacked features, the user sees one bar and maybe one name, with no hint that anything is
-underneath.
+BED, indexed BED, bigBed, VCF, and BCF share lane packing, display modes, height limits,
+and picking rules. bigBed is a BED repository format, so it needs no separate display kind.
+Future interval tracks can reuse these pieces without inheriting BED editing or VCF fields.
+Signal tracks and gene models keep their own rendering.
 
-## How other genome browsers handle it
+## Packing and table schemas
 
-All of them pack overlapping features into **lanes** (rows), and let the user choose the
-density:
+`IntervalSchema::LANE`, re-exported by `BedSchema` and `VariantSchema`, is a zero-based
+`u32` column exposed in SQL and the schema documentation. A shared core packing operation
+sorts row indexes by contig, start, end, and row ID, then assigns each interval to the first
+available lane. It preserves the frame's row order and row IDs. Coordinates remain one-based
+and inclusive: a lane is reusable only when its previous end is less than the next start.
+Use end-time and free-lane heaps so deeply overlapping data does not require quadratic work.
 
-| Browser | Modes | Notes |
-|---|---|---|
-| **IGV** | Collapsed, Expanded, Squished | **Collapsed** is one row, like tgv today. **Expanded** packs features into lanes greedily, with labels. **Squished** uses the same lanes, thin and without labels. The mode is switched from the right-click menu. Lanes are packed over the loaded region, so features don't jump between rows while the user pans. |
-| **UCSC** | dense, squish, pack, full | **dense** is one row, optionally shaded by score. **pack** is lanes with labels, **squish** is half-height lanes, and **full** is one row per feature. There's a cap on rows, with an overflow indicator. |
-| **JBrowse 2** | Normal, Compact, Collapsed | Packs by default, and shows "max height reached" when the lanes don't fit. |
+Plain files pack over each whole contig, including unsorted input. Indexed BED, bigBed,
+indexed VCF, and BCF pack over the loaded window. Panning and zooming within cached data
+never repack; crossing a loaded window can change the assignment. Plain BED files retain
+their lane assignments after loading. Edits preserve these positions, including deliberately inserted empty lanes, rather than repacking them.
 
-The packing is the same everywhere. Features are sorted by start, and each one goes into the
-first lane whose last feature ended before it starts.
+VCF intervals use the table's reference span, including INFO/END for symbolic variants when
+present. Alleles at the same position remain separate records and take separate lanes.
 
-## Design
+## Display state and layout
 
-### Lanes are computed in `gv-core` and stored on the table
+Store a display mode per BED and variant slot in `State`, initialized and removed with that
+slot. Reloading data and editing preserve the selected mode. The default is expanded.
+Right-click menus on the track and its sidebar offer expanded and collapsed. Squished
+remains a core option for a future GUI and is absent from TUI menus.
+These are viewer options; saving them to session files is outside this change.
 
-- `BedSchema` gains `LANE: &str = "lane"`, a `u32` filled when data loads.
-  - Plain BED files are packed once per contig.
-  - Indexed BED and bigBed files are packed over the loaded window.
-- Lanes are stable while the user pans and zooms, because packing uses genomic overlap, not
-  on-screen overlap.
-  - At low zoom, features that are close but don't overlap can touch on screen in the same
-    lane. The alternating colours already handle that.
-- Edits re-pack the edited contig. Edits already reload the BED slot, so the packing joins
-  that path.
-- The lane is visible in the SQL `bed` table, so agents see it too. It goes in
-  `BedSchema::column_docs`.
+- **Expanded:** one terminal row per lane, with BED names or VCF IDs when they fit.
+- **Squished:** retained in the core display options for a future GUI. The TUI maps this
+  option to expanded layout and rendering. It contains no squished or half-block renderer.
+- **Collapsed:** one row, with darker cells for two overlapping features and a count for
+  three or more. Counts describe features sharing a terminal column, which can include
+  nearby disjoint intervals at low zoom. Picking chooses the last painted matching feature.
 
-### Display modes
+Cap TUI interval tracks at five terminal rows and five lanes. Empty or unloaded tracks retain one row. Compute desired height from the
+whole loaded table rather than the visible viewport. Layout consumes that desired height
+before distributing remaining space to alignments. Sidebar names wrap within the allocated
+rows and do not increase the track height. If terminal space clips a track further,
+treat those lanes as hidden too. Show `+N` for hidden lanes at the right of the last row and
+in the sidebar label. Collapsed mode intentionally summarizes every lane and has no overflow.
 
-The right-click menu switches between three modes, next to the track items from BED editing.
+## Picking and editing
 
-- **Expanded** (the default): one terminal row per lane, with names.
-  - The number of lanes is capped (5 to start with).
-  - The track height follows the lane count. The count is fixed per contig, or per loaded
-    window for indexed files, and not per frame, so the layout doesn't jump while the user
-    pans.
-  - When the cap hides lanes, the last row shows a `+N` marker, and so does the sidebar label.
-- **Squished**: two lanes per terminal row, drawn with half blocks (`▀`, `▄`, and `█`) using
-  a foreground and a background colour. Deep overlaps fit in half the height. There are no
-  names.
-- **Collapsed**: one row, as today. Columns where features overlap are drawn darker, or show
-  the count when 3 or more overlap, so overlaps are visible even in one row.
+Hover and right-click feature lookup use the same mode, row, and visible lane limit as the
+renderer. Expanded mode selects only its lane. Overflow marker cells do not select a hidden feature. In aggregated modes,
+the last matching row in genomic order wins, consistently with painting.
 
-### Picking features
+BED insert mode uses `o` and `O` to insert lanes below or above the active lane, select a new
+lane, and force expanded display. With no selection, the first lane is the anchor. Counts
+insert multiple lanes in one undo step. The cursor and editing operations are limited to the
+selected lane. `j` and `k` move the selection among existing lanes, with counts clamped to
+the first and last lanes. Lane navigation preserves the genomic position and creates no
+edit revision or undo step. Without a selection, existing all-lane editing behavior remains
+available.
 
-- Hover messages and the context menu choose the feature in the lane under the pointer.
-  Today the hover message can't tell stacked features apart.
-- This sets up the "feature under the cursor" text object (`if`) from the BED editing TODO
-  list.
-
-### Interaction with BED editing
-
-- The paint rules never create overlaps. Painting extends a neighbour or fills a gap, so
-  overlaps only come from loaded files.
-- In insert mode, the cursor spans every lane, because painting and erasing act on the bases
-  across all features.
-- Erasing over stacked features trims or deletes all of them, which the current remove rules
-  already do. With lanes, the user sees what they're about to change.
-
-### Later
-
-VCF tracks have the same problem with overlapping indels and SVs. Reuse the packing for
-variants after BED.
+`PlainBed` owns per-contig lane counts and optional selections alongside its assigned lane
+column. The undo snapshots include this metadata, so lane creation, painting, and erasing
+undo without losing empty lanes or changing feature positions. The loaded `BedTable` carries
+this layout for rendering. A bounded lane viewport follows the active lane past the row cap;
+painting, hover, and the cursor use the same viewport offset. Writes keep standard BED fields
+and extra columns; reopening repacks because BED does not encode editor lanes.
 
 ## Implementation order
 
-1. `BedSchema::LANE` and the greedy packing, in the plain BED load path and the indexed
-   readers.
-2. A per-track display mode in `State`, which the layout uses for the BED track's height.
-   The right-click menu switches it.
-3. Rendering for the three modes, the `+N` marker, and the sidebar label.
-4. Lane-aware hover and context-menu picking.
-5. Docs: `doc/src/usage.md` (display modes) and `doc/dev/server/query.md` (the `lane` column).
+1. Add shared packing, lane schema metadata, and VCF span handling at table construction.
+2. Add per-slot modes, dynamic layout heights, and track menu actions.
+3. Share interval rendering for the two terminal densities, labels, and overflow markers.
+4. Match hover and context-menu picking to displayed lanes; extend the BED insert cursor.
+5. Update `doc/src/usage.md` and `doc/dev/server/query.md`, remove fully shipped design
+   notes, and retain or trim notes containing unfinished work.
+6. Run existing unit and integration tests with `cargo nextest run`, plus formatting and
+   compilation checks. Do not add tests without the user's explicit request.

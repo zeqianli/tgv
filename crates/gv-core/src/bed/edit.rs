@@ -4,8 +4,11 @@
 //! the frames before each step. Polars frames share their column buffers, so the snapshots are
 //! cheap.
 
-use super::{bed::BedSchema, repository::PlainBed};
-use crate::error::TGVError;
+use super::{
+    bed::{BedLanes, BedSchema},
+    repository::PlainBed,
+};
+use crate::{error::TGVError, message::Scroll};
 use noodles::bgzf;
 use polars::prelude::*;
 use std::{
@@ -49,6 +52,7 @@ pub struct BedHistory {
 #[derive(Debug)]
 struct Snapshot {
     frame: DataFrame,
+    lanes: HashMap<String, BedLanes>,
     revision: u64,
 }
 
@@ -82,10 +86,11 @@ impl BedHistory {
     }
 
     /// Records the features from before an edit.
-    fn record(&mut self, before: DataFrame) {
+    fn record(&mut self, before: DataFrame, lanes: HashMap<String, BedLanes>) {
         if self.step_pending {
             self.undo.push(Snapshot {
                 frame: before,
+                lanes,
                 revision: self.revision,
             });
             self.revision = self.next_revision;
@@ -101,14 +106,16 @@ impl BedHistory {
         to: &mut Vec<Snapshot>,
         revision: &mut u64,
         current: &DataFrame,
-    ) -> Option<DataFrame> {
+        lanes: &HashMap<String, BedLanes>,
+    ) -> Option<Snapshot> {
         let snapshot = from.pop()?;
         to.push(Snapshot {
             frame: current.clone(),
+            lanes: lanes.clone(),
             revision: *revision,
         });
         *revision = snapshot.revision;
-        Some(snapshot.frame)
+        Some(snapshot)
     }
 }
 
@@ -118,9 +125,19 @@ impl PlainBed {
 
     /// Applies an edit and returns whether any feature changed.
     pub fn apply(&mut self, edit: &BedEdit) -> Result<bool, TGVError> {
+        self.apply_to_lane(edit, None)
+    }
+
+    /// Applies an edit to the selected lane, or across all lanes when none is selected.
+    pub fn apply_selected(&mut self, edit: &BedEdit) -> Result<bool, TGVError> {
+        let lane = self.lanes.get(&edit.contig).and_then(|lanes| lanes.active);
+        self.apply_to_lane(edit, lane)
+    }
+
+    fn apply_to_lane(&mut self, edit: &BedEdit, lane: Option<u32>) -> Result<bool, TGVError> {
         let edited = match edit.kind {
-            BedEditKind::Add => self.added(edit)?,
-            BedEditKind::Remove => self.removed(edit)?,
+            BedEditKind::Add => self.added(edit, lane)?,
+            BedEditKind::Remove => self.removed(edit, lane)?,
         };
         let Some(edited) = edited else {
             return Ok(false);
@@ -129,9 +146,69 @@ impl PlainBed {
             self.contigs.push(edit.contig.clone());
         }
         let edited = self.renumbered(edited)?;
+        let before_lanes = self.lanes.clone();
+        let layout = self.lanes.entry(edit.contig.clone()).or_default();
+        layout.count = layout.count.max(lane.unwrap_or(0) + 1);
         let before = std::mem::replace(&mut self.whole_file, edited);
-        self.history.record(before);
+        self.history.record(before, before_lanes);
         Ok(true)
+    }
+
+    /// Selects an existing lane without changing features or adding an undo step.
+    pub fn move_lane(&mut self, contig: &str, scroll: Scroll) -> BedLanes {
+        let lanes = self.lanes.entry(contig.to_owned()).or_default();
+        lanes.count = lanes.count.max(1);
+        let current = lanes.active.unwrap_or(0) as usize;
+        let last = lanes.count as usize - 1;
+        lanes.active = Some(match scroll {
+            Scroll::Up(count) => current.saturating_sub(count),
+            Scroll::Down(count) => current.saturating_add(count).min(last),
+            Scroll::Top => 0,
+            Scroll::Bottom => last,
+        } as u32);
+        if !self.contigs.iter().any(|name| name == contig) {
+            self.contigs.push(contig.to_owned());
+        }
+        *lanes
+    }
+
+    /// Inserts empty lanes before or after the selected lane and selects the new lane.
+    pub fn insert_lanes(&mut self, contig: &str, below: bool, count: u32) -> Result<(), TGVError> {
+        let layout = self.lanes.get(contig).copied().unwrap_or_default();
+        let existing = layout.count.max(1);
+        let count = count.max(1);
+        let total = existing
+            .checked_add(count)
+            .ok_or_else(|| TGVError::ValueError("Too many BED lanes.".into()))?;
+        let at = layout.active.unwrap_or(0) + u32::from(below);
+        let edited = self
+            .whole_file
+            .clone()
+            .lazy()
+            .with_columns([when(
+                col(Self::CONTIG)
+                    .eq(lit(contig))
+                    .and(col(BedSchema::LANE).gt_eq(lit(at))),
+            )
+            .then(col(BedSchema::LANE) + lit(count).cast(DataType::UInt32))
+            .otherwise(col(BedSchema::LANE))
+            .cast(DataType::UInt32)
+            .alias(BedSchema::LANE)])
+            .collect()?;
+        let before = std::mem::replace(&mut self.whole_file, edited);
+        let before_lanes = self.lanes.clone();
+        self.lanes.insert(
+            contig.to_owned(),
+            BedLanes {
+                count: total,
+                active: Some(if below { at + count - 1 } else { at }),
+            },
+        );
+        if !self.contigs.iter().any(|name| name == contig) {
+            self.contigs.push(contig.to_owned());
+        }
+        self.history.record(before, before_lanes);
+        Ok(())
     }
 
     /// Returns to the features before the last step, or `false` if there is none.
@@ -142,6 +219,7 @@ impl PlainBed {
             &mut history.redo,
             &mut history.revision,
             &self.whole_file,
+            &self.lanes,
         );
         self.restore(frame)
     }
@@ -154,15 +232,17 @@ impl PlainBed {
             &mut history.undo,
             &mut history.revision,
             &self.whole_file,
+            &self.lanes,
         );
         self.restore(frame)
     }
 
-    fn restore(&mut self, frame: Option<DataFrame>) -> bool {
+    fn restore(&mut self, frame: Option<Snapshot>) -> bool {
         let Some(frame) = frame else {
             return false;
         };
-        self.whole_file = frame;
+        self.whole_file = frame.frame;
+        self.lanes = frame.lanes;
         self.history.begin_step();
         true
     }
@@ -172,7 +252,7 @@ impl PlainBed {
     /// An uncovered run extends the feature that ends just before it, or else the feature that
     /// starts just after it. Otherwise it becomes a new feature. Features never merge, so names
     /// and extra columns aren't lost.
-    fn added(&self, edit: &BedEdit) -> Result<Option<DataFrame>, TGVError> {
+    fn added(&self, edit: &BedEdit, lane: Option<u32>) -> Result<Option<DataFrame>, TGVError> {
         let nearby = self
             .whole_file
             .clone()
@@ -180,6 +260,7 @@ impl PlainBed {
             .filter(
                 col(Self::CONTIG)
                     .eq(lit(edit.contig.as_str()))
+                    .and(lane.map_or(lit(true), |lane| col(BedSchema::LANE).eq(lit(lane))))
                     .and(col(BedSchema::START).lt_eq(lit(edit.end + 1)))
                     .and((col(BedSchema::END) + lit(1u64)).gt_eq(lit(edit.start))),
             )
@@ -239,17 +320,22 @@ impl PlainBed {
             .with_columns([starts.alias(BedSchema::START), ends.alias(BedSchema::END)])
             .collect()?;
         if !new_features.is_empty() {
-            edited.vstack_mut(&self.new_features(&edit.contig, &new_features)?)?;
+            edited.vstack_mut(&self.new_features(
+                &edit.contig,
+                &new_features,
+                lane.unwrap_or(0),
+            )?)?;
         }
         Ok(Some(edited))
     }
 
     /// Clears the edit's range: deletes the features inside it, trims the ones that cross one
     /// end, and splits the ones that contain it. Returns `None` if no feature overlaps it.
-    fn removed(&self, edit: &BedEdit) -> Result<Option<DataFrame>, TGVError> {
+    fn removed(&self, edit: &BedEdit, lane: Option<u32>) -> Result<Option<DataFrame>, TGVError> {
         let (start, end) = (edit.start, edit.end);
         let overlapping = col(Self::CONTIG)
             .eq(lit(edit.contig.as_str()))
+            .and(lane.map_or(lit(true), |lane| col(BedSchema::LANE).eq(lit(lane))))
             .and(col(BedSchema::START).lt_eq(lit(end)))
             .and(col(BedSchema::END).gt_eq(lit(start)));
         let begins_before = col(BedSchema::START).lt(lit(start));
@@ -304,7 +390,12 @@ impl PlainBed {
     }
 
     /// Rows for new features with no name, score, strand, or extra columns.
-    fn new_features(&self, contig: &str, features: &[(u64, u64)]) -> Result<DataFrame, TGVError> {
+    fn new_features(
+        &self,
+        contig: &str,
+        features: &[(u64, u64)],
+        lane: u32,
+    ) -> Result<DataFrame, TGVError> {
         let first_row = self.whole_file.height() as u64;
         let count = features.len();
         Ok(DataFrame::new(
@@ -327,6 +418,7 @@ impl PlainBed {
                 Column::new(BedSchema::SCORE.into(), vec![None::<u16>; count]),
                 Column::new(BedSchema::STRAND.into(), vec![None::<String>; count]),
                 Column::new(BedSchema::EXTRA.into(), vec![None::<String>; count]),
+                Column::new(BedSchema::LANE.into(), vec![lane; count]),
                 Column::new(Self::CONTIG.into(), vec![contig.to_owned(); count]),
             ],
         )?)

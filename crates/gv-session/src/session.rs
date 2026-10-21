@@ -32,6 +32,12 @@ fn is_same_file(a: &str, b: &str) -> bool {
         )
 }
 
+/// Whether a BED edit follows the editor's lane selection or covers the whole track.
+enum BedEditScope {
+    AllLanes,
+    SelectedLane,
+}
+
 /// Sends one command's result back to the caller.
 pub struct Responder<T>(oneshot::Sender<Result<T, SessionError>>);
 
@@ -505,6 +511,35 @@ impl Dataset {
         start: u64,
         end: u64,
     ) -> Result<bool, TGVError> {
+        self.edit_bed_scope(id, kind, contig_index, (start, end), BedEditScope::AllLanes)
+    }
+
+    /// Edits only the selected lane, or all lanes when no lane is selected.
+    pub fn edit_selected_bed_lane(
+        &mut self,
+        id: TrackId,
+        kind: BedEditKind,
+        contig_index: usize,
+        start: u64,
+        end: u64,
+    ) -> Result<bool, TGVError> {
+        self.edit_bed_scope(
+            id,
+            kind,
+            contig_index,
+            (start, end),
+            BedEditScope::SelectedLane,
+        )
+    }
+
+    fn edit_bed_scope(
+        &mut self,
+        id: TrackId,
+        kind: BedEditKind,
+        contig_index: usize,
+        bounds: (u64, u64),
+        scope: BedEditScope,
+    ) -> Result<bool, TGVError> {
         let (index, _) = self.editable_bed(id)?;
         let file = RepositoryFileIndex::Bed(index);
         let contig = self.view.contig_header.try_get(contig_index)?;
@@ -513,11 +548,15 @@ impl Dataset {
         let edit = BedEdit {
             kind,
             contig: file_contig.clone().unwrap_or_else(|| contig.name.clone()),
-            start,
-            end,
+            start: bounds.0,
+            end: bounds.1,
         };
         let (_, bed) = self.editable_bed(id)?;
-        if !bed.apply(&edit)? {
+        let changed = match scope {
+            BedEditScope::SelectedLane => bed.apply_selected(&edit)?,
+            BedEditScope::AllLanes => bed.apply(&edit)?,
+        };
+        if !changed {
             return Ok(false);
         }
         if file_contig.is_none() {
@@ -532,6 +571,63 @@ impl Dataset {
         }
         self.invalidate_bed(index);
         Ok(true)
+    }
+
+    /// Inserts empty lanes in an editable BED contig, and selects a new lane.
+    pub fn insert_bed_lanes(
+        &mut self,
+        id: TrackId,
+        contig_index: usize,
+        below: bool,
+        count: u32,
+    ) -> Result<(), TGVError> {
+        let (index, _) = self.editable_bed(id)?;
+        let file = RepositoryFileIndex::Bed(index);
+        let contig = self.view.contig_header.try_get(contig_index)?;
+        let file_contig = contig.file_name(file).map(str::to_owned);
+        let name = file_contig.clone().unwrap_or_else(|| contig.name.clone());
+        self.editable_bed(id)?.1.insert_lanes(&name, below, count)?;
+        if file_contig.is_none() {
+            for header in [&mut self.view.contig_header, &mut self.query.contig_header] {
+                header.update_or_add_contig(
+                    name.clone(),
+                    None,
+                    Vec::new(),
+                    ContigSource::File(file),
+                );
+            }
+        }
+        self.invalidate_bed(index);
+        Ok(())
+    }
+
+    /// Moves the editor's lane selection without changing the BED revision.
+    pub fn move_bed_lane(
+        &mut self,
+        id: TrackId,
+        contig_index: usize,
+        scroll: gv_core::message::Scroll,
+    ) -> Result<(), TGVError> {
+        let (index, _) = self.editable_bed(id)?;
+        let file = RepositoryFileIndex::Bed(index);
+        let contig = self.view.contig_header.try_get(contig_index)?;
+        let file_contig = contig.file_name(file).map(str::to_owned);
+        let name = file_contig.clone().unwrap_or_else(|| contig.name.clone());
+        let lanes = self.editable_bed(id)?.1.move_lane(&name, scroll);
+        for state in [&mut self.view, &mut self.query] {
+            if file_contig.is_none() {
+                state.contig_header.update_or_add_contig(
+                    name.clone(),
+                    None,
+                    Vec::new(),
+                    ContigSource::File(file),
+                );
+            }
+            if state.bed_intervals[index].contig_index == contig_index {
+                state.bed_intervals[index].lanes = lanes;
+            }
+        }
+        Ok(())
     }
 
     /// Makes the next edit of a BED track start a new undo step.

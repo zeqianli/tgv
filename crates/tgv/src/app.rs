@@ -976,6 +976,38 @@ impl App {
                         Err(error) => return Err(error),
                     }
                 }
+                Action::MoveBedLane { track, scroll } => {
+                    self.dataset.move_bed_lane(
+                        track,
+                        self.alignment_view.focus.contig_index,
+                        scroll,
+                    )?;
+                    let index = self.dataset.tracks.bed_index(track)?;
+                    self.dataset.view.bed_display_modes[index] =
+                        gv_core::intervals::IntervalDisplayMode::Expanded;
+                    self.load_data().await?;
+                    self.mouse_register.last_hover = None;
+                    render_events.push(RenderEvent::All);
+                }
+                Action::InsertBedLanes {
+                    track,
+                    below,
+                    count,
+                } => {
+                    self.dataset.begin_edit_step(track)?;
+                    self.dataset.insert_bed_lanes(
+                        track,
+                        self.alignment_view.focus.contig_index,
+                        below,
+                        count,
+                    )?;
+                    let index = self.dataset.tracks.bed_index(track)?;
+                    self.dataset.view.bed_display_modes[index] =
+                        gv_core::intervals::IntervalDisplayMode::Expanded;
+                    self.load_data().await?;
+                    self.mouse_register.last_hover = None;
+                    render_events.push(RenderEvent::All);
+                }
                 Action::EditColumns {
                     track,
                     edit,
@@ -997,18 +1029,18 @@ impl App {
                     self.dataset.begin_edit_step(track)?;
                     match motion {
                         Motion::Columns { direction, count } => {
-                            let span = match direction {
-                                Direction::Left => ColumnSpan::Left(count),
-                                Direction::Right => ColumnSpan::Right(count),
+                            let (span, cursor) = match direction {
+                                Direction::Left => {
+                                    (ColumnSpan::Left(count), CursorAfter::SpanStart)
+                                }
+                                Direction::Right => {
+                                    // Genomic columns stay fixed after erasure, so advance past the gap.
+                                    (ColumnSpan::Right(count), CursorAfter::PastSpan)
+                                }
                             };
                             render_events.extend(
-                                self.edit_columns(
-                                    track,
-                                    BedEditKind::Remove,
-                                    span,
-                                    CursorAfter::SpanStart,
-                                )
-                                .await?,
+                                self.edit_columns(track, BedEditKind::Remove, span, cursor)
+                                    .await?,
                             );
                         }
                         Motion::Word { .. } => match self.erase_to_word(track, motion).await? {
@@ -1075,6 +1107,19 @@ impl App {
                     render_events.push(RenderEvent::AllTracks);
                     render_events.push(RenderEvent::Sidebar);
                 }
+                Action::SetIntervalDisplayMode { track, mode } => {
+                    match self.dataset.tracks.get(track).repository_index {
+                        RepositoryFileIndex::Bed(index) => {
+                            self.dataset.view.bed_display_modes[index] = mode
+                        }
+                        RepositoryFileIndex::Variant(index) => {
+                            self.dataset.view.variant_display_modes[index] = mode
+                        }
+                        RepositoryFileIndex::Alignment(_) => continue,
+                    }
+                    self.mouse_register.last_hover = None;
+                    render_events.push(RenderEvent::All);
+                }
                 Action::OpenContextMenu {
                     target,
                     column,
@@ -1095,7 +1140,19 @@ impl App {
                         ContextMenuTarget::Sidebar { track } => ContextMenu::sidebar_items(
                             track.map(|id| (id, self.track_menu_items(id))),
                         ),
-                        ContextMenuTarget::Track { track } => self.track_menu_items(track),
+                        ContextMenuTarget::Track { track } => {
+                            let mut items = self.track_menu_items(track);
+                            if let Some((_, area)) = self.resolved_layout.areas.iter().find(|(kind, _)|
+                                matches!(kind, AreaType::Bed(id) | AreaType::Variant(id) if *id == track))
+                                && let Some(description) = crate::mouse::interval_at(
+                                    &self.dataset.view, &self.resolved_layout, &self.alignment_view,
+                                    track, area, column, row,
+                                )?
+                            {
+                                items.insert(0, MenuItem::Entry { label: description, action: None });
+                            }
+                            items
+                        }
                     };
                     self.context_menu = Some(ContextMenu::new(
                         items,
@@ -1374,7 +1431,7 @@ impl App {
         let was_modified = self.dataset.is_modified(track);
         if !self
             .dataset
-            .edit_bed(track, edit, focus.contig_index, start, end)?
+            .edit_selected_bed_lane(track, edit, focus.contig_index, start, end)?
         {
             return Ok(Vec::new());
         }
@@ -1409,7 +1466,7 @@ impl App {
         let index = self.dataset.tracks.get(id).repository_index;
         let copyable = matches!(index, RepositoryFileIndex::Bed(bed)
             if !self.dataset.repository.bed_repositories[bed].is_indexed());
-        ContextMenu::track_items(
+        let mut items = ContextMenu::track_items(
             id,
             &self.track_name(id),
             copyable,
@@ -1417,7 +1474,18 @@ impl App {
             self.track_clipboard
                 .map(|copied| self.track_name(copied))
                 .as_deref(),
-        )
+        );
+        let mode = match index {
+            RepositoryFileIndex::Bed(index) => Some(self.dataset.view.bed_display_modes[index]),
+            RepositoryFileIndex::Variant(index) => {
+                Some(self.dataset.view.variant_display_modes[index])
+            }
+            RepositoryFileIndex::Alignment(_) => None,
+        };
+        if let Some(mode) = mode {
+            items.extend(ContextMenu::interval_items(id, mode));
+        }
+        items
     }
 
     /// The name a track shows, such as `peaks.bed` or `untitled-1`.
@@ -1730,7 +1798,11 @@ impl App {
     ) -> Result<(), TGVError> {
         use crate::rendering::{render_contig_list, render_main};
         let full_render = vec![RenderEvent::All];
-        let render_events = if self.render_buffer.area != buf.area {
+        let region = self.alignment_view.region(&self.resolved_layout.main_area);
+        let layout_changed = self
+            .layout
+            .update_interval_heights(&self.dataset.view, &region)?;
+        let render_events = if layout_changed || self.render_buffer.area != buf.area {
             self.render_buffer.resize(buf.area);
             &full_render
         } else {

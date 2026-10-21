@@ -2,7 +2,7 @@
 
 use crate::{
     error::TGVError,
-    intervals::{IntervalSchema, IntervalTable, Region},
+    intervals::{IntervalSchema, IntervalTable, Region, pack_lanes},
     table_schema::{ColumnDoc, TableSchema},
 };
 use noodles::vcf;
@@ -23,6 +23,7 @@ pub struct VariantTable {
 pub struct VariantSchema;
 
 impl VariantSchema {
+    pub const LANE: &'static str = IntervalSchema::LANE;
     pub const ROW_ID: &'static str = IntervalSchema::ROW_ID;
     pub const CONTIG_INDEX: &'static str = IntervalSchema::CONTIG_INDEX;
     pub const START: &'static str = IntervalSchema::START;
@@ -36,7 +37,7 @@ impl VariantSchema {
 
 impl TableSchema for VariantSchema {
     fn schema() -> SchemaRef {
-        let mut schema = Schema::with_capacity(9);
+        let mut schema = Schema::with_capacity(10);
         schema.insert(Self::ROW_ID.into(), DataType::UInt64);
         schema.insert(Self::CONTIG_INDEX.into(), DataType::UInt64);
         schema.insert(Self::START.into(), DataType::UInt64);
@@ -52,6 +53,7 @@ impl TableSchema for VariantSchema {
             Self::FILTERS.into(),
             DataType::List(Box::new(DataType::String)),
         );
+        schema.insert(Self::LANE.into(), DataType::UInt32);
         Arc::new(schema)
     }
 
@@ -67,7 +69,7 @@ impl TableSchema for VariantSchema {
             },
             ColumnDoc {
                 name: Self::END,
-                description: "The last reference position covered by the reference allele.",
+                description: "The last reference position, inclusive, using INFO/END when present or the reference allele span otherwise.",
             },
             ColumnDoc {
                 name: Self::IDS,
@@ -88,6 +90,10 @@ impl TableSchema for VariantSchema {
             ColumnDoc {
                 name: Self::FILTERS,
                 description: "The VCF FILTER values, such as `PASS`.",
+            },
+            ColumnDoc {
+                name: Self::LANE,
+                description: "The zero-based packed lane, computed per contig for plain files and per loaded window for indexed files. Overlapping inclusive intervals occupy different lanes.",
             },
         ]
     }
@@ -175,7 +181,24 @@ impl VariantTable {
             row_ids.push(id as u64);
             contigs.push(contig_index as u64);
             starts.push(start);
-            ends.push(start + bases.len() as u64 - 1);
+            let reference_end = start + bases.len() as u64 - 1;
+            let end = match record
+                .info()
+                .get(vcf::variant::record::info::field::key::END_POSITION)
+            {
+                Some(Some(vcf::variant::record_buf::info::field::Value::Integer(end)))
+                    if *end > 0 && (*end as u64) >= reference_end =>
+                {
+                    *end as u64
+                }
+                Some(Some(_)) => {
+                    return Err(TGVError::ValueError(format!(
+                        "VCF row {id} has an invalid INFO/END."
+                    )));
+                }
+                _ => reference_end,
+            };
+            ends.push(end);
             reference.push(bases);
             quality.push(record.quality_score());
             let record_ids = record.ids().as_ref();
@@ -209,6 +232,7 @@ impl VariantTable {
                 alternate.finish().into_series().into(),
                 Column::new(VariantSchema::QUALITY_SCORE.into(), quality),
                 filters.finish().into_series().into(),
+                Column::new(VariantSchema::LANE.into(), vec![0u32; records.len()]),
             ],
         )?)
     }
@@ -219,7 +243,7 @@ impl VariantTable {
         contig_index: usize,
         loaded_bounds: (u64, u64),
     ) -> Result<Self, TGVError> {
-        let data = Self::records_frame(records, contig_index)?
+        let mut data = Self::records_frame(records, contig_index)?
             .lazy()
             .sort(
                 [
@@ -231,6 +255,7 @@ impl VariantTable {
                 SortMultipleOptions::default(),
             )
             .collect()?;
+        pack_lanes(&mut data)?;
         Ok(Self {
             data,
             contig_index,
@@ -241,12 +266,16 @@ impl VariantTable {
 
     /// Wraps a frame holding every record of one contig, read before contig indexes were known.
     pub(super) fn whole_contig(data: &DataFrame, contig_index: usize) -> Result<Self, TGVError> {
+        let mut data = data
+            .clone()
+            .lazy()
+            .with_columns([lit(contig_index as u64)
+                .cast(DataType::UInt64)
+                .alias(VariantSchema::CONTIG_INDEX)])
+            .collect()?;
+        pack_lanes(&mut data)?;
         Ok(Self {
-            data: data
-                .clone()
-                .lazy()
-                .with_columns([lit(contig_index as u64).alias(VariantSchema::CONTIG_INDEX)])
-                .collect()?,
+            data,
             contig_index,
             data_complete_left_bound: 1,
             data_complete_right_bound: u64::MAX,

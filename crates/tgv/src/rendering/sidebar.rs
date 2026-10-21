@@ -139,7 +139,38 @@ pub fn render_sidebar(
                 }
                 _ => sidebar_style,
             };
-            let lines = wrap_sidebar_label(&label.name, area.width);
+            let mut name = label.name.clone();
+            let interval = match label.area_type {
+                AreaType::Bed(id) => {
+                    let index = layout.track_registry.bed_index(id)?;
+                    let table = &state.bed_intervals[index];
+                    table
+                        .has_complete_data(&alignment_view.region(&layout.main_area))
+                        .then_some((table.lanes.count, state.bed_display_modes[index]))
+                }
+                AreaType::Variant(id) => {
+                    let index = layout.track_registry.variant_index(id)?;
+                    let table = &state.variants[index];
+                    table
+                        .has_complete_data(&alignment_view.region(&layout.main_area))
+                        .then_some((
+                            gv_core::intervals::lane_count(&table.data)?,
+                            state.variant_display_modes[index],
+                        ))
+                }
+                _ => None,
+            };
+            if let Some((count, mode)) = interval
+                && let Some((_, track_area)) = layout
+                    .areas
+                    .iter()
+                    .find(|(kind, _)| *kind == label.area_type)
+                && let Some(marker) =
+                    super::intervals::overflow_marker(mode, count, track_area.height)
+            {
+                name = format!("{marker} {name}");
+            }
+            let lines = wrap_sidebar_label(&name, area.width);
             let visible_lines = lines.len().min(area.height as usize);
             let first_row = area.y + (area.height as usize - visible_lines) as u16 / 2;
             for (offset, line) in lines.iter().take(visible_lines).enumerate() {

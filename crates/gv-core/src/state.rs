@@ -8,7 +8,7 @@ use crate::{
     cytoband::CytobandTable,
     error::TGVError,
     gene::{GeneSchema, GeneTable},
-    intervals::{Focus, IntervalSchema, Region},
+    intervals::{Focus, IntervalDisplayMode, IntervalSchema, Region},
     message::{
         AlignmentDisplayOption, AlignmentFilter, AlignmentSort, FeatureSource, Movement, WordMotion,
     },
@@ -98,10 +98,12 @@ pub struct State {
     /// Variant track data for the loaded region.
     /// Index always matches with the variant repository index.
     pub variants: Vec<VariantTable>,
+    pub variant_display_modes: Vec<IntervalDisplayMode>,
 
     /// BED track data for the loaded region.
     /// Index always matches with the BED repository index.
     pub bed_intervals: Vec<BedTable>,
+    pub bed_display_modes: Vec<IntervalDisplayMode>,
 
     pub track: GeneTable,
 
@@ -130,7 +132,9 @@ impl State {
             cytobands: CytobandTable::default(),
             sequence: Sequence::default(),
             variants: Vec::new(),
+            variant_display_modes: Vec::new(),
             bed_intervals: Vec::new(),
+            bed_display_modes: Vec::new(),
             contig_header: contigs,
         })
     }
@@ -242,9 +246,11 @@ impl State {
             }
             RepositoryFileIndex::Variant(index) => {
                 self.variants.remove(index);
+                self.variant_display_modes.remove(index);
             }
             RepositoryFileIndex::Bed(index) => {
                 self.bed_intervals.remove(index);
+                self.bed_display_modes.remove(index);
             }
         }
     }
@@ -404,6 +410,8 @@ impl State {
 
     pub fn add_variant_track(&mut self) {
         self.variants.push(VariantTable::default());
+        self.variant_display_modes
+            .push(IntervalDisplayMode::default());
     }
 
     pub async fn load_variant_data(
@@ -443,6 +451,7 @@ impl State {
 
     pub fn add_bed_track(&mut self) {
         self.bed_intervals.push(BedTable::default());
+        self.bed_display_modes.push(IntervalDisplayMode::default());
     }
 
     pub async fn load_bed_data(

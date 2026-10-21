@@ -210,7 +210,17 @@ impl PendingKeys {
 
         let without_count = self.count.is_none();
         let actions = match (code, mode) {
-            (KeyCode::Char('j' | 'k' | 'J' | 'K'), Mode::Insert(_)) => Vec::new(),
+            (KeyCode::Char(key @ ('j' | 'k')), Mode::Insert(track)) => {
+                vec![Action::MoveBedLane {
+                    track,
+                    scroll: if key == 'j' {
+                        Scroll::Down(count)
+                    } else {
+                        Scroll::Up(count)
+                    },
+                }]
+            }
+            (KeyCode::Char('J' | 'K'), Mode::Insert(_)) => Vec::new(),
             (KeyCode::Char('j'), Mode::Normal) => vec![Scroll::Down(count).into()],
             (KeyCode::Char('k'), Mode::Normal) => vec![Scroll::Up(count).into()],
             (KeyCode::Char('J'), Mode::Normal) => {
@@ -220,7 +230,16 @@ impl PendingKeys {
                 vec![Scroll::Up(count * LARGE_VERTICAL_STEP).into()]
             }
             (KeyCode::Char('z'), _) => vec![Action::Core(Zoom::In(ZOOM_STEP * columns).into())],
-            (KeyCode::Char('o'), _) => vec![Action::Core(Zoom::Out(ZOOM_STEP * columns).into())],
+            (KeyCode::Char(key @ ('o' | 'O')), Mode::Insert(track)) => {
+                vec![Action::InsertBedLanes {
+                    track,
+                    below: key == 'o',
+                    count: u32::try_from(count).map_err(|_| self.invalid(mode))?,
+                }]
+            }
+            (KeyCode::Char('o'), Mode::Normal) => {
+                vec![Action::Core(Zoom::Out(ZOOM_STEP * columns).into())]
+            }
             (KeyCode::Char('s'), _) if without_count => {
                 vec![Action::UpdateLayout(UpdateLayoutAction::ToggleSidebar)]
             }

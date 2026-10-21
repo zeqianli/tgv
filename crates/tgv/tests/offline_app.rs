@@ -229,16 +229,8 @@ async fn offline_sequence_updates_tracks_and_scenes() {
                 .symbol()
         })
         .collect::<String>();
-    let second_vcf_line = (0..vcf_area.width)
-        .map(|column| {
-            sidebar_buffer
-                .cell((vcf_area.x + column, vcf_area.y + 1))
-                .unwrap()
-                .symbol()
-        })
-        .collect::<String>();
     assert_eq!(first_vcf_line, "simple");
-    assert!(second_vcf_line.starts_with(".vcf"));
+    assert_eq!(vcf_area.height, 1);
     assert_eq!(
         sidebar_buffer
             .cell((vcf_area.x, vcf_area.y - 1))
@@ -247,7 +239,7 @@ async fn offline_sequence_updates_tracks_and_scenes() {
         "_"
     );
     let bed_area = harness.app.resolved_layout.sidebar_labels[2].area;
-    assert!(bed_area.height >= 2);
+    assert_eq!(bed_area.height, 1);
 
     harness
         .handle(vec![

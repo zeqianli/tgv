@@ -42,6 +42,51 @@ impl AreaType {
     }
 }
 
+/// Terminal interval densities. Squished remains a core option for graphical viewers.
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub(crate) enum IntervalMode {
+    Expanded,
+    Collapsed,
+}
+
+impl From<gv_core::intervals::IntervalDisplayMode> for IntervalMode {
+    fn from(mode: gv_core::intervals::IntervalDisplayMode) -> Self {
+        use gv_core::intervals::IntervalDisplayMode;
+        match mode {
+            IntervalDisplayMode::Expanded | IntervalDisplayMode::Squished => Self::Expanded,
+            IntervalDisplayMode::Collapsed => Self::Collapsed,
+        }
+    }
+}
+
+impl IntervalMode {
+    pub fn height(self, lanes: u32) -> u16 {
+        match self {
+            Self::Expanded => lanes.clamp(
+                1,
+                u32::from(gv_core::intervals::IntervalDisplayMode::MAX_ROWS),
+            ) as u16,
+            Self::Collapsed => 1,
+        }
+    }
+
+    pub fn visible_lanes(self, height: u16) -> u32 {
+        match self {
+            Self::Expanded => {
+                u32::from(height.min(gv_core::intervals::IntervalDisplayMode::MAX_ROWS))
+            }
+            Self::Collapsed => u32::MAX,
+        }
+    }
+
+    pub fn contains_lane(self, row: u16, lane: u32) -> bool {
+        match self {
+            Self::Expanded => lane == u32::from(row),
+            Self::Collapsed => row == 0,
+        }
+    }
+}
+
 /// Wrap a filename at terminal cell boundaries, including wide characters.
 pub(crate) fn wrap_sidebar_label(label: &str, width: u16) -> Vec<String> {
     if width == 0 {
@@ -386,6 +431,43 @@ impl MainLayout {
         self.track_order = rebuilt.track_order;
     }
 
+    /// Updates interval heights from complete loaded data, never from viewport queries.
+    pub fn update_interval_heights(
+        &mut self,
+        state: &State,
+        region: &Region,
+    ) -> Result<bool, TGVError> {
+        use gv_core::intervals::lane_count;
+        let mut changed = false;
+        for (area, height) in self.tracks.iter().zip(&mut self.track_heights) {
+            let desired = match *area {
+                AreaType::Bed(id) => {
+                    let index = self.track_registry.bed_index(id)?;
+                    let table = &state.bed_intervals[index];
+                    if table.has_complete_data(region) {
+                        IntervalMode::from(state.bed_display_modes[index]).height(table.lanes.count)
+                    } else {
+                        1
+                    }
+                }
+                AreaType::Variant(id) => {
+                    let index = self.track_registry.variant_index(id)?;
+                    let table = &state.variants[index];
+                    if table.has_complete_data(region) {
+                        IntervalMode::from(state.variant_display_modes[index])
+                            .height(lane_count(&table.data)?)
+                    } else {
+                        1
+                    }
+                }
+                _ => continue,
+            };
+            changed |= *height != Some(desired);
+            *height = Some(desired);
+        }
+        Ok(changed)
+    }
+
     pub fn toggle_sidebar(&mut self) {
         self.sidebar_visible = !self.sidebar_visible;
     }
@@ -483,24 +565,12 @@ impl MainLayout {
                 .saturating_sub(sidebar_width + divider_width),
             terminal_area.height,
         );
-        let mut effective_track_heights = self.track_heights.clone();
-        if sidebar_width > 0 {
-            for (area, height) in self.tracks.iter().zip(&mut effective_track_heights) {
-                let track_id = match area {
-                    AreaType::Variant(id) | AreaType::Bed(id) => Some(*id),
-                    _ => None,
-                };
-                if let Some(track_id) = track_id {
-                    let lines = wrap_sidebar_label(&file_names[&track_id], sidebar_width).len();
-                    *height = Some(lines.saturating_add(1).min(u16::MAX as usize) as u16);
-                }
-            }
-        }
+        let effective_track_heights = &self.track_heights;
 
         let fixed_height = self
             .tracks
             .iter()
-            .zip(&effective_track_heights)
+            .zip(effective_track_heights)
             .filter(|(area, _)| !matches!(area, AreaType::Alignment(_)))
             .filter_map(|(_, height)| *height)
             .map(usize::from)
@@ -547,7 +617,7 @@ impl MainLayout {
         let areas = self
             .tracks
             .iter()
-            .zip(&effective_track_heights)
+            .zip(effective_track_heights)
             .map(|(area, requested)| {
                 let desired = match area {
                     AreaType::Alignment(_) => {
@@ -652,6 +722,11 @@ impl MainLayout {
                 return false;
             };
             let current = sections[index].0;
+            if matches!(current, AreaType::Variant(_) | AreaType::Bed(_))
+                && sections[index].1.height <= 1
+            {
+                return false;
+            }
             let is_file = |area| {
                 matches!(
                     area,

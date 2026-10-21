@@ -1,5 +1,5 @@
 use crate::{
-    layout::{AlignmentView, AreaType, HoveringAreaType, ResolvedMainLayout},
+    layout::{AlignmentView, AreaType, HoveringAreaType, IntervalMode, ResolvedMainLayout},
     message::{Action, ContextMenuTarget, FocusTarget, Movement, Scroll, UpdateLayoutAction},
 };
 use crossterm::event::{KeyModifiers, MouseButton, MouseEvent, MouseEventKind};
@@ -41,6 +41,112 @@ fn read_at(
         None => alignment.read_overlapping(left, right, y)?,
     };
     Ok(read_id.map(|read_id| (index, read_id)))
+}
+
+/// Describes the visible feature under a terminal cell for hover and context menus.
+pub fn interval_at(
+    state: &State,
+    layout: &ResolvedMainLayout,
+    view: &AlignmentView,
+    track: TrackId,
+    area: &Rect,
+    column: u16,
+    row: u16,
+) -> Result<Option<String>, TGVError> {
+    use crate::rendering::intervals::pick_interval;
+    use gv_core::intervals::lane_count;
+    let Some((left, right)) = view.coordinates_of_onscreen_x(column, area) else {
+        return Ok(None);
+    };
+    let contig = &state.contig_header.contigs[view.focus.contig_index].name;
+    let region = view.region(area);
+    match layout.track_registry.get(track).repository_index {
+        RepositoryFileIndex::Bed(index) => {
+            let table = &state.bed_intervals[index];
+            if !table.has_complete_data(&region) {
+                return Ok(None);
+            }
+            let rows = pick_interval(
+                table.query(view.focus.contig_index, left, right)?,
+                state.bed_display_modes[index],
+                table.lanes.count,
+                area,
+                column,
+                row,
+                match IntervalMode::from(state.bed_display_modes[index]) {
+                    IntervalMode::Expanded => table.lanes.first_visible(
+                        IntervalMode::from(state.bed_display_modes[index])
+                            .visible_lanes(area.height),
+                    ),
+                    IntervalMode::Collapsed => 0,
+                },
+            )?;
+            if rows.height() == 0 {
+                return Ok(None);
+            }
+            let start = rows
+                .column(BedSchema::START)?
+                .u64()?
+                .get(0)
+                .expect("BED starts are non-null");
+            let end = rows
+                .column(BedSchema::END)?
+                .u64()?
+                .get(0)
+                .expect("BED ends are non-null");
+            let name = rows
+                .column(BedSchema::NAME)?
+                .str()?
+                .get(0)
+                .map_or_else(String::new, |name| format!(" {name}"));
+            Ok(Some(format!("BED interval: {contig}:{start}-{end}{name}")))
+        }
+        RepositoryFileIndex::Variant(index) => {
+            let table = &state.variants[index];
+            if !table.has_complete_data(&region) {
+                return Ok(None);
+            }
+            let rows = pick_interval(
+                table.query(view.focus.contig_index, left, right)?,
+                state.variant_display_modes[index],
+                lane_count(&table.data)?,
+                area,
+                column,
+                row,
+                0,
+            )?;
+            if rows.height() == 0 {
+                return Ok(None);
+            }
+            let start = rows
+                .column(VariantSchema::START)?
+                .u64()?
+                .get(0)
+                .expect("variant starts are non-null");
+            let reference = rows
+                .column(VariantSchema::REFERENCE)?
+                .str()?
+                .get(0)
+                .expect("reference bases are non-null");
+            let alternate = match rows
+                .column(VariantSchema::ALTERNATE)?
+                .list()?
+                .get_as_series(0)
+            {
+                Some(alleles) => alleles.str()?.iter().flatten().join(","),
+                None => String::new(),
+            };
+            let quality = rows
+                .column(VariantSchema::QUALITY_SCORE)?
+                .f32()?
+                .get(0)
+                .map_or_else(|| "?".into(), |q| q.to_string());
+            Ok(Some(format!(
+                "Variant: {contig}:{start} {reference}>{alternate} QUAL={quality}"
+            )))
+        }
+        RepositoryFileIndex::Alignment(_) => Ok(None),
+    }
 }
 
 /// Mouse interaction state for the currently displayed layout.
@@ -453,80 +559,19 @@ impl MouseRegister {
                                 messages.push(Action::message(description));
                             }
                         }
-                        AreaType::Variant(id) => {
-                            let index = layout.track_registry.variant_index(*id)?;
-                            if let Some((left, right)) =
-                                alignment_view.coordinates_of_onscreen_x(event.column, area)
-                                && let Some(variants) = state.variants.get(index)
-                            {
-                                let rows = variants.query(
-                                    alignment_view.focus.contig_index,
-                                    left,
-                                    right,
-                                )?;
-                                let starts = rows.column(VariantSchema::START)?.u64()?;
-                                let references = rows.column(VariantSchema::REFERENCE)?.str()?;
-                                let alternates = rows.column(VariantSchema::ALTERNATE)?.list()?;
-                                let qualities = rows.column(VariantSchema::QUALITY_SCORE)?.f32()?;
-                                let contig = &state.contig_header.contigs
-                                    [alignment_view.focus.contig_index]
-                                    .name;
-                                for row in 0..rows.height() {
-                                    let alleles = alternates.get_as_series(row);
-                                    let alternate = match alleles {
-                                        Some(alleles) => alleles
-                                            .str()?
-                                            .iter()
-                                            .map(|allele| {
-                                                allele.expect("alternate alleles are non-null")
-                                            })
-                                            .join(","),
-                                        None => String::new(),
-                                    };
-                                    let quality = qualities
-                                        .get(row)
-                                        .map(|q| q.to_string())
-                                        .unwrap_or_else(|| "?".into());
-                                    messages.push(Action::message(format!(
-                                        "Variant: {}:{} {}>{} QUAL={}",
-                                        contig,
-                                        starts.get(row).expect("variant starts are non-null"),
-                                        references.get(row).expect("reference bases are non-null"),
-                                        alternate,
-                                        quality
-                                    )));
-                                }
-                            }
-                        }
-                        AreaType::Bed(id) => {
-                            let index = layout.track_registry.bed_index(*id)?;
-                            if let Some((left, right)) =
-                                alignment_view.coordinates_of_onscreen_x(event.column, area)
-                                && let Some(intervals) = state.bed_intervals.get(index)
-                            {
-                                let rows = intervals.query(
-                                    alignment_view.focus.contig_index,
-                                    left,
-                                    right,
-                                )?;
-                                let starts = rows.column(BedSchema::START)?.u64()?;
-                                let ends = rows.column(BedSchema::END)?.u64()?;
-                                let names = rows.column(BedSchema::NAME)?.str()?;
-                                let contig = &state.contig_header.contigs
-                                    [alignment_view.focus.contig_index]
-                                    .name;
-                                for row in 0..rows.height() {
-                                    let name = names
-                                        .get(row)
-                                        .map_or_else(String::new, |name| format!(" {name}"));
-                                    messages.push(Action::message(format!(
-                                        "BED interval: {}:{}-{}{}",
-                                        contig,
-                                        starts.get(row).expect("BED starts are non-null"),
-                                        ends.get(row).expect("BED ends are non-null"),
-                                        name
-                                    )));
-                                }
+                        AreaType::Variant(id) | AreaType::Bed(id) => {
+                            if let Some(description) = interval_at(
+                                state,
+                                layout,
+                                alignment_view,
+                                *id,
+                                area,
+                                event.column,
+                                event.row,
+                            )? {
+                                messages.push(Action::message(description));
+                            } else {
+                                messages.push(Action::message(String::new()));
                             }
                         }
                         _ => {}

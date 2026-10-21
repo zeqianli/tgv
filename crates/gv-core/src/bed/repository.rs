@@ -1,19 +1,19 @@
 //! Readers for plain BED, indexed BED, and bigBed files.
 
 use super::{
-    bed::{BedColumns, BedSchema, BedTable, is_data_line},
+    bed::{BedColumns, BedLanes, BedSchema, BedTable, is_data_line},
     edit::BedHistory,
 };
 use crate::{
     error::TGVError,
-    intervals::Region,
+    intervals::{Region, pack_lanes},
     settings::{FilePath, file_name},
 };
 use bigtools::{BigBedRead, utils::reopen::ReopenableFile};
 use noodles::{bgzf, csi, csi::BinningIndex, tabix};
 use polars::prelude::*;
 use std::{
-    collections::HashSet,
+    collections::{HashMap, HashSet},
     fs::File,
     io::{BufRead, BufReader},
     path::Path,
@@ -36,6 +36,7 @@ pub struct PlainBed {
     /// a sorted file keeps it sorted; other files keep their row order.
     pub(super) sorted_on_load: bool,
     pub history: BedHistory,
+    pub(super) lanes: HashMap<String, BedLanes>,
 }
 
 impl PlainBed {
@@ -53,6 +54,7 @@ impl PlainBed {
         let mut columns = BedColumns::default();
         let mut row_contigs: Vec<String> = Vec::new();
         let mut header_lines = Vec::new();
+        let mut contig_ids = HashMap::new();
         for line in lines.lines() {
             let line = line?;
             if !is_data_line(&line) {
@@ -61,17 +63,37 @@ impl PlainBed {
                 }
                 continue;
             }
-            row_contigs.push(line.split('\t').next().unwrap_or_default().to_owned());
-            // The real contig index is filled in on read.
-            columns.push_line(&line, 0)?;
+            let contig = line
+                .split('\t')
+                .next()
+                .expect("BED data lines have a contig")
+                .to_owned();
+            let next_id = contig_ids.len();
+            let index = *contig_ids.entry(contig.clone()).or_insert(next_id);
+            row_contigs.push(contig);
+            // File-local indexes let packing separate contigs before dataset indexes exist.
+            columns.push_line(&line, index)?;
         }
         let column_count = columns.standard_columns.max(3);
-        let frame = columns
+        let mut frame = columns
             .into_frame()?
             .lazy()
             .with_columns([lit(Series::new(Self::CONTIG.into(), row_contigs))])
             .collect()?;
         let sorted_on_load = is_sorted(&frame)?;
+        pack_lanes(&mut frame)?;
+        let mut lanes = HashMap::<String, BedLanes>::new();
+        for (contig, lane) in frame
+            .column(Self::CONTIG)?
+            .str()?
+            .iter()
+            .zip(frame.column(BedSchema::LANE)?.u32()?.into_no_null_iter())
+        {
+            let layout = lanes
+                .entry(contig.expect("BED contigs are non-null").to_owned())
+                .or_default();
+            layout.count = layout.count.max(lane + 1);
+        }
         let contigs = frame
             .column(Self::CONTIG)?
             .unique_stable()?
@@ -95,6 +117,7 @@ impl PlainBed {
             column_count,
             sorted_on_load,
             history: BedHistory::new(true),
+            lanes,
         })
     }
 
@@ -111,6 +134,7 @@ impl PlainBed {
             // New tracks are always written sorted.
             sorted_on_load: true,
             history: BedHistory::new(false),
+            lanes: HashMap::new(),
         })
     }
 
@@ -133,6 +157,7 @@ impl PlainBed {
             column_count: self.column_count,
             sorted_on_load: self.sorted_on_load,
             history: BedHistory::new(false),
+            lanes: self.lanes.clone(),
         }
     }
 
@@ -149,7 +174,11 @@ impl PlainBed {
             .filter(col(Self::CONTIG).eq(lit(name)))
             .drop(cols([Self::CONTIG]))
             .collect()?;
-        BedTable::whole_contig(&data, contig_index)
+        BedTable::whole_contig(
+            &data,
+            contig_index,
+            self.lanes.get(name).copied().unwrap_or_default(),
+        )
     }
 }
 
