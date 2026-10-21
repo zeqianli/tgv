@@ -2,8 +2,10 @@
 
 A session file captures the current state of a tgv session so it can be restored later.
 Sessions are opt-in: tgv reads a session only when you pass `--resume`, and writes one
-only when you save it with `:w`. Nothing is saved automatically on exit. `:w` saves the
-files shown when you save, including files added with `:e` and leaving out removed ones.
+only when you save it with `:ws`. Nothing is saved automatically on exit. `:ws` saves the
+files shown when you save, in display order, including files added with `:e` and leaving out
+removed ones. Untitled BED tracks have no file, so they are left out. Edited BED tracks are
+saved by path; the session points to the file on disk, without unsaved changes.
 
 Sessions are plain TOML files and can be edited by hand.
 
@@ -41,8 +43,8 @@ All top-level fields except `tracks` are required.
 |---|---|---|
 | `version` | integer | Schema version. TGV writes version `2` and reads versions `1` and `2`. |
 | `locus` | string | Starting genomic position. See [locus format](#locus-format). |
-| `genome` | string | Reference genome, such as `"hg38"`. Same as the `-g` / `--reference` flag. `:w` saves a custom FASTA or 2bit reference as an absolute path, and no reference as `"no_reference"`. |
-| `ucsc_host` | string | UCSC mirror: `"auto"`, `"us"`, or `"eu"`. `"auto"` picks a mirror when the session loads, and `:w` saves the chosen `"us"` or `"eu"`. |
+| `genome` | string | Reference genome, such as `"hg38"`. Same as the `-g` / `--reference` flag. `:ws` saves a custom FASTA or 2bit reference as an absolute path, and no reference as `"no_reference"`. |
+| `ucsc_host` | string | UCSC mirror: `"auto"`, `"us"`, or `"eu"`. `"auto"` picks a mirror when the session loads, and `:ws` saves the chosen `"us"` or `"eu"`. |
 | `zoom` | integer | Initial zoom level, stored as bases per character. Use `1` for one base per character. |
 
 ### Tracks
@@ -56,7 +58,7 @@ Any number of tracks may be present. Session files currently load these track ty
 - VCF (`.vcf` and `.vcf.gz`).
 - BED (`.bed` and `.bed.gz`).
 
-Other tracks, such as BCF (`.bcf`), `.vcf.bgz`, and bigBed (`.bb` and `.bigbed`) files, are saved by `:w` but skipped when the session is loaded. Add them again with `:e` after `--resume`.
+Other tracks, such as BCF (`.bcf`), `.vcf.bgz`, and bigBed (`.bb` and `.bigbed`) files, are saved by `:ws` but skipped when the session is loaded. Add them again with `:e` after `--resume`.
 
 #### Common fields
 
@@ -114,8 +116,10 @@ Ranges such as `chr17:7572659-7590868` and commas are not accepted here. Use `/`
 
 In the app:
 
-- `:w <name>` saves to `~/.tgv/sessions/<name>.toml`, and `:w <path.toml>` saves to that path.
+- `:ws <name>` saves to `~/.tgv/sessions/<name>.toml`, and `:ws <path.toml>` saves to that path.
   The saved session becomes the active session.
-- `:w` saves to the active session: the one passed to `--resume`, or the last one saved
-  with `:w <name>`. If there is no active session, tgv shows an error.
-- `:wq [...]` saves like `:w` and then quits. If the save fails, the app stays open.
+- `:ws` saves to the active session: the one passed to `--resume`, or the last one saved
+  with `:ws <name>`. If there is no active session, tgv shows an error.
+- `:wsq [...]` saves like `:ws` and then quits. If the save fails, or a track has unsaved
+  changes, the app stays open.
+- `:w` writes BED tracks, not sessions. See [Editing BED tracks](./usage.md#editing-bed-tracks).

@@ -39,6 +39,13 @@ impl TrackRegistry {
             .expect("a track ID names a registered track")]
     }
 
+    pub fn get_mut(&mut self, id: TrackId) -> &mut TrackEntry {
+        let position = self
+            .position(id)
+            .expect("a track ID names a registered track");
+        &mut self.entries[position]
+    }
+
     /// Appends a track with a fresh ID. IDs only increase, so removed IDs are never reused.
     pub fn push(&mut self, repository_index: RepositoryFileIndex, file_path: FilePath) -> TrackId {
         let id = self.next_id;

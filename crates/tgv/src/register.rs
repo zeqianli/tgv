@@ -1,16 +1,21 @@
 use crate::{
     app::Scene,
-    message::{Action, Movement, UpdateLayoutAction},
+    keys::{Mode, PendingKeys},
+    message::{Action, Movement},
 };
-use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+use crossterm::event::{KeyCode, KeyEvent};
 use gv_core::alignment::is_url;
-use gv_core::normal::update_by_char;
 use gv_core::prelude::*;
 use itertools::Itertools;
 use std::path::Path;
 #[derive(Debug, Clone, Eq, PartialEq)]
 pub enum KeyRegisterType {
     Normal,
+    /// Edits a BED track at the cursor. The track is part of the mode, so insert mode always
+    /// has one.
+    Insert {
+        track: TrackId,
+    },
     Command,
     /// Navigation input after `/`. It shares the command line with command mode.
     Search,
@@ -20,7 +25,10 @@ pub enum KeyRegisterType {
 
 pub struct Registers {
     pub current: KeyRegisterType,
-    pub normal: String,
+    /// The mode that command, search, and contig list input return to: normal or insert mode.
+    pub return_to: KeyRegisterType,
+    /// The normal or insert mode command being typed.
+    pub pending: PendingKeys,
     pub command: String,
     pub command_cursor: usize,
 
@@ -33,7 +41,8 @@ impl Default for Registers {
     fn default() -> Self {
         Self {
             current: KeyRegisterType::Normal,
-            normal: "".to_string(),
+            return_to: KeyRegisterType::Normal,
+            pending: PendingKeys::default(),
             command: "".to_string(),
             command_cursor: 0,
 
@@ -43,8 +52,19 @@ impl Default for Registers {
 }
 
 impl Registers {
+    /// The mode the screen shows: normal or insert mode. Command, search, and contig list input
+    /// show the mode they return to.
+    pub fn shown_mode(&self) -> &KeyRegisterType {
+        match self.current {
+            KeyRegisterType::Command | KeyRegisterType::Search | KeyRegisterType::ContigList => {
+                &self.return_to
+            }
+            _ => &self.current,
+        }
+    }
+
     pub fn clear(&mut self) {
-        self.normal.clear();
+        self.pending.clear();
         self.command.clear();
 
         self.command_cursor = 0;
@@ -77,7 +97,7 @@ impl Registers {
                 self.command_cursor += text.len();
                 vec![Action::CommandChanged]
             }
-            KeyRegisterType::ContigList => Vec::new(),
+            KeyRegisterType::ContigList | KeyRegisterType::Insert { .. } => Vec::new(),
         }
     }
 
@@ -90,13 +110,13 @@ impl Registers {
         match key_event.code {
             KeyCode::Enter if state.contig_header.contigs.is_empty() => Ok(vec![]),
             KeyCode::Enter => Ok(vec![
-                Action::SwitchKeyRegister(KeyRegisterType::Normal),
+                Action::SwitchKeyRegister(self.return_to.clone()),
                 Action::SwitchScene(Scene::Main),
                 Movement::ContigIndex(self.contig_list_cursor).into(),
             ]),
 
             KeyCode::Esc => Ok(vec![
-                Action::SwitchKeyRegister(KeyRegisterType::Normal),
+                Action::SwitchKeyRegister(self.return_to.clone()),
                 Action::SwitchScene(Scene::Main),
             ]),
             // FEAT: command mode in contig list
@@ -140,7 +160,7 @@ impl Registers {
         match key_event.code {
             KeyCode::Esc => Ok(vec![
                 Action::ClearAllKeyRegisters,
-                Action::SwitchKeyRegister(KeyRegisterType::Normal),
+                Action::SwitchKeyRegister(self.return_to.clone()),
             ]),
 
             KeyCode::Enter => match self.command.trim() {
@@ -159,7 +179,7 @@ impl Registers {
                     .into_iter()
                     .chain(vec![
                         Action::ClearAllKeyRegisters,
-                        Action::SwitchKeyRegister(KeyRegisterType::Normal),
+                        Action::SwitchKeyRegister(self.return_to.clone()),
                     ])
                     .collect_vec()),
             },
@@ -193,63 +213,14 @@ impl Registers {
         }
     }
 
-    fn handle_normal(&mut self, key_event: KeyEvent) -> Result<Vec<Action>, TGVError> {
-        match key_event.code {
-            KeyCode::Char('s') if self.normal.is_empty() => Ok(vec![Action::UpdateLayout(
-                UpdateLayoutAction::ToggleSidebar,
-            )]),
-            KeyCode::Char(':') => Ok(vec![
-                Action::ClearAllKeyRegisters,
-                Action::SwitchKeyRegister(KeyRegisterType::Command),
-            ]),
-            KeyCode::Char('/') => Ok(vec![
-                Action::ClearAllKeyRegisters,
-                Action::SwitchKeyRegister(KeyRegisterType::Search),
-            ]),
-            // Like undo and redo in vim, `u` and `Ctrl-r` move through the jump history.
-            KeyCode::Char('r') if key_event.modifiers.contains(KeyModifiers::CONTROL) => {
-                self.clear();
-                Ok(vec![Action::JumpForward])
-            }
-            KeyCode::Char('u') if self.normal.is_empty() => Ok(vec![Action::JumpBack]),
-            KeyCode::Char(char) => Ok(update_by_char(&mut self.normal, char)?
-                .into_iter()
-                .map(|m| m.into())
-                .collect_vec()),
-            KeyCode::Left => Ok(update_by_char(&mut self.normal, 'h')?
-                .into_iter()
-                .map(|m| m.into())
-                .collect_vec()),
-            KeyCode::Up => Ok(update_by_char(&mut self.normal, 'k')?
-                .into_iter()
-                .map(|m| m.into())
-                .collect_vec()),
-            KeyCode::Down => Ok(update_by_char(&mut self.normal, 'j')?
-                .into_iter()
-                .map(|m| m.into())
-                .collect_vec()),
-            KeyCode::Right => Ok(update_by_char(&mut self.normal, 'l')?
-                .into_iter()
-                .map(|m| m.into())
-                .collect_vec()),
-
-            _ => {
-                self.clear();
-                Err(TGVError::RegisterError(format!(
-                    "Invalid normal mode input: {:?}",
-                    key_event
-                )))
-            }
-        }
-    }
-
     pub fn handle_key_event(
         &mut self,
         key_event: KeyEvent,
         state: &State,
     ) -> Result<Vec<Action>, TGVError> {
         Ok(match self.current {
-            KeyRegisterType::Normal => self.handle_normal(key_event),
+            KeyRegisterType::Normal => self.pending.push(key_event, Mode::Normal),
+            KeyRegisterType::Insert { track } => self.pending.push(key_event, Mode::Insert(track)),
             KeyRegisterType::Command => self.handle_command_line(key_event, |input| {
                 Ok(gv_core::command::parse(input)?
                     .into_iter()

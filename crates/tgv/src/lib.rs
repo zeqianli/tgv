@@ -1,5 +1,6 @@
 pub mod app;
 pub mod jumps;
+pub mod keys;
 pub mod layout;
 pub mod menu;
 pub mod message;

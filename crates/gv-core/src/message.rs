@@ -10,9 +10,22 @@ pub enum Message {
 
     Zoom(Zoom),
 
+    /// Quits, unless a track has unsaved changes.
     Quit,
+    /// Quits without writing tracks.
+    ForceQuit,
     SaveSession(Option<String>),
     SaveAndQuit(Option<String>),
+    /// Writes the focused BED track to its file, or to the path.
+    WriteTrack(Option<String>),
+    /// Writes every modified BED track that has a file.
+    WriteAll,
+    /// `WriteTrack`, then `Quit`.
+    WriteAndQuit(Option<String>),
+    /// `WriteAll`, then `Quit`.
+    WriteAllAndQuit,
+    /// Creates an untitled BED track below the focused track.
+    NewBedTrack,
     SetAlignmentOption(Vec<AlignmentDisplayOption>),
     /// Adds file tracks from these paths, in order.
     OpenFiles(Vec<String>),
@@ -57,6 +70,42 @@ pub enum Scroll {
     Bottom,
 }
 
+/// The features that word motions (`w`, `b`, `e`, and `ge`) move between.
+#[derive(Debug, Clone, Copy, Eq, PartialEq)]
+pub enum FeatureSource {
+    Exons,
+    Genes,
+    /// A BED track, by BED repository index.
+    Bed(usize),
+    /// A variant track, by variant repository index.
+    Variants(usize),
+}
+
+/// A word motion: to a start or an end, forward or backward.
+#[derive(Debug, Clone, Copy, Eq, PartialEq)]
+pub enum WordMotion {
+    /// `w`.
+    NextStart,
+    /// `e`.
+    NextEnd,
+    /// `b`.
+    PreviousStart,
+    /// `ge`.
+    PreviousEnd,
+}
+
+impl WordMotion {
+    /// Whether the motion moves toward higher positions.
+    pub fn forward(self) -> bool {
+        matches!(self, Self::NextStart | Self::NextEnd)
+    }
+
+    /// Whether the motion lands on feature starts, rather than ends.
+    pub fn to_start(self) -> bool {
+        matches!(self, Self::NextStart | Self::PreviousStart)
+    }
+}
+
 // TODO: indicate which movement requires resetting y to 0
 #[derive(Debug, Clone, Eq, PartialEq, Display)]
 pub enum Movement {
@@ -68,14 +117,12 @@ pub enum Movement {
     //GotoContigName(String), // Here is string because it can be an alias. The handler will look up the string from the contig collection.
     ContigNamePosition(String, u64), // Here is string because it can be an alias. The handler will look up the string from the contig collection.
 
-    NextExonsStart(usize),
-    NextExonsEnd(usize),
-    PreviousExonsStart(usize),
-    PreviousExonsEnd(usize),
-    NextGenesStart(usize),
-    NextGenesEnd(usize),
-    PreviousGenesStart(usize),
-    PreviousGenesEnd(usize),
+    /// Moves to the `count`-th feature boundary of `source` in the direction of `motion`.
+    Feature {
+        source: FeatureSource,
+        motion: WordMotion,
+        count: usize,
+    },
 
     NextContig(usize),
     PreviousContig(usize),

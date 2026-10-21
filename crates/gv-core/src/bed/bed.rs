@@ -30,11 +30,13 @@ impl BedSchema {
     pub const NAME: &'static str = "name";
     pub const SCORE: &'static str = "score";
     pub const STRAND: &'static str = "strand";
+    /// Columns 7 and up, joined by tabs, so writing a file keeps them.
+    pub const EXTRA: &'static str = "extra";
 }
 
 impl TableSchema for BedSchema {
     fn schema() -> SchemaRef {
-        let mut schema = Schema::with_capacity(7);
+        let mut schema = Schema::with_capacity(8);
         schema.insert(Self::ROW_ID.into(), DataType::UInt64);
         schema.insert(Self::CONTIG_INDEX.into(), DataType::UInt64);
         schema.insert(Self::START.into(), DataType::UInt64);
@@ -42,6 +44,7 @@ impl TableSchema for BedSchema {
         schema.insert(Self::NAME.into(), DataType::String);
         schema.insert(Self::SCORE.into(), DataType::UInt16);
         schema.insert(Self::STRAND.into(), DataType::String);
+        schema.insert(Self::EXTRA.into(), DataType::String);
         Arc::new(schema)
     }
 
@@ -70,6 +73,10 @@ impl TableSchema for BedSchema {
             ColumnDoc {
                 name: Self::STRAND,
                 description: "`+` or `-`, or null when absent.",
+            },
+            ColumnDoc {
+                name: Self::EXTRA,
+                description: "Columns 7 and up as the file has them, joined by tabs, or null when the line has six or fewer columns.",
             },
         ]
     }
@@ -142,14 +149,17 @@ pub(super) struct BedColumns {
     names: Vec<Option<String>>,
     scores: Vec<Option<u16>>,
     strands: Vec<Option<&'static str>>,
+    extras: Vec<Option<String>>,
+    /// The most standard fields (three to six) that any added line has.
+    pub(super) standard_columns: usize,
 }
 
 impl BedColumns {
     /// Adds a BED line on the given contig, parsed and validated by noodles. Skips blank,
     /// comment, `track`, and `browser` lines.
     ///
-    /// The line is read with as many standard fields as it has, up to six; noodles keeps any
-    /// further columns as other fields, which tables don't use.
+    /// The line is read with as many standard fields as it has, up to six. Further columns are
+    /// kept as they are in `EXTRA`.
     pub(super) fn push_line(&mut self, line: &str, contig_index: usize) -> Result<(), TGVError> {
         let line = line.trim_end();
         if !is_data_line(line) {
@@ -158,6 +168,8 @@ impl BedColumns {
         let fields: Vec<&str> = line.split('\t').collect();
         // `.` is a common placeholder for a missing score, but noodles requires an integer.
         let score_missing = fields.get(4) == Some(&".");
+        let extra = (fields.len() > 6).then(|| fields[6..].join("\t"));
+        self.standard_columns = self.standard_columns.max(fields.len().min(6));
         let parsed = |error: io::Error| {
             TGVError::ValueError(format!("BED line {line:?} is invalid: {error}"))
         };
@@ -170,24 +182,28 @@ impl BedColumns {
                     .map_err(parsed)?,
                 contig_index,
                 score_missing,
+                extra,
             ),
             4 => self.push_record(
                 &read_record::<4>(line, |reader, record| reader.read_record(record))
                     .map_err(parsed)?,
                 contig_index,
                 score_missing,
+                extra,
             ),
             5 => self.push_record(
                 &read_record::<5>(line, |reader, record| reader.read_record(record))
                     .map_err(parsed)?,
                 contig_index,
                 score_missing,
+                extra,
             ),
             _ => self.push_record(
                 &read_record::<6>(line, |reader, record| reader.read_record(record))
                     .map_err(parsed)?,
                 contig_index,
                 score_missing,
+                extra,
             ),
         }
     }
@@ -198,6 +214,7 @@ impl BedColumns {
         record: &impl bed::feature::Record<N>,
         contig_index: usize,
         score_missing: bool,
+        extra: Option<String>,
     ) -> Result<(), TGVError> {
         let start = record.feature_start()?.get() as u64;
         // noodles reads an end of 0 as missing, which the check below rejects.
@@ -228,6 +245,7 @@ impl BedColumns {
                 Some(Strand::Reverse) => Some("-"),
                 None => None,
             });
+        self.extras.push(extra);
         Ok(())
     }
 
@@ -246,6 +264,7 @@ impl BedColumns {
                 Column::new(BedSchema::NAME.into(), self.names),
                 Column::new(BedSchema::SCORE.into(), self.scores),
                 Column::new(BedSchema::STRAND.into(), self.strands),
+                Column::new(BedSchema::EXTRA.into(), self.extras),
             ],
         )?)
     }

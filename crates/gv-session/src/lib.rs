@@ -16,7 +16,8 @@ pub use error::SessionError;
 pub use functions::{CatalogFunction, OpFunction};
 pub use schema::*;
 pub use session::{
-    DataRequest, Dataset, Request, Requests, Responder, Session, SessionHandle, ViewRequest,
+    BedWrite, DataRequest, Dataset, Request, Requests, Responder, Session, SessionHandle,
+    ViewRequest,
 };
 pub use socket::{Call, SessionConnection, SessionSocket};
 pub use tables::{CatalogColumn, CatalogTable, TableScope};

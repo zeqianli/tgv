@@ -6,9 +6,13 @@ use crate::{
 };
 
 /// Parse command mode input. Supported commands:
-/// - `:q`: Quit.
-/// - `:w [name|path]`: Save the session. Without an argument, save to the active session.
-/// - `:wq [name|path]`: Save the session and quit.
+/// - `:q`: Quit, unless a track has unsaved changes. `:q!` quits anyway.
+/// - `:w [path]`: Write the focused BED track to its file, or to the path.
+/// - `:wa`: Write every modified BED track.
+/// - `:wq [path]`, `:wqa`, `:xa`: Write, then quit.
+/// - `:ws [name|path]`: Save the session. Without an argument, save to the active session.
+/// - `:wsq [name|path]`: Save the session and quit.
+/// - `:new`: Create an untitled BED track below the focused track.
 /// - `:e PATH…`, `:open PATH…`: Add file tracks. Paths use shell quoting, and `~` expands to the
 ///   home directory.
 /// - `:paired`: Show alignments as read pairs.
@@ -17,15 +21,33 @@ use crate::{
 /// The front end handles commands that only change its own view, such as listing contigs.
 pub fn parse(input: &str) -> Result<Vec<Message>, TGVError> {
     let input = input.trim();
-    if input == "q" {
-        return Ok(vec![Message::Quit]);
+    match input {
+        "q" => return Ok(vec![Message::Quit]),
+        "q!" => return Ok(vec![Message::ForceQuit]),
+        "wa" => return Ok(vec![Message::WriteAll]),
+        "wqa" | "xa" => return Ok(vec![Message::WriteAllAndQuit]),
+        "new" => return Ok(vec![Message::NewBedTrack]),
+        _ => {}
     }
 
-    if let Some(message) = parse_session_command(input, "w", Message::SaveSession) {
+    let expanded = |path: Option<String>| path.map(|path| shellexpand::tilde(&path).into_owned());
+    if let Some(message) =
+        parse_session_command(input, "w", |path| Message::WriteTrack(expanded(path)))
+    {
         return Ok(vec![message]);
     }
 
-    if let Some(message) = parse_session_command(input, "wq", Message::SaveAndQuit) {
+    if let Some(message) =
+        parse_session_command(input, "wq", |path| Message::WriteAndQuit(expanded(path)))
+    {
+        return Ok(vec![message]);
+    }
+
+    if let Some(message) = parse_session_command(input, "ws", Message::SaveSession) {
+        return Ok(vec![message]);
+    }
+
+    if let Some(message) = parse_session_command(input, "wsq", Message::SaveAndQuit) {
         return Ok(vec![message]);
     }
 
@@ -165,11 +187,19 @@ mod tests {
 
     #[rstest]
     #[case("q", Some(vec![Message::Quit]))]
-    #[case("w", Some(vec![Message::SaveSession(None)]))]
-    #[case("w session-name", Some(vec![Message::SaveSession(Some("session-name".to_string()))]))]
-    #[case("w /tmp/test.toml", Some(vec![Message::SaveSession(Some("/tmp/test.toml".to_string()))]))]
-    #[case("wq", Some(vec![Message::SaveAndQuit(None)]))]
-    #[case("wq session-name", Some(vec![Message::SaveAndQuit(Some("session-name".to_string()))]))]
+    #[case("q!", Some(vec![Message::ForceQuit]))]
+    #[case("w", Some(vec![Message::WriteTrack(None)]))]
+    #[case("w /tmp/peaks.bed", Some(vec![Message::WriteTrack(Some("/tmp/peaks.bed".to_string()))]))]
+    #[case("wa", Some(vec![Message::WriteAll]))]
+    #[case("wq", Some(vec![Message::WriteAndQuit(None)]))]
+    #[case("wqa", Some(vec![Message::WriteAllAndQuit]))]
+    #[case("xa", Some(vec![Message::WriteAllAndQuit]))]
+    #[case("ws", Some(vec![Message::SaveSession(None)]))]
+    #[case("ws session-name", Some(vec![Message::SaveSession(Some("session-name".to_string()))]))]
+    #[case("ws /tmp/test.toml", Some(vec![Message::SaveSession(Some("/tmp/test.toml".to_string()))]))]
+    #[case("wsq", Some(vec![Message::SaveAndQuit(None)]))]
+    #[case("wsq session-name", Some(vec![Message::SaveAndQuit(Some("session-name".to_string()))]))]
+    #[case("new", Some(vec![Message::NewBedTrack]))]
     #[case("paired", Some(vec![Message::SetAlignmentOption(vec![AlignmentDisplayOption::ViewAsPairs])]))]
     #[case("CLEAR", Some(vec![Message::SetAlignmentOption(vec![])]))]
     #[case("1234", None)]

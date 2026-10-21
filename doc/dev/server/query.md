@@ -388,6 +388,9 @@ Scope: region. Key: `track_id`, `row_id`.
 | `name` | `str` | The BED name, or null when absent. |
 | `score` | `i64` | The BED score, from 0 to 1000 by convention, or null when absent or `.`. |
 | `strand` | `str` | `+` or `-`, or null when absent. |
+| `extra` | `str` | Columns 7 and up as the file has them, joined by tabs, or null when the line has six or fewer columns. |
+
+Plain BED tracks include unsaved edits from the viewer.
 
 ### `genes`
 

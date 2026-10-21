@@ -7,7 +7,6 @@ pub mod error;
 pub mod intervals;
 pub mod logging;
 pub mod message;
-pub mod normal;
 /// Common core types shared by the TUI and server.
 pub mod prelude {
     pub use crate::{

@@ -1,6 +1,9 @@
 use clap::Parser;
 use crossterm::{
-    event::{DisableBracketedPaste, DisableMouseCapture, EnableBracketedPaste, EnableMouseCapture},
+    event::{
+        DisableBracketedPaste, DisableMouseCapture, EnableBracketedPaste, EnableMouseCapture,
+        KeyboardEnhancementFlags, PopKeyboardEnhancementFlags, PushKeyboardEnhancementFlags,
+    },
     execute,
 };
 use gv_core::logging::{init_file_logging_with_level, timestamped_log_file_name};
@@ -88,12 +91,25 @@ async fn main() -> Result<(), TGVError> {
     set_panic_hook();
 
     execute!(stdout(), EnableMouseCapture, EnableBracketedPaste)?;
+    // Insert mode paints leftward with Shift-Backspace, which terminals only tell apart from
+    // Backspace with the kitty keyboard protocol.
+    let keyboard_enhanced = matches!(
+        crossterm::terminal::supports_keyboard_enhancement(),
+        Ok(true)
+    );
+    if keyboard_enhanced {
+        execute!(
+            stdout(),
+            PushKeyboardEnhancementFlags(KeyboardEnhancementFlags::DISAMBIGUATE_ESCAPE_CODES)
+        )?;
+    }
 
     // Gather resources before starting the app.
     let mut app = match App::new(settings).await {
         Ok(app) => app,
         Err(e) => {
             log::error!("Failed to initialize the app: {e}");
+            restore_keyboard(keyboard_enhanced);
             ratatui::restore();
             if let Err(err) = execute!(stdout(), DisableMouseCapture, DisableBracketedPaste) {
                 log::error!("Error disabling mouse capture and bracketed paste: {err}");
@@ -102,6 +118,7 @@ async fn main() -> Result<(), TGVError> {
             return Err(e);
         }
     };
+    app.warn_shift_backspace = !keyboard_enhanced;
     // Agents reach the viewer through `tgv mcp`; without the socket, the viewer still works.
     let socket = SessionSocket::bind(app.session.clone())
         .inspect_err(|e| log::warn!("Agents can't connect to this viewer: {e}"))
@@ -109,6 +126,7 @@ async fn main() -> Result<(), TGVError> {
     let app_result = app.run(&mut terminal).await;
     drop(socket);
 
+    restore_keyboard(keyboard_enhanced);
     ratatui::restore();
     if let Err(err) = execute!(stdout(), DisableMouseCapture, DisableBracketedPaste) {
         log::error!("Error disabling mouse capture and bracketed paste: {err}");
@@ -121,6 +139,13 @@ async fn main() -> Result<(), TGVError> {
         Err(e) => log::error!("The app exited with an error: {e}"),
     }
     app_result
+}
+
+/// Pops the keyboard protocol flags that `main` pushed.
+fn restore_keyboard(enhanced: bool) {
+    if enhanced && let Err(err) = execute!(stdout(), PopKeyboardEnhancementFlags) {
+        log::error!("Error restoring the keyboard protocol: {err}");
+    }
 }
 
 fn default_log_file_path() -> PathBuf {
@@ -152,7 +177,12 @@ fn set_panic_hook() {
     std::panic::set_hook(Box::new(move |info| {
         log::error!("The app panicked: {info}");
         hook(info);
-        if let Err(err) = execute!(stdout(), DisableMouseCapture, DisableBracketedPaste) {
+        if let Err(err) = execute!(
+            stdout(),
+            PopKeyboardEnhancementFlags,
+            DisableMouseCapture,
+            DisableBracketedPaste
+        ) {
             eprintln!("Error disabling mouse capture and bracketed paste: {err}");
         }
     }));
