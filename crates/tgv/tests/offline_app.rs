@@ -17,7 +17,7 @@ use tempfile::TempDir;
 use tgv::{
     app::{Highlight, Scene},
     layout::AreaType,
-    message::{Action, UpdateLayoutAction},
+    message::{Action, FocusTarget, UpdateLayoutAction},
     session::SessionFile,
 };
 
@@ -408,8 +408,14 @@ async fn offline_tracks_open_and_remove_at_runtime() {
     );
 
     harness.app.alignment_view.y = vec![1, 2, 3];
-    harness.app.focused_track = Some(3);
-    harness.handle(vec![Action::RemoveTrack(1)]).await.unwrap();
+    harness.app.focused = FocusTarget::Track(3);
+    harness
+        .handle(vec![Action::RemoveTrack {
+            track: 1,
+            force: false,
+        }])
+        .await
+        .unwrap();
 
     assert_eq!(
         harness.app.dataset.view.messages,
@@ -425,7 +431,7 @@ async fn offline_tracks_open_and_remove_at_runtime() {
         ]
     );
     assert_eq!(harness.app.alignment_view.y, vec![1, 3]);
-    assert_eq!(harness.app.focused_track, Some(3));
+    assert_eq!(harness.app.focused, FocusTarget::Track(3));
     assert_eq!(harness.app.dataset.view.alignments.len(), 2);
     let layout_tracks = &harness.app.layout.tracks;
     assert!(!layout_tracks.contains(&AreaType::Alignment(1)));

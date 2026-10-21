@@ -614,6 +614,19 @@ impl MainLayout {
                         bottom.saturating_sub(rect.y),
                     )
                 }
+                // The sequence and the gene track are one focus target, the reference.
+                AreaType::Sequence
+                    if matches!(areas.get(track_index + 1), Some((AreaType::GeneTrack, _))) =>
+                {
+                    let genes = areas[track_index + 1].1;
+                    track_index += 2;
+                    Rect::new(
+                        terminal_area.x,
+                        rect.y,
+                        sidebar_width,
+                        genes.bottom().saturating_sub(rect.y),
+                    )
+                }
                 AreaType::Console
                     if matches!(areas.get(track_index + 1), Some((AreaType::Error, _))) =>
                 {
@@ -703,11 +716,17 @@ impl MainLayout {
             })
             .collect();
 
+        let sidebar_sections = if sidebar_width == 0 {
+            Vec::new()
+        } else {
+            sections
+        };
         ResolvedMainLayout {
             terminal_area,
             main_area,
             areas,
             sidebar_width,
+            sidebar_sections,
             sidebar_areas,
             sidebar_divider_area,
             sidebar_section_dividers,
@@ -734,6 +753,9 @@ pub struct ResolvedMainLayout {
     pub main_area: Rect,
     pub areas: Vec<(AreaType, Rect)>,
     pub sidebar_width: u16,
+    /// The sidebar beside each track, with the track's first area, such as `Coverage` for an
+    /// alignment track or `Sequence` for the reference. Empty while the sidebar is hidden.
+    pub sidebar_sections: Vec<(AreaType, Rect)>,
     pub sidebar_areas: Vec<Rect>,
     pub sidebar_divider_area: Rect,
     pub sidebar_section_dividers: Vec<Rect>,

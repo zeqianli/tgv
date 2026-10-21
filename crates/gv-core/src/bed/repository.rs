@@ -121,6 +121,21 @@ impl PlainBed {
             .collect()
     }
 
+    /// Copies the features, header lines, and column layout into a track with no file, named
+    /// `name`. The copy has a history of its own, and no saved revision until it is written.
+    pub fn duplicate(&self, name: String) -> Self {
+        Self {
+            path: name,
+            contigs: self.contigs.clone(),
+            // Clones share the column buffers, so copying is cheap.
+            whole_file: self.whole_file.clone(),
+            header_lines: self.header_lines.clone(),
+            column_count: self.column_count,
+            sorted_on_load: self.sorted_on_load,
+            history: BedHistory::new(false),
+        }
+    }
+
     /// Returns the whole contig, filtered from the whole file.
     fn read_bed(&self, region: &Region, contig_name: Option<&str>) -> Result<BedTable, TGVError> {
         let contig_index = region.contig_index();

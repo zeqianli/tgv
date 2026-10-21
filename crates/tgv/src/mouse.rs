@@ -1,6 +1,6 @@
 use crate::{
     layout::{AlignmentView, AreaType, HoveringAreaType, ResolvedMainLayout},
-    message::{Action, ContextMenuTarget, Movement, Scroll, UpdateLayoutAction},
+    message::{Action, ContextMenuTarget, FocusTarget, Movement, Scroll, UpdateLayoutAction},
 };
 use crossterm::event::{KeyModifiers, MouseButton, MouseEvent, MouseEventKind};
 use gv_core::prelude::*;
@@ -115,13 +115,19 @@ impl MouseRegister {
                 self.sidebar_resizing = matches!(hovered, HoveringAreaType::SidebarDivider);
                 // Clicking a track or its sidebar section focuses it. Hovering doesn't, so the
                 // pointer can't undo a focus chosen with the keyboard.
-                if let HoveringAreaType::Track(index) | HoveringAreaType::Sidebar(index) = hovered
-                    && let AreaType::Coverage(id)
-                    | AreaType::Alignment(id)
-                    | AreaType::Variant(id)
-                    | AreaType::Bed(id) = layout.areas[index].0
-                {
-                    messages.push(Action::FocusTrack(id));
+                if let HoveringAreaType::Track(index) | HoveringAreaType::Sidebar(index) = hovered {
+                    match layout.areas[index].0 {
+                        AreaType::Coverage(id)
+                        | AreaType::Alignment(id)
+                        | AreaType::Variant(id)
+                        | AreaType::Bed(id) => {
+                            messages.push(Action::Focus(FocusTarget::Track(id)));
+                        }
+                        AreaType::Sequence | AreaType::GeneTrack => {
+                            messages.push(Action::Focus(FocusTarget::Reference));
+                        }
+                        _ => {}
+                    }
                 }
                 if let HoveringAreaType::Track(track_index) = hovered {
                     let area = layout.areas[track_index].0;
@@ -167,6 +173,9 @@ impl MouseRegister {
                                     .coordinates_of_onscreen_x(event.column, area)
                                     .and_then(|(left, right)| (left == right).then_some(left)),
                             })
+                        }
+                        (AreaType::Bed(id) | AreaType::Variant(id), _) => {
+                            Some(ContextMenuTarget::Track { track: *id })
                         }
                         _ => None,
                     },

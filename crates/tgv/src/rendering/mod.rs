@@ -32,6 +32,7 @@ use crate::{
     app::{Highlight, RenderEvent},
     layout::{AlignmentView, AreaType, OnScreenCoordinate, ResolvedMainLayout, wrap_sidebar_label},
     menu::ContextMenu,
+    message::FocusTarget,
     mouse::MouseRegister,
     popup::TextPopup,
     register::{KeyRegisterType, Registers},
@@ -44,11 +45,11 @@ use ratatui::{
     style::{Color, Modifier, Style},
 };
 
-/// What the screen shows about the focused track.
+/// What the screen shows about the focus.
 pub struct TrackFocus {
-    pub track: Option<TrackId>,
-    /// The focused track's name, such as `peaks.bed` or `untitled-1`.
-    pub name: Option<String>,
+    pub target: FocusTarget,
+    /// The focused track's name, such as `peaks.bed` or `untitled-1`, or the reference's name.
+    pub name: String,
     pub modified: bool,
 }
 
@@ -224,7 +225,14 @@ pub fn render_main(
                 ) {
                     render_console(rect, buf, registers)?;
                 } else {
-                    render_mode_line(rect, buf, registers, focus);
+                    render_mode_line(
+                        rect,
+                        buf,
+                        registers,
+                        focus,
+                        layout.sidebar_width == 0,
+                        pallete,
+                    );
                 }
             }
             AreaType::Error => {
@@ -242,7 +250,7 @@ pub fn render_main(
                     render_bed(rect, buf, bed_intervals, alignment_view, pallete)?;
                 }
                 // Insert mode draws the cursor as one reversed cell.
-                if registers.current == (KeyRegisterType::Insert { track: *id })
+                if *registers.shown_mode() == (KeyRegisterType::Insert { track: *id })
                     && let OnScreenCoordinate::OnScreen(x) =
                         alignment_view.onscreen_x_coordinate(alignment_view.focus.position, rect)
                 {

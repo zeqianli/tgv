@@ -1,6 +1,6 @@
 use crate::{
     register::{KeyRegisterType, Registers},
-    rendering::TrackFocus,
+    rendering::{TrackFocus, colors::Palette},
 };
 use gv_core::prelude::*;
 use ratatui::{
@@ -52,24 +52,42 @@ pub fn render_console(area: &Rect, buf: &mut Buffer, buffer: &Registers) -> Resu
     Ok(())
 }
 
-/// Shows the mode and the focused track in track and insert mode, as vim does:
-/// `-- INSERT -- peaks.bed [+]`. Normal mode shows nothing.
-pub fn render_mode_line(area: &Rect, buf: &mut Buffer, registers: &Registers, focus: &TrackFocus) {
-    let mode = match registers.current {
-        KeyRegisterType::Track => "-- TRACK --",
-        KeyRegisterType::Insert { .. } => "-- INSERT --",
+/// Shows the mode and the focused track in insert mode, as vim does:
+/// `-- INSERT -- peaks.bed [+]`. Normal mode shows nothing, except that with the sidebar hidden
+/// the focused track's name shows on the right, like vim's ruler, so the focus is never hidden.
+pub fn render_mode_line(
+    area: &Rect,
+    buf: &mut Buffer,
+    registers: &Registers,
+    focus: &TrackFocus,
+    sidebar_hidden: bool,
+    palette: &Palette,
+) {
+    let name = if focus.modified {
+        format!("{} [+]", focus.name)
+    } else {
+        focus.name.clone()
+    };
+    match registers.current {
+        KeyRegisterType::Insert { .. } => buf.set_stringn(
+            area.x,
+            area.y,
+            format!("-- INSERT -- {name}"),
+            area.width as usize,
+            Style::default()
+                .fg(palette.MODE_INSERT)
+                .add_modifier(Modifier::BOLD),
+        ),
+        _ if sidebar_hidden => {
+            let width = name.chars().count().min(area.width as usize);
+            buf.set_stringn(
+                area.right() - width as u16,
+                area.y,
+                name,
+                width,
+                Style::default().fg(Color::Gray),
+            )
+        }
         _ => return,
     };
-    let text = match &focus.name {
-        Some(name) if focus.modified => format!("{mode} {name} [+]"),
-        Some(name) => format!("{mode} {name}"),
-        None => format!("{mode} (no tracks)"),
-    };
-    buf.set_stringn(
-        area.x,
-        area.y,
-        text,
-        area.width as usize,
-        Style::default().add_modifier(Modifier::BOLD),
-    );
 }

@@ -12,7 +12,7 @@ use crate::{
 /// - `:wq [path]`, `:wqa`, `:xa`: Write, then quit.
 /// - `:ws [name|path]`: Save the session. Without an argument, save to the active session.
 /// - `:wsq [name|path]`: Save the session and quit.
-/// - `:bd`: Remove the focused track, unless it has unsaved changes. `:bd!` removes it anyway.
+/// - `:new`: Create an untitled BED track below the focused track.
 /// - `:e PATH…`, `:open PATH…`: Add file tracks. Paths use shell quoting, and `~` expands to the
 ///   home directory.
 /// - `:paired`: Show alignments as read pairs.
@@ -26,8 +26,7 @@ pub fn parse(input: &str) -> Result<Vec<Message>, TGVError> {
         "q!" => return Ok(vec![Message::ForceQuit]),
         "wa" => return Ok(vec![Message::WriteAll]),
         "wqa" | "xa" => return Ok(vec![Message::WriteAllAndQuit]),
-        "bd" => return Ok(vec![Message::CloseTrack { force: false }]),
-        "bd!" => return Ok(vec![Message::CloseTrack { force: true }]),
+        "new" => return Ok(vec![Message::NewBedTrack]),
         _ => {}
     }
 
@@ -200,8 +199,7 @@ mod tests {
     #[case("ws /tmp/test.toml", Some(vec![Message::SaveSession(Some("/tmp/test.toml".to_string()))]))]
     #[case("wsq", Some(vec![Message::SaveAndQuit(None)]))]
     #[case("wsq session-name", Some(vec![Message::SaveAndQuit(Some("session-name".to_string()))]))]
-    #[case("bd", Some(vec![Message::CloseTrack { force: false }]))]
-    #[case("bd!", Some(vec![Message::CloseTrack { force: true }]))]
+    #[case("new", Some(vec![Message::NewBedTrack]))]
     #[case("paired", Some(vec![Message::SetAlignmentOption(vec![AlignmentDisplayOption::ViewAsPairs])]))]
     #[case("CLEAR", Some(vec![Message::SetAlignmentOption(vec![])]))]
     #[case("1234", None)]

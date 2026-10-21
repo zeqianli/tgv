@@ -114,6 +114,9 @@ pub enum TGVError {
     #[error("{name} has no file name. Use :w <path>.")]
     UntitledTrack { name: String },
 
+    #[error("No more features in {name}.")]
+    NoMoreFeatures { name: String },
+
     #[error("{file} needs an index: {index}")]
     MissingIndex { file: String, index: String },
 

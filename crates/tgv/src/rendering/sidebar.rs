@@ -1,6 +1,7 @@
 use crate::{
     app::RenderEvent,
     layout::{AlignmentView, AreaType, ResolvedMainLayout, wrap_sidebar_label},
+    message::FocusTarget,
     mouse::MouseRegister,
     register::{KeyRegisterType, Registers},
     rendering::{TrackFocus, colors::Palette},
@@ -86,13 +87,6 @@ pub fn render_sidebar(
     render_events: &Vec<RenderEvent>,
 ) -> Result<(), TGVError> {
     let sidebar_style = Style::default().fg(Color::Gray);
-    // Command and search input keep showing the mode they return to.
-    let mode = match &registers.current {
-        KeyRegisterType::Command | KeyRegisterType::Search | KeyRegisterType::ContigList => {
-            &registers.return_to
-        }
-        mode => mode,
-    };
     if layout.sidebar_width > 0 {
         let separator_style = Style::default().fg(Color::DarkGray);
         for area in &layout.sidebar_section_dividers {
@@ -139,7 +133,7 @@ pub fn render_sidebar(
             }
             let label_style = match label.area_type {
                 AreaType::Coverage(id) | AreaType::Variant(id) | AreaType::Bed(id)
-                    if *mode == KeyRegisterType::Track && focus.track == Some(id) =>
+                    if focus.target == FocusTarget::Track(id) =>
                 {
                     sidebar_style.add_modifier(Modifier::BOLD)
                 }
@@ -164,15 +158,6 @@ pub fn render_sidebar(
                 continue;
             }
             match area_type {
-                AreaType::Cytoband => {
-                    buf.set_stringn(
-                        area.x,
-                        area.y,
-                        state.reference.to_string(),
-                        area.width as usize,
-                        sidebar_style,
-                    );
-                }
                 AreaType::Coordinate => {
                     buf.set_stringn(
                         area.x,
@@ -207,25 +192,41 @@ pub fn render_sidebar(
         for y in layout.sidebar_divider_area.top()..layout.sidebar_divider_area.bottom() {
             buf.set_string(layout.sidebar_divider_area.x, y, "│", divider_style);
         }
-        // The divider beside the focused track becomes a bar, colored by mode like Jupyter's
-        // cell border.
-        if let Some(focused) = focus.track {
-            let bar_style = Style::default().fg(match mode {
-                KeyRegisterType::Track => Color::Blue,
-                KeyRegisterType::Insert { .. } => Color::Green,
-                _ => Color::DarkGray,
-            });
-            for (area_type, area) in &layout.areas {
-                if let AreaType::Coverage(id)
-                | AreaType::Alignment(id)
-                | AreaType::Variant(id)
-                | AreaType::Bed(id) = area_type
-                    && *id == focused
-                {
-                    for y in area.top()..area.bottom() {
-                        buf.set_string(layout.sidebar_divider_area.x, y, "┃", bar_style);
-                    }
-                }
+        // The reference's section names the genome beside the sequence and the genes.
+        if let Some((_, section)) = layout
+            .sidebar_sections
+            .iter()
+            .find(|(area_type, _)| matches!(area_type, AreaType::Sequence | AreaType::GeneTrack))
+            && section.height > 0
+        {
+            let style = match focus.target {
+                FocusTarget::Reference => sidebar_style.add_modifier(Modifier::BOLD),
+                FocusTarget::Track(_) => sidebar_style,
+            };
+            buf.set_stringn(
+                section.x,
+                section.y + (section.height - 1) / 2,
+                state.reference.to_string(),
+                section.width as usize,
+                style,
+            );
+        }
+        // The focused target's whole section is filled, colored by mode.
+        let fill = match registers.shown_mode() {
+            KeyRegisterType::Insert { .. } => pallete.FOCUS_INSERT,
+            _ => pallete.FOCUS_NORMAL,
+        };
+        for (area_type, section) in &layout.sidebar_sections {
+            let focused = match (area_type, focus.target) {
+                (AreaType::Sequence | AreaType::GeneTrack, FocusTarget::Reference) => true,
+                (
+                    AreaType::Coverage(id) | AreaType::Variant(id) | AreaType::Bed(id),
+                    FocusTarget::Track(focused),
+                ) => *id == focused,
+                _ => false,
+            };
+            if focused {
+                buf.set_style(*section, Style::default().bg(fill));
             }
         }
     }

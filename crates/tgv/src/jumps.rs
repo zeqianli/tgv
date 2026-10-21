@@ -9,7 +9,7 @@ pub struct ViewPoint {
     pub zoom: u64,
 }
 
-/// Views left by jumps, such as searches and agent navigation.
+/// The jump history behind `u` (back) and `Ctrl-r` (forward), like a vim jumplist.
 #[derive(Debug, Default)]
 pub struct JumpList {
     back: Vec<ViewPoint>,
@@ -17,10 +17,9 @@ pub struct JumpList {
 }
 
 impl JumpList {
-    /// The number of views kept for going back.
     const CAPACITY: usize = 100;
 
-    /// Records the view a jump left. A new jump discards the views to go forward to.
+    /// Records a new jump.
     pub fn record(&mut self, from: ViewPoint) {
         if self.back.len() == Self::CAPACITY {
             self.back.remove(0);

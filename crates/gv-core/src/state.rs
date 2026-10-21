@@ -8,14 +8,16 @@ use crate::{
     cytoband::CytobandTable,
     error::TGVError,
     gene::{GeneSchema, GeneTable},
-    intervals::{Focus, Region},
-    message::{AlignmentDisplayOption, AlignmentFilter, AlignmentSort, Movement},
+    intervals::{Focus, IntervalSchema, Region},
+    message::{
+        AlignmentDisplayOption, AlignmentFilter, AlignmentSort, FeatureSource, Movement, WordMotion,
+    },
     reference::Reference,
     //register::Registers,
     //rendering::{MainLayout, layout::resize_node},
     repository::{Repository, RepositoryFileIndex},
     sequence::Sequence,
-    settings::FilePath,
+    settings::{FilePath, file_name},
     variant::VariantTable,
 };
 use itertools::Itertools;
@@ -165,18 +167,46 @@ impl State {
                     .try_get_index_by_str(contig_name.as_ref())?,
                 position,
             }),
-            Movement::NextExonsStart(n) => self.next_exons_start(focus, repository, n).await,
-            Movement::NextExonsEnd(n) => self.next_exons_end(focus, repository, n).await,
-            Movement::PreviousExonsStart(n) => {
-                self.previous_exons_start(focus, repository, n).await
-            }
-            Movement::PreviousExonsEnd(n) => self.previous_exons_end(focus, repository, n).await,
-            Movement::NextGenesStart(n) => self.next_genes_start(focus, repository, n).await,
-            Movement::NextGenesEnd(n) => self.next_genes_end(focus, repository, n).await,
-            Movement::PreviousGenesStart(n) => {
-                self.previous_genes_start(focus, repository, n).await
-            }
-            Movement::PreviousGenesEnd(n) => self.previous_genes_end(focus, repository, n).await,
+            Movement::Feature {
+                source,
+                motion,
+                count,
+            } => match source {
+                FeatureSource::Exons => match motion {
+                    WordMotion::NextStart => self.next_exons_start(focus, repository, count).await,
+                    WordMotion::NextEnd => self.next_exons_end(focus, repository, count).await,
+                    WordMotion::PreviousStart => {
+                        self.previous_exons_start(focus, repository, count).await
+                    }
+                    WordMotion::PreviousEnd => {
+                        self.previous_exons_end(focus, repository, count).await
+                    }
+                },
+                FeatureSource::Genes => match motion {
+                    WordMotion::NextStart => self.next_genes_start(focus, repository, count).await,
+                    WordMotion::NextEnd => self.next_genes_end(focus, repository, count).await,
+                    WordMotion::PreviousStart => {
+                        self.previous_genes_start(focus, repository, count).await
+                    }
+                    WordMotion::PreviousEnd => {
+                        self.previous_genes_end(focus, repository, count).await
+                    }
+                },
+                FeatureSource::Bed(index) => self.file_feature_boundary(
+                    focus,
+                    repository,
+                    RepositoryFileIndex::Bed(index),
+                    motion,
+                    count,
+                ),
+                FeatureSource::Variants(index) => self.file_feature_boundary(
+                    focus,
+                    repository,
+                    RepositoryFileIndex::Variant(index),
+                    motion,
+                    count,
+                ),
+            },
 
             Movement::NextContig(n) => Ok(self.next_contig(focus, n)),
             Movement::PreviousContig(n) => Ok(self.previous_contig(focus, n)),
@@ -967,6 +997,126 @@ impl State {
                 .get(0)
                 .expect("selected ends are non-null")
                 - 1,
+        })
+    }
+
+    /// Finds the `count`-th feature start or end of a BED or variant file past the focus. When
+    /// the focused contig runs out, the search goes on through the following contigs, or the
+    /// preceding ones when moving backward.
+    ///
+    /// Plain files read a whole contig at once. Indexed files read windows that double in size
+    /// until they hold enough boundaries or reach the end of the contig.
+    fn file_feature_boundary(
+        &self,
+        focus: Focus,
+        repository: &mut Repository,
+        file: RepositoryFileIndex,
+        motion: WordMotion,
+        count: usize,
+    ) -> Result<Focus, TGVError> {
+        /// The first window an indexed file reads.
+        const INITIAL_WINDOW: u64 = 1 << 16;
+        /// BED and VCF positions fit in 32 bits, so this bounds contigs of unknown length.
+        const MAX_POSITION: u64 = u32::MAX as u64;
+
+        if count == 0 {
+            return Ok(focus);
+        }
+        let forward = motion.forward();
+        let column = if motion.to_start() {
+            IntervalSchema::START
+        } else {
+            IntervalSchema::END
+        };
+        let indexed = match file {
+            RepositoryFileIndex::Bed(index) => repository.bed_repositories[index].is_indexed(),
+            RepositoryFileIndex::Variant(index) => {
+                repository.variant_repositories[index].is_indexed()
+            }
+            RepositoryFileIndex::Alignment(_) => {
+                return Err(TGVError::StateError(
+                    "Alignment tracks have no feature boundaries.".to_string(),
+                ));
+            }
+        };
+        let contig_indexes: Vec<usize> = if forward {
+            (focus.contig_index..self.contig_header.contigs.len()).collect()
+        } else {
+            (0..=focus.contig_index).rev().collect()
+        };
+        let mut remaining = count;
+        for contig_index in contig_indexes {
+            let contig = self.contig_header.try_get(contig_index)?;
+            let Some(name) = contig.file_name(file) else {
+                continue;
+            };
+            let length = contig.length.unwrap_or(MAX_POSITION);
+            // Boundaries count from strictly past this position.
+            let from = match contig_index == focus.contig_index {
+                true => focus.position,
+                false if forward => 0,
+                false => length.saturating_add(1),
+            };
+            let mut width = if indexed { INITIAL_WINDOW } else { length };
+            let boundaries = loop {
+                let (start, end) = if forward {
+                    (from + 1, from.saturating_add(width).min(length))
+                } else {
+                    (from.saturating_sub(width).max(1), from.saturating_sub(1))
+                };
+                if start > end {
+                    break Vec::new();
+                }
+                let half_width = (end - start).div_ceil(2);
+                let region = Region {
+                    focus: Focus {
+                        contig_index,
+                        position: start + half_width,
+                    },
+                    half_width,
+                };
+                let frame = match file {
+                    RepositoryFileIndex::Bed(index) => {
+                        repository.bed_repositories[index]
+                            .read_bed(&region, Some(name))?
+                            .data
+                    }
+                    RepositoryFileIndex::Variant(index) => {
+                        repository.variant_repositories[index]
+                            .read_variants(&region, Some(name))?
+                            .data
+                    }
+                    RepositoryFileIndex::Alignment(_) => unreachable!("checked above"),
+                };
+                // Features that overlap the window can start or end outside it, where other
+                // features aren't read, so only boundaries inside the window count.
+                let mut boundaries = frame
+                    .column(column)?
+                    .u64()?
+                    .into_no_null_iter()
+                    .filter(|&position| position >= start && position <= end)
+                    .collect_vec();
+                boundaries.sort_unstable();
+                boundaries.dedup();
+                if !forward {
+                    boundaries.reverse();
+                }
+                let reached_edge = if forward { end >= length } else { start <= 1 };
+                if boundaries.len() >= remaining || reached_edge {
+                    break boundaries;
+                }
+                width = width.saturating_mul(2);
+            };
+            if let Some(&position) = boundaries.get(remaining - 1) {
+                return Ok(Focus {
+                    contig_index,
+                    position,
+                });
+            }
+            remaining -= boundaries.len();
+        }
+        Err(TGVError::NoMoreFeatures {
+            name: file_name(repository.file_path(file)).to_owned(),
         })
     }
 

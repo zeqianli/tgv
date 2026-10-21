@@ -3,7 +3,7 @@ use crate::{
     register::KeyRegisterType,
 };
 use gv_core::bed::BedEditKind;
-use gv_core::message::{AlignmentFilter, AlignmentSort};
+use gv_core::message::{AlignmentFilter, AlignmentSort, WordMotion};
 pub use gv_core::message::{Movement, Scroll};
 use gv_core::track_registry::TrackId;
 use strum::Display;
@@ -32,10 +32,10 @@ pub enum Action {
     /// Returns to the view that the last `JumpBack` left.
     JumpForward,
 
-    /// Focuses a file track: the track that track mode, insert mode, `:w`, and `:bd` act on.
-    FocusTrack(TrackId),
+    /// Focuses the reference or a file track: what word motions, insert mode, and `:w` act on.
+    Focus(FocusTarget),
 
-    /// Moves the focus along the file tracks in display order.
+    /// Moves the focus along the file tracks and the reference, in display order.
     MoveFocus(FocusMove),
 
     /// Scrolls one alignment track, whatever has focus.
@@ -44,29 +44,50 @@ pub enum Action {
         scroll: Scroll,
     },
 
+    /// Moves the cursor. `App` resolves word motions against the focused track.
+    Motion(Motion),
+
     /// Enters insert mode on the focused track. `append` first moves the cursor right by one
     /// column, like vim's `a`.
     EnterInsertMode {
         append: bool,
     },
 
-    /// Adds or removes the bases under the cursor column on a BED track.
-    EditBed {
+    /// Adds or removes the bases of whole columns next to the cursor on a BED track.
+    EditColumns {
         track: TrackId,
         edit: BedEditKind,
+        span: ColumnSpan,
+        cursor: CursorAfter,
+        /// Whether the key is a typing key (`Space`, `Backspace`, or `Shift-Backspace`). A run of
+        /// typing keys is one undo step, like a run of typed text in vim.
+        typing: bool,
     },
 
-    /// Undoes the focused BED track's last edit step.
-    Undo,
+    /// Applies an operator to the range between the cursor and the motion's target.
+    Operate {
+        track: TrackId,
+        operator: Operator,
+        motion: Motion,
+    },
 
-    /// Redoes the focused BED track's last undone step.
-    Redo,
+    /// Undoes a BED track's last edit step.
+    Undo(TrackId),
 
-    /// Creates an untitled BED track next to the focused track, focuses it, and enters insert
-    /// mode.
-    NewBedTrack {
+    /// Redoes a BED track's last undone step.
+    Redo(TrackId),
+
+    /// Creates an untitled BED track above or below a track, and focuses it.
+    NewTrackBeside {
+        track: TrackId,
         below: bool,
     },
+
+    /// Remembers a BED track for pasting. The features are read when it is pasted.
+    CopyTrack(TrackId),
+
+    /// Creates an untitled BED track below a track, with the copied track's features.
+    PasteTrackBelow(TrackId),
 
     /// Changes one display option of an alignment track and keeps the others.
     UpdateAlignmentOptions {
@@ -81,8 +102,12 @@ pub enum Action {
         row: u16,
     },
 
-    /// Removes a file track from the dataset and the layout.
-    RemoveTrack(TrackId),
+    /// Removes a file track from the dataset and the layout. Without `force`, a track with
+    /// unsaved changes stays.
+    RemoveTrack {
+        track: TrackId,
+        force: bool,
+    },
 
     /// Shows the SAM record of a read in a popup.
     OpenReadDetails {
@@ -105,13 +130,83 @@ pub enum Action {
     ClearHighlights,
 }
 
-/// A focus move along the file tracks. Moves stop at the first and last tracks.
+/// What has the focus: the reference (the sequence and gene rows) or a file track.
+#[derive(Debug, Clone, Copy, Eq, PartialEq)]
+pub enum FocusTarget {
+    Reference,
+    Track(TrackId),
+}
+
+/// A focus move along the file tracks and the reference, in display order.
 #[derive(Debug, Clone, Copy, Eq, PartialEq)]
 pub enum FocusMove {
+    /// Stops at the last target.
     Next(usize),
+    /// Stops at the first target.
     Previous(usize),
+    /// Wraps around to the first target.
+    NextWrap,
+    /// Wraps around to the last target.
+    PreviousWrap,
     First,
     Last,
+}
+
+#[derive(Debug, Clone, Copy, Eq, PartialEq)]
+pub enum Direction {
+    Left,
+    Right,
+}
+
+/// A cursor motion, before `App` resolves it against the focus.
+#[derive(Debug, Clone, Copy, Eq, PartialEq)]
+pub enum Motion {
+    /// `h`, `l`, `H`, and `L`: whole columns, which are `zoom` bases each.
+    Columns { direction: Direction, count: u64 },
+    /// `w`, `b`, `e`, and `ge`, with `big` for their uppercase forms.
+    Word {
+        motion: WordMotion,
+        big: bool,
+        count: usize,
+    },
+}
+
+impl Motion {
+    /// Whether an operator includes the motion's target, as vim's `e`, `ge`, `E`, and `gE` do.
+    pub fn inclusive(&self) -> bool {
+        matches!(
+            self,
+            Motion::Word {
+                motion: WordMotion::NextEnd | WordMotion::PreviousEnd,
+                ..
+            }
+        )
+    }
+}
+
+/// An operator that waits for a motion, such as `d` in `d3l`.
+#[derive(Debug, Clone, Copy, Eq, PartialEq)]
+pub enum Operator {
+    /// `d`: removes the bases of the range.
+    Erase,
+}
+
+/// Whole columns next to the cursor.
+#[derive(Debug, Clone, Copy, Eq, PartialEq)]
+pub enum ColumnSpan {
+    /// The cursor column and the `n - 1` columns to its right.
+    Right(u64),
+    /// The `n` columns to the left of the cursor.
+    Left(u64),
+}
+
+/// Where the cursor goes after an edit of a column span.
+#[derive(Debug, Clone, Copy, Eq, PartialEq)]
+pub enum CursorAfter {
+    /// The first column of the span. For a span to the right, the cursor doesn't move.
+    SpanStart,
+    /// The column after the span, as typing advances the cursor.
+    PastSpan,
 }
 
 /// A change to one alignment track's display options.
@@ -136,6 +231,8 @@ pub enum ContextMenuTarget {
     },
     /// The sidebar, and the file track whose section was clicked, if any.
     Sidebar { track: Option<TrackId> },
+    /// A BED or variant track's row.
+    Track { track: TrackId },
 }
 
 /// Layout changes.

@@ -83,6 +83,12 @@ pub struct Palette {
     pub MENU_DISABLED_FOREGROUND: Color,
     /// Alignment display options listed in the sidebar.
     pub SIDEBAR_OPTION_COLOR: Color,
+    /// The focused track's sidebar section in normal mode.
+    pub FOCUS_NORMAL: Color,
+    /// The focused track's sidebar section in insert mode, and the mode line.
+    pub FOCUS_INSERT: Color,
+    /// The insert mode line.
+    pub MODE_INSERT: Color,
 
     // Gene track
     pub EXON_BACKGROUND_COLOR: Color,
@@ -273,6 +279,9 @@ pub const DARK_THEME: Palette = Palette {
     MENU_FOREGROUND: tailwind::WHITE,
     MENU_DISABLED_FOREGROUND: tailwind::SLATE.c400,
     SIDEBAR_OPTION_COLOR: tailwind::SKY.c300,
+    FOCUS_NORMAL: tailwind::SLATE.c800,
+    FOCUS_INSERT: tailwind::GREEN.c900,
+    MODE_INSERT: tailwind::GREEN.c400,
 
     // Gene track
     EXON_BACKGROUND_COLOR: tailwind::BLUE.c800,

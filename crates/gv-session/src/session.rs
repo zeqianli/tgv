@@ -11,7 +11,7 @@ use crate::{
 };
 use gv_core::{
     alignment::is_url,
-    bed::{BedEdit, BedEditKind, BedTable, PlainBed},
+    bed::{BedEdit, BedEditKind, BedRepositoryEnum, BedTable, PlainBed},
     contig_header::ContigSource,
     prelude::*,
     settings::{Settings, classify_and_build_tracks, file_name},
@@ -447,6 +447,25 @@ impl Dataset {
             .add_file_paths(vec![FilePath::UntitledBed(self.untitled_count)])
             .await?;
         Ok(ids[0])
+    }
+
+    /// Adds an untitled BED track with a copy of another BED track's features as they are now,
+    /// including unsaved edits. The copy shows as modified until it is written.
+    pub async fn duplicate_bed(&mut self, source: TrackId) -> Result<TrackId, TGVError> {
+        let id = self.new_bed_track().await?;
+        let RepositoryFileIndex::Bed(index) = self.tracks.get(id).repository_index else {
+            unreachable!("new tracks are BED tracks");
+        };
+        let name = self.tracks.get(id).file_path.to_string();
+        let copy = self.editable_bed(source)?.1.duplicate(name);
+        self.repository.bed_repositories[index] = BedRepositoryEnum::Bed(copy);
+        let file = RepositoryFileIndex::Bed(index);
+        self.repository
+            .merge_contigs(file, &mut self.view.contig_header)?;
+        self.repository
+            .merge_contigs(file, &mut self.query.contig_header)?;
+        self.invalidate_bed(index);
+        Ok(id)
     }
 
     /// Whether a track has edits that aren't written to its file.

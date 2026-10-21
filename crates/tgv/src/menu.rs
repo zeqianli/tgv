@@ -192,14 +192,59 @@ impl ContextMenu {
         Ok(items)
     }
 
-    /// Items for the sidebar. `track` is the file track whose section was clicked, with its
-    /// file name.
-    pub fn sidebar_items(track: Option<(TrackId, &str)>) -> Vec<MenuItem> {
+    /// Items that act on a file track: copying it, pasting the copied track below it, and
+    /// removing it. `copied` is the copied track's name. A modified track is removed without
+    /// writing, and its item says so.
+    pub fn track_items(
+        track: TrackId,
+        file_name: &str,
+        copyable: bool,
+        modified: bool,
+        copied: Option<&str>,
+    ) -> Vec<MenuItem> {
         let mut items = Vec::new();
-        if let Some((id, file_name)) = track {
+        if copyable {
             items.push(MenuItem::entry(
-                format!("Remove {file_name}"),
-                Some(Action::RemoveTrack(id)),
+                format!("Copy {file_name}"),
+                Some(Action::CopyTrack(track)),
+            ));
+        }
+        if let Some(copied) = copied {
+            items.push(MenuItem::entry(
+                format!("Paste {copied} below"),
+                Some(Action::PasteTrackBelow(track)),
+            ));
+        }
+        items.push(MenuItem::entry(
+            if modified {
+                format!("Remove {file_name} (discard changes)")
+            } else {
+                format!("Remove {file_name}")
+            },
+            Some(Action::RemoveTrack {
+                track,
+                force: modified,
+            }),
+        ));
+        items
+    }
+
+    /// Items for the sidebar. A file track's section has the track's items and items to insert
+    /// a track next to it, then the sidebar's own.
+    pub fn sidebar_items(track: Option<(TrackId, Vec<MenuItem>)>) -> Vec<MenuItem> {
+        let mut items = Vec::new();
+        if let Some((track, track_items)) = track {
+            items.extend(track_items);
+            items.push(MenuItem::entry(
+                "Insert track above",
+                Some(Action::NewTrackBeside {
+                    track,
+                    below: false,
+                }),
+            ));
+            items.push(MenuItem::entry(
+                "Insert track below",
+                Some(Action::NewTrackBeside { track, below: true }),
             ));
         }
         items.push(MenuItem::entry(
