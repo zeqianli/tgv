@@ -389,6 +389,15 @@ pub struct ResolvedMainLayout {
     pub track_registry: Arc<TrackRegistry>,
 }
 
+/// Where dropped files go: a position in the display order, and the gap that shows it.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct DropTarget {
+    /// The position in the display order. 0 is above the first file track.
+    pub position: usize,
+    /// The y position of the gap between the tracks around the position.
+    pub y: f32,
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum HoveringAreaType {
     /// A sidebar section, by index into `sidebar_sections`.
@@ -424,6 +433,49 @@ impl ResolvedMainLayout {
         self.areas
             .iter()
             .find_map(|(area, rect)| (*area == area_type).then_some(*rect))
+    }
+
+    /// The gap nearest to `y` between the file tracks in `track_order`. Above a track's middle,
+    /// files go above it; below, they go below it. Without file tracks, they go below the ruler.
+    pub fn drop_target(&self, y: f32, track_order: &[TrackId]) -> DropTarget {
+        // Each track's top and bottom, over all of its areas, such as an alignment's coverage
+        // and reads.
+        let spans = track_order
+            .iter()
+            .filter_map(|&id| {
+                self.areas
+                    .iter()
+                    .filter(|(area, _)| {
+                        matches!(
+                            area,
+                            AreaType::Coverage(track)
+                                | AreaType::Alignment(track)
+                                | AreaType::Variant(track)
+                                | AreaType::Bed(track)
+                                if *track == id
+                        )
+                    })
+                    .map(|(_, rect)| (rect.y, rect.bottom()))
+                    .reduce(|(top, bottom), (y, end)| (top.min(y), bottom.max(end)))
+            })
+            .collect::<Vec<_>>();
+        let Some(&(first_top, _)) = spans.first() else {
+            let y = self
+                .area(AreaType::Coordinate)
+                .map_or(self.main_area.y, |ruler| ruler.bottom());
+            return DropTarget { position: 0, y };
+        };
+        let position = spans
+            .iter()
+            .position(|(top, bottom)| y < (top + bottom) / 2.0)
+            .unwrap_or(spans.len());
+        let y = match position {
+            0 => first_top,
+            position if position == spans.len() => spans[position - 1].1,
+            // Between two tracks, the gap is the middle of any divider between them.
+            position => (spans[position - 1].1 + spans[position].0) / 2.0,
+        };
+        DropTarget { position, y }
     }
 
     /// The width of the track area, in pixels, as the viewer measures it.

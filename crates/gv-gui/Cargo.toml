@@ -21,3 +21,22 @@ log.workspace = true
 polars.workspace = true
 shellexpand.workspace = true
 tokio.workspace = true
+
+# gpui 0.2.2 doesn't deliver trackpad pinches, so the window reads them from AppKit.
+[target.'cfg(target_os = "macos")'.dependencies]
+block.workspace = true
+objc.workspace = true
+
+[[bench]]
+name = "render_bench"
+path = "bench/render_bench.rs"
+# A headless timing binary that takes its own arguments instead of using libtest.
+harness = false
+
+[dev-dependencies]
+# The bench drives the window headlessly through gpui's test platform.
+gpui = { workspace = true, features = ["test-support"] }
+
+[lints.rust]
+# objc 0.2's `msg_send!` checks a `cargo-clippy` feature, which newer Rust reports as unknown.
+unexpected_cfgs = { level = "warn", check-cfg = ['cfg(feature, values("cargo-clippy"))'] }

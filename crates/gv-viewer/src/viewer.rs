@@ -66,6 +66,14 @@ pub enum Effect {
     SceneChanged,
 }
 
+/// Files to open after the next frame, and where their tracks go.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PendingOpen {
+    pub paths: Vec<String>,
+    /// The position in the display order. `None` adds the tracks after the others.
+    pub position: Option<usize>,
+}
+
 pub struct Viewer<Z: Scale> {
     pub exit: bool,
     /// Which front end shows the viewer, as agents see it.
@@ -100,9 +108,9 @@ pub struct Viewer<Z: Scale> {
     /// so the next one joins its undo step.
     edit_typing: bool,
     pub highlights: Vec<Highlight>,
-    /// Files from `:e` or a paste. They open after the next frame, which shows that they are
-    /// opening.
-    pub pending_open: Option<Vec<String>>,
+    /// Files from `:e`, a paste, or a drop. They open after the next frame, which shows that
+    /// they are opening.
+    pub pending_open: Option<PendingOpen>,
 
     /// Sends requests to this viewer, for agents and tests.
     pub session: SessionHandle,
@@ -686,13 +694,19 @@ impl<Z: Scale> Viewer<Z> {
                 }
 
                 Action::Core(gv_core::message::Message::OpenFiles(paths)) => {
-                    let names = paths
-                        .iter()
-                        .map(|path| file_name(path))
-                        .collect::<Vec<_>>()
-                        .join(", ");
-                    messages.push(format!("Opening {names}…"));
-                    self.pending_open = Some(paths);
+                    messages.push(opening_message(&paths));
+                    self.pending_open = Some(PendingOpen {
+                        paths,
+                        position: None,
+                    });
+                }
+
+                Action::OpenFilesAt { paths, position } => {
+                    messages.push(opening_message(&paths));
+                    self.pending_open = Some(PendingOpen {
+                        paths,
+                        position: Some(position),
+                    });
                 }
 
                 Action::RemoveTrack { track, force } => {
@@ -1456,7 +1470,7 @@ impl<Z: Scale> Viewer<Z> {
     /// Opens the files in `pending_open` and returns the areas to redraw. An error opening them
     /// becomes the status message, and the tracks stay as they were.
     pub async fn open_pending(&mut self) -> Result<Vec<RenderEvent>, TGVError> {
-        let Some(paths) = self.pending_open.take() else {
+        let Some(PendingOpen { paths, position }) = self.pending_open.take() else {
             return Ok(Vec::new());
         };
         let ids = match self.dataset.add_files(&paths).await {
@@ -1467,7 +1481,12 @@ impl<Z: Scale> Viewer<Z> {
                 return Ok(vec![RenderEvent::Area(AreaType::Error)]);
             }
         };
-        log::info!("Opened tracks: ids={ids:?} paths={paths:?}");
+        log::info!("Opened tracks: ids={ids:?} paths={paths:?} position={position:?}");
+        if let Some(position) = position {
+            let position = position.min(self.track_order.len());
+            self.track_order
+                .splice(position..position, ids.iter().copied());
+        }
         self.viewport
             .y
             .resize(self.dataset.view.alignments.len(), 0);
@@ -1558,6 +1577,16 @@ impl<Z: Scale> Viewer<Z> {
         );
         Ok(())
     }
+}
+
+/// Says which files are opening, such as "Opening a.bam, b.bed…".
+fn opening_message(paths: &[String]) -> String {
+    let names = paths
+        .iter()
+        .map(|path| file_name(path))
+        .collect::<Vec<_>>()
+        .join(", ");
+    format!("Opening {names}…")
 }
 
 /// Joins names with commas and "and", using the Oxford comma.

@@ -11,6 +11,7 @@ pub mod layout;
 pub mod menu;
 pub mod message;
 pub mod mouse;
+pub mod pinch;
 pub mod rendering;
 pub mod settings;
 pub mod worker;

@@ -45,7 +45,7 @@ impl FromRow<'_, SqliteRow> for UcscGeneRow {
             txEnd: txEnd as u64,
             cdsStart: cdsStart as u64,
             cdsEnd: cdsEnd as u64,
-            name2: row.try_get("name2")?,
+            name2: optional_column(row, "name2")?,
             exonStarts: row.try_get("exonStarts")?,
             exonEnds: row.try_get("exonEnds")?,
             has_exons: true,
@@ -63,11 +63,24 @@ impl FromRow<'_, MySqlRow> for UcscGeneRow {
             txEnd: row.try_get("txEnd")?,
             cdsStart: row.try_get("cdsStart")?,
             cdsEnd: row.try_get("cdsEnd")?,
-            name2: row.try_get("name2")?,
+            name2: optional_column(row, "name2")?,
             exonStarts: row.try_get("exonStarts")?,
             exonEnds: row.try_get("exonEnds")?,
             has_exons: true,
         })
+    }
+}
+
+/// A column that some gene tables leave out, such as `name2` in basic gene tables.
+fn optional_column<'r, R, T>(row: &'r R, column: &'static str) -> sqlx::Result<Option<T>>
+where
+    R: Row,
+    &'static str: sqlx::ColumnIndex<R>,
+    Option<T>: sqlx::Decode<'r, R::Database> + sqlx::Type<R::Database>,
+{
+    match row.try_get(column) {
+        Err(sqlx::Error::ColumnNotFound(_)) => Ok(None),
+        result => result,
     }
 }
 
@@ -118,10 +131,17 @@ impl GeneTable {
                 || row.cdsStart < row.txStart
                 || row.cdsEnd > row.txEnd
             {
-                return Err(TGVError::ValueError(format!(
-                    "Invalid UCSC bounds or contig for gene {}.",
+                // One invalid row shouldn't hide every gene in the region.
+                log::warn!(
+                    "Skipping a gene with invalid bounds: name={} chrom={} tx=[{}, {}) cds=[{}, {})",
                     row.name,
-                )));
+                    row.chrom,
+                    row.txStart,
+                    row.txEnd,
+                    row.cdsStart,
+                    row.cdsEnd,
+                );
+                continue;
             }
             let raw_starts = UcscGeneRow::parse_blob_to_coords(&row.exonStarts)?;
             let raw_ends = UcscGeneRow::parse_blob_to_coords(&row.exonEnds)?;

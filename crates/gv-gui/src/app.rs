@@ -8,22 +8,23 @@
 
 use crate::{
     keys::key_from_keystroke,
-    layout::{MainLayout, PixelView, Rect, ResolvedMainLayout},
+    layout::{DropTarget, MainLayout, PixelView, Rect, ResolvedMainLayout},
     menu::ContextMenu,
     message::GuiAction,
     mouse::{MouseButton, MouseRegister, zoom_step},
+    pinch::{Pinch, PinchMonitor},
     rendering::{
-        self, Painter, Status, TrackFocus,
+        self, DropGap, Painter, Status, TrackFocus,
         colors::{Palette, ToHsla},
     },
     worker::{Frame, WorkerEvent, WorkerHandle, WorkerMessage},
 };
 use gpui::{
-    Context, ExternalPaths, FocusHandle, InteractiveElement, IntoElement, KeyDownEvent,
-    MouseDownEvent, MouseMoveEvent, MouseUpEvent, ParentElement, PathPromptOptions, Render,
-    ScrollWheelEvent, Styled, Window, canvas, div, px,
+    App as GpuiApp, Context, DragMoveEvent, ExternalPaths, FocusHandle, InteractiveElement,
+    IntoElement, KeyDownEvent, MouseDownEvent, MouseMoveEvent, MouseUpEvent, ParentElement,
+    PathPromptOptions, Render, ScrollWheelEvent, Styled, Window, canvas, div, px,
 };
-use gv_core::message::{Message, Movement, Zoom};
+use gv_core::message::{BasesPerUnit, Message, Movement, Zoom};
 use gv_viewer::{
     message::{Action, UiAction, UpdateLayoutAction},
     popup::TextPopup,
@@ -35,10 +36,28 @@ use std::{
     sync::Arc,
     time::{Duration, Instant},
 };
-use tokio::sync::mpsc::UnboundedReceiver;
+use tokio::sync::mpsc::{UnboundedReceiver, unbounded_channel};
 
 /// How long the window waits for the worker before it says that it is loading.
 const LOADING_NOTICE_DELAY: Duration = Duration::from_millis(150);
+
+/// How long the drop indicator takes to fade in.
+const DROP_FADE_IN: Duration = Duration::from_millis(120);
+
+/// How quickly the drop indicator slides to a new gap: it covers about two thirds of the way
+/// in this time.
+const DROP_SLIDE: Duration = Duration::from_millis(45);
+
+/// The gap where dragged files will go, drawn while files are dragged over the window. It
+/// fades in, and slides from gap to gap as the pointer moves.
+struct DropIndicator {
+    target: DropTarget,
+    /// The y position drawn, which moves toward the target's.
+    y: f32,
+    appeared: Instant,
+    /// When the indicator was last drawn, for the slide.
+    drawn: Instant,
+}
 
 pub struct App {
     worker: WorkerHandle,
@@ -67,6 +86,10 @@ pub struct App {
     /// The track width the worker was told.
     width_sent: f64,
     pub focus_handle: FocusHandle,
+    /// Forwards trackpad pinches while the window lives.
+    _pinch_monitor: PinchMonitor,
+    /// Where dragged files will go, while files are dragged over the window.
+    drop_indicator: Option<DropIndicator>,
 }
 
 impl App {
@@ -79,6 +102,18 @@ impl App {
         cx.spawn(async move |this, cx| {
             while let Some(event) = events.recv().await {
                 if this.update(cx, |app, cx| app.receive(event, cx)).is_err() {
+                    break;
+                }
+            }
+        })
+        .detach();
+        let (pinches, mut pinch_steps) = unbounded_channel();
+        cx.spawn(async move |this, cx| {
+            while let Some(Pinch { factor, x }) = pinch_steps.recv().await {
+                if this
+                    .update(cx, |app, cx| app.on_pinch(factor, x, cx))
+                    .is_err()
+                {
                     break;
                 }
             }
@@ -100,6 +135,8 @@ impl App {
             waiting_since: None,
             width_sent: 0.0,
             focus_handle: cx.focus_handle(),
+            _pinch_monitor: PinchMonitor::install(pinches),
+            drop_indicator: None,
         }
     }
 
@@ -219,7 +256,8 @@ impl App {
     }
 
     /// Predicts a zoom around an x position, and sends the viewer the zoom and the move that
-    /// keeps the base under the pointer in place.
+    /// keeps the base under the pointer in place. The pointer stays on the same point of that
+    /// base: what doesn't add up to a whole base is kept as the pixel offset.
     fn zoom_around(&mut self, factor: f64, x: f32, batch: &mut Vec<Action>) {
         let (Some(frame), Some(resolved), Some(view)) = (
             self.frame.clone(),
@@ -232,30 +270,42 @@ impl App {
         let width = resolved.track_width();
         let mut viewport = view.viewport;
         let before = viewport.zoom.bases_per_pixel;
-        let bases = ((width * before / factor).round() as u64).max(1);
+        // Positions in continuous bases, where base `b` spans `[b, b + 1)`.
+        let pointer = f64::from(x - (area.x + area.width / 2.0));
+        let center = viewport.focus.position as f64 + 0.5 - f64::from(self.offset) * before;
+        let anchor = center + pointer * before;
+
         let contig_length = frame.state.contig_length(&viewport.focus).ok().flatten();
-        let zoom = Zoom::Fit { bases };
+        let zoom = Zoom::Set(BasesPerUnit(before / factor));
         if viewport.zoom(zoom.clone(), width, contig_length).is_err() {
             return;
         }
         let after = viewport.zoom.bases_per_pixel;
-        let pointer = f64::from(x - (area.x + area.width / 2.0 + self.offset));
-        let shift = (pointer * (before - after)).round() as i64;
+        // The zoom stopped at a limit, so nothing moves.
+        if after == before {
+            return;
+        }
         batch.push(Action::Core(zoom.into()));
-        self.offset = 0.0;
+
+        let new_center = anchor - pointer * after;
+        let focus = (new_center - 0.5).round().max(1.0) as u64;
+        let shift = focus as i64 - viewport.focus.position as i64;
         if shift != 0 {
             let movement = if shift > 0 {
                 Movement::Right(shift as u64)
             } else {
                 Movement::Left(shift.unsigned_abs())
             };
-            viewport.focus = match movement {
-                Movement::Right(n) => viewport.focus.move_right(n),
-                _ => viewport.focus.move_left(shift.unsigned_abs()),
-            };
-            viewport.self_correct(width, contig_length);
+            viewport.focus = viewport.focus.clone().move_to(focus);
             batch.push(movement.into());
         }
+        viewport.self_correct(width, contig_length);
+        self.offset = if viewport.focus.position == focus {
+            ((focus as f64 + 0.5 - new_center) / after) as f32
+        } else {
+            // The view stopped at the contig's edge.
+            0.0
+        };
         self.preview = Some(viewport);
     }
 
@@ -439,7 +489,8 @@ impl App {
 
     fn on_mouse_move(&mut self, event: &MouseMoveEvent, cx: &mut Context<Self>) {
         let (x, y) = (f32::from(event.position.x), f32::from(event.position.y));
-        if self.popup.is_some() {
+        // While files are dragged over the window, the pointer only aims the drop.
+        if self.popup.is_some() || cx.has_active_drag() {
             return;
         }
         if let Some(menu) = &mut self.context_menu {
@@ -496,13 +547,99 @@ impl App {
         self.handle(actions, cx);
     }
 
+    /// Zooms around the pointer for each step of a trackpad pinch.
+    fn on_pinch(&mut self, factor: f64, x: f32, cx: &mut Context<Self>) {
+        if self.popup.is_some()
+            || self.context_menu.is_some()
+            || self
+                .frame
+                .as_ref()
+                .is_none_or(|frame| frame.scene != Scene::Main)
+        {
+            return;
+        }
+        self.handle(vec![GuiAction::ZoomAround { factor, x }], cx);
+    }
+
+    /// Shows where dragged files will go, as the pointer moves over the window.
+    fn on_file_drag(&mut self, y: f32, cx: &mut Context<Self>) {
+        let (Some(frame), Some(resolved)) = (&self.frame, &self.resolved_layout) else {
+            return;
+        };
+        let target = resolved.drop_target(y, &frame.track_order);
+        match &mut self.drop_indicator {
+            Some(indicator) => {
+                if indicator.target == target {
+                    return;
+                }
+                indicator.target = target;
+            }
+            None => {
+                let now = Instant::now();
+                self.drop_indicator = Some(DropIndicator {
+                    target,
+                    y: target.y,
+                    appeared: now,
+                    drawn: now,
+                });
+            }
+        }
+        cx.notify();
+    }
+
     fn on_drop(&mut self, paths: &ExternalPaths, cx: &mut Context<Self>) {
-        let paths = paths
+        let paths: Vec<String> = paths
             .paths()
             .iter()
             .map(|path| path.to_string_lossy().into_owned())
             .collect();
-        self.handle(vec![Action::Core(Message::OpenFiles(paths)).into()], cx);
+        if paths.is_empty() {
+            self.drop_indicator = None;
+            return;
+        }
+        let action = match self.drop_indicator.take() {
+            Some(indicator) => Action::OpenFilesAt {
+                paths,
+                position: indicator.target.position,
+            },
+            None => Action::Core(Message::OpenFiles(paths)),
+        };
+        self.handle(vec![action.into()], cx);
+    }
+
+    /// Moves the drop indicator toward its gap, and returns where to draw it and how opaque.
+    /// Asks for another frame while it still moves or fades in.
+    fn animate_drop_indicator(&mut self, window: &mut Window, cx: &GpuiApp) -> Option<DropGap> {
+        if !cx.has_active_drag() {
+            // The files left the window, or were dropped.
+            self.drop_indicator = None;
+        }
+        let indicator = self.drop_indicator.as_mut()?;
+        let now = Instant::now();
+        let elapsed = now.duration_since(indicator.drawn).as_secs_f32();
+        indicator.drawn = now;
+        let follow = 1.0 - (-elapsed / DROP_SLIDE.as_secs_f32()).exp();
+        indicator.y += (indicator.target.y - indicator.y) * follow;
+        if (indicator.target.y - indicator.y).abs() < 0.5 {
+            indicator.y = indicator.target.y;
+        }
+        let alpha = (now.duration_since(indicator.appeared).as_secs_f32()
+            / DROP_FADE_IN.as_secs_f32())
+        .min(1.0);
+        if indicator.y != indicator.target.y || alpha < 1.0 {
+            window.request_animation_frame();
+        }
+        Some(DropGap {
+            y: indicator.y,
+            alpha,
+        })
+    }
+
+    /// Whether the latest frame covers every message sent to the worker.
+    pub fn caught_up(&self) -> bool {
+        self.frame
+            .as_ref()
+            .is_some_and(|frame| frame.revision >= self.worker.sent)
     }
 
     /// Asks the viewer to quit. It refuses while tracks have unsaved changes, and says so.
@@ -539,6 +676,7 @@ impl Render for App {
             }
         }
 
+        let drop_gap = self.animate_drop_indicator(window, cx);
         let waiting = self
             .waiting_since
             .is_some_and(|since| since.elapsed() >= LOADING_NOTICE_DELAY);
@@ -591,6 +729,11 @@ impl Render for App {
             .on_scroll_wheel(
                 cx.listener(|app, event: &ScrollWheelEvent, _, cx| app.on_scroll_wheel(event, cx)),
             )
+            .on_drag_move(
+                cx.listener(|app, event: &DragMoveEvent<ExternalPaths>, _, cx| {
+                    app.on_file_drag(f32::from(event.event.position.y), cx)
+                }),
+            )
             .on_drop(cx.listener(|app, paths: &ExternalPaths, _, cx| app.on_drop(paths, cx)))
             .child(
                 canvas(
@@ -636,6 +779,7 @@ impl Render for App {
                                     hover: hover.as_deref(),
                                     waiting,
                                 },
+                                drop_gap,
                                 &palette,
                             ),
                         };

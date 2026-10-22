@@ -200,6 +200,13 @@ pub struct Status<'a> {
     pub waiting: bool,
 }
 
+/// The gap that dragged files go into: where to draw it, and how opaque, from 0 to 1.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct DropGap {
+    pub y: f32,
+    pub alpha: f32,
+}
+
 /// Render all areas in the layout
 #[allow(clippy::too_many_arguments)]
 pub fn render_main(
@@ -212,6 +219,7 @@ pub fn render_main(
     context_menu: Option<&ContextMenu>,
     popup: Option<&TextPopup>,
     status: &Status,
+    drop_gap: Option<DropGap>,
     palette: &Palette,
 ) -> Result<(), TGVError> {
     painter.fill(layout.window, palette.background.hsla());
@@ -240,6 +248,9 @@ pub fn render_main(
         result?;
     }
     render_highlights(painter, layout, view, &frame.highlights, palette);
+    if let Some(gap) = drop_gap {
+        render_drop_gap(painter, layout, gap, palette);
+    }
 
     // The menu and the popup go over everything else.
     if let Some(menu) = context_menu {
@@ -366,6 +377,41 @@ fn render_area(
         AreaType::Fill => {}
     }
     Ok(())
+}
+
+/// Marks the gap that dragged files go into: a line across the window, with a soft glow and a
+/// note.
+fn render_drop_gap(
+    painter: &mut Painter,
+    layout: &ResolvedMainLayout,
+    gap: DropGap,
+    palette: &Palette,
+) {
+    let window = layout.window;
+    let color = palette.DROP_TARGET;
+    painter.fill(
+        Rect::new(window.x, gap.y - 6.0, window.width, 12.0),
+        color.alpha(0.18 * gap.alpha),
+    );
+    painter.fill(
+        Rect::new(window.x, gap.y - 1.5, window.width, 3.0),
+        color.alpha(gap.alpha),
+    );
+    let note = "Drop to add tracks here";
+    let width = painter.text_width(note) + 2.0 * CHAR_WIDTH;
+    let note_area = Rect::new(
+        layout.main_area.x + 12.0,
+        gap.y - LINE_HEIGHT / 2.0 - 2.0,
+        width,
+        LINE_HEIGHT + 4.0,
+    );
+    painter.fill(note_area, color.alpha(gap.alpha));
+    painter.text(
+        note_area.x + CHAR_WIDTH,
+        note_area.y + 2.0,
+        note,
+        palette.SEQUENCE_FOREGROUND_COLOR,
+    );
 }
 
 /// Tints highlighted intervals on the focused contig across every track.

@@ -164,6 +164,8 @@ pub struct Palette {
     pub FOCUS_INSERT: Rgb,
     /// The insert mode line.
     pub MODE_INSERT: Rgb,
+    /// Where dropped files go, in the window.
+    pub DROP_TARGET: Rgb,
 
     // Gene track
     pub EXON_BACKGROUND_COLOR: Rgb,
@@ -348,6 +350,7 @@ pub const DARK_THEME: Palette = Palette {
     FOCUS_NORMAL: named::SLATE_800,
     FOCUS_INSERT: named::GREEN_900,
     MODE_INSERT: named::GREEN_400,
+    DROP_TARGET: named::SKY_300,
 
     // Gene track
     EXON_BACKGROUND_COLOR: named::BLUE_800,

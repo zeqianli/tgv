@@ -90,6 +90,7 @@ impl Scale for ColumnScale {
             // Bounded later by `clamp`.
             Zoom::Out(factor) => self.0.saturating_mul(factor),
             Zoom::Fit { bases } => bases.div_ceil((width as u64).max(1)).max(1),
+            Zoom::Set(bases) => return Ok(Self::from_bases_per_unit(bases.0)),
         }))
     }
 
@@ -186,6 +187,7 @@ impl Scale for PixelScale {
             Zoom::In(factor) => self.bases_per_pixel / factor as f64,
             Zoom::Out(factor) => self.bases_per_pixel * factor as f64,
             Zoom::Fit { bases } => bases as f64 / width.max(1.0),
+            Zoom::Set(bases) => bases.0,
         };
         Ok(Self {
             bases_per_pixel: bases_per_pixel.max(1.0 / Self::MAX_PIXELS_PER_BASE),

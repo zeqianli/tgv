@@ -68,8 +68,10 @@ The plan below held, with these changes:
 - **Insert mode zooms in further.** One `h` step is `PixelScale::KEY_STEP_PIXELS` (8) pixels,
   so insert mode keeps a base at least 8 pixels wide. A column is then one base, and the cursor
   is one base, as the decision below intends.
-- **No pinch.** gpui 0.2.2 has no pinch events, so the window zooms with Control or Command and
-  a vertical scroll, a double click, `⌘=` and `⌘-`, and `z` and `o`.
+- **Pinch through AppKit.** gpui 0.2.2 has no pinch events, so `gv-gui/src/pinch.rs` installs
+  a local AppKit event monitor for magnify events and forwards each step to the window. Pinches
+  and Control or Command with a vertical scroll zoom continuously around the pointer, with
+  `Zoom::Set`, which carries an exact number of bases per screen unit.
 - **More shared preparation.** `gv_viewer::prepare` holds `alignment` (the `AlignmentScene` of
   bodies, clips, deletions, arrows, insertions, mismatches, and modifications), `track` (genes
   and their segments), `coverage`, `coordinate`, `sidebar`, and `hover` (the message line's

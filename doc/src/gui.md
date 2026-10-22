@@ -42,11 +42,12 @@ Command shortcuts:
 | Drag | Pan. Over an alignment, a vertical drag also scrolls its reads. |
 | Horizontal scroll | Pan. |
 | Vertical scroll | Scroll the reads of the alignment under the pointer. |
+| Pinch | Zoom around the pointer. |
 | `Ctrl` or `⌘` with a vertical scroll | Zoom around the pointer. |
 | Double click | Zoom in around the point. |
 | Click | Focus a track. A click on a read shows its record, and a click on the cytoband jumps there. |
 | Right click | Open the track's menu. |
-| Drop files | Open them. |
+| Drop files | Open them where the highlighted gap shows: above or below the track under the pointer. |
 
 Hovering describes the read, base, gene, variant, or feature under the pointer in the message
 line.

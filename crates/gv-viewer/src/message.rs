@@ -99,6 +99,13 @@ pub enum Action {
         anchor: Anchor,
     },
 
+    /// Adds file tracks from these paths at a position in the display order, as a drop between
+    /// two tracks does. Position 0 is above the first track.
+    OpenFilesAt {
+        paths: Vec<String>,
+        position: usize,
+    },
+
     /// Removes a file track from the dataset and the layout. Without `force`, a track with
     /// unsaved changes stays.
     RemoveTrack {

@@ -8,6 +8,8 @@ resolver = "3"
 async-compat = "0"
 async-compression = { version = "0.4", features = ["gzip", "tokio"] }
 async-trait = "0"
+# Objective-C blocks, for the GUI's macOS event monitor. The version gpui uses.
+block = "0.1"
 bigtools = { version = "0", default-features = false, features = ["read"] }
 chrono = { version = "0", features = ["clock"] }
 clap = { version = "4", features = ["derive"] }
@@ -19,6 +21,8 @@ futures = "0"
 gpui = { version = "0.2.2", features = ["runtime_shaders"] }
 itertools = "0.13"
 log = { version = "0.4", features = ["std"] }
+# Objective-C messages, for the GUI's macOS event monitor. The version gpui uses.
+objc = "0.2"
 noodles = { version = "0", features = ["async", "bam", "bcf", "bed", "bgzf", "core", "cram", "csi", "fasta", "sam", "tabix", "vcf"] }
 opendal = { version = "0.53", default-features = false, features = ["services-s3"] }
 # Polars 0.55 string expressions also require its temporal support. Crates that run SQL add
