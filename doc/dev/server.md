@@ -37,7 +37,7 @@ Validation and dataset failures are MCP tool results with `isError: true`. The t
 
 | Code | Meaning | `field` |
 |------|---------|---------|
-| `invalid_input` | The request is well-formed but invalid for the current dataset. | The offending request field, such as `tracks` or `center.contig`. |
+| `invalid_input` | The request is well-formed but invalid for the current dataset. | The offending request field, such as `tracks` or `region`. |
 | `no_dataset` | `inspect_interval` or `query` is called before `load_dataset`. | `null` |
 | `no_viewer` | A viewer tool is called while no TGV viewer is running. | `null` |
 | `dataset_fixed` | `load_dataset` is called while connected to a viewer. | `null` |

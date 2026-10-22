@@ -1,6 +1,6 @@
 # BED display: lanes for overlapping features
 
-Status: the next feature to implement, after BED editing (`bed-editing.md`).
+Status: proposed, not implemented. BED editing, which this builds on, is implemented.
 
 ## Context
 

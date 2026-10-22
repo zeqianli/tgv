@@ -411,7 +411,7 @@ Every track draws from `Frame` and `Viewport<PixelScale>`. Below, bpp means base
   - In the GUI, insert mode keeps the zoom at 1 base per pixel or closer (see the decisions
     section), so the cursor is always the single base under the center line.
 - **`ColumnSpan` is still counted in columns.** `Viewer::edit_columns` converts it through the
-  scale, so the paint rules from `bed-editing.md` stay in one place.
+  scale, so the paint rules in `crates/gv-core/src/bed/edit.rs` stay in one place.
 
 ## Agents
 
