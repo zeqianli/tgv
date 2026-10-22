@@ -1,0 +1,19 @@
+[package]
+name = "gv-hgvs"
+version = "0.4.0"
+edition = "2024"
+description = "HGVS search and variant annotation for the terminal genome viewer."
+license = "MIT"
+repository = "https://github.com/zeqianli/tgv"
+homepage = "https://github.com/zeqianli/tgv"
+
+[dependencies]
+ferro-hgvs.workspace = true
+gv-core.workspace = true
+log.workspace = true
+lru.workspace = true
+thiserror.workspace = true
+tokio.workspace = true
+
+[dev-dependencies]
+rstest = "0.25.0"

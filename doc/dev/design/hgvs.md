@@ -1,6 +1,38 @@
 # HGVS support
 
-Status: proposed.
+Status: the core is implemented in `crates/gv-hgvs` and `tgv download`. The TUI and GUI
+integration (search, the variant popup, and hover hints) is not started.
+
+## Implementation notes
+
+These notes record where the implementation differs from the design below, and what testing on
+real hg38 data showed.
+
+- **Layout:** the genome build module is `assembly.rs`, not `build.rs`, to avoid confusion with
+  Cargo build scripts. The contig tables are Rust constants rather than CSV resources. The GRCh38
+  table matches the accessions in the prepared genome's `.fai`. The GRCh37 table is untested.
+- **Coordinate mapping:** `c.` and `p.` positions map with ferro's `CoordinateMapper`, which
+  already handles `c.-n`, `c.*n`, and intronic offsets.
+- **Transcript expressions:** ferro projects a transcript description to the genome only under a
+  chromosome parent, so `NM_004985.5:c.35G>A` resolves as `NC_000012.12(NM_004985.5):c.35G>A`.
+  Transcript descriptions in annotations keep that parent form, for example
+  `NC_000012.12(NM_004985.5):c.35G>A`.
+- **Search to navigation:** `GenomicSpan::messages` turns a resolved search into the same
+  `Movement::ContigNamePosition` and `Zoom::Fit` messages that a region search produces.
+- **Gene symbols:** `HgvsQuery::resolve` takes the gene's transcript from the caller, who looks it
+  up in the gene track.
+- **Errors:** `TGVError::Hgvs` boxes `HgvsError`, so `tgv download` reports HGVS errors through
+  the existing error type.
+- **Download:** the `tgv download hg38` step is about 6 GB on disk, because ferro keeps the `.gz`
+  files next to the decompressed ones. It takes a few minutes, and a re-run finishes in seconds.
+- **Load cost:** `Engine::load` takes about 2 seconds, and the process uses about 2.2 GB of
+  resident memory. The cdot models are held twice, once by the projector and once by the
+  position mapper, because `VariantProjector` doesn't expose its mapper.
+- **Request speed:** positions resolve in microseconds. Annotating on one transcript takes about
+  50 ms when uncached, annotating on all overlapping transcripts about 120 ms, and a cached
+  annotation about 2 µs.
+- **Pending for integration:** ferro's loaders print to standard error, so the TUI must redirect
+  file descriptor 2 before spawning `HgvsService`.
 
 ## Goals
 

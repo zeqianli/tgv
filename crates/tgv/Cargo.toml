@@ -16,6 +16,7 @@ clap.workspace = true
 crossterm = { workspace = true, features = ["event-stream"] }
 futures.workspace = true
 gv-core.workspace = true
+gv-hgvs.workspace = true
 gv-mcp.workspace = true
 gv-session.workspace = true
 gv-viewer.workspace = true

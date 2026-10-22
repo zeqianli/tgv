@@ -137,4 +137,8 @@ pub enum TGVError {
         loaded_left: u64,
         loaded_right: u64,
     },
+
+    /// An error from `gv-hgvs`, which depends on this crate, so the source is boxed.
+    #[error("{0}")]
+    Hgvs(#[source] Box<dyn std::error::Error + Send + Sync>),
 }

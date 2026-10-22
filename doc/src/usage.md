@@ -41,6 +41,9 @@ Subcommands:
 
 - `tgv list` lists common reference genome names. `tgv list --all` lists all UCSC assemblies.
 - `tgv download <reference>` downloads reference data to the cache, for use with `--offline`.
+  For hg38 and hg19, it also downloads the HGVS data (RefSeq transcripts, transcript models, and
+  a genome FASTA, about 6 GB) to `~/.tgv/<reference>/hgvs/`. `--no-hgvs` skips it. An interrupted
+  download resumes where it stopped.
 - `tgv mcp` (or `tgv serve`) runs the [local MCP server](./server.md).
 
 Each run writes a log file to `~/.tgv/<timestamp>.log`.

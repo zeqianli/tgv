@@ -1,5 +1,5 @@
 [workspace]
-members = ["crates/gv-core", "crates/gv-mcp", "crates/gv-session", "crates/gv-gui", "crates/gv-viewer", "crates/tgv"]
+members = ["crates/gv-core", "crates/gv-mcp", "crates/gv-session", "crates/gv-gui", "crates/gv-hgvs", "crates/gv-viewer", "crates/tgv"]
 resolver = "3"
 
 [workspace.dependencies]
@@ -16,10 +16,15 @@ clap = { version = "4", features = ["derive"] }
 # Match the versions ratatui uses, so the TUI shares one copy of each.
 crossterm = "0.28"
 futures = "0"
+# HGVS parsing, projection, and reference preparation. The default features are already minimal;
+# `protein-fetch` stays off so the viewer never fetches proteins over the network at runtime.
+ferro-hgvs = { version = "1", default-features = false }
 # The GUI's UI framework. Only `gv-gui` depends on it, so the `tgv` binary stays free of it.
 # Metal shaders compile when the app starts, so building doesn't need Xcode's Metal toolchain.
 gpui = { version = "0.2.2", features = ["runtime_shaders"] }
 itertools = "0.13"
+# Bounded caches, such as HGVS annotations for hovered variants.
+lru = "0.12"
 log = { version = "0.4", features = ["std"] }
 # Objective-C messages, for the GUI's macOS event monitor. The version gpui uses.
 objc = "0.2"
@@ -49,6 +54,7 @@ unicode-width = "0.2"
 # local crates
 
 gv-core = { path = "crates/gv-core", version = "=0.4.0" }
+gv-hgvs = { path = "crates/gv-hgvs", version = "=0.4.0" }
 gv-mcp = { path = "crates/gv-mcp", version = "=0.4.0" }
 gv-session = { path = "crates/gv-session", version = "=0.4.0" }
 gv-viewer = { path = "crates/gv-viewer", version = "=0.4.0" }
@@ -61,6 +67,19 @@ debug = "line-tables-only"
 [profile.dev.package."*"]
 # Dependencies don't need debug info for stepping through TGV code.
 debug = false
+
+# Preparing and loading HGVS data decompresses and parses gigabytes of FASTA and JSON, which takes
+# hours unoptimized. Optimizing these dependencies keeps debug builds and tests usable.
+[profile.dev.package.ferro-hgvs]
+opt-level = 3
+[profile.dev.package.flate2]
+opt-level = 3
+[profile.dev.package.miniz_oxide]
+opt-level = 3
+[profile.dev.package.serde_json]
+opt-level = 3
+[profile.dev.package.rkyv]
+opt-level = 3
 
 [profile.release] # as recommended in https://github.com/ratatui/ratatui-website/pull/931/files
 codegen-units = 1 # Allows compiler to perform better optimization.

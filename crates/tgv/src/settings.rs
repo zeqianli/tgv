@@ -50,6 +50,11 @@ pub enum Commands {
         /// Select the UCSC download source.
         #[arg(long, value_enum, default_value_t)]
         source: UCSCDownloadSourceCli,
+
+        /// Skip the HGVS data. For hg38 and hg19, tgv also downloads RefSeq transcripts, transcript
+        /// models, and a genome FASTA (about 6 GB) for HGVS search and annotation.
+        #[arg(long)]
+        no_hgvs: bool,
     },
 
     /// List reference genomes.

@@ -9,6 +9,7 @@ use crossterm::{
 use gv_core::logging::{init_file_logging_with_level, timestamped_log_file_name};
 use gv_core::prelude::*;
 use gv_core::tracks::{UCSCDownloader, UcscDbTrackService};
+use gv_hgvs::{HgvsBuild, HgvsDataDir};
 use gv_session::SessionSocket;
 use gv_viewer::session::SessionFile;
 use std::{io::stdout, path::PathBuf};
@@ -36,15 +37,16 @@ async fn main() -> Result<(), TGVError> {
             reference,
             cache_dir,
             source,
+            no_hgvs,
         }) => {
             log::info!("Starting download for reference {reference}");
             let cache_dir = shellexpand::tilde(&cache_dir).to_string();
-            let downloader = UCSCDownloader::new(
-                reference.parse::<Reference>()?,
-                &cache_dir,
-                (*source).into(),
-            )?;
+            let reference = reference.parse::<Reference>()?;
+            let downloader = UCSCDownloader::new(reference.clone(), &cache_dir, (*source).into())?;
             downloader.download().await?;
+            if !*no_hgvs {
+                download_hgvs(&reference, &cache_dir).await?;
+            }
             return Ok(());
         }
         Some(Commands::List { all }) => {
@@ -142,6 +144,26 @@ async fn main() -> Result<(), TGVError> {
 }
 
 /// Pops the keyboard protocol flags that `main` pushed.
+/// Prepares the HGVS data for references that support it, and says so for the rest.
+async fn download_hgvs(reference: &Reference, cache_dir: &str) -> Result<(), TGVError> {
+    if HgvsBuild::from_reference(reference).is_none() {
+        println!("HGVS data is only available for hg38 and hg19, so tgv skips it for {reference}.");
+        return Ok(());
+    }
+    let data_dir = HgvsDataDir::new(reference, cache_dir)?;
+    println!(
+        "Downloading HGVS data to {} (about 6 GB). Skip it with --no-hgvs.",
+        data_dir.path.display()
+    );
+    log::info!("Preparing HGVS data in {}", data_dir.path.display());
+    let path = data_dir.path.clone();
+    tokio::task::spawn_blocking(move || gv_hgvs::prepare::prepare(&data_dir))
+        .await
+        .map_err(|e| TGVError::IOError(format!("The HGVS download task failed: {e}")))??;
+    println!("HGVS data is ready in {}.", path.display());
+    Ok(())
+}
+
 fn restore_keyboard(enhanced: bool) {
     if enhanced && let Err(err) = execute!(stdout(), PopKeyboardEnhancementFlags) {
         log::error!("Error restoring the keyboard protocol: {err}");
