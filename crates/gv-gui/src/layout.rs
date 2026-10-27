@@ -442,7 +442,8 @@ impl ResolvedMainLayout {
         // and reads.
         let spans = track_order
             .iter()
-            .filter_map(|&id| {
+            .enumerate()
+            .filter_map(|(index, &id)| {
                 self.areas
                     .iter()
                     .filter(|(area, _)| {
@@ -457,23 +458,24 @@ impl ResolvedMainLayout {
                     })
                     .map(|(_, rect)| (rect.y, rect.bottom()))
                     .reduce(|(top, bottom), (y, end)| (top.min(y), bottom.max(end)))
+                    .map(|(top, bottom)| (index, top, bottom))
             })
             .collect::<Vec<_>>();
-        let Some(&(first_top, _)) = spans.first() else {
+        let Some(&(first_index, first_top, _)) = spans.first() else {
             let y = self
                 .area(AreaType::Coordinate)
                 .map_or(self.main_area.y, |ruler| ruler.bottom());
             return DropTarget { position: 0, y };
         };
-        let position = spans
+        let gap = spans
             .iter()
-            .position(|(top, bottom)| y < (top + bottom) / 2.0)
+            .position(|(_, top, bottom)| y < (top + bottom) / 2.0)
             .unwrap_or(spans.len());
-        let y = match position {
-            0 => first_top,
-            position if position == spans.len() => spans[position - 1].1,
+        let (position, y) = match gap {
+            0 => (first_index, first_top),
+            gap if gap == spans.len() => (spans[gap - 1].0 + 1, spans[gap - 1].2),
             // Between two tracks, the gap is the middle of any divider between them.
-            position => (spans[position - 1].1 + spans[position].0) / 2.0,
+            gap => (spans[gap].0, (spans[gap - 1].2 + spans[gap].1) / 2.0),
         };
         DropTarget { position, y }
     }
