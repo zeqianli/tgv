@@ -13,16 +13,7 @@ tgv (Terminal Genome Viewer) is a fast genome viewer running directly in the ter
 
 ### Designed for human-agent collaboration.
 
-<table>
-  <tr>
-    <td width="50%" valign="top"><img width="100%" src="doc/assets/mismatch.png" alt="An agent describing a read mismatch in ASCII art"></td>
-    <td width="50%" valign="top"><img width="100%" src="doc/assets/agent-highlight.png" alt="An agent highlighting a poly-A run in tgv while explaining strand-biased mismatches"></td>
-  </tr>
-  <tr>
-    <td width="50%" valign="top">Before tgv: agents draw questionable ASCII art.</td>
-    <td width="50%" valign="top">After tgv: agents explain the analysis in an interactive session.</td>
-  </tr>
-</table>
+Agents can inspect the dataset and navigate the viewer while explaining their analysis.
 
 ### Mise-en-place so that your agents can cook.
 

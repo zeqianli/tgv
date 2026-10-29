@@ -12,7 +12,7 @@ use gv_core::prelude::*;
 use gv_session::{SessionSocket, ViewerKind};
 use gv_viewer::{
     keys::Key,
-    message::{FocusTarget, Highlight},
+    message::FocusTarget,
     register::Registers,
     settings::Settings,
     viewer::{Effect, Scene, Viewer},
@@ -55,7 +55,6 @@ pub struct Frame {
     pub focused: FocusTarget,
     pub focus_name: String,
     pub focus_modified: bool,
-    pub highlights: Vec<Highlight>,
     pub scene: Scene,
     /// What the window still has to do, in order, since the last frame.
     pub effects: Vec<Effect>,
@@ -90,7 +89,6 @@ impl Frame {
             focused: viewer.focused,
             focus_name: viewer.focus_name(),
             focus_modified: matches!(viewer.focused, FocusTarget::Track(id) if viewer.dataset.is_modified(id)),
-            highlights: viewer.highlights.clone(),
             scene: viewer.scene.clone(),
             effects,
             exit: viewer.exit,

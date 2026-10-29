@@ -1,6 +1,5 @@
 pub mod alignment;
 pub mod bed;
-pub mod command;
 pub mod contig_header;
 pub mod cytoband;
 pub mod error;

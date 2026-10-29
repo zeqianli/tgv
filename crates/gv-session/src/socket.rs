@@ -30,8 +30,6 @@ pub enum Call {
     Inspect(InspectRequest),
     Query(QueryRequest),
     Navigate(NavigateRequest),
-    Highlight(HighlightRequest),
-    ClearHighlights,
     ViewState,
     ViewerInfo,
 }
@@ -74,8 +72,6 @@ impl SessionHandle {
             Call::Inspect(request) => json(self.inspect(request).await?),
             Call::Query(request) => json(self.query(request).await?),
             Call::Navigate(request) => json(self.navigate(request).await?),
-            Call::Highlight(request) => json(self.highlight(request).await?),
-            Call::ClearHighlights => json(self.clear_highlights().await?),
             Call::ViewState => json(self.view_state().await?),
             Call::ViewerInfo => json(self.viewer_info().await?),
         }

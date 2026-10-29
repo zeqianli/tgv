@@ -10,6 +10,7 @@
 //! [`Action`]: message::Action
 
 pub mod colors;
+pub mod command;
 pub mod jumps;
 pub mod keys;
 pub mod layout;
@@ -22,3 +23,14 @@ pub mod session;
 pub mod settings;
 pub mod viewer;
 pub mod viewport;
+
+/// Common types for front ends that use the shared viewer.
+pub mod prelude {
+    pub use crate::{
+        layout::AreaType,
+        message::Action,
+        register::{KeyRegisterType, Registers},
+        viewer::{Effect, Scene, Viewer},
+        viewport::{ColumnScale, PixelScale, Scale, Viewport},
+    };
+}

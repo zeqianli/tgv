@@ -207,20 +207,6 @@ impl McpHandler {
     }
 
     #[tool(
-        description = "Mark 1-based inclusive intervals in the user's TGV viewer, with an optional label, replacing earlier highlights. Needs a running TGV viewer."
-    )]
-    async fn highlight(&self, Parameters(request): Parameters<HighlightRequest>) -> CallToolResult {
-        tool_result(self.call(Call::Highlight(request)).await)
-    }
-
-    #[tool(
-        description = "Remove all highlights from the user's TGV viewer. Needs a running TGV viewer."
-    )]
-    async fn clear_highlights(&self) -> CallToolResult {
-        tool_result(self.call(Call::ClearHighlights).await)
-    }
-
-    #[tool(
         description = "Report the region and zoom that the user's TGV viewer shows. Needs a running TGV viewer."
     )]
     async fn view_state(&self) -> CallToolResult {
@@ -230,7 +216,7 @@ impl McpHandler {
 
 #[tool_handler(
     name = "tgv",
-    instructions = "When the user has TGV open, tools use the dataset it displays, and navigate and highlight show results in it. Otherwise, load a dataset before inspecting or querying. File paths refer to the server's filesystem. If several TGV viewers are open, calls fail with viewer_ambiguous: choose the viewer from the question's context, such as a file, a locus, or the TUI or the GUI, ask the user when it is still unclear, and call attach."
+    instructions = "When the user has TGV open, tools use the dataset it displays, and navigate shows results in it. Otherwise, load a dataset before inspecting or querying. File paths refer to the server's filesystem. If several TGV viewers are open, calls fail with viewer_ambiguous: choose the viewer from the question's context, such as a file, a locus, or the TUI or the GUI, ask the user when it is still unclear, and call attach."
 )]
 impl ServerHandler for McpHandler {}
 

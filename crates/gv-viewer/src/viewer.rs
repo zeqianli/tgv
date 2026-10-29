@@ -1,21 +1,26 @@
 //! The viewer: the dataset a front end shows, and everything about how it is shown that doesn't
 //! depend on the screen.
 //!
-//! [`Viewer`] owns the [`Dataset`], the viewport, the focus, the modes, the jump history, and
-//! the agent highlights. It applies [`Action`]s from keys, the mouse, and agents, loads the
+//! [`Viewer`] owns the [`Dataset`], the viewport, the focus, the modes, and the jump history.
+//! It applies [`Action`]s from keys, the mouse, and agents, loads the
 //! data the viewport needs, and serves session requests. It also hosts the session, so agents
 //! reach it through its [`SessionHandle`].
 //!
 //! A front end tells the viewer how wide its track area is, in its own units, and applies the
 //! [`Effect`]s the viewer leaves for it, such as a layout change or a context menu to show.
 
+use crate::message::{
+    EditAction, InputAction, InteractionAction, NavigationAction, SessionAction, TrackAction,
+};
+
 use crate::{
     jumps::{JumpList, ViewPoint},
+    keys::Mode,
     layout::{AreaType, RenderEvent},
     menu::{self, MenuItem},
     message::{
         Action, AlignmentOptionUpdate, Anchor, ColumnSpan, ContextMenuTarget, CursorAfter,
-        Direction, FocusMove, FocusTarget, Highlight, Motion, Operator, UiAction,
+        Direction, FocusMove, FocusTarget, Motion, Operator, UiAction,
     },
     popup::TextPopup,
     register::{KeyRegisterType, Registers},
@@ -30,8 +35,8 @@ use gv_core::{
     settings::file_name,
 };
 use gv_session::{
-    BedWrite, Dataset, HighlightRequest, InspectInterval, NavigateRequest, Request, Requests,
-    Session, SessionError, SessionHandle, ViewRequest, ViewState, ViewerInfo, ViewerKind,
+    BedWrite, Dataset, InspectInterval, NavigateRequest, Request, Requests, Session, SessionError,
+    SessionHandle, ViewRequest, ViewState, ViewerInfo, ViewerKind,
 };
 use itertools::Itertools;
 use std::{
@@ -107,8 +112,7 @@ pub struct Viewer<Z: Scale> {
     /// Whether the last action was a typing edit (`Space`, `Backspace`, or `Shift-Backspace`),
     /// so the next one joins its undo step.
     edit_typing: bool,
-    pub highlights: Vec<Highlight>,
-    /// Files from `:e`, a paste, or a drop. They open after the next frame, which shows that
+    /// Files from `:e` or a drop. They open after the next frame, which shows that
     /// they are opening.
     pub pending_open: Option<PendingOpen>,
 
@@ -173,7 +177,6 @@ impl<Z: Scale> Viewer<Z> {
             track_clipboard: None,
             warn_shift_backspace: false,
             edit_typing: false,
-            highlights: Vec::new(),
             pending_open: None,
             session,
             requests,
@@ -267,23 +270,6 @@ impl<Z: Scale> Viewer<Z> {
                     Vec::new()
                 }
             },
-            ViewRequest::Highlight(request, reply) => match self.highlight_actions(request) {
-                Ok(actions) => {
-                    let (render_events, result) = self.apply_for_agent(actions).await;
-                    reply.respond(result);
-                    render_events
-                }
-                Err(error) => {
-                    reply.respond(Err(error));
-                    Vec::new()
-                }
-            },
-            ViewRequest::ClearHighlights(reply) => {
-                let (render_events, result) =
-                    self.apply_for_agent(vec![Action::ClearHighlights]).await;
-                reply.respond(result);
-                render_events
-            }
             ViewRequest::Current(reply) => {
                 reply.respond(self.view_state());
                 Vec::new()
@@ -358,42 +344,12 @@ impl<Z: Scale> Viewer<Z> {
                 region.focus.position,
             )
             .into(),
-            Action::Core(
-                Zoom::Fit {
-                    bases: region.end() - region.start() + 1,
-                }
-                .into(),
-            ),
+            Action::from(Zoom::Fit {
+                bases: region.end() - region.start() + 1,
+            }),
             Action::message(format!(
                 "An agent moved the view to {target}. Press u to go back to {previous}."
             )),
-        ])
-    }
-
-    /// Replaces the highlights and tells the user what was marked.
-    fn highlight_actions(&self, request: HighlightRequest) -> Result<Vec<Action>, SessionError> {
-        let highlights = request
-            .intervals
-            .iter()
-            .map(|interval| {
-                let region = self.resolve_interval(interval)?;
-                Ok(Highlight {
-                    contig_index: region.contig_index(),
-                    start: region.start(),
-                    end: region.end(),
-                })
-            })
-            .collect::<Result<Vec<_>, SessionError>>()?;
-        let label = request
-            .label
-            .map_or_else(String::new, |label| format!(": {label}"));
-        let notice = format!(
-            "An agent highlighted {} intervals{label}.",
-            highlights.len()
-        );
-        Ok(vec![
-            Action::SetHighlights(highlights),
-            Action::message(notice),
         ])
     }
 
@@ -475,22 +431,26 @@ impl<Z: Scale> Viewer<Z> {
         let mut messages = Vec::new();
 
         for action in actions {
-            if !matches!(action, Action::EditColumns { typing: true, .. }) {
+            if !matches!(
+                action,
+                Action::Edit(EditAction::EditColumns { typing: true, .. })
+            ) {
                 self.edit_typing = false;
             }
             match action {
-                Action::Core(gv_core::message::Message::Move(movement)) => {
+                Action::Navigate(NavigationAction::Move(movement)) => {
                     self.apply_movement(movement).await?;
                     render_events.push(RenderEvent::AllTracks);
                     render_events.push(RenderEvent::Sidebar);
                 }
 
-                Action::JumpBack | Action::JumpForward => {
+                Action::Navigate(NavigationAction::JumpBack)
+                | Action::Navigate(NavigationAction::JumpForward) => {
                     let current = ViewPoint {
                         focus: self.viewport.focus.clone(),
                         zoom: self.viewport.zoom,
                     };
-                    let (target, edge) = if action == Action::JumpBack {
+                    let (target, edge) = if action == Action::Navigate(NavigationAction::JumpBack) {
                         (
                             self.jumps.back(current),
                             "No earlier position to go back to.",
@@ -514,7 +474,7 @@ impl<Z: Scale> Viewer<Z> {
                     }
                 }
 
-                Action::Core(gv_core::message::Message::Quit) => {
+                Action::Session(SessionAction::Quit) => {
                     log::info!("Quit requested");
                     match self.unsaved_changes_message() {
                         Some(message) => messages.push(message),
@@ -522,31 +482,28 @@ impl<Z: Scale> Viewer<Z> {
                     }
                 }
 
-                Action::Core(gv_core::message::Message::ForceQuit) => {
+                Action::Session(SessionAction::ForceQuit) => {
                     log::info!("Quit without writing requested");
                     self.exit = true;
                 }
 
-                Action::Core(gv_core::message::Message::WriteTrack(path)) => {
+                Action::Session(SessionAction::WriteTrack(path)) => {
                     let (Ok(message) | Err(message)) = self.write_track(path.as_deref());
                     messages.push(message);
                     render_events.push(RenderEvent::All);
                 }
 
-                Action::Core(gv_core::message::Message::WriteAll) => {
+                Action::Session(SessionAction::WriteAll) => {
                     let (Ok(message) | Err(message)) = self.write_all();
                     messages.push(message);
                     render_events.push(RenderEvent::All);
                 }
 
-                Action::Core(
-                    ref message @ (gv_core::message::Message::WriteAndQuit(_)
-                    | gv_core::message::Message::WriteAllAndQuit),
+                Action::Session(
+                    ref message @ (SessionAction::WriteAndQuit(_) | SessionAction::WriteAllAndQuit),
                 ) => {
                     let written = match message {
-                        gv_core::message::Message::WriteAndQuit(path) => {
-                            self.write_track(path.as_deref())
-                        }
+                        SessionAction::WriteAndQuit(path) => self.write_track(path.as_deref()),
                         _ => self.write_all(),
                     };
                     render_events.push(RenderEvent::All);
@@ -559,7 +516,7 @@ impl<Z: Scale> Viewer<Z> {
                     }
                 }
 
-                Action::Core(gv_core::message::Message::NewBedTrack) => {
+                Action::Track(TrackAction::NewBedTrack) => {
                     let position = match self.focused {
                         FocusTarget::Track(focused) => self.display_position(focused) + 1,
                         FocusTarget::Reference => self.track_order.len(),
@@ -568,13 +525,13 @@ impl<Z: Scale> Viewer<Z> {
                     render_events.push(RenderEvent::All);
                 }
 
-                Action::NewTrackBeside { track, below } => {
+                Action::Track(TrackAction::NewTrackBeside { track, below }) => {
                     let position = self.display_position(track) + usize::from(below);
                     messages.push(self.new_track_at(position).await?);
                     render_events.push(RenderEvent::All);
                 }
 
-                Action::Core(gv_core::message::Message::SaveSession(path)) => {
+                Action::Session(SessionAction::SaveSession(path)) => {
                     let explicit_path = path.is_some();
                     let Some(path) = path
                         .as_deref()
@@ -602,7 +559,7 @@ impl<Z: Scale> Viewer<Z> {
                     }
                 }
 
-                Action::Core(gv_core::message::Message::SaveAndQuit(path)) => {
+                Action::Session(SessionAction::SaveAndQuit(path)) => {
                     if let Some(unsaved) = self.unsaved_changes_message() {
                         messages.push(unsaved);
                         continue;
@@ -633,7 +590,7 @@ impl<Z: Scale> Viewer<Z> {
                     }
                 }
 
-                Action::Core(gv_core::message::Message::Scroll(scroll)) => {
+                Action::Navigate(NavigationAction::Scroll(scroll)) => {
                     // Normal mode scrolls the focused track when it is an alignment.
                     if let FocusTarget::Track(id) = self.focused
                         && let RepositoryFileIndex::Alignment(_) =
@@ -643,11 +600,11 @@ impl<Z: Scale> Viewer<Z> {
                     }
                 }
 
-                Action::ScrollAlignment { track, scroll } => {
+                Action::Navigate(NavigationAction::ScrollAlignment { track, scroll }) => {
                     render_events.extend(self.scroll_alignment(track, scroll)?);
                 }
 
-                Action::Core(gv_core::message::Message::Zoom(zoom)) => {
+                Action::Navigate(NavigationAction::Zoom(zoom)) => {
                     let contig_length = self.dataset.view.contig_length(&self.viewport.focus)?;
                     let previous_zoom = self.viewport.zoom;
                     log::debug!(
@@ -658,7 +615,10 @@ impl<Z: Scale> Viewer<Z> {
                     );
                     self.viewport
                         .zoom(zoom.clone(), self.width, contig_length)?;
-                    if matches!(self.registers.current, KeyRegisterType::Insert { .. }) {
+                    if matches!(
+                        self.registers.current,
+                        KeyRegisterType::Editing(Mode::Insert(_))
+                    ) {
                         self.viewport.zoom = self.viewport.zoom.for_insert_mode();
                         self.self_correct()?;
                     }
@@ -674,7 +634,7 @@ impl<Z: Scale> Viewer<Z> {
                     render_events.push(RenderEvent::Sidebar);
                 }
 
-                Action::Core(gv_core::message::Message::SetAlignmentOption(options)) => {
+                Action::Track(TrackAction::SetAlignmentOption(options)) => {
                     log::debug!(
                         "Setting alignment options: alignment_count={} options={:?}",
                         self.dataset.view.alignments.len(),
@@ -693,7 +653,7 @@ impl<Z: Scale> Viewer<Z> {
                     render_events.push(RenderEvent::Sidebar);
                 }
 
-                Action::Core(gv_core::message::Message::OpenFiles(paths)) => {
+                Action::Track(TrackAction::OpenFiles(paths)) => {
                     messages.push(opening_message(&paths));
                     self.pending_open = Some(PendingOpen {
                         paths,
@@ -701,7 +661,7 @@ impl<Z: Scale> Viewer<Z> {
                     });
                 }
 
-                Action::OpenFilesAt { paths, position } => {
+                Action::Track(TrackAction::OpenFilesAt { paths, position }) => {
                     messages.push(opening_message(&paths));
                     self.pending_open = Some(PendingOpen {
                         paths,
@@ -709,17 +669,17 @@ impl<Z: Scale> Viewer<Z> {
                     });
                 }
 
-                Action::RemoveTrack { track, force } => {
+                Action::Track(TrackAction::RemoveTrack { track, force }) => {
                     messages.push(self.remove_track(track, force).await?);
                     render_events.push(RenderEvent::All);
                 }
 
-                Action::CopyTrack(id) => {
+                Action::Track(TrackAction::CopyTrack(id)) => {
                     self.track_clipboard = Some(id);
                     messages.push(format!("Copied {}.", self.track_name(id)));
                 }
 
-                Action::PasteTrackBelow(target) => {
+                Action::Track(TrackAction::PasteTrackBelow(target)) => {
                     let Some(source) = self.track_clipboard else {
                         continue;
                     };
@@ -737,12 +697,12 @@ impl<Z: Scale> Viewer<Z> {
                     render_events.push(RenderEvent::All);
                 }
 
-                Action::Core(gv_core::message::Message::Message(message)) => {
+                Action::Message(message) => {
                     log::trace!("Adding transient status message: bytes={}", message.len());
                     messages.push(message);
                 }
 
-                Action::SelectContig(index) => {
+                Action::Navigate(NavigationAction::SelectContig(index)) => {
                     if self.scene == Scene::ContigList
                         && index < self.dataset.view.contig_header.contigs.len()
                         && index != self.registers.contig_list_cursor
@@ -751,28 +711,20 @@ impl<Z: Scale> Viewer<Z> {
                         render_events.push(RenderEvent::All);
                     }
                 }
-                Action::SwitchScene(scene) => {
+                Action::Input(InputAction::SwitchScene(scene)) => {
                     let previous_scene = self.scene.clone();
                     log::debug!("Switching scene: from={:?} to={:?}", previous_scene, scene);
                     self.scene = scene;
                     self.effects.push(Effect::SceneChanged);
                     render_events.push(RenderEvent::All)
                 }
-                Action::CommandChanged => {
+                Action::Input(InputAction::CommandChanged) => {
                     render_events.push(RenderEvent::Area(AreaType::Console));
                 }
-                Action::SwitchKeyRegister(register) => {
+                Action::Input(InputAction::SwitchKeyRegister(register)) => {
                     let previous_register = self.registers.current.clone();
-                    if register == KeyRegisterType::ContigList {
-                        self.registers.contig_list_cursor = self.viewport.focus.contig_index
-                    }
-                    if matches!(register, KeyRegisterType::Command | KeyRegisterType::Search)
-                        && matches!(
-                            previous_register,
-                            KeyRegisterType::Normal | KeyRegisterType::Insert { .. }
-                        )
-                    {
-                        self.registers.return_to = previous_register.clone();
+                    if matches!(register, KeyRegisterType::ContigList(_)) {
+                        self.registers.contig_list_cursor = self.viewport.focus.contig_index;
                     }
                     self.registers.current = register;
                     log::debug!(
@@ -783,8 +735,10 @@ impl<Z: Scale> Viewer<Z> {
                     // The mode shows in the sidebar fill, the console, and the insert cursor.
                     render_events.push(RenderEvent::All);
                 }
-                Action::Focus(target) => render_events.extend(self.focus(target)),
-                Action::MoveFocus(movement) => {
+                Action::Input(InputAction::Focus(target)) => {
+                    render_events.extend(self.focus(target))
+                }
+                Action::Input(InputAction::MoveFocus(movement)) => {
                     let order = self.focus_order();
                     let last = order.len() - 1;
                     let current = order
@@ -801,7 +755,7 @@ impl<Z: Scale> Viewer<Z> {
                     };
                     render_events.extend(self.focus(order[target]));
                 }
-                Action::EnterInsertMode { append } => {
+                Action::Edit(EditAction::EnterInsertMode { append }) => {
                     let FocusTarget::Track(id) = self.focused else {
                         messages.push("Insert mode is only available for BED tracks.".to_string());
                         continue;
@@ -829,7 +783,7 @@ impl<Z: Scale> Viewer<Z> {
                         self.apply_movement(Movement::Right(self.viewport.zoom.column_bases()))
                             .await?;
                     }
-                    self.registers.current = KeyRegisterType::Insert { track: id };
+                    self.registers.current = KeyRegisterType::Editing(Mode::Insert(id));
                     if self.warn_shift_backspace {
                         self.warn_shift_backspace = false;
                         messages.push(
@@ -839,7 +793,7 @@ impl<Z: Scale> Viewer<Z> {
                     }
                     render_events.push(RenderEvent::All);
                 }
-                Action::Motion(motion) => {
+                Action::Edit(EditAction::Motion(motion)) => {
                     let movement = self.resolve_motion(motion);
                     match self.apply_movement(movement).await {
                         Ok(()) => {
@@ -852,24 +806,24 @@ impl<Z: Scale> Viewer<Z> {
                         Err(error) => return Err(error),
                     }
                 }
-                Action::EditColumns {
+                Action::Edit(EditAction::EditColumns {
                     track,
                     edit,
                     span,
                     cursor,
                     typing,
-                } => {
+                }) => {
                     if !(typing && self.edit_typing) {
                         self.dataset.begin_edit_step(track)?;
                     }
                     self.edit_typing = typing;
                     render_events.extend(self.edit_columns(track, edit, span, cursor).await?);
                 }
-                Action::Operate {
+                Action::Edit(EditAction::Operate {
                     track,
                     operator: Operator::Erase,
                     motion,
-                } => {
+                }) => {
                     self.dataset.begin_edit_step(track)?;
                     match motion {
                         Motion::Columns { direction, count } => {
@@ -893,8 +847,8 @@ impl<Z: Scale> Viewer<Z> {
                         },
                     }
                 }
-                Action::Undo(id) | Action::Redo(id) => {
-                    let (result, edge) = if matches!(action, Action::Undo(_)) {
+                Action::Edit(EditAction::Undo(id)) | Action::Edit(EditAction::Redo(id)) => {
+                    let (result, edge) = if matches!(action, Action::Edit(EditAction::Undo(_))) {
                         (self.dataset.undo(id), "Already at oldest change")
                     } else {
                         (self.dataset.redo(id), "Already at newest change")
@@ -908,7 +862,7 @@ impl<Z: Scale> Viewer<Z> {
                         Err(error) => messages.push(error.to_string()),
                     }
                 }
-                Action::UpdateAlignmentOptions { track, update } => {
+                Action::Track(TrackAction::UpdateAlignmentOptions { track, update }) => {
                     let index = self.dataset.tracks.alignment_index(track)?;
                     let mut options = self.dataset.view.alignment_options[index].clone();
                     match update {
@@ -951,12 +905,12 @@ impl<Z: Scale> Viewer<Z> {
                     render_events.push(RenderEvent::AllTracks);
                     render_events.push(RenderEvent::Sidebar);
                 }
-                Action::OpenContextMenu { target, anchor } => {
+                Action::Interaction(InteractionAction::OpenContextMenu { target, anchor }) => {
                     let items = self.menu_items(target)?;
                     self.effects.push(Effect::ShowContextMenu { items, anchor });
                     render_events.push(RenderEvent::All);
                 }
-                Action::OpenReadDetails { track, read_id } => {
+                Action::Interaction(InteractionAction::OpenReadDetails { track, read_id }) => {
                     let index = self.dataset.tracks.alignment_index(track)?;
                     let popup = TextPopup::read_details(
                         self.dataset.repository.alignment_repositories[index]
@@ -967,19 +921,10 @@ impl<Z: Scale> Viewer<Z> {
                     self.effects.push(Effect::ShowPopup(popup));
                     render_events.push(RenderEvent::All);
                 }
-                Action::ClearAllKeyRegisters => {
+                Action::Input(InputAction::ClearAllKeyRegisters) => {
                     log::debug!("Clearing all key registers");
                     self.registers.clear();
                     render_events.push(RenderEvent::Area(AreaType::Console))
-                }
-                Action::SetHighlights(highlights) => {
-                    log::debug!("Setting highlights: count={}", highlights.len());
-                    self.highlights = highlights;
-                    render_events.push(RenderEvent::All)
-                }
-                Action::ClearHighlights => {
-                    self.highlights.clear();
-                    render_events.push(RenderEvent::All)
                 }
                 Action::Ui(action) => self.effects.push(Effect::Ui(action)),
             }
@@ -1052,17 +997,10 @@ impl<Z: Scale> Viewer<Z> {
             return Vec::new();
         }
         self.focused = target;
-        if let KeyRegisterType::Insert { track } = self.registers.current
+        if let Mode::Insert(track) = self.registers.shown_mode()
             && target != FocusTarget::Track(track)
         {
-            self.registers.current = KeyRegisterType::Normal;
-            self.registers.pending.clear();
-        }
-        // Command input started in insert mode returns to normal mode instead.
-        if let KeyRegisterType::Insert { track } = self.registers.return_to
-            && target != FocusTarget::Track(track)
-        {
-            self.registers.return_to = KeyRegisterType::Normal;
+            self.registers.leave_insert_mode(track);
         }
         vec![RenderEvent::All]
     }
@@ -1452,12 +1390,7 @@ impl<Z: Scale> Viewer<Z> {
         if self.track_clipboard == Some(id) {
             self.track_clipboard = None;
         }
-        if self.registers.current == (KeyRegisterType::Insert { track: id }) {
-            self.registers.current = KeyRegisterType::Normal;
-        }
-        if self.registers.return_to == (KeyRegisterType::Insert { track: id }) {
-            self.registers.return_to = KeyRegisterType::Normal;
-        }
+        self.registers.leave_insert_mode(id);
         let entry = self.dataset.remove_track(id)?;
         if let RepositoryFileIndex::Alignment(index) = entry.repository_index {
             self.viewport.y.remove(index);

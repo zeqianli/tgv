@@ -43,6 +43,6 @@ to a genomic position first.
 - **Intronic offsets**, such as `c.672+1G>A`.
 - **Reference checks.** Whether to check the reference base in the expression against the
   sequence, and say so when it doesn't match.
-- **Where parsing lives.** The parser belongs in `gv_core::command::parse_search`. Mapping to
+- **Where parsing lives.** The parser belongs in `gv_viewer::command::parse_search`. Mapping to
   a position needs the track service, like `Movement::Gene`, so it becomes a new `Movement`
   variant.

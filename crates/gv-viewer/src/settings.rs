@@ -1,5 +1,6 @@
 //! Settings for a viewer, and the command line options that every front end accepts.
 
+use crate::message::NavigationAction;
 use crate::{
     colors::{DARK_THEME, Palette},
     message::Action,
@@ -100,7 +101,7 @@ impl ViewerArgs {
         let region_string = match &self.region {
             Some(region_string) => region_string,
             None => {
-                return Ok(vec![Action::Core(gv_core::message::Message::Move(
+                return Ok(vec![Action::Navigate(NavigationAction::Move(
                     gv_core::message::Movement::Default,
                 ))]);
             }
@@ -109,13 +110,13 @@ impl ViewerArgs {
         let split = region_string.split(":").collect::<Vec<&str>>();
 
         match split.len() {
-            1 => Ok(vec![Action::Core(gv_core::message::Message::Move(
+            1 => Ok(vec![Action::Navigate(NavigationAction::Move(
                 gv_core::message::Movement::Gene(region_string.to_string()),
             ))]),
             2 => split[1]
                 .parse::<u64>()
                 .map(|n| {
-                    vec![Action::Core(gv_core::message::Message::Move(
+                    vec![Action::Navigate(NavigationAction::Move(
                         Movement::ContigNamePosition(split[0].to_string(), n),
                     ))]
                 })
@@ -183,9 +184,9 @@ impl ViewerArgs {
         // Validate: if no reference is provided, the initial messages cannot contain GoToGene.
         if !settings.core.reference.needs_track() {
             for m in settings.initial_actions.iter() {
-                if let Action::Core(gv_core::message::Message::Move(
-                    gv_core::message::Movement::Gene(gene_name),
-                )) = m
+                if let Action::Navigate(NavigationAction::Move(gv_core::message::Movement::Gene(
+                    gene_name,
+                ))) = m
                 {
                     return Err(TGVError::CliError(format!(
                         "The initial region cannot be a gene name {} when no reference is provided.",
@@ -279,9 +280,9 @@ impl TryFrom<&ViewerArgs> for Settings {
         // Validate: no-reference + gene movement is invalid.
         if !reference.needs_track() {
             for m in initial_actions.iter() {
-                if let Action::Core(gv_core::message::Message::Move(
-                    gv_core::message::Movement::Gene(gene_name),
-                )) = m
+                if let Action::Navigate(NavigationAction::Move(gv_core::message::Movement::Gene(
+                    gene_name,
+                ))) = m
                 {
                     return Err(TGVError::CliError(format!(
                         "The initial region cannot not be a gene name {} when no reference is provided. ",

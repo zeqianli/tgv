@@ -3,53 +3,6 @@ use crate::strand::Strand;
 use strum::Display;
 
 #[derive(Debug, Clone, Eq, PartialEq, Display)]
-pub enum Message {
-    Move(Movement),
-
-    Scroll(Scroll),
-
-    Zoom(Zoom),
-
-    /// Quits, unless a track has unsaved changes.
-    Quit,
-    /// Quits without writing tracks.
-    ForceQuit,
-    SaveSession(Option<String>),
-    SaveAndQuit(Option<String>),
-    /// Writes the focused BED track to its file, or to the path.
-    WriteTrack(Option<String>),
-    /// Writes every modified BED track that has a file.
-    WriteAll,
-    /// `WriteTrack`, then `Quit`.
-    WriteAndQuit(Option<String>),
-    /// `WriteAll`, then `Quit`.
-    WriteAllAndQuit,
-    /// Creates an untitled BED track below the focused track.
-    NewBedTrack,
-    SetAlignmentOption(Vec<AlignmentDisplayOption>),
-    /// Adds file tracks from these paths, in order.
-    OpenFiles(Vec<String>),
-
-    Message(String),
-}
-
-impl From<Movement> for Message {
-    fn from(value: Movement) -> Self {
-        Self::Move(value)
-    }
-}
-impl From<Scroll> for Message {
-    fn from(value: Scroll) -> Self {
-        Self::Scroll(value)
-    }
-}
-impl From<Zoom> for Message {
-    fn from(value: Zoom) -> Self {
-        Self::Zoom(value)
-    }
-}
-
-#[derive(Debug, Clone, Eq, PartialEq, Display)]
 pub enum Zoom {
     Out(u64),
     In(u64),

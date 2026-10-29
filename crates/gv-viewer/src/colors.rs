@@ -72,7 +72,6 @@ mod named {
     pub const VIOLET_900: Rgb = Rgb::from_u32(0x4c1d95);
     pub const INDIGO_400: Rgb = Rgb::from_u32(0x818cf8);
     pub const INDIGO_900: Rgb = Rgb::from_u32(0x312e81);
-    pub const AMBER_700: Rgb = Rgb::from_u32(0xb45309);
     pub const SLATE_400: Rgb = Rgb::from_u32(0x94a3b8);
     pub const SLATE_700: Rgb = Rgb::from_u32(0x334155);
     pub const SLATE_800: Rgb = Rgb::from_u32(0x1e293b);
@@ -147,9 +146,6 @@ pub struct Palette {
     pub VCF2: Rgb,
     pub BED1: Rgb,
     pub BED2: Rgb,
-
-    /// Intervals that an agent highlights, behind the coordinate ruler.
-    pub HIGHLIGHT: Rgb,
 
     // Context menu and sidebar
     pub MENU_BACKGROUND: Rgb,
@@ -339,8 +335,6 @@ pub const DARK_THEME: Palette = Palette {
     VCF2: named::VIOLET_400,
     BED1: named::INDIGO_900,
     BED2: named::INDIGO_400,
-
-    HIGHLIGHT: named::AMBER_700,
 
     MENU_BACKGROUND: named::SLATE_700,
     MENU_HOVER_BACKGROUND: named::SKY_700,

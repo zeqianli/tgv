@@ -6,6 +6,8 @@
 //! are predicted with the shared viewport code, so the window draws them at once, before the
 //! worker answers.
 
+use gv_viewer::message::TrackAction;
+
 use crate::{
     keys::key_from_keystroke,
     layout::{DropTarget, MainLayout, PixelView, Rect, ResolvedMainLayout},
@@ -24,14 +26,12 @@ use gpui::{
     IntoElement, KeyDownEvent, MouseDownEvent, MouseMoveEvent, MouseUpEvent, ParentElement,
     PathPromptOptions, Render, ScrollWheelEvent, Styled, Window, canvas, div, px,
 };
-use gv_core::message::{BasesPerUnit, Message, Movement, Zoom};
+use gv_core::message::{BasesPerUnit, Movement, Zoom};
 use gv_viewer::{
-    message::{Action, UiAction, UpdateLayoutAction},
+    message::{UiAction, UpdateLayoutAction},
     popup::TextPopup,
-    register::KeyRegisterType,
+    prelude::*,
     settings::Settings,
-    viewer::{Effect, Scene},
-    viewport::{PixelScale, Scale, Viewport},
 };
 use std::{
     sync::Arc,
@@ -276,7 +276,10 @@ impl App {
         if viewport.zoom(zoom.clone(), width, contig_length).is_err() {
             return;
         }
-        if matches!(frame.registers.current, KeyRegisterType::Insert { .. }) {
+        if matches!(
+            frame.registers.current,
+            KeyRegisterType::Editing(gv_viewer::keys::Mode::Insert(_))
+        ) {
             viewport.zoom = viewport.zoom.for_insert_mode();
             viewport.self_correct(width, contig_length);
         }
@@ -285,7 +288,7 @@ impl App {
         if after == before {
             return;
         }
-        batch.push(Action::Core(zoom.into()));
+        batch.push(Action::from(zoom));
 
         let new_center = anchor - pointer * after;
         let focus = (new_center - 0.5).round().max(1.0) as u64;
@@ -392,8 +395,14 @@ impl App {
     /// Command shortcuts, as macOS apps have them.
     fn on_shortcut(&mut self, key: &str, _window: &mut Window, cx: &mut Context<Self>) {
         match key {
-            "q" | "w" => self.handle(vec![Action::Core(Message::Quit).into()], cx),
-            "s" => self.handle(vec![Action::Core(Message::WriteTrack(None)).into()], cx),
+            "q" | "w" => self.handle(
+                vec![Action::Session(gv_viewer::message::SessionAction::Quit).into()],
+                cx,
+            ),
+            "s" => self.handle(
+                vec![Action::Session(gv_viewer::message::SessionAction::WriteTrack(None)).into()],
+                cx,
+            ),
             "=" | "+" => self.handle(vec![zoom_step(true).into()], cx),
             "-" => self.handle(vec![zoom_step(false).into()], cx),
             "v" => {
@@ -415,7 +424,10 @@ impl App {
                             .map(|path| path.to_string_lossy().into_owned())
                             .collect();
                         let _ = this.update(cx, |app, cx| {
-                            app.handle(vec![Action::Core(Message::OpenFiles(paths)).into()], cx)
+                            app.handle(
+                                vec![Action::Track(TrackAction::OpenFiles(paths)).into()],
+                                cx,
+                            )
                         });
                     }
                 })
@@ -597,11 +609,13 @@ impl App {
         }
         self.drop_indicator = None;
         let action = match (&self.frame, &self.resolved_layout) {
-            (Some(frame), Some(resolved)) if frame.scene == Scene::Main => Action::OpenFilesAt {
-                paths,
-                position: resolved.drop_target(y, &frame.track_order).position,
-            },
-            _ => Action::Core(Message::OpenFiles(paths)),
+            (Some(frame), Some(resolved)) if frame.scene == Scene::Main => {
+                Action::Track(TrackAction::OpenFilesAt {
+                    paths,
+                    position: resolved.drop_target(y, &frame.track_order).position,
+                })
+            }
+            _ => Action::Track(TrackAction::OpenFiles(paths)),
         };
         self.handle(vec![action.into()], cx);
     }
@@ -639,7 +653,10 @@ impl App {
             // Nothing is open yet, or the dataset failed to open.
             return true;
         }
-        self.handle(vec![Action::Core(Message::Quit).into()], cx);
+        self.handle(
+            vec![Action::Session(gv_viewer::message::SessionAction::Quit).into()],
+            cx,
+        );
         false
     }
 }

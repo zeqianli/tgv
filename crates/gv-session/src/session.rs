@@ -74,10 +74,6 @@ impl DataRequest {
 pub enum ViewRequest {
     /// Shows a region.
     Navigate(NavigateRequest, Responder<ViewState>),
-    /// Marks intervals in the view.
-    Highlight(HighlightRequest, Responder<()>),
-    /// Removes all highlights.
-    ClearHighlights(Responder<()>),
     /// Reports what the view shows.
     Current(Responder<ViewState>),
     /// Describes the viewer.
@@ -89,7 +85,6 @@ impl ViewRequest {
     pub fn reject(self, error: SessionError) {
         match self {
             Self::Navigate(_, reply) | Self::Current(reply) => reply.respond(Err(error)),
-            Self::Highlight(_, reply) | Self::ClearHighlights(reply) => reply.respond(Err(error)),
             Self::Info(reply) => reply.respond(Err(error)),
         }
     }
@@ -112,9 +107,6 @@ impl Request {
             Self::Data(DataRequest(DataCommand::Query(_, reply))) => reply.is_closed(),
             Self::LoadDataset(_, reply) => reply.is_closed(),
             Self::View(ViewRequest::Navigate(_, reply) | ViewRequest::Current(reply)) => {
-                reply.is_closed()
-            }
-            Self::View(ViewRequest::Highlight(_, reply) | ViewRequest::ClearHighlights(reply)) => {
                 reply.is_closed()
             }
             Self::View(ViewRequest::Info(reply)) => reply.is_closed(),
@@ -176,18 +168,6 @@ impl SessionHandle {
     /// Shows a region in the viewer.
     pub async fn navigate(&self, request: NavigateRequest) -> Result<ViewState, SessionError> {
         self.request(|reply| Request::View(ViewRequest::Navigate(request, reply)))
-            .await
-    }
-
-    /// Marks intervals in the viewer.
-    pub async fn highlight(&self, request: HighlightRequest) -> Result<(), SessionError> {
-        self.request(|reply| Request::View(ViewRequest::Highlight(request, reply)))
-            .await
-    }
-
-    /// Removes all highlights from the viewer.
-    pub async fn clear_highlights(&self) -> Result<(), SessionError> {
-        self.request(|reply| Request::View(ViewRequest::ClearHighlights(reply)))
             .await
     }
 

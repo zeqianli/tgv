@@ -241,15 +241,8 @@ opens them. If any file can't be opened, none are added, and the message says
 why, for example `/data/simple.bam needs an index: /data/simple.bam.bai` or
 `Not a file: /data/simple.bam`.
 
-Drag files from a file manager into the terminal to add them. Terminals such
-as Ghostty, iTerm2, kitty, WezTerm, and Terminal.app paste the dropped paths,
-and in normal mode tgv opens them like `:e`. A paste is handled the same way,
-so pasting paths also opens them, but `~` is not expanded in pasted paths. In
-command and search mode, a paste is inserted into the command line instead, so
-you can paste a locus after `/`.
-
-- The terminal doesn't report where a file was dropped, so dropped tracks are
-  added at the end.
+In command and search mode, pasted text is inserted into the command line, so
+you can paste a path after `:e` or a locus after `/`.
 - Over SSH, a dropped path names a file on your local machine, so tgv reports
   it as not a file.
 
