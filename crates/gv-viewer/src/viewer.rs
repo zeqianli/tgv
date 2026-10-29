@@ -1,8 +1,8 @@
 //! The viewer: the dataset a front end shows, and everything about how it is shown that doesn't
 //! depend on the screen.
 //!
-//! [`Viewer`] owns the [`Dataset`], the viewport, the focus, the modes, the jump history, and
-//! the agent highlights. It applies [`Action`]s from keys, the mouse, and agents, loads the
+//! [`Viewer`] owns the [`Dataset`], the viewport, the focus, the modes, and the jump history.
+//! It applies [`Action`]s from keys, the mouse, and agents, loads the
 //! data the viewport needs, and serves session requests. It also hosts the session, so agents
 //! reach it through its [`SessionHandle`].
 //!
@@ -15,7 +15,7 @@ use crate::{
     menu::{self, MenuItem},
     message::{
         Action, AlignmentOptionUpdate, Anchor, ColumnSpan, ContextMenuTarget, CursorAfter,
-        Direction, FocusMove, FocusTarget, Highlight, Motion, Operator, UiAction,
+        Direction, FocusMove, FocusTarget, Motion, Operator, UiAction,
     },
     popup::TextPopup,
     register::{KeyRegisterType, Registers},
@@ -30,8 +30,8 @@ use gv_core::{
     settings::file_name,
 };
 use gv_session::{
-    BedWrite, Dataset, HighlightRequest, InspectInterval, NavigateRequest, Request, Requests,
-    Session, SessionError, SessionHandle, ViewRequest, ViewState, ViewerInfo, ViewerKind,
+    BedWrite, Dataset, InspectInterval, NavigateRequest, Request, Requests, Session, SessionError,
+    SessionHandle, ViewRequest, ViewState, ViewerInfo, ViewerKind,
 };
 use itertools::Itertools;
 use std::{
@@ -107,7 +107,6 @@ pub struct Viewer<Z: Scale> {
     /// Whether the last action was a typing edit (`Space`, `Backspace`, or `Shift-Backspace`),
     /// so the next one joins its undo step.
     edit_typing: bool,
-    pub highlights: Vec<Highlight>,
     /// Files from `:e`, a paste, or a drop. They open after the next frame, which shows that
     /// they are opening.
     pub pending_open: Option<PendingOpen>,
@@ -173,7 +172,6 @@ impl<Z: Scale> Viewer<Z> {
             track_clipboard: None,
             warn_shift_backspace: false,
             edit_typing: false,
-            highlights: Vec::new(),
             pending_open: None,
             session,
             requests,
@@ -267,23 +265,6 @@ impl<Z: Scale> Viewer<Z> {
                     Vec::new()
                 }
             },
-            ViewRequest::Highlight(request, reply) => match self.highlight_actions(request) {
-                Ok(actions) => {
-                    let (render_events, result) = self.apply_for_agent(actions).await;
-                    reply.respond(result);
-                    render_events
-                }
-                Err(error) => {
-                    reply.respond(Err(error));
-                    Vec::new()
-                }
-            },
-            ViewRequest::ClearHighlights(reply) => {
-                let (render_events, result) =
-                    self.apply_for_agent(vec![Action::ClearHighlights]).await;
-                reply.respond(result);
-                render_events
-            }
             ViewRequest::Current(reply) => {
                 reply.respond(self.view_state());
                 Vec::new()
@@ -367,33 +348,6 @@ impl<Z: Scale> Viewer<Z> {
             Action::message(format!(
                 "An agent moved the view to {target}. Press u to go back to {previous}."
             )),
-        ])
-    }
-
-    /// Replaces the highlights and tells the user what was marked.
-    fn highlight_actions(&self, request: HighlightRequest) -> Result<Vec<Action>, SessionError> {
-        let highlights = request
-            .intervals
-            .iter()
-            .map(|interval| {
-                let region = self.resolve_interval(interval)?;
-                Ok(Highlight {
-                    contig_index: region.contig_index(),
-                    start: region.start(),
-                    end: region.end(),
-                })
-            })
-            .collect::<Result<Vec<_>, SessionError>>()?;
-        let label = request
-            .label
-            .map_or_else(String::new, |label| format!(": {label}"));
-        let notice = format!(
-            "An agent highlighted {} intervals{label}.",
-            highlights.len()
-        );
-        Ok(vec![
-            Action::SetHighlights(highlights),
-            Action::message(notice),
         ])
     }
 
@@ -971,15 +925,6 @@ impl<Z: Scale> Viewer<Z> {
                     log::debug!("Clearing all key registers");
                     self.registers.clear();
                     render_events.push(RenderEvent::Area(AreaType::Console))
-                }
-                Action::SetHighlights(highlights) => {
-                    log::debug!("Setting highlights: count={}", highlights.len());
-                    self.highlights = highlights;
-                    render_events.push(RenderEvent::All)
-                }
-                Action::ClearHighlights => {
-                    self.highlights.clear();
-                    render_events.push(RenderEvent::All)
                 }
                 Action::Ui(action) => self.effects.push(Effect::Ui(action)),
             }

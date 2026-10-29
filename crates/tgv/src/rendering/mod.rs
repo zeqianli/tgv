@@ -1,13 +1,6 @@
 use crate::layout::CellView;
 use crate::rendering::colors::ToColor;
-use gv_viewer::viewport::ColumnScale;
-use gv_viewer::{
-    layout::RenderEvent,
-    message::FocusTarget,
-    message::Highlight,
-    popup::TextPopup,
-    register::{KeyRegisterType, Registers},
-};
+use gv_viewer::{layout::RenderEvent, message::FocusTarget, popup::TextPopup, prelude::*};
 mod alignment;
 mod bed;
 mod colors;
@@ -67,7 +60,6 @@ pub fn render_main(
     layout: &ResolvedMainLayout,
     alignment_view: &AlignmentView,
     mouse_register: &MouseRegister,
-    highlights: &[Highlight],
     focus: &TrackFocus,
     context_menu: Option<&ContextMenu>,
     popup: Option<&TextPopup>,
@@ -163,7 +155,6 @@ pub fn render_main(
             AreaType::Cytoband => render_cytobands(rect, buf, state, alignment_view, pallete)?,
             AreaType::Coordinate => {
                 render_coordinates(rect, buf, alignment_view, state)?;
-                render_highlights(rect, buf, alignment_view, highlights, pallete);
             }
             AreaType::Coverage(id) => {
                 let index = layout.track_registry.alignment_index(*id)?;
@@ -287,29 +278,5 @@ fn render_alignment_divider(area: &Rect, buf: &mut Buffer, palette: &Palette, hi
 
     for y in area.top()..area.bottom() {
         buf.set_string(area.x, y, "-".repeat(area.width as usize), style);
-    }
-}
-
-/// Tints the columns of highlighted intervals on the focused contig, keeping the ruler text.
-fn render_highlights(
-    area: &Rect,
-    buf: &mut Buffer,
-    alignment_view: &AlignmentView,
-    highlights: &[Highlight],
-    pallete: &Palette,
-) {
-    for highlight in highlights
-        .iter()
-        .filter(|highlight| highlight.contig_index == alignment_view.focus.contig_index)
-    {
-        let start = alignment_view.onscreen_x_coordinate(highlight.start, area);
-        let end = alignment_view.onscreen_x_coordinate(highlight.end, area);
-        if let Some((x, width)) = OnScreenCoordinate::onscreen_start_and_length(&start, &end, area)
-        {
-            buf.set_style(
-                Rect::new(area.x + x, area.y, width, area.height),
-                Style::default().bg(pallete.HIGHLIGHT.color()),
-            );
-        }
     }
 }

@@ -121,11 +121,6 @@ pub enum Action {
 
     ClearAllKeyRegisters,
 
-    /// Replaces the highlighted intervals.
-    SetHighlights(Vec<Highlight>),
-
-    ClearHighlights,
-
     /// An action that only the front end applies.
     Ui(UiAction),
 }
@@ -153,16 +148,6 @@ pub struct Anchor {
 
 // Anchors come from whole cells or pixel positions, never from NaN.
 impl Eq for Anchor {}
-
-/// An interval that an agent marks in the view.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct Highlight {
-    pub contig_index: usize,
-    /// 1-based, inclusive.
-    pub start: u64,
-    /// 1-based, inclusive.
-    pub end: u64,
-}
 
 /// What has the focus: the reference (the sequence and gene rows) or a file track.
 #[derive(Debug, Clone, Copy, Eq, PartialEq)]

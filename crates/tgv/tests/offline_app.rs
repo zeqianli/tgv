@@ -8,11 +8,9 @@ use gv_core::{
     repository::RepositoryFileIndex,
     track_registry::TrackId,
 };
-use gv_session::{
-    DatasetRequest, HighlightRequest, InspectInterval, NavigateRequest, QueryRequest, SessionError,
-};
+use gv_session::{DatasetRequest, InspectInterval, NavigateRequest, QueryRequest, SessionError};
 use gv_viewer::{
-    message::{Action, FocusTarget, Highlight, UpdateLayoutAction},
+    message::{Action, FocusTarget, UpdateLayoutAction},
     session::SessionFile,
     viewer::Scene,
 };
@@ -510,7 +508,7 @@ async fn covid_harness() -> AppHarness {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn agent_navigates_and_highlights_the_view() {
+async fn agent_navigates_the_view() {
     let mut harness = covid_harness().await;
     let session = harness.app.viewer.session.clone();
 
@@ -526,25 +524,6 @@ async fn agent_navigates_and_highlights_the_view() {
         harness.app.viewer.dataset.view.messages[0]
             .contains("Press u to go back to MN908947.3:100")
     );
-
-    harness
-        .agent(session.highlight(HighlightRequest {
-            intervals: vec![covid_interval(20_050, 20_060)],
-            label: Some("candidate site".to_owned()),
-        }))
-        .await
-        .unwrap();
-    assert_eq!(
-        harness.app.viewer.highlights,
-        [Highlight {
-            contig_index: 0,
-            start: 20_050,
-            end: 20_060,
-        }]
-    );
-
-    harness.agent(session.clear_highlights()).await.unwrap();
-    assert!(harness.app.viewer.highlights.is_empty());
 
     harness.close().await.unwrap();
 }

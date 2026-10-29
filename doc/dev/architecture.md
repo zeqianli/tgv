@@ -86,7 +86,7 @@ Callers hold a `SessionHandle` and send `Request`s. Whoever owns the `Dataset`, 
 │  .query()        │                         │ LoadDataset                  │
 │  .load_dataset() │                         │ View      → navigate, ...    │
 │  .navigate()     │                         │ Shutdown                     │
-│  .highlight()    │ ◄────── oneshot ─────── │ Responder::respond(result)   │
+│  .navigate()    │ ◄────── oneshot ─────── │ Responder::respond(result)   │
 │  .view_state()   │   Result<T, SessionError>                              │
 └──────────────────┘                         └──────────────────────────────┘
 ```
@@ -95,7 +95,7 @@ Callers hold a `SessionHandle` and send `Request`s. Whoever owns the `Dataset`, 
 |---|---|---|
 | `Data`: describe, inspect, or query | `Dataset::serve`, or a `no_dataset` error before the first load | `Dataset::serve` on the query state |
 | `LoadDataset` | Replaces the dataset | Fails with `DatasetFixed` |
-| `View`: navigate, highlight, clear highlights, or view state | Fails with `NoViewer` | Moves or marks the view |
+| `View`: navigate or view state | Fails with `NoViewer` | Moves the view |
 | `Shutdown` | Closes the dataset and stops | Ignored; the user decides when to quit |
 
 Requests whose caller has stopped waiting are skipped.
@@ -129,7 +129,6 @@ App
 ├── viewer: Viewer<ColumnScale>
 │   ├── dataset: Dataset          data (see above)
 │   ├── viewport                  focus, zoom, scroll: what part of `view` is on screen
-│   ├── highlights                intervals an agent marked
 │   ├── registers                 modes and the command line
 │   ├── settings                  palette, initial actions, session path
 │   ├── session: SessionHandle    sends requests to this viewer
@@ -153,7 +152,7 @@ The window can't wait for loads the way a terminal can: gestures send dozens of 
                                                 serves agents ◄── SessionSocket
 ```
 
-- **A `Frame` is cheap.** It holds a clone of the view `State`, whose tables share their columns and whose alignments share their records, plus the viewport, the modes, the focus, the highlights, the track labels, and the effects for the window.
+- **A `Frame` is cheap.** It holds a clone of the view `State`, whose tables share their columns and whose alignments share their records, plus the viewport, the modes, the focus, the track labels, and the effects for the window.
 - **The worker batches input.** It applies every message already queued, then loads once and sends one frame. Agent requests never pause the window.
 - **The window predicts pans and zooms.** Drags, scrolls, and zooms around the pointer move a local copy of the viewport with the shared `Viewport` code, and the window draws it at once from the last frame. A sub-base pixel offset keeps drags smooth when a base is many pixels wide. The prediction is dropped once a frame covers every message sent.
 
@@ -167,7 +166,7 @@ The window can't wait for loads the way a terminal can: gestures send dozens of 
                     └── no viewer: headless SessionHandle ─► session worker
 ```
 
-- **`Call`** is the serializable form of each request: describe, load a dataset, inspect, query, navigate, highlight, clear highlights, view state, and viewer info. `SessionHandle::call` runs a `Call` in-process and returns its reply as JSON, so the headless path and the socket path share one dispatch.
+- **`Call`** is the serializable form of each request: describe, load a dataset, inspect, query, navigate, view state, and viewer info. `SessionHandle::call` runs a `Call` in-process and returns its reply as JSON, so the headless path and the socket path share one dispatch.
 - **`SessionSocket`** listens at `$XDG_RUNTIME_DIR/tgv/<pid>.sock`, in a directory only the user can open. Each connection sends one JSON `Call` per line and gets one JSON reply per line: `{"ok": …}`, or `{"error": {"code", "message", "field"}}`. Dropping the socket removes its file.
 - **`SessionConnection::list_viewers`** connects to every viewer, newest first, asks each for its `ViewerInfo`, and removes sockets that no process listens on. `SessionConnection::connect_to` connects to one viewer by process ID. Remote errors come back as `SessionError::Remote`, keeping their codes.
 - **`tgv mcp`** looks for viewers before each call until the agent loads a dataset headlessly or attaches. With one viewer, it connects. With several, it fails with `viewer_ambiguous`, whose message lists them, until the agent calls `attach`. Once connected, it keeps the connection; when the viewer closes, it reports `viewer_disconnected` and looks again on the next call.
@@ -190,7 +189,7 @@ An agent's view request becomes actions. `Viewer::serve_view` validates the requ
 
 ```text
 keys, mouse ──► Registers / MouseRegister ──► Vec<Action> ─┐
-                                                           ├──► Viewer::handle ──► view, highlights
+                                                           ├──► Viewer::handle ──► view
 Request::View ──► Viewer::serve_view (validate, translate) ┘          │
        ▲                                                              │
        └────────────── Responder::respond(ViewState or error) ◄───────┘
@@ -241,8 +240,6 @@ Data requests never change the screen, so `Dataset::serve` answers them without 
 | Request | Actions | Effect |
 |---|---|---|
 | `navigate` | `Move(ContigNamePosition)`, `Zoom(Fit { bases })`, and a status message | Centers the region, fits it to the track area, loads it into `view`, and shows "An agent moved the view to X. Press u to go back to Y." |
-| `highlight` | `SetHighlights` and a status message | Tints the intervals' columns in the coordinate ruler, or draws translucent bands across the window's tracks, and reports the count and label in the message line. |
-| `clear_highlights` | `ClearHighlights` | Removes the highlights. |
 | `view_state` | None; it only reads | Returns the displayed interval and zoom. |
 | viewer info | None; it only reads | Returns the viewer's kind, files, locus, and start time, for `list_viewers` and `attach`. |
 

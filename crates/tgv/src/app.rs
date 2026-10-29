@@ -19,10 +19,9 @@ use gv_core::prelude::*;
 use gv_session::ViewerKind;
 use gv_viewer::{
     layout::RenderEvent,
-    message::{Action, FocusTarget, UiAction, UpdateLayoutAction},
+    message::{FocusTarget, UiAction, UpdateLayoutAction},
     popup::TextPopup,
-    viewer::{Effect, Scene, Viewer},
-    viewport::ColumnScale,
+    prelude::*,
 };
 use std::{sync::Arc, time::Duration};
 
@@ -370,7 +369,6 @@ impl App {
                 &self.resolved_layout,
                 &self.viewer.viewport,
                 &self.mouse_register,
-                &self.viewer.highlights,
                 &focus,
                 self.context_menu.as_ref(),
                 self.popup.as_ref(),

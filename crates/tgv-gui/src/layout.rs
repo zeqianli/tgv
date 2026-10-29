@@ -5,10 +5,7 @@
 
 use gv_core::prelude::*;
 pub use gv_viewer::layout::AreaType;
-use gv_viewer::{
-    settings::Settings,
-    viewport::{PixelScale, Viewport},
-};
+use gv_viewer::{prelude::*, settings::Settings};
 use std::{collections::HashMap, sync::Arc};
 
 /// A rectangle in window pixels.

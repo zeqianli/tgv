@@ -1,6 +1,6 @@
 # Show results in the viewer
 
-When the user has TGV open, `tgv mcp` connects to it, and these tools act on what the user sees. `navigate` moves the view to a region, `highlight` marks intervals, `clear_highlights` removes the marks, and `view_state` reports what the view shows. Without a running viewer, they fail with `no_viewer`.
+When the user has TGV open, `tgv mcp` connects to it, and these tools act on what the user sees. `navigate` moves the view to a region, and `view_state` reports what the view shows. Without a running viewer, they fail with `no_viewer`.
 
 ## Connecting to a viewer
 
@@ -63,35 +63,6 @@ The response is the new view, in the same form as `view_state`:
 - The viewer's message line tells the user how to return, for example "An agent moved the view to chr20:90100. Press u to go back to chr20:88108."
 - The region isn't limited to 100,000 bases. Wide regions show coverage and annotations without reads, as when the user zooms out.
 
-## `highlight`
-
-### Request
-
-| Field | Type | Required | Meaning |
-|-------|------|----------|---------|
-| `intervals` | array of regions | Yes | The 1-based inclusive intervals to mark, each with `contig`, `start`, and `end`. |
-| `label` | string or `null` | No | A short description that the viewer shows with the marks. |
-
-```json
-{"intervals": [{"contig": "chr20", "start": 90090, "end": 90110}], "label": "candidate site"}
-```
-
-### Response
-
-```json
-{}
-```
-
-### Behavior
-
-- Highlights replace earlier highlights.
-- The terminal UI tints the columns of each interval in the coordinate ruler, and the window draws a translucent band across the tracks, and its message line reports the count and the label, for example "An agent highlighted 1 intervals: candidate site."
-- Intervals on other contigs appear when the user moves to those contigs.
-
-## `clear_highlights`
-
-`clear_highlights` takes no arguments, removes every highlight, and returns `{}`.
-
 ## `view_state`
 
 `view_state` takes no arguments and reports the displayed interval and the zoom, in bases per screen unit: per column in the terminal UI, and per pixel in the window:
@@ -105,7 +76,7 @@ The response is the new view, in the same form as `view_state`:
 | Code | `field` | Cause |
 |------|---------|-------|
 | `no_viewer` | `null` | No TGV viewer is running. |
-| `invalid_input` | `region` | A `navigate` or `highlight` interval names an unknown contig, starts at 0, or ends before it starts. |
+| `invalid_input` | `region` | A `navigate` interval names an unknown contig, starts at 0, or ends before it starts. |
 | `viewer_disconnected` | `null` | The viewer closed since the last call. Later calls look for viewers again. |
 | `viewer_ambiguous` | `null` | Several viewers are open and the agent hasn't attached to one. The message lists them. |
 | `viewer_not_found` | `pid` | `attach` names a process that no viewer runs in. |

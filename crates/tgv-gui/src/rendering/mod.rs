@@ -40,10 +40,7 @@ use crate::{
 use colors::{Palette, Rgb, ToHsla};
 use gpui::{App, Bounds, ContentMask, Font, SharedString, TextRun, Window, point, px, size};
 use gv_core::prelude::*;
-use gv_viewer::{
-    layout::AreaType, message::Highlight, popup::TextPopup, register::KeyRegisterType,
-    viewport::Scale,
-};
+use gv_viewer::{popup::TextPopup, prelude::*};
 
 /// The font size of all text.
 pub const FONT_SIZE: f32 = 12.0;
@@ -252,7 +249,6 @@ pub fn render_main(
         });
         result?;
     }
-    render_highlights(painter, layout, view, &frame.highlights, palette);
     if let Some(gap) = drop_gap {
         render_drop_gap(painter, layout, gap, palette);
     }
@@ -417,46 +413,4 @@ fn render_drop_gap(
         note,
         palette.SEQUENCE_FOREGROUND_COLOR,
     );
-}
-
-/// Tints highlighted intervals on the focused contig across every track.
-fn render_highlights(
-    painter: &mut Painter,
-    layout: &ResolvedMainLayout,
-    view: &PixelView,
-    highlights: &[Highlight],
-    palette: &Palette,
-) {
-    let tracks = layout
-        .areas
-        .iter()
-        .filter(|(area, _)| {
-            !matches!(
-                area,
-                AreaType::Cytoband | AreaType::Console | AreaType::Error
-            )
-        })
-        .map(|(_, rect)| *rect)
-        .reduce(|top, rect| {
-            Rect::new(
-                top.x,
-                top.y.min(rect.y),
-                top.width,
-                rect.bottom() - top.y.min(rect.y),
-            )
-        });
-    let Some(tracks) = tracks else {
-        return;
-    };
-    for highlight in highlights
-        .iter()
-        .filter(|highlight| highlight.contig_index == view.viewport.focus.contig_index)
-    {
-        if let Some((x, width)) = view.span(highlight.start, highlight.end, &tracks) {
-            painter.fill(
-                Rect::new(x, tracks.y, width, tracks.height),
-                palette.HIGHLIGHT.alpha(0.25),
-            );
-        }
-    }
 }

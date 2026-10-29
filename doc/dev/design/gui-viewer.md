@@ -31,8 +31,8 @@ What stops the TUI code from being shared today:
 
 - **The controller is part of the TUI `App`.**
   - `App::handle` in `crates/tgv/src/app.rs` covers jumps, focus order, word motions, BED
-    edits, `:w`, removing tracks, opening files, and agent view requests (`serve_view`,
-    `navigate_actions`, and `highlight_actions`).
+    edits, `:w`, removing tracks, opening files, and agent view requests (`serve_view`
+    and `navigate_actions`).
   - `App::load_data` decides what to load at each zoom.
   - Almost none of this depends on ratatui. It needs only the width of the track area.
 - **The viewport is measured in terminal cells.**
@@ -118,13 +118,13 @@ decoder that stays in `tgv/src/keys.rs`.
 
 | Module | Moves from `tgv` | Change on the way |
 |---|---|---|
-| `message.rs` | `Action`, `FocusTarget`, `FocusMove`, `Motion`, `Operator`, `ColumnSpan`, `CursorAfter`, `AlignmentOptionUpdate`, `UpdateLayoutAction`, and `Highlight` (from `app.rs`) | Variants anchored to the screen, such as `OpenContextMenu { column, row }`, `ClosePopup`, and `ContextMenuChanged`, stay in each front end's own `Action`, which wraps the shared one (see below). |
+| `message.rs` | `Action`, `FocusTarget`, `FocusMove`, `Motion`, `Operator`, `ColumnSpan`, `CursorAfter`, `AlignmentOptionUpdate`, `UpdateLayoutAction` (from `app.rs`) | Variants anchored to the screen, such as `OpenContextMenu { column, row }`, `ClosePopup`, and `ContextMenuChanged`, stay in each front end's own `Action`, which wraps the shared one (see below). |
 | `keys.rs` | `Mode`, `PendingKeys`, and the grammar in `interpret` | Takes a neutral `Key { code: KeyCode, modifiers: Modifiers }` instead of a crossterm `KeyEvent`. The existing `rstest` grammar tests move with it unchanged. |
 | `register.rs` | `KeyRegisterType`, `Registers`, command line editing, and the contig list cursor | Takes `Key`. It refers to `Scene`, which moves too. |
 | `jumps.rs` | `ViewPoint` and `JumpList` | `ViewPoint<Z>` stores the zoom type of the front end (see the viewport section). |
 | `viewport.rs` | `AlignmentView` and `OnScreenCoordinate` from `layout.rs` | Becomes `Viewport<Z>`, generic over the scale, and measured against a width in units rather than a `Rect`. |
 | `layout.rs` | `AreaType` and the track order part of `MainLayout`: `track_order`, `set_tracks`, and display order | Heights stay per front end. `AreaType::desired_height` becomes a trait method that each front end implements, in rows or in pixels. |
-| `viewer.rs` | `App::handle` (the shared variants), `apply_movement`, `focus_order`, `focus`, `resolve_motion`, `edit_columns`, `erase_to_word`, `edit_bed_range`, `new_track_at`, `write_track`, `write_all`, `remove_track`, `open_pending`, `apply_track_change`, `load_data`, `serve`, `serve_view`, `navigate_actions`, `highlight_actions`, `view_state`, `unsaved_changes_message`, and `session_notes` | Methods keep their names. `handle` returns neutral `Changes` instead of `RenderEvent`s. |
+| `viewer.rs` | `App::handle` (the shared variants), `apply_movement`, `focus_order`, `focus`, `resolve_motion`, `edit_columns`, `erase_to_word`, `edit_bed_range`, `new_track_at`, `write_track`, `write_all`, `remove_track`, `open_pending`, `apply_track_change`, `load_data`, `serve`, `serve_view`, `navigate_actions`, `view_state`, `unsaved_changes_message`, and `session_notes` | Methods keep their names. `handle` returns neutral `Changes` instead of `RenderEvent`s. |
 | `menu.rs` | `MenuItem` and the content builders: `ContextMenu::alignment_items`, `track_items`, and `sidebar_items` | Panel geometry and mouse handling stay in each front end's `menu.rs`. |
 | `popup.rs` | The rows that `TextPopup::read_details` builds | Drawing stays per front end. |
 | `session.rs` | `SessionFile`, `TrackEntry`, `parse_locus`, and the conversions to and from settings | `TryFrom<&App>` becomes `TryFrom<&Viewer<Z>>`. `zoom` becomes an `f64` (see the decisions section). |
@@ -256,7 +256,7 @@ This is the main way the GUI differs from the TUI, so this section explains the 
 ```
 
 - **The worker owns `Viewer<PixelScale>`**, and with it the `Dataset`, the viewport, the
-  jumps, the focus, and the highlights.
+  jumps and the focus.
   - It runs the same `Viewer::handle` and `Viewer::serve` that the TUI runs inline.
   - Like the TUI's event loop, it receives every message already queued before it applies any,
     so it loads at most once per batch.
@@ -266,7 +266,7 @@ This is the main way the GUI differs from the TUI, so this section explains the 
 - **A `Frame` is a cheap snapshot** of everything rendering reads:
   - the viewport and a revision number;
   - `Arc` clones of the view state's tables;
-  - the track registry, the highlights, the focus target, the messages, and the modified
+  - the track registry, the focus target, the messages, and the modified
     tracks;
   - `loading: Option<Region>`, so the status bar shows "Loading chr1:…" while old data stays
     on screen.
@@ -320,7 +320,7 @@ crates/tgv-gui/src/
 ├── popup.rs       TextPopup element
 ├── settings.rs    Cli (flattens ViewerArgs), GUI Settings: font, row heights, theme
 └── rendering/
-    ├── mod.rs           render_main, render_highlights, render_alignment_divider
+    ├── mod.rs           render_main, render_alignment_divider
     ├── alignment.rs     render_alignment, render_paired_alignment
     ├── bed.rs           render_bed
     ├── colors.rs        Rgb → Hsla, GUI-only colors
@@ -396,7 +396,6 @@ Every track draws from `Frame` and `Viewport<PixelScale>`. Below, bpp means base
 | BED and variants | Features with names and strand chevrons; lanes from `bed-display.md` (expanded, squished, or collapsed) | Features at least 1 pixel wide | Indexed files show the TUI's "zoom in" notice |
 | Ruler | Tick spacing from `calculate_intermarker_distance` with a minimum spacing in pixels | — | — |
 | Cytoband | Ideogram with rounded ends, the centromere drawn as a pinch, and a box around the current view | — | — |
-| Highlights | Translucent bands across every track, instead of the TUI's tinted ruler columns | — | — |
 
 - **Sizes snap to device pixels**, so thin features stay sharp.
 - **Paint cost follows what is visible.**
@@ -419,7 +418,6 @@ Every track draws from `Frame` and `Viewport<PixelScale>`. Below, bpp means base
   the shared `Viewer::serve_view`.
   - `navigate` becomes `Move` and `Zoom(Fit)`, then shows the notice "Press u to go back to
     Y".
-  - `highlight` draws the translucent bands.
 - **The GUI binds its own `SessionSocket`** at the same path pattern as the TUI.
   - With one viewer open, `tgv mcp` connects to it as it does today.
   - With several open, the agent chooses one (see "Choosing a viewer in MCP").
@@ -481,8 +479,7 @@ Every track draws from `Frame` and `Viewport<PixelScale>`. Below, bpp means base
   - `h`, `l`, `z`, `o`, `w`, `b`, `gg`, `G`, `:`, `/`, `u`, and `Ctrl-r` behave as in the
     TUI;
   - a load shows "Loading" while the old data stays on screen.
-- **With only the GUI open,** run `tgv mcp` and call `navigate`, `highlight`, and
-  `view_state`. The GUI moves and shows the notice.
+- **With only the GUI open,** run `tgv mcp` and call `navigate` and `view_state`. The GUI moves and shows the notice.
 - **With the TUI and the GUI open on different files,** call a viewer tool:
   - it fails with `viewer_ambiguous`, and the error lists both viewers;
   - `list_viewers`, then `attach`, routes later calls to the chosen viewer.

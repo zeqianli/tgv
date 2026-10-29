@@ -26,12 +26,10 @@ use gpui::{
 };
 use gv_core::message::{BasesPerUnit, Message, Movement, Zoom};
 use gv_viewer::{
-    message::{Action, UiAction, UpdateLayoutAction},
+    message::{UiAction, UpdateLayoutAction},
     popup::TextPopup,
-    register::KeyRegisterType,
+    prelude::*,
     settings::Settings,
-    viewer::{Effect, Scene},
-    viewport::{PixelScale, Scale, Viewport},
 };
 use std::{
     sync::Arc,

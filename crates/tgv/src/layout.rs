@@ -2,10 +2,7 @@
 
 use gv_core::prelude::*;
 pub use gv_viewer::layout::AreaType;
-use gv_viewer::{
-    settings::Settings,
-    viewport::{ColumnScale, Scale, Viewport},
-};
+use gv_viewer::{prelude::*, settings::Settings};
 use ratatui::layout::Rect;
 use std::{collections::HashMap, sync::Arc};
 use unicode_width::UnicodeWidthChar;

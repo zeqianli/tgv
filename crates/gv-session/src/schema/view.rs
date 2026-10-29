@@ -11,14 +11,6 @@ pub struct NavigateRequest {
     pub region: InspectInterval,
 }
 
-/// Requests that the viewer mark 1-based inclusive intervals, with an optional label.
-#[derive(Deserialize, Serialize, JsonSchema)]
-#[serde(deny_unknown_fields)]
-pub struct HighlightRequest {
-    pub intervals: Vec<InspectInterval>,
-    pub label: Option<String>,
-}
-
 /// Which front end a viewer is.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "snake_case")]
