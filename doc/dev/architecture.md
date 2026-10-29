@@ -183,6 +183,8 @@ The viewers use two kinds of message, with separate jobs:
 | Applied by | `Viewer::handle`, the only code that changes what the screen shows | The session host: the headless worker or `Viewer::serve` |
 | Reply | None; `Viewer::handle` returns the areas to redraw | A typed result through a `Responder` |
 
+Actions are grouped into navigation, input, editing, track, session, and interaction categories. Core command messages convert to those same categories before the viewer handles them. Status messages remain a separate action.
+
 Some actions only a front end can apply, such as a layout change or closing a menu. They are `Action::Ui`, and `Viewer::handle` leaves them as `Effect`s, with the context menus and popups it builds, for the front end to take with `Viewer::take_effects`.
 
 An agent's view request becomes actions. `Viewer::serve_view` validates the request, translates it into actions, and applies them with `Viewer::handle`, the same path key presses take. It then replies with the result:

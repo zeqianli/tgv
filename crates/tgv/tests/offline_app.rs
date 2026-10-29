@@ -10,7 +10,7 @@ use gv_core::{
 };
 use gv_session::{DatasetRequest, InspectInterval, NavigateRequest, QueryRequest, SessionError};
 use gv_viewer::{
-    message::{Action, FocusTarget, UpdateLayoutAction},
+    message::{Action, FocusTarget, InputAction, TrackAction, UpdateLayoutAction},
     session::SessionFile,
     viewer::Scene,
 };
@@ -247,10 +247,10 @@ async fn offline_sequence_updates_tracks_and_scenes() {
 
     harness
         .handle(vec![
-            Action::Core(CoreMessage::Move(Movement::Position(33_121_130))),
-            Action::Core(CoreMessage::Message("scripted-note".to_string())),
-            Action::SwitchScene(Scene::ContigList),
-            Action::SwitchScene(Scene::Main),
+            Action::from(CoreMessage::Move(Movement::Position(33_121_130))),
+            Action::from(CoreMessage::Message("scripted-note".to_string())),
+            Action::Input(InputAction::SwitchScene(Scene::ContigList)),
+            Action::Input(InputAction::SwitchScene(Scene::Main)),
         ])
         .await
         .unwrap();
@@ -415,10 +415,10 @@ async fn offline_tracks_open_and_remove_at_runtime() {
     harness.app.viewer.viewport.y = vec![1, 2, 3];
     harness.app.viewer.focused = FocusTarget::Track(3);
     harness
-        .handle(vec![Action::RemoveTrack {
+        .handle(vec![Action::Track(TrackAction::RemoveTrack {
             track: 1,
             force: false,
-        }])
+        })])
         .await
         .unwrap();
 

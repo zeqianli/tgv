@@ -6,6 +6,8 @@
 //! are predicted with the shared viewport code, so the window draws them at once, before the
 //! worker answers.
 
+use gv_viewer::message::TrackAction;
+
 use crate::{
     keys::key_from_keystroke,
     layout::{DropTarget, MainLayout, PixelView, Rect, ResolvedMainLayout},
@@ -283,7 +285,7 @@ impl App {
         if after == before {
             return;
         }
-        batch.push(Action::Core(zoom.into()));
+        batch.push(Action::from(zoom));
 
         let new_center = anchor - pointer * after;
         let focus = (new_center - 0.5).round().max(1.0) as u64;
@@ -390,8 +392,8 @@ impl App {
     /// Command shortcuts, as macOS apps have them.
     fn on_shortcut(&mut self, key: &str, _window: &mut Window, cx: &mut Context<Self>) {
         match key {
-            "q" | "w" => self.handle(vec![Action::Core(Message::Quit).into()], cx),
-            "s" => self.handle(vec![Action::Core(Message::WriteTrack(None)).into()], cx),
+            "q" | "w" => self.handle(vec![Action::from(Message::Quit).into()], cx),
+            "s" => self.handle(vec![Action::from(Message::WriteTrack(None)).into()], cx),
             "=" | "+" => self.handle(vec![zoom_step(true).into()], cx),
             "-" => self.handle(vec![zoom_step(false).into()], cx),
             "v" => {
@@ -413,7 +415,7 @@ impl App {
                             .map(|path| path.to_string_lossy().into_owned())
                             .collect();
                         let _ = this.update(cx, |app, cx| {
-                            app.handle(vec![Action::Core(Message::OpenFiles(paths)).into()], cx)
+                            app.handle(vec![Action::from(Message::OpenFiles(paths)).into()], cx)
                         });
                     }
                 })
@@ -595,11 +597,13 @@ impl App {
         }
         self.drop_indicator = None;
         let action = match (&self.frame, &self.resolved_layout) {
-            (Some(frame), Some(resolved)) if frame.scene == Scene::Main => Action::OpenFilesAt {
-                paths,
-                position: resolved.drop_target(y, &frame.track_order).position,
-            },
-            _ => Action::Core(Message::OpenFiles(paths)),
+            (Some(frame), Some(resolved)) if frame.scene == Scene::Main => {
+                Action::Track(TrackAction::OpenFilesAt {
+                    paths,
+                    position: resolved.drop_target(y, &frame.track_order).position,
+                })
+            }
+            _ => Action::from(Message::OpenFiles(paths)),
         };
         self.handle(vec![action.into()], cx);
     }
@@ -637,7 +641,7 @@ impl App {
             // Nothing is open yet, or the dataset failed to open.
             return true;
         }
-        self.handle(vec![Action::Core(Message::Quit).into()], cx);
+        self.handle(vec![Action::from(Message::Quit).into()], cx);
         false
     }
 }

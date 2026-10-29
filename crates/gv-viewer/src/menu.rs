@@ -3,7 +3,7 @@
 //! A menu is built once when it opens, from the clicked target and the current state. Each
 //! front end draws the items and turns clicks on them into their actions.
 
-use crate::message::{Action, AlignmentOptionUpdate, UpdateLayoutAction};
+use crate::message::{Action, AlignmentOptionUpdate, TrackAction, UpdateLayoutAction};
 use gv_core::{
     alignment::{Alignment, CoverageSchema},
     message::{AlignmentDisplayOption, AlignmentFilter, AlignmentSort},
@@ -53,7 +53,7 @@ pub fn alignment_items(
     alignment: &Alignment,
     options: &[AlignmentDisplayOption],
 ) -> Result<Vec<MenuItem>, TGVError> {
-    let update = |update| Action::UpdateAlignmentOptions { track, update };
+    let update = |update| Action::Track(TrackAction::UpdateAlignmentOptions { track, update });
     // Without a single clicked base, the base items have no position to name.
     let at = position.map_or_else(String::new, |position| format!(" at {position}"));
     let sort_label = format!("Sort{at}");
@@ -151,13 +151,13 @@ pub fn track_items(
     if copyable {
         items.push(MenuItem::entry(
             format!("Copy {file_name}"),
-            Some(Action::CopyTrack(track)),
+            Some(Action::Track(TrackAction::CopyTrack(track))),
         ));
     }
     if let Some(copied) = copied {
         items.push(MenuItem::entry(
             format!("Paste {copied} below"),
-            Some(Action::PasteTrackBelow(track)),
+            Some(Action::Track(TrackAction::PasteTrackBelow(track))),
         ));
     }
     items.push(MenuItem::entry(
@@ -166,10 +166,10 @@ pub fn track_items(
         } else {
             format!("Remove {file_name}")
         },
-        Some(Action::RemoveTrack {
+        Some(Action::Track(TrackAction::RemoveTrack {
             track,
             force: modified,
-        }),
+        })),
     ));
     items
 }
@@ -182,14 +182,17 @@ pub fn sidebar_items(track: Option<(TrackId, Vec<MenuItem>)>) -> Vec<MenuItem> {
         items.extend(track_items);
         items.push(MenuItem::entry(
             "Insert track above",
-            Some(Action::NewTrackBeside {
+            Some(Action::Track(TrackAction::NewTrackBeside {
                 track,
                 below: false,
-            }),
+            })),
         ));
         items.push(MenuItem::entry(
             "Insert track below",
-            Some(Action::NewTrackBeside { track, below: true }),
+            Some(Action::Track(TrackAction::NewTrackBeside {
+                track,
+                below: true,
+            })),
         ));
     }
     items.push(MenuItem::entry(

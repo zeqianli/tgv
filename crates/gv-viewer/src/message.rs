@@ -2,7 +2,9 @@
 
 use crate::{register::KeyRegisterType, viewer::Scene};
 use gv_core::bed::BedEditKind;
-use gv_core::message::{AlignmentFilter, AlignmentSort, WordMotion};
+use gv_core::message::{
+    AlignmentDisplayOption, AlignmentFilter, AlignmentSort, Message, WordMotion, Zoom,
+};
 pub use gv_core::message::{Movement, Scroll};
 use gv_core::track_registry::TrackId;
 use strum::Display;
@@ -14,15 +16,24 @@ use strum::Display;
 /// layout change, are [`UiAction`]s, which `Viewer::handle` hands back to the front end.
 #[derive(Debug, Clone, Eq, PartialEq, Display)]
 pub enum Action {
-    Core(gv_core::message::Message),
+    Session(SessionAction),
+    Message(String),
+    Navigate(NavigationAction),
+    Input(InputAction),
+    Edit(EditAction),
+    Track(TrackAction),
+    Interaction(InteractionAction),
+    /// An action that only the front end applies.
+    Ui(UiAction),
+}
 
-    SwitchScene(Scene),
-
+/// Navigation within the displayed data.
+#[derive(Debug, Clone, Eq, PartialEq, Display)]
+pub enum NavigationAction {
+    Move(Movement),
+    Scroll(Scroll),
+    Zoom(Zoom),
     SelectContig(usize),
-
-    CommandChanged,
-
-    SwitchKeyRegister(KeyRegisterType),
 
     /// Returns to the view before the last jump.
     JumpBack,
@@ -30,26 +41,40 @@ pub enum Action {
     /// Returns to the view that the last `JumpBack` left.
     JumpForward,
 
+    /// Scrolls one alignment track, whatever has focus.
+    ScrollAlignment {
+        track: TrackId,
+        scroll: Scroll,
+    },
+}
+
+/// The focused target, scene, and input registers.
+#[derive(Debug, Clone, Eq, PartialEq, Display)]
+pub enum InputAction {
+    SwitchScene(Scene),
+
+    CommandChanged,
+
+    SwitchKeyRegister(KeyRegisterType),
+
     /// Focuses the reference or a file track: what word motions, insert mode, and `:w` act on.
     Focus(FocusTarget),
 
     /// Moves the focus along the file tracks and the reference, in display order.
     MoveFocus(FocusMove),
 
-    /// Scrolls one alignment track, whatever has focus.
-    ScrollAlignment {
-        track: TrackId,
-        scroll: Scroll,
-    },
+    ClearAllKeyRegisters,
+}
 
+/// Cursor motions and BED track edits.
+#[derive(Debug, Clone, Eq, PartialEq, Display)]
+pub enum EditAction {
     /// Moves the cursor. `App` resolves word motions against the focused track.
     Motion(Motion),
 
     /// Enters insert mode on the focused track. `append` first moves the cursor right by one
     /// column, like vim's `a`.
-    EnterInsertMode {
-        append: bool,
-    },
+    EnterInsertMode { append: bool },
 
     /// Adds or removes the bases of whole columns next to the cursor on a BED track.
     EditColumns {
@@ -74,7 +99,14 @@ pub enum Action {
 
     /// Redoes a BED track's last undone step.
     Redo(TrackId),
+}
 
+/// Changes to file tracks and their display options.
+#[derive(Debug, Clone, Eq, PartialEq, Display)]
+pub enum TrackAction {
+    NewBedTrack,
+    SetAlignmentOption(Vec<AlignmentDisplayOption>),
+    OpenFiles(Vec<String>),
     /// Creates an untitled BED track above or below a track, and focuses it.
     NewTrackBeside {
         track: TrackId,
@@ -93,12 +125,6 @@ pub enum Action {
         update: AlignmentOptionUpdate,
     },
 
-    /// Opens the context menu for `target`, anchored at a point on the screen.
-    OpenContextMenu {
-        target: ContextMenuTarget,
-        anchor: Anchor,
-    },
-
     /// Adds file tracks from these paths at a position in the display order, as a drop between
     /// two tracks does. Position 0 is above the first track.
     OpenFilesAt {
@@ -112,17 +138,32 @@ pub enum Action {
         track: TrackId,
         force: bool,
     },
+}
 
-    /// Shows the SAM record of a read in a popup.
-    OpenReadDetails {
-        track: TrackId,
-        read_id: usize,
+/// Saving, writing, and closing the viewer.
+#[derive(Debug, Clone, Eq, PartialEq, Display)]
+pub enum SessionAction {
+    Quit,
+    ForceQuit,
+    SaveSession(Option<String>),
+    SaveAndQuit(Option<String>),
+    WriteTrack(Option<String>),
+    WriteAll,
+    WriteAndQuit(Option<String>),
+    WriteAllAndQuit,
+}
+
+/// Viewer interactions that open menus or read details.
+#[derive(Debug, Clone, Eq, PartialEq, Display)]
+pub enum InteractionAction {
+    /// Opens the context menu for `target`, anchored at a point on the screen.
+    OpenContextMenu {
+        target: ContextMenuTarget,
+        anchor: Anchor,
     },
 
-    ClearAllKeyRegisters,
-
-    /// An action that only the front end applies.
-    Ui(UiAction),
+    /// Shows the SAM record of a read in a popup.
+    OpenReadDetails { track: TrackId, read_id: usize },
 }
 
 /// An action that only a front end can apply, because it changes the front end's own layout or
@@ -282,13 +323,31 @@ impl From<UiAction> for Action {
 impl Action {
     /// Wraps a status message for the message line.
     pub fn message(s: String) -> Self {
-        Action::Core(gv_core::message::Message::Message(s))
+        Action::Message(s)
     }
 }
 
 impl From<gv_core::message::Message> for Action {
     fn from(m: gv_core::message::Message) -> Self {
-        Action::Core(m)
+        match m {
+            Message::Move(value) => Action::Navigate(NavigationAction::Move(value)),
+            Message::Scroll(value) => Action::Navigate(NavigationAction::Scroll(value)),
+            Message::Zoom(value) => Action::Navigate(NavigationAction::Zoom(value)),
+            Message::NewBedTrack => Action::Track(TrackAction::NewBedTrack),
+            Message::SetAlignmentOption(value) => {
+                Action::Track(TrackAction::SetAlignmentOption(value))
+            }
+            Message::OpenFiles(value) => Action::Track(TrackAction::OpenFiles(value)),
+            Message::Quit => Action::Session(SessionAction::Quit),
+            Message::ForceQuit => Action::Session(SessionAction::ForceQuit),
+            Message::SaveSession(value) => Action::Session(SessionAction::SaveSession(value)),
+            Message::SaveAndQuit(value) => Action::Session(SessionAction::SaveAndQuit(value)),
+            Message::WriteTrack(value) => Action::Session(SessionAction::WriteTrack(value)),
+            Message::WriteAll => Action::Session(SessionAction::WriteAll),
+            Message::WriteAndQuit(value) => Action::Session(SessionAction::WriteAndQuit(value)),
+            Message::WriteAllAndQuit => Action::Session(SessionAction::WriteAllAndQuit),
+            Message::Message(value) => Action::Message(value),
+        }
     }
 }
 
@@ -301,5 +360,11 @@ impl From<gv_core::message::Movement> for Action {
 impl From<gv_core::message::Scroll> for Action {
     fn from(scroll: gv_core::message::Scroll) -> Self {
         gv_core::message::Message::Scroll(scroll).into()
+    }
+}
+
+impl From<Zoom> for Action {
+    fn from(zoom: Zoom) -> Self {
+        Action::Navigate(NavigationAction::Zoom(zoom))
     }
 }

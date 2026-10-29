@@ -12,7 +12,8 @@
 //! Keys are front-end neutral: each front end decodes its own key events into a [`Key`].
 
 use crate::message::{
-    Action, ColumnSpan, CursorAfter, Direction, FocusMove, Motion, Operator, UpdateLayoutAction,
+    Action, ColumnSpan, CursorAfter, Direction, EditAction, FocusMove, InputAction, Motion,
+    NavigationAction, Operator, UpdateLayoutAction,
 };
 use crate::register::KeyRegisterType;
 use gv_core::bed::BedEditKind;
@@ -171,7 +172,9 @@ impl PendingKeys {
             let pending = self.typed.len() > key_name(key).len();
             return Ok(Some(match mode {
                 Mode::Insert(_) if !pending => {
-                    vec![Action::SwitchKeyRegister(KeyRegisterType::Normal)]
+                    vec![Action::Input(InputAction::SwitchKeyRegister(
+                        KeyRegisterType::Normal,
+                    ))]
                 }
                 _ => Vec::new(),
             }));
@@ -189,7 +192,7 @@ impl PendingKeys {
                     KeyCode::Char('b') => FocusMove::Last,
                     _ => return Err(self.invalid(mode)),
                 };
-                return Ok(Some(vec![Action::MoveFocus(movement)]));
+                return Ok(Some(vec![Action::Input(InputAction::MoveFocus(movement))]));
             }
             Some(Prefix::G) => {
                 let motion = match code {
@@ -215,8 +218,12 @@ impl PendingKeys {
 
         if control {
             return match code {
-                KeyCode::Char('j') => Ok(Some(vec![Action::MoveFocus(FocusMove::Next(count))])),
-                KeyCode::Char('k') => Ok(Some(vec![Action::MoveFocus(FocusMove::Previous(count))])),
+                KeyCode::Char('j') => Ok(Some(vec![Action::Input(InputAction::MoveFocus(
+                    FocusMove::Next(count),
+                ))])),
+                KeyCode::Char('k') => Ok(Some(vec![Action::Input(InputAction::MoveFocus(
+                    FocusMove::Previous(count),
+                ))])),
                 KeyCode::Char('w') => {
                     self.prefix = Some(Prefix::CtrlW);
                     Ok(None)
@@ -224,8 +231,8 @@ impl PendingKeys {
                 // Like undo and redo in vim, `u` and `Ctrl-r` move through the jump history in
                 // normal mode, and through the edit history in insert mode.
                 KeyCode::Char('r') if self.operator.is_none() => Ok(Some(vec![match mode {
-                    Mode::Normal => Action::JumpForward,
-                    Mode::Insert(track) => Action::Redo(track),
+                    Mode::Normal => Action::Navigate(NavigationAction::JumpForward),
+                    Mode::Insert(track) => Action::Edit(EditAction::Redo(track)),
                 }])),
                 _ => Err(self.invalid(mode)),
             };
@@ -295,69 +302,77 @@ impl PendingKeys {
             (KeyCode::Char('K'), Mode::Normal) => {
                 vec![Scroll::Up(count * LARGE_VERTICAL_STEP).into()]
             }
-            (KeyCode::Char('z'), _) => vec![Action::Core(Zoom::In(ZOOM_STEP * columns).into())],
-            (KeyCode::Char('o'), _) => vec![Action::Core(Zoom::Out(ZOOM_STEP * columns).into())],
+            (KeyCode::Char('z'), _) => vec![Action::from(Zoom::In(ZOOM_STEP * columns))],
+            (KeyCode::Char('o'), _) => vec![Action::from(Zoom::Out(ZOOM_STEP * columns))],
             (KeyCode::Char('s'), _) if without_count => {
                 vec![UpdateLayoutAction::ToggleSidebar.into()]
             }
             (KeyCode::Char(':'), _) => vec![
-                Action::ClearAllKeyRegisters,
-                Action::SwitchKeyRegister(KeyRegisterType::Command),
+                Action::Input(InputAction::ClearAllKeyRegisters),
+                Action::Input(InputAction::SwitchKeyRegister(KeyRegisterType::Command)),
             ],
             (KeyCode::Char('/'), _) => vec![
-                Action::ClearAllKeyRegisters,
-                Action::SwitchKeyRegister(KeyRegisterType::Search),
+                Action::Input(InputAction::ClearAllKeyRegisters),
+                Action::Input(InputAction::SwitchKeyRegister(KeyRegisterType::Search)),
             ],
-            (KeyCode::Char('u'), Mode::Normal) if without_count => vec![Action::JumpBack],
+            (KeyCode::Char('u'), Mode::Normal) if without_count => {
+                vec![Action::Navigate(NavigationAction::JumpBack)]
+            }
             (KeyCode::Char(char @ ('i' | 'a')), Mode::Normal) => {
-                vec![Action::EnterInsertMode {
+                vec![Action::Edit(EditAction::EnterInsertMode {
                     append: char == 'a',
-                }]
+                })]
             }
             // Insert mode is already on.
             (KeyCode::Char('i' | 'a'), Mode::Insert(_)) => Vec::new(),
             (KeyCode::Char('u'), Mode::Insert(track)) if without_count => {
-                vec![Action::Undo(track)]
+                vec![Action::Edit(EditAction::Undo(track))]
             }
             (KeyCode::Char('d'), Mode::Insert(_)) => {
                 self.operator = Some((Operator::Erase, self.count.take()));
                 return Ok(None);
             }
-            (KeyCode::Char(' '), Mode::Insert(track)) => vec![Action::EditColumns {
-                track,
-                edit: BedEditKind::Add,
-                span: ColumnSpan::Right(columns),
-                cursor: CursorAfter::PastSpan,
-                typing: true,
-            }],
-            (KeyCode::Backspace, Mode::Insert(track)) => vec![Action::EditColumns {
-                track,
-                // Shift-Backspace paints to the left, the mirror of Backspace.
-                edit: if key.modifiers.shift {
-                    BedEditKind::Add
-                } else {
-                    BedEditKind::Remove
-                },
-                span: ColumnSpan::Left(columns),
-                cursor: CursorAfter::SpanStart,
-                typing: true,
-            }],
+            (KeyCode::Char(' '), Mode::Insert(track)) => {
+                vec![Action::Edit(EditAction::EditColumns {
+                    track,
+                    edit: BedEditKind::Add,
+                    span: ColumnSpan::Right(columns),
+                    cursor: CursorAfter::PastSpan,
+                    typing: true,
+                })]
+            }
+            (KeyCode::Backspace, Mode::Insert(track)) => {
+                vec![Action::Edit(EditAction::EditColumns {
+                    track,
+                    // Shift-Backspace paints to the left, the mirror of Backspace.
+                    edit: if key.modifiers.shift {
+                        BedEditKind::Add
+                    } else {
+                        BedEditKind::Remove
+                    },
+                    span: ColumnSpan::Left(columns),
+                    cursor: CursorAfter::SpanStart,
+                    typing: true,
+                })]
+            }
             (KeyCode::Char('x') | KeyCode::Delete, Mode::Insert(track)) => {
-                vec![Action::EditColumns {
+                vec![Action::Edit(EditAction::EditColumns {
                     track,
                     edit: BedEditKind::Remove,
                     span: ColumnSpan::Right(columns),
                     cursor: CursorAfter::SpanStart,
                     typing: false,
-                }]
+                })]
             }
-            (KeyCode::Char('X'), Mode::Insert(track)) => vec![Action::EditColumns {
-                track,
-                edit: BedEditKind::Remove,
-                span: ColumnSpan::Left(columns),
-                cursor: CursorAfter::SpanStart,
-                typing: false,
-            }],
+            (KeyCode::Char('X'), Mode::Insert(track)) => {
+                vec![Action::Edit(EditAction::EditColumns {
+                    track,
+                    edit: BedEditKind::Remove,
+                    span: ColumnSpan::Left(columns),
+                    cursor: CursorAfter::SpanStart,
+                    typing: false,
+                })]
+            }
             _ => return Err(self.invalid(mode)),
         };
         Ok(Some(actions))
@@ -366,13 +381,15 @@ impl PendingKeys {
     /// A motion moves the cursor, or completes the pending operator.
     fn motion(&mut self, mode: Mode, motion: Motion) -> Result<Option<Vec<Action>>, TGVError> {
         match (self.operator, mode) {
-            (Some((operator, _)), Mode::Insert(track)) => Ok(Some(vec![Action::Operate {
-                track,
-                operator,
-                motion,
-            }])),
+            (Some((operator, _)), Mode::Insert(track)) => {
+                Ok(Some(vec![Action::Edit(EditAction::Operate {
+                    track,
+                    operator,
+                    motion,
+                })]))
+            }
             (Some(_), Mode::Normal) => Err(self.invalid(mode)),
-            (None, _) => Ok(Some(vec![Action::Motion(motion)])),
+            (None, _) => Ok(Some(vec![Action::Edit(EditAction::Motion(motion))])),
         }
     }
 }
@@ -430,7 +447,7 @@ mod tests {
     }
 
     fn columns(direction: Direction, count: u64) -> Action {
-        Action::Motion(Motion::Columns { direction, count })
+        Action::Edit(EditAction::Motion(Motion::Columns { direction, count }))
     }
 
     fn word(motion: WordMotion, big: bool, count: usize) -> Motion {
@@ -449,20 +466,20 @@ mod tests {
     #[case("g G", Ok(vec![Scroll::Bottom.into()]))]
     #[case("1", Ok(vec![]))]
     #[case("g 1", invalid("normal", "g1"))]
-    #[case("w", Ok(vec![Action::Motion(word(WordMotion::NextStart, false, 1))]))]
-    #[case("b", Ok(vec![Action::Motion(word(WordMotion::PreviousStart, false, 1))]))]
-    #[case("e", Ok(vec![Action::Motion(word(WordMotion::NextEnd, false, 1))]))]
+    #[case("w", Ok(vec![Action::Edit(EditAction::Motion(word(WordMotion::NextStart, false, 1)))]))]
+    #[case("b", Ok(vec![Action::Edit(EditAction::Motion(word(WordMotion::PreviousStart, false, 1)))]))]
+    #[case("e", Ok(vec![Action::Edit(EditAction::Motion(word(WordMotion::NextEnd, false, 1)))]))]
     #[case("h", Ok(vec![columns(Direction::Left, 1)]))]
     #[case("l", Ok(vec![columns(Direction::Right, 1)]))]
     #[case("j", Ok(vec![Scroll::Down(1).into()]))]
     #[case("k", Ok(vec![Scroll::Up(1).into()]))]
-    #[case("z", Ok(vec![Action::Core(Zoom::In(2).into())]))]
-    #[case("o", Ok(vec![Action::Core(Zoom::Out(2).into())]))]
-    #[case("g e", Ok(vec![Action::Motion(word(WordMotion::PreviousEnd, false, 1))]))]
-    #[case("g E", Ok(vec![Action::Motion(word(WordMotion::PreviousEnd, true, 1))]))]
-    #[case("3 w", Ok(vec![Action::Motion(word(WordMotion::NextStart, false, 3))]))]
+    #[case("z", Ok(vec![Action::from(Zoom::In(2))]))]
+    #[case("o", Ok(vec![Action::from(Zoom::Out(2))]))]
+    #[case("g e", Ok(vec![Action::Edit(EditAction::Motion(word(WordMotion::PreviousEnd, false, 1)))]))]
+    #[case("g E", Ok(vec![Action::Edit(EditAction::Motion(word(WordMotion::PreviousEnd, true, 1)))]))]
+    #[case("3 w", Ok(vec![Action::Edit(EditAction::Motion(word(WordMotion::NextStart, false, 3)))]))]
     #[case("5 l", Ok(vec![columns(Direction::Right, 5)]))]
-    #[case("1 0 z", Ok(vec![Action::Core(Zoom::In(20).into())]))]
+    #[case("1 0 z", Ok(vec![Action::from(Zoom::In(20))]))]
     #[case("x", invalid("normal", "x"))]
     #[case("g x", invalid("normal", "gx"))]
     #[case("3 x", invalid("normal", "3x"))]

@@ -50,7 +50,7 @@ impl Bench {
     async fn handle(&mut self, messages: Vec<CoreMessage>) -> Vec<RenderEvent> {
         let events = self
             .app
-            .handle(messages.into_iter().map(Action::Core).collect())
+            .handle(messages.into_iter().map(Action::from).collect())
             .await
             .expect("handle");
         self.self_correct();

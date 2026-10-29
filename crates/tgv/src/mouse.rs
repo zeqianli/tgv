@@ -2,7 +2,10 @@ use crate::layout::{AlignmentView, AreaType, CellView, HoveringAreaType, Resolve
 use crossterm::event::{KeyModifiers, MouseButton, MouseEvent, MouseEventKind};
 use gv_core::message::{Movement, Scroll};
 use gv_core::prelude::*;
-use gv_viewer::message::{Action, Anchor, ContextMenuTarget, FocusTarget, UpdateLayoutAction};
+use gv_viewer::message::{
+    Action, Anchor, ContextMenuTarget, FocusTarget, InputAction, InteractionAction,
+    NavigationAction, UpdateLayoutAction,
+};
 use gv_viewer::prepare::hover;
 use ratatui::layout::Rect;
 
@@ -110,10 +113,12 @@ impl MouseRegister {
                         | AreaType::Alignment(id)
                         | AreaType::Variant(id)
                         | AreaType::Bed(id) => {
-                            messages.push(Action::Focus(FocusTarget::Track(id)));
+                            messages
+                                .push(Action::Input(InputAction::Focus(FocusTarget::Track(id))));
                         }
                         AreaType::Sequence | AreaType::GeneTrack => {
-                            messages.push(Action::Focus(FocusTarget::Reference));
+                            messages
+                                .push(Action::Input(InputAction::Focus(FocusTarget::Reference)));
                         }
                         _ => {}
                     }
@@ -171,13 +176,13 @@ impl MouseRegister {
                     _ => None,
                 };
                 if let Some(target) = target {
-                    messages.push(Action::OpenContextMenu {
+                    messages.push(Action::Interaction(InteractionAction::OpenContextMenu {
                         target,
                         anchor: Anchor {
                             x: f32::from(event.column),
                             y: f32::from(event.row),
                         },
-                    });
+                    }));
                 }
             }
             MouseEventKind::Drag(MouseButton::Left) => {
@@ -208,14 +213,16 @@ impl MouseRegister {
                             // A drag keeps scrolling the track where it started, even if it
                             // crosses into another.
                             if event.row != self.last_y {
-                                messages.push(Action::ScrollAlignment {
-                                    track: id,
-                                    scroll: if event.row > self.last_y {
-                                        Scroll::Up(1)
-                                    } else {
-                                        Scroll::Down(1)
+                                messages.push(Action::Navigate(
+                                    NavigationAction::ScrollAlignment {
+                                        track: id,
+                                        scroll: if event.row > self.last_y {
+                                            Scroll::Up(1)
+                                        } else {
+                                            Scroll::Down(1)
+                                        },
                                     },
-                                });
+                                ));
                             }
                         }
                         AreaType::Bed(_) | AreaType::Variant(_) => {
@@ -248,7 +255,10 @@ impl MouseRegister {
                         event.row,
                     )?
                 {
-                    messages.push(Action::OpenReadDetails { track, read_id });
+                    messages.push(Action::Interaction(InteractionAction::OpenReadDetails {
+                        track,
+                        read_id,
+                    }));
                 }
                 self.mouse_down_area = None;
                 self.active_divider = None;
@@ -324,14 +334,14 @@ impl MouseRegister {
                     && let AreaType::Alignment(id) | AreaType::Coverage(id) =
                         layout.areas[track_index].0
                 {
-                    messages.push(Action::ScrollAlignment {
+                    messages.push(Action::Navigate(NavigationAction::ScrollAlignment {
                         track: id,
                         scroll: if matches!(event.kind, MouseEventKind::ScrollDown) {
                             Scroll::Down(1)
                         } else {
                             Scroll::Up(1)
                         },
-                    });
+                    }));
                 }
             }
             MouseEventKind::ScrollLeft | MouseEventKind::ScrollRight => {

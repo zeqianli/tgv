@@ -4,6 +4,7 @@
 //! restored on the next launch. The file format is documented in the tgv
 //! book under "Session files".
 
+use crate::message::NavigationAction;
 use crate::{
     colors::DARK_THEME, message::Action, settings::Settings, viewer::Viewer, viewport::Scale,
 };
@@ -133,13 +134,13 @@ impl SessionFile {
 pub fn parse_locus(locus: &str) -> Result<Vec<Action>, TGVError> {
     let parts: Vec<&str> = locus.split(':').collect();
     match parts.len() {
-        1 => Ok(vec![Action::Core(gv_core::message::Message::Move(
+        1 => Ok(vec![Action::Navigate(NavigationAction::Move(
             Movement::Gene(locus.to_string()),
         ))]),
         2 => parts[1]
             .parse::<u64>()
             .map(|n| {
-                vec![Action::Core(gv_core::message::Message::Move(
+                vec![Action::Navigate(NavigationAction::Move(
                     Movement::ContigNamePosition(parts[0].to_string(), n),
                 ))]
             })

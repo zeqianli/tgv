@@ -56,7 +56,7 @@ impl AppHarness {
     }
 
     pub async fn handle_core(&mut self, messages: Vec<CoreMessage>) -> Result<(), TGVError> {
-        self.handle(messages.into_iter().map(Action::Core).collect())
+        self.handle(messages.into_iter().map(Action::from).collect())
             .await
     }
 

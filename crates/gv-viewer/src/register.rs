@@ -1,5 +1,7 @@
 //! The input modes, and the command line that command and search mode share.
 
+use crate::message::{InputAction, NavigationAction};
+
 use crate::{
     keys::{Key, KeyCode, Mode, PendingKeys},
     message::{Action, Movement},
@@ -90,14 +92,14 @@ impl Registers {
                     .find(|path| !is_url(path) && !Path::new(path).is_file())
                 {
                     Some(missing) => vec![Action::message(format!("Not a file: {missing}"))],
-                    None => vec![Action::Core(gv_core::message::Message::OpenFiles(paths))],
+                    None => vec![Action::from(gv_core::message::Message::OpenFiles(paths))],
                 }
             }
             KeyRegisterType::Command | KeyRegisterType::Search => {
                 let text: String = text.chars().filter(|c| !matches!(c, '\n' | '\r')).collect();
                 self.command.insert_str(self.command_cursor, &text);
                 self.command_cursor += text.len();
-                vec![Action::CommandChanged]
+                vec![Action::Input(InputAction::CommandChanged)]
             }
             KeyRegisterType::ContigList | KeyRegisterType::Insert { .. } => Vec::new(),
         }
@@ -112,14 +114,14 @@ impl Registers {
         match key_event.code {
             KeyCode::Enter if state.contig_header.contigs.is_empty() => Ok(vec![]),
             KeyCode::Enter => Ok(vec![
-                Action::SwitchKeyRegister(self.return_to.clone()),
-                Action::SwitchScene(Scene::Main),
+                Action::Input(InputAction::SwitchKeyRegister(self.return_to.clone())),
+                Action::Input(InputAction::SwitchScene(Scene::Main)),
                 Movement::ContigIndex(self.contig_list_cursor).into(),
             ]),
 
             KeyCode::Esc => Ok(vec![
-                Action::SwitchKeyRegister(self.return_to.clone()),
-                Action::SwitchScene(Scene::Main),
+                Action::Input(InputAction::SwitchKeyRegister(self.return_to.clone())),
+                Action::Input(InputAction::SwitchScene(Scene::Main)),
             ]),
             // FEAT: command mode in contig list
             // - search and filter contig by regex patterns
@@ -131,10 +133,12 @@ impl Registers {
                     self.contig_list_cursor.saturating_add(1),
                     state.contig_header.contigs.len().saturating_sub(1),
                 );
-                Ok(vec![Action::SelectContig(index)])
+                Ok(vec![Action::Navigate(NavigationAction::SelectContig(
+                    index,
+                ))])
             }
-            KeyCode::Char('k') | KeyCode::Up => Ok(vec![Action::SelectContig(
-                self.contig_list_cursor.saturating_sub(1),
+            KeyCode::Char('k') | KeyCode::Up => Ok(vec![Action::Navigate(
+                NavigationAction::SelectContig(self.contig_list_cursor.saturating_sub(1)),
             )]),
 
             KeyCode::Char('}') => {
@@ -142,12 +146,14 @@ impl Registers {
                     self.contig_list_cursor.saturating_add(30),
                     state.contig_header.contigs.len().saturating_sub(1),
                 );
-                Ok(vec![Action::SelectContig(index)])
+                Ok(vec![Action::Navigate(NavigationAction::SelectContig(
+                    index,
+                ))])
             }
 
-            KeyCode::Char('{') => Ok(vec![Action::SelectContig(
+            KeyCode::Char('{') => Ok(vec![Action::Navigate(NavigationAction::SelectContig(
                 self.contig_list_cursor.saturating_sub(30),
-            )]),
+            ))]),
             _ => Ok(vec![]),
         }
     }
@@ -161,52 +167,52 @@ impl Registers {
     ) -> Result<Vec<Action>, TGVError> {
         match key_event.code {
             KeyCode::Esc => Ok(vec![
-                Action::ClearAllKeyRegisters,
-                Action::SwitchKeyRegister(self.return_to.clone()),
+                Action::Input(InputAction::ClearAllKeyRegisters),
+                Action::Input(InputAction::SwitchKeyRegister(self.return_to.clone())),
             ]),
 
             KeyCode::Enter => match self.command.trim() {
                 "ls" | "contigs" if self.current == KeyRegisterType::Command => Ok(vec![
-                    Action::ClearAllKeyRegisters,
-                    Action::SwitchScene(Scene::ContigList),
-                    Action::SwitchKeyRegister(KeyRegisterType::ContigList),
+                    Action::Input(InputAction::ClearAllKeyRegisters),
+                    Action::Input(InputAction::SwitchScene(Scene::ContigList)),
+                    Action::Input(InputAction::SwitchKeyRegister(KeyRegisterType::ContigList)),
                 ]),
                 _ => Ok(submit(self.command.as_str())
                     .unwrap_or_else(|e| {
-                        vec![Action::Core(gv_core::message::Message::Message(format!(
+                        vec![Action::from(gv_core::message::Message::Message(format!(
                             "{}",
                             e
                         )))]
                     })
                     .into_iter()
                     .chain(vec![
-                        Action::ClearAllKeyRegisters,
-                        Action::SwitchKeyRegister(self.return_to.clone()),
+                        Action::Input(InputAction::ClearAllKeyRegisters),
+                        Action::Input(InputAction::SwitchKeyRegister(self.return_to.clone())),
                     ])
                     .collect_vec()),
             },
             KeyCode::Char(c) => {
                 self.command.insert(self.command_cursor, c);
                 self.command_cursor += 1;
-                Ok(vec![Action::CommandChanged])
+                Ok(vec![Action::Input(InputAction::CommandChanged)])
             }
             KeyCode::Backspace => {
                 if self.command_cursor > 0 {
                     self.command.remove(self.command_cursor - 1);
                     self.command_cursor -= 1;
                 }
-                Ok(vec![Action::CommandChanged])
+                Ok(vec![Action::Input(InputAction::CommandChanged)])
             }
             KeyCode::Left => {
                 self.command_cursor = self.command_cursor.saturating_sub(1);
-                Ok(vec![Action::CommandChanged])
+                Ok(vec![Action::Input(InputAction::CommandChanged)])
             }
             KeyCode::Right => {
                 self.command_cursor = self
                     .command_cursor
                     .saturating_add(1)
                     .clamp(0, self.command.len());
-                Ok(vec![Action::CommandChanged])
+                Ok(vec![Action::Input(InputAction::CommandChanged)])
             }
             _ => Err(TGVError::RegisterError(format!(
                 "Invalid command mode input: {:?}",
@@ -226,13 +232,13 @@ impl Registers {
             KeyRegisterType::Command => self.handle_command_line(key_event, |input| {
                 Ok(gv_core::command::parse(input)?
                     .into_iter()
-                    .map(Action::Core)
+                    .map(Action::from)
                     .collect())
             }),
             KeyRegisterType::Search => self.handle_command_line(key_event, |input| {
                 Ok(gv_core::command::parse_search(input)?
                     .into_iter()
-                    .map(Action::Core)
+                    .map(Action::from)
                     .collect())
             }),
             KeyRegisterType::ContigList => self.handle_contig_list(key_event, state),
@@ -242,7 +248,7 @@ impl Registers {
         }
         .unwrap_or_else(|e| {
             vec![
-                Action::ClearAllKeyRegisters,
+                Action::Input(InputAction::ClearAllKeyRegisters),
                 Action::message(format!("{}", e)),
             ]
         }))

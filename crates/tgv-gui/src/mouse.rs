@@ -16,7 +16,10 @@ use crate::{
 use gv_core::message::{Scroll, Zoom};
 use gv_core::{message::Movement, prelude::*};
 use gv_viewer::{
-    message::{Action, Anchor, ContextMenuTarget, FocusTarget, UpdateLayoutAction},
+    message::{
+        Action, Anchor, ContextMenuTarget, FocusTarget, InputAction, InteractionAction,
+        NavigationAction, UpdateLayoutAction,
+    },
     prepare::hover,
 };
 
@@ -100,10 +103,10 @@ impl MouseRegister {
                         | AreaType::Alignment(id)
                         | AreaType::Variant(id)
                         | AreaType::Bed(id),
-                    ) => actions.push(Action::Focus(FocusTarget::Track(id)).into()),
-                    Some(AreaType::Sequence | AreaType::GeneTrack) => {
-                        actions.push(Action::Focus(FocusTarget::Reference).into())
-                    }
+                    ) => actions
+                        .push(Action::Input(InputAction::Focus(FocusTarget::Track(id))).into()),
+                    Some(AreaType::Sequence | AreaType::GeneTrack) => actions
+                        .push(Action::Input(InputAction::Focus(FocusTarget::Reference)).into()),
                     _ => {}
                 }
                 if let HoveringAreaType::Track(track_index) = hovered {
@@ -169,10 +172,10 @@ impl MouseRegister {
                 };
                 if let Some(target) = target {
                     actions.push(
-                        Action::OpenContextMenu {
+                        Action::Interaction(InteractionAction::OpenContextMenu {
                             target,
                             anchor: Anchor { x, y },
-                        }
+                        })
                         .into(),
                     );
                 }
@@ -267,7 +270,9 @@ impl MouseRegister {
             && *id == track
             && let Some((_, read_id)) = read_at(frame, layout, view, track, area, x, y)?
         {
-            actions.push(Action::OpenReadDetails { track, read_id }.into());
+            actions.push(
+                Action::Interaction(InteractionAction::OpenReadDetails { track, read_id }).into(),
+            );
         }
         self.mouse_down_area = None;
         self.active_divider = None;
@@ -326,7 +331,7 @@ impl MouseRegister {
         } else {
             Scroll::Up(-rows as usize)
         };
-        Some(Action::ScrollAlignment { track, scroll }.into())
+        Some(Action::Navigate(NavigationAction::ScrollAlignment { track, scroll }).into())
     }
 
     /// What the message line says about the data under the pointer.
@@ -397,5 +402,5 @@ fn read_at(
 
 /// The zoom for a scale step, as the `z` and `o` keys send it.
 pub fn zoom_step(zoom_in: bool) -> Action {
-    Action::Core(if zoom_in { Zoom::In(2) } else { Zoom::Out(2) }.into())
+    Action::from(if zoom_in { Zoom::In(2) } else { Zoom::Out(2) })
 }
