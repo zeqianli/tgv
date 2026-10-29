@@ -5,11 +5,7 @@ use crate::{
     rendering::{TrackFocus, colors::Palette},
 };
 use gv_viewer::prepare::sidebar::{alignment_depth_description, describe_option};
-use gv_viewer::{
-    layout::RenderEvent,
-    message::FocusTarget,
-    register::{KeyRegisterType, Registers},
-};
+use gv_viewer::{layout::RenderEvent, message::FocusTarget, register::Registers};
 
 use gv_core::prelude::*;
 use itertools::Itertools;
@@ -172,7 +168,7 @@ pub fn render_sidebar(
         }
         // The focused target's whole section is filled, colored by mode.
         let fill = match registers.shown_mode() {
-            KeyRegisterType::Insert { .. } => pallete.FOCUS_INSERT.color(),
+            gv_viewer::keys::Mode::Insert(_) => pallete.FOCUS_INSERT.color(),
             _ => pallete.FOCUS_NORMAL.color(),
         };
         for (area_type, section) in &layout.sidebar_sections {

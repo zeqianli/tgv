@@ -65,7 +65,7 @@ Decisions already made with the user:
 - **`Esc` in normal mode** only clears pending input. Otherwise it does nothing, without an
   error. (Today it enters track mode.)
 - **`:` and `/`** work in both modes. After `Enter` or `Esc` they return to the mode they came
-  from, through `Registers::return_to`. So `:w` doesn't leave insert mode.
+  from, which is stored in the active input mode. So `:w` doesn't leave insert mode.
 - Popups, the context menu, and the contig list keep their current behaviour, and so does
   `Esc` in them.
 

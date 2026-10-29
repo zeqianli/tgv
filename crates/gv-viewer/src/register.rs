@@ -11,26 +11,25 @@ use gv_core::alignment::is_url;
 use gv_core::prelude::*;
 use itertools::Itertools;
 use std::path::Path;
-#[derive(Debug, Clone, Eq, PartialEq)]
+
+/// The active input mode and the editing mode to resume after a temporary mode closes.
+#[derive(Debug, Clone, Copy, Eq, PartialEq)]
 pub enum KeyRegisterType {
-    Normal,
-    /// Edits a BED track at the cursor. The track is part of the mode, so insert mode always
-    /// has one.
-    Insert {
-        track: TrackId,
-    },
-    Command,
-    /// Navigation input after `/`. It shares the command line with command mode.
-    Search,
-    ContigList,
-    // ContigListCommand,
+    Editing(Mode),
+    Command(Mode),
+    Search(Mode),
+    ContigList(Mode),
+}
+
+impl From<Mode> for KeyRegisterType {
+    fn from(mode: Mode) -> Self {
+        Self::Editing(mode)
+    }
 }
 
 #[derive(Debug, Clone)]
 pub struct Registers {
     pub current: KeyRegisterType,
-    /// The mode that command, search, and contig list input return to: normal or insert mode.
-    pub return_to: KeyRegisterType,
     /// The normal or insert mode command being typed.
     pub pending: PendingKeys,
     pub command: String,
@@ -44,8 +43,7 @@ pub struct Registers {
 impl Default for Registers {
     fn default() -> Self {
         Self {
-            current: KeyRegisterType::Normal,
-            return_to: KeyRegisterType::Normal,
+            current: KeyRegisterType::Editing(Mode::Normal),
             pending: PendingKeys::default(),
             command: "".to_string(),
             command_cursor: 0,
@@ -58,13 +56,29 @@ impl Default for Registers {
 impl Registers {
     /// The mode the screen shows: normal or insert mode. Command, search, and contig list input
     /// show the mode they return to.
-    pub fn shown_mode(&self) -> &KeyRegisterType {
+    pub fn shown_mode(&self) -> Mode {
         match self.current {
-            KeyRegisterType::Command | KeyRegisterType::Search | KeyRegisterType::ContigList => {
-                &self.return_to
-            }
-            _ => &self.current,
+            KeyRegisterType::Editing(mode)
+            | KeyRegisterType::Command(mode)
+            | KeyRegisterType::Search(mode)
+            | KeyRegisterType::ContigList(mode) => mode,
         }
+    }
+
+    /// Leaves insert mode for a track that no longer has the focus or was removed.
+    pub fn leave_insert_mode(&mut self, track: TrackId) {
+        if self.shown_mode() != Mode::Insert(track) {
+            return;
+        }
+        self.current = match self.current {
+            KeyRegisterType::Editing(_) => {
+                self.pending.clear();
+                KeyRegisterType::Editing(Mode::Normal)
+            }
+            KeyRegisterType::Command(_) => KeyRegisterType::Command(Mode::Normal),
+            KeyRegisterType::Search(_) => KeyRegisterType::Search(Mode::Normal),
+            KeyRegisterType::ContigList(_) => KeyRegisterType::ContigList(Mode::Normal),
+        };
     }
 
     pub fn clear(&mut self) {
@@ -82,7 +96,7 @@ impl Registers {
     /// inserted at the cursor.
     pub fn handle_paste(&mut self, text: &str) -> Vec<Action> {
         match self.current {
-            KeyRegisterType::Normal => {
+            KeyRegisterType::Editing(Mode::Normal) => {
                 let paths = shlex::split(text.trim()).unwrap_or_default();
                 if paths.is_empty() {
                     return vec![Action::message(format!("Not a file: {}", text.trim()))];
@@ -92,16 +106,18 @@ impl Registers {
                     .find(|path| !is_url(path) && !Path::new(path).is_file())
                 {
                     Some(missing) => vec![Action::message(format!("Not a file: {missing}"))],
-                    None => vec![Action::from(gv_core::message::Message::OpenFiles(paths))],
+                    None => vec![Action::Track(crate::message::TrackAction::OpenFiles(paths))],
                 }
             }
-            KeyRegisterType::Command | KeyRegisterType::Search => {
+            KeyRegisterType::Command(_) | KeyRegisterType::Search(_) => {
                 let text: String = text.chars().filter(|c| !matches!(c, '\n' | '\r')).collect();
                 self.command.insert_str(self.command_cursor, &text);
                 self.command_cursor += text.len();
                 vec![Action::Input(InputAction::CommandChanged)]
             }
-            KeyRegisterType::ContigList | KeyRegisterType::Insert { .. } => Vec::new(),
+            KeyRegisterType::ContigList(_) | KeyRegisterType::Editing(Mode::Insert(_)) => {
+                Vec::new()
+            }
         }
     }
 
@@ -114,13 +130,13 @@ impl Registers {
         match key_event.code {
             KeyCode::Enter if state.contig_header.contigs.is_empty() => Ok(vec![]),
             KeyCode::Enter => Ok(vec![
-                Action::Input(InputAction::SwitchKeyRegister(self.return_to.clone())),
+                Action::Input(InputAction::SwitchKeyRegister(self.shown_mode().into())),
                 Action::Input(InputAction::SwitchScene(Scene::Main)),
                 Movement::ContigIndex(self.contig_list_cursor).into(),
             ]),
 
             KeyCode::Esc => Ok(vec![
-                Action::Input(InputAction::SwitchKeyRegister(self.return_to.clone())),
+                Action::Input(InputAction::SwitchKeyRegister(self.shown_mode().into())),
                 Action::Input(InputAction::SwitchScene(Scene::Main)),
             ]),
             // FEAT: command mode in contig list
@@ -168,26 +184,25 @@ impl Registers {
         match key_event.code {
             KeyCode::Esc => Ok(vec![
                 Action::Input(InputAction::ClearAllKeyRegisters),
-                Action::Input(InputAction::SwitchKeyRegister(self.return_to.clone())),
+                Action::Input(InputAction::SwitchKeyRegister(self.shown_mode().into())),
             ]),
 
             KeyCode::Enter => match self.command.trim() {
-                "ls" | "contigs" if self.current == KeyRegisterType::Command => Ok(vec![
-                    Action::Input(InputAction::ClearAllKeyRegisters),
-                    Action::Input(InputAction::SwitchScene(Scene::ContigList)),
-                    Action::Input(InputAction::SwitchKeyRegister(KeyRegisterType::ContigList)),
-                ]),
+                "ls" | "contigs" if matches!(self.current, KeyRegisterType::Command(_)) => {
+                    Ok(vec![
+                        Action::Input(InputAction::ClearAllKeyRegisters),
+                        Action::Input(InputAction::SwitchScene(Scene::ContigList)),
+                        Action::Input(InputAction::SwitchKeyRegister(KeyRegisterType::ContigList(
+                            self.shown_mode(),
+                        ))),
+                    ])
+                }
                 _ => Ok(submit(self.command.as_str())
-                    .unwrap_or_else(|e| {
-                        vec![Action::from(gv_core::message::Message::Message(format!(
-                            "{}",
-                            e
-                        )))]
-                    })
+                    .unwrap_or_else(|e| vec![Action::message(e.to_string())])
                     .into_iter()
                     .chain(vec![
                         Action::Input(InputAction::ClearAllKeyRegisters),
-                        Action::Input(InputAction::SwitchKeyRegister(self.return_to.clone())),
+                        Action::Input(InputAction::SwitchKeyRegister(self.shown_mode().into())),
                     ])
                     .collect_vec()),
             },
@@ -227,21 +242,14 @@ impl Registers {
         state: &State,
     ) -> Result<Vec<Action>, TGVError> {
         Ok(match self.current {
-            KeyRegisterType::Normal => self.pending.push(key_event, Mode::Normal),
-            KeyRegisterType::Insert { track } => self.pending.push(key_event, Mode::Insert(track)),
-            KeyRegisterType::Command => self.handle_command_line(key_event, |input| {
-                Ok(gv_core::command::parse(input)?
-                    .into_iter()
-                    .map(Action::from)
-                    .collect())
-            }),
-            KeyRegisterType::Search => self.handle_command_line(key_event, |input| {
-                Ok(gv_core::command::parse_search(input)?
-                    .into_iter()
-                    .map(Action::from)
-                    .collect())
-            }),
-            KeyRegisterType::ContigList => self.handle_contig_list(key_event, state),
+            KeyRegisterType::Editing(mode) => self.pending.push(key_event, mode),
+            KeyRegisterType::Command(_) => {
+                self.handle_command_line(key_event, |input| crate::command::parse(input))
+            }
+            KeyRegisterType::Search(_) => {
+                self.handle_command_line(key_event, |input| crate::command::parse_search(input))
+            }
+            KeyRegisterType::ContigList(_) => self.handle_contig_list(key_event, state),
             // KeyRegisterType::ContigListCommand => {
             //     self.contig_list_command.handle_key_event(key_event)
             // }

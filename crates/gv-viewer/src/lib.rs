@@ -10,6 +10,7 @@
 //! [`Action`]: message::Action
 
 pub mod colors;
+pub mod command;
 pub mod jumps;
 pub mod keys;
 pub mod layout;

@@ -339,7 +339,7 @@ fn render_area(
         AreaType::Console => {
             if matches!(
                 frame.registers.current,
-                KeyRegisterType::Command | KeyRegisterType::Search
+                KeyRegisterType::Command(_) | KeyRegisterType::Search(_)
             ) {
                 render_console(painter, &rect, &frame.registers);
             } else {
@@ -362,7 +362,7 @@ fn render_area(
             let index = layout.track_registry.bed_index(*id)?;
             render_bed(painter, &rect, &state.bed_intervals[index], view, palette)?;
             // Insert mode draws the cursor as an outlined base.
-            if *frame.registers.shown_mode() == (KeyRegisterType::Insert { track: *id })
+            if frame.registers.shown_mode() == gv_viewer::keys::Mode::Insert(*id)
                 && let Some((x, width)) = view.span(
                     view.viewport.focus.position,
                     view.viewport.focus.position,

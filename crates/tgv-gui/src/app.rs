@@ -26,7 +26,7 @@ use gpui::{
     IntoElement, KeyDownEvent, MouseDownEvent, MouseMoveEvent, MouseUpEvent, ParentElement,
     PathPromptOptions, Render, ScrollWheelEvent, Styled, Window, canvas, div, px,
 };
-use gv_core::message::{BasesPerUnit, Message, Movement, Zoom};
+use gv_core::message::{BasesPerUnit, Movement, Zoom};
 use gv_viewer::{
     message::{UiAction, UpdateLayoutAction},
     popup::TextPopup,
@@ -276,7 +276,10 @@ impl App {
         if viewport.zoom(zoom.clone(), width, contig_length).is_err() {
             return;
         }
-        if matches!(frame.registers.current, KeyRegisterType::Insert { .. }) {
+        if matches!(
+            frame.registers.current,
+            KeyRegisterType::Editing(gv_viewer::keys::Mode::Insert(_))
+        ) {
             viewport.zoom = viewport.zoom.for_insert_mode();
             viewport.self_correct(width, contig_length);
         }
@@ -392,8 +395,14 @@ impl App {
     /// Command shortcuts, as macOS apps have them.
     fn on_shortcut(&mut self, key: &str, _window: &mut Window, cx: &mut Context<Self>) {
         match key {
-            "q" | "w" => self.handle(vec![Action::from(Message::Quit).into()], cx),
-            "s" => self.handle(vec![Action::from(Message::WriteTrack(None)).into()], cx),
+            "q" | "w" => self.handle(
+                vec![Action::Session(gv_viewer::message::SessionAction::Quit).into()],
+                cx,
+            ),
+            "s" => self.handle(
+                vec![Action::Session(gv_viewer::message::SessionAction::WriteTrack(None)).into()],
+                cx,
+            ),
             "=" | "+" => self.handle(vec![zoom_step(true).into()], cx),
             "-" => self.handle(vec![zoom_step(false).into()], cx),
             "v" => {
@@ -415,7 +424,10 @@ impl App {
                             .map(|path| path.to_string_lossy().into_owned())
                             .collect();
                         let _ = this.update(cx, |app, cx| {
-                            app.handle(vec![Action::from(Message::OpenFiles(paths)).into()], cx)
+                            app.handle(
+                                vec![Action::Track(TrackAction::OpenFiles(paths)).into()],
+                                cx,
+                            )
                         });
                     }
                 })
@@ -603,7 +615,7 @@ impl App {
                     position: resolved.drop_target(y, &frame.track_order).position,
                 })
             }
-            _ => Action::from(Message::OpenFiles(paths)),
+            _ => Action::Track(TrackAction::OpenFiles(paths)),
         };
         self.handle(vec![action.into()], cx);
     }
@@ -641,7 +653,10 @@ impl App {
             // Nothing is open yet, or the dataset failed to open.
             return true;
         }
-        self.handle(vec![Action::from(Message::Quit).into()], cx);
+        self.handle(
+            vec![Action::Session(gv_viewer::message::SessionAction::Quit).into()],
+            cx,
+        );
         false
     }
 }

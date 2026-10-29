@@ -2,9 +2,7 @@
 
 use crate::{register::KeyRegisterType, viewer::Scene};
 use gv_core::bed::BedEditKind;
-use gv_core::message::{
-    AlignmentDisplayOption, AlignmentFilter, AlignmentSort, Message, WordMotion, Zoom,
-};
+use gv_core::message::{AlignmentDisplayOption, AlignmentFilter, AlignmentSort, WordMotion, Zoom};
 pub use gv_core::message::{Movement, Scroll};
 use gv_core::track_registry::TrackId;
 use strum::Display;
@@ -327,39 +325,15 @@ impl Action {
     }
 }
 
-impl From<gv_core::message::Message> for Action {
-    fn from(m: gv_core::message::Message) -> Self {
-        match m {
-            Message::Move(value) => Action::Navigate(NavigationAction::Move(value)),
-            Message::Scroll(value) => Action::Navigate(NavigationAction::Scroll(value)),
-            Message::Zoom(value) => Action::Navigate(NavigationAction::Zoom(value)),
-            Message::NewBedTrack => Action::Track(TrackAction::NewBedTrack),
-            Message::SetAlignmentOption(value) => {
-                Action::Track(TrackAction::SetAlignmentOption(value))
-            }
-            Message::OpenFiles(value) => Action::Track(TrackAction::OpenFiles(value)),
-            Message::Quit => Action::Session(SessionAction::Quit),
-            Message::ForceQuit => Action::Session(SessionAction::ForceQuit),
-            Message::SaveSession(value) => Action::Session(SessionAction::SaveSession(value)),
-            Message::SaveAndQuit(value) => Action::Session(SessionAction::SaveAndQuit(value)),
-            Message::WriteTrack(value) => Action::Session(SessionAction::WriteTrack(value)),
-            Message::WriteAll => Action::Session(SessionAction::WriteAll),
-            Message::WriteAndQuit(value) => Action::Session(SessionAction::WriteAndQuit(value)),
-            Message::WriteAllAndQuit => Action::Session(SessionAction::WriteAllAndQuit),
-            Message::Message(value) => Action::Message(value),
-        }
-    }
-}
-
 impl From<gv_core::message::Movement> for Action {
     fn from(movement: gv_core::message::Movement) -> Self {
-        gv_core::message::Message::Move(movement).into()
+        Action::Navigate(NavigationAction::Move(movement))
     }
 }
 
 impl From<gv_core::message::Scroll> for Action {
     fn from(scroll: gv_core::message::Scroll) -> Self {
-        gv_core::message::Message::Scroll(scroll).into()
+        Action::Navigate(NavigationAction::Scroll(scroll))
     }
 }
 

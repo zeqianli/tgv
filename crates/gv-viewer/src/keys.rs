@@ -173,7 +173,7 @@ impl PendingKeys {
             return Ok(Some(match mode {
                 Mode::Insert(_) if !pending => {
                     vec![Action::Input(InputAction::SwitchKeyRegister(
-                        KeyRegisterType::Normal,
+                        KeyRegisterType::Editing(Mode::Normal),
                     ))]
                 }
                 _ => Vec::new(),
@@ -309,11 +309,15 @@ impl PendingKeys {
             }
             (KeyCode::Char(':'), _) => vec![
                 Action::Input(InputAction::ClearAllKeyRegisters),
-                Action::Input(InputAction::SwitchKeyRegister(KeyRegisterType::Command)),
+                Action::Input(InputAction::SwitchKeyRegister(KeyRegisterType::Command(
+                    mode,
+                ))),
             ],
             (KeyCode::Char('/'), _) => vec![
                 Action::Input(InputAction::ClearAllKeyRegisters),
-                Action::Input(InputAction::SwitchKeyRegister(KeyRegisterType::Search)),
+                Action::Input(InputAction::SwitchKeyRegister(KeyRegisterType::Search(
+                    mode,
+                ))),
             ],
             (KeyCode::Char('u'), Mode::Normal) if without_count => {
                 vec![Action::Navigate(NavigationAction::JumpBack)]

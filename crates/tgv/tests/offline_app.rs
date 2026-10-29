@@ -1,10 +1,9 @@
+use gv_viewer::message::{NavigationAction, SessionAction};
 mod support;
 
 use crossterm::event::{KeyCode, KeyModifiers, MouseButton, MouseEvent, MouseEventKind};
 use gv_core::{
-    message::{
-        AlignmentDisplayOption, AlignmentSort, Message as CoreMessage, Movement, Scroll, Zoom,
-    },
+    message::{AlignmentDisplayOption, AlignmentSort, Movement, Scroll, Zoom},
     repository::RepositoryFileIndex,
     track_registry::TrackId,
 };
@@ -70,12 +69,12 @@ async fn offline_sequence_navigates_and_zooms() {
     let initial_zoom = harness.app.viewer.viewport.zoom;
 
     harness
-        .handle_core(vec![
-            CoreMessage::Scroll(Scroll::Down(2)),
-            CoreMessage::Zoom(Zoom::Out(4)),
-            CoreMessage::Move(Movement::Position(33121140)),
-            CoreMessage::Scroll(Scroll::Up(1)),
-            CoreMessage::Zoom(Zoom::In(2)),
+        .handle(vec![
+            Action::Navigate(NavigationAction::Scroll(Scroll::Down(2))),
+            Action::Navigate(NavigationAction::Zoom(Zoom::Out(4))),
+            Action::Navigate(NavigationAction::Move(Movement::Position(33121140))),
+            Action::Navigate(NavigationAction::Scroll(Scroll::Up(1))),
+            Action::Navigate(NavigationAction::Zoom(Zoom::In(2))),
         ])
         .await
         .unwrap();
@@ -247,8 +246,8 @@ async fn offline_sequence_updates_tracks_and_scenes() {
 
     harness
         .handle(vec![
-            Action::from(CoreMessage::Move(Movement::Position(33_121_130))),
-            Action::from(CoreMessage::Message("scripted-note".to_string())),
+            Action::Navigate(NavigationAction::Move(Movement::Position(33_121_130))),
+            Action::Message("scripted-note".to_string()),
             Action::Input(InputAction::SwitchScene(Scene::ContigList)),
             Action::Input(InputAction::SwitchScene(Scene::Main)),
         ])
@@ -279,9 +278,9 @@ async fn offline_sequence_handles_sorting_command() {
     let initial_messages = harness.app.viewer.dataset.view.messages.clone();
 
     harness
-        .handle_core(vec![CoreMessage::SetAlignmentOption(vec![
+        .handle(vec![Action::Track(TrackAction::SetAlignmentOption(vec![
             AlignmentDisplayOption::Sort(AlignmentSort::BaseAtCurrentPosition),
-        ])])
+        ]))])
         .await
         .unwrap();
 
@@ -313,9 +312,9 @@ async fn offline_sequence_saves_session_and_save_and_quit() {
     let save_path = temp_dir.path().join("saved-session.toml");
 
     harness
-        .handle_core(vec![CoreMessage::SaveSession(Some(
+        .handle(vec![Action::Session(SessionAction::SaveSession(Some(
             save_path.display().to_string(),
-        ))])
+        )))])
         .await
         .unwrap();
 
@@ -330,9 +329,9 @@ async fn offline_sequence_saves_session_and_save_and_quit() {
 
     let quit_path = temp_dir.path().join("quit-session.toml");
     harness
-        .handle_core(vec![CoreMessage::SaveAndQuit(Some(
+        .handle(vec![Action::Session(SessionAction::SaveAndQuit(Some(
             quit_path.display().to_string(),
-        ))])
+        )))])
         .await
         .unwrap();
 

@@ -1,8 +1,9 @@
 //! Parsing for command mode (`:`) and search mode (`/`) input.
 
-use crate::{
+use crate::message::{Action, NavigationAction, SessionAction, TrackAction};
+use gv_core::{
     error::TGVError,
-    message::{AlignmentDisplayOption, Message, Movement, Zoom},
+    message::{AlignmentDisplayOption, Movement, Zoom},
 };
 
 /// Parse command mode input. Supported commands:
@@ -19,35 +20,39 @@ use crate::{
 /// - `:clear`, `:default`: Restore the default alignment display.
 ///
 /// The front end handles commands that only change its own view, such as listing contigs.
-pub fn parse(input: &str) -> Result<Vec<Message>, TGVError> {
+pub fn parse(input: &str) -> Result<Vec<Action>, TGVError> {
     let input = input.trim();
     match input {
-        "q" => return Ok(vec![Message::Quit]),
-        "q!" => return Ok(vec![Message::ForceQuit]),
-        "wa" => return Ok(vec![Message::WriteAll]),
-        "wqa" | "xa" => return Ok(vec![Message::WriteAllAndQuit]),
-        "new" => return Ok(vec![Message::NewBedTrack]),
+        "q" => return Ok(vec![Action::Session(SessionAction::Quit)]),
+        "q!" => return Ok(vec![Action::Session(SessionAction::ForceQuit)]),
+        "wa" => return Ok(vec![Action::Session(SessionAction::WriteAll)]),
+        "wqa" | "xa" => return Ok(vec![Action::Session(SessionAction::WriteAllAndQuit)]),
+        "new" => return Ok(vec![Action::Track(TrackAction::NewBedTrack)]),
         _ => {}
     }
 
     let expanded = |path: Option<String>| path.map(|path| shellexpand::tilde(&path).into_owned());
-    if let Some(message) =
-        parse_session_command(input, "w", |path| Message::WriteTrack(expanded(path)))
-    {
+    if let Some(message) = parse_session_command(input, "w", |path| {
+        Action::Session(SessionAction::WriteTrack(expanded(path)))
+    }) {
         return Ok(vec![message]);
     }
 
-    if let Some(message) =
-        parse_session_command(input, "wq", |path| Message::WriteAndQuit(expanded(path)))
-    {
+    if let Some(message) = parse_session_command(input, "wq", |path| {
+        Action::Session(SessionAction::WriteAndQuit(expanded(path)))
+    }) {
         return Ok(vec![message]);
     }
 
-    if let Some(message) = parse_session_command(input, "ws", Message::SaveSession) {
+    if let Some(message) = parse_session_command(input, "ws", |path| {
+        Action::Session(SessionAction::SaveSession(path))
+    }) {
         return Ok(vec![message]);
     }
 
-    if let Some(message) = parse_session_command(input, "wsq", Message::SaveAndQuit) {
+    if let Some(message) = parse_session_command(input, "wsq", |path| {
+        Action::Session(SessionAction::SaveAndQuit(path))
+    }) {
         return Ok(vec![message]);
     }
 
@@ -56,13 +61,13 @@ pub fn parse(input: &str) -> Result<Vec<Message>, TGVError> {
     }
 
     if input.eq_ignore_ascii_case("clear") || input.eq_ignore_ascii_case("default") {
-        return Ok(vec![Message::SetAlignmentOption(vec![])]);
+        return Ok(vec![Action::Track(TrackAction::SetAlignmentOption(vec![]))]);
     }
 
     if input.eq_ignore_ascii_case("paired") {
-        return Ok(vec![Message::SetAlignmentOption(vec![
+        return Ok(vec![Action::Track(TrackAction::SetAlignmentOption(vec![
             AlignmentDisplayOption::ViewAsPairs,
-        ])]);
+        ]))]);
     }
 
     Err(TGVError::RegisterError(format!("Unknown command: {input}")))
@@ -76,7 +81,7 @@ pub fn parse(input: &str) -> Result<Vec<Message>, TGVError> {
 /// - `/TP53`: Go to a gene.
 ///
 /// Positions may use comma separators, such as `chr1:1,000,000`.
-pub fn parse_search(input: &str) -> Result<Vec<Message>, TGVError> {
+pub fn parse_search(input: &str) -> Result<Vec<Action>, TGVError> {
     let input = input.trim();
     let invalid = || TGVError::RegisterError(format!("Invalid search: {input}"));
     if input.is_empty() {
@@ -91,7 +96,9 @@ pub fn parse_search(input: &str) -> Result<Vec<Message>, TGVError> {
     let target = match parse_locus(locus) {
         Some(target) => target,
         None if contig.is_none() => {
-            return Ok(vec![Message::Move(Movement::Gene(input.to_string()))]);
+            return Ok(vec![Action::Navigate(NavigationAction::Move(
+                Movement::Gene(input.to_string()),
+            ))]);
         }
         None => return Err(invalid()),
     };
@@ -108,7 +115,7 @@ pub fn parse_search(input: &str) -> Result<Vec<Message>, TGVError> {
         Some(contig) => Movement::ContigNamePosition(contig.to_string(), position),
         None => Movement::Position(position),
     };
-    let mut messages = vec![Message::Move(movement)];
+    let mut messages = vec![Action::Navigate(NavigationAction::Move(movement))];
     if let Some(bases) = bases {
         messages.push(Zoom::Fit { bases }.into());
     }
@@ -136,7 +143,7 @@ fn parse_locus(locus: &str) -> Option<SearchLocus> {
     }
 }
 
-fn parse_open_command(input: &str) -> Option<Result<Message, TGVError>> {
+fn parse_open_command(input: &str) -> Option<Result<Action, TGVError>> {
     let (command, arguments) = input.split_once(char::is_whitespace).unwrap_or((input, ""));
     if command != "e" && command != "open" {
         return None;
@@ -155,19 +162,19 @@ fn parse_open_command(input: &str) -> Option<Result<Message, TGVError>> {
             ))));
         }
     };
-    Some(Ok(Message::OpenFiles(
+    Some(Ok(Action::Track(TrackAction::OpenFiles(
         paths
             .iter()
             .map(|path| shellexpand::tilde(path).into_owned())
             .collect(),
-    )))
+    ))))
 }
 
 fn parse_session_command(
     input: &str,
     command: &str,
-    make_message: impl FnOnce(Option<String>) -> Message,
-) -> Option<Message> {
+    make_message: impl FnOnce(Option<String>) -> Action,
+) -> Option<Action> {
     if input == command {
         return Some(make_message(None));
     }
@@ -186,37 +193,37 @@ mod tests {
     use rstest::rstest;
 
     #[rstest]
-    #[case("q", Some(vec![Message::Quit]))]
-    #[case("q!", Some(vec![Message::ForceQuit]))]
-    #[case("w", Some(vec![Message::WriteTrack(None)]))]
-    #[case("w /tmp/peaks.bed", Some(vec![Message::WriteTrack(Some("/tmp/peaks.bed".to_string()))]))]
-    #[case("wa", Some(vec![Message::WriteAll]))]
-    #[case("wq", Some(vec![Message::WriteAndQuit(None)]))]
-    #[case("wqa", Some(vec![Message::WriteAllAndQuit]))]
-    #[case("xa", Some(vec![Message::WriteAllAndQuit]))]
-    #[case("ws", Some(vec![Message::SaveSession(None)]))]
-    #[case("ws session-name", Some(vec![Message::SaveSession(Some("session-name".to_string()))]))]
-    #[case("ws /tmp/test.toml", Some(vec![Message::SaveSession(Some("/tmp/test.toml".to_string()))]))]
-    #[case("wsq", Some(vec![Message::SaveAndQuit(None)]))]
-    #[case("wsq session-name", Some(vec![Message::SaveAndQuit(Some("session-name".to_string()))]))]
-    #[case("new", Some(vec![Message::NewBedTrack]))]
-    #[case("paired", Some(vec![Message::SetAlignmentOption(vec![AlignmentDisplayOption::ViewAsPairs])]))]
-    #[case("CLEAR", Some(vec![Message::SetAlignmentOption(vec![])]))]
+    #[case("q", Some(vec![Action::Session(SessionAction::Quit)]))]
+    #[case("q!", Some(vec![Action::Session(SessionAction::ForceQuit)]))]
+    #[case("w", Some(vec![Action::Session(SessionAction::WriteTrack(None))]))]
+    #[case("w /tmp/peaks.bed", Some(vec![Action::Session(SessionAction::WriteTrack(Some("/tmp/peaks.bed".to_string())))]))]
+    #[case("wa", Some(vec![Action::Session(SessionAction::WriteAll)]))]
+    #[case("wq", Some(vec![Action::Session(SessionAction::WriteAndQuit(None))]))]
+    #[case("wqa", Some(vec![Action::Session(SessionAction::WriteAllAndQuit)]))]
+    #[case("xa", Some(vec![Action::Session(SessionAction::WriteAllAndQuit)]))]
+    #[case("ws", Some(vec![Action::Session(SessionAction::SaveSession(None))]))]
+    #[case("ws session-name", Some(vec![Action::Session(SessionAction::SaveSession(Some("session-name".to_string())))]))]
+    #[case("ws /tmp/test.toml", Some(vec![Action::Session(SessionAction::SaveSession(Some("/tmp/test.toml".to_string())))]))]
+    #[case("wsq", Some(vec![Action::Session(SessionAction::SaveAndQuit(None))]))]
+    #[case("wsq session-name", Some(vec![Action::Session(SessionAction::SaveAndQuit(Some("session-name".to_string())))]))]
+    #[case("new", Some(vec![Action::Track(TrackAction::NewBedTrack)]))]
+    #[case("paired", Some(vec![Action::Track(TrackAction::SetAlignmentOption(vec![AlignmentDisplayOption::ViewAsPairs]))]))]
+    #[case("CLEAR", Some(vec![Action::Track(TrackAction::SetAlignmentOption(vec![]))]))]
     #[case("1234", None)]
     #[case("chr1:1000", None)]
     #[case("TP53", None)]
     #[case("sort base", None)]
     #[case("wfoo", None)]
-    #[case("e a.bam", Some(vec![Message::OpenFiles(vec!["a.bam".to_string()])]))]
-    #[case("open a.bam  b.vcf", Some(vec![Message::OpenFiles(vec!["a.bam".to_string(), "b.vcf".to_string()])]))]
-    #[case("e 'my file.bed'", Some(vec![Message::OpenFiles(vec!["my file.bed".to_string()])]))]
-    #[case(r"e my\ file.bed", Some(vec![Message::OpenFiles(vec!["my file.bed".to_string()])]))]
+    #[case("e a.bam", Some(vec![Action::Track(TrackAction::OpenFiles(vec!["a.bam".to_string()]))]))]
+    #[case("open a.bam  b.vcf", Some(vec![Action::Track(TrackAction::OpenFiles(vec!["a.bam".to_string(), "b.vcf".to_string()]))]))]
+    #[case("e 'my file.bed'", Some(vec![Action::Track(TrackAction::OpenFiles(vec!["my file.bed".to_string()]))]))]
+    #[case(r"e my\ file.bed", Some(vec![Action::Track(TrackAction::OpenFiles(vec!["my file.bed".to_string()]))]))]
     #[case("e", None)]
     #[case("open", None)]
     #[case("e 'a.bam", None)]
     #[case("efoo", None)]
     #[case("opena.bam", None)]
-    fn test_command_parse(#[case] input: &str, #[case] expected: Option<Vec<Message>>) {
+    fn test_command_parse(#[case] input: &str, #[case] expected: Option<Vec<Action>>) {
         assert_eq!(parse(input).ok(), expected);
     }
 
@@ -239,7 +246,7 @@ mod tests {
     #[case("chr1:invalid", None)]
     #[case("chr1:200-100", None)]
     #[case("chr1:0-100", None)]
-    fn test_search_parse(#[case] input: &str, #[case] expected: Option<Vec<Message>>) {
+    fn test_search_parse(#[case] input: &str, #[case] expected: Option<Vec<Action>>) {
         assert_eq!(parse_search(input).ok(), expected);
     }
 }

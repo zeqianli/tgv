@@ -1,9 +1,7 @@
 use clap::Parser;
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
-use gv_core::{
-    error::TGVError,
-    message::{Message as CoreMessage, Movement},
-};
+use gv_core::{error::TGVError, message::Movement};
+use gv_viewer::message::NavigationAction;
 use gv_viewer::{layout::RenderEvent, message::Action};
 use ratatui::{Terminal, backend::TestBackend};
 use tgv::{
@@ -55,11 +53,6 @@ impl AppHarness {
         Ok(())
     }
 
-    pub async fn handle_core(&mut self, messages: Vec<CoreMessage>) -> Result<(), TGVError> {
-        self.handle(messages.into_iter().map(Action::from).collect())
-            .await
-    }
-
     pub async fn handle_key_codes(
         &mut self,
         key_codes: impl IntoIterator<Item = KeyCode>,
@@ -97,7 +90,8 @@ impl AppHarness {
     }
 
     pub async fn handle_movement(&mut self, movement: Movement) -> Result<(), TGVError> {
-        self.handle_core(vec![CoreMessage::Move(movement)]).await
+        self.handle(vec![Action::Navigate(NavigationAction::Move(movement))])
+            .await
     }
 
     /// Sends a session request the way an agent does, serves it in the app, and redraws.

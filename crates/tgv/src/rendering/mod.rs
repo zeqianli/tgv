@@ -218,7 +218,7 @@ pub fn render_main(
             AreaType::Console => {
                 if matches!(
                     registers.current,
-                    KeyRegisterType::Command | KeyRegisterType::Search
+                    KeyRegisterType::Command(_) | KeyRegisterType::Search(_)
                 ) {
                     render_console(rect, buf, registers)?;
                 } else {
@@ -247,7 +247,7 @@ pub fn render_main(
                     render_bed(rect, buf, bed_intervals, alignment_view, pallete)?;
                 }
                 // Insert mode draws the cursor as one reversed cell.
-                if *registers.shown_mode() == (KeyRegisterType::Insert { track: *id })
+                if registers.shown_mode() == gv_viewer::keys::Mode::Insert(*id)
                     && let OnScreenCoordinate::OnScreen(x) =
                         alignment_view.onscreen_x_coordinate(alignment_view.focus.position, rect)
                 {

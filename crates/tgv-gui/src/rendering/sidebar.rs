@@ -11,7 +11,6 @@ use gv_core::prelude::*;
 use gv_viewer::{
     message::FocusTarget,
     prepare::sidebar::{alignment_depth_description, describe_option},
-    register::KeyRegisterType,
 };
 
 const PADDING: f32 = 6.0;
@@ -46,7 +45,7 @@ pub fn render_sidebar(
 
     // The focused target's whole section is filled, colored by mode.
     let fill = match frame.registers.shown_mode() {
-        KeyRegisterType::Insert { .. } => palette.FOCUS_INSERT,
+        gv_viewer::keys::Mode::Insert(_) => palette.FOCUS_INSERT,
         _ => palette.FOCUS_NORMAL,
     };
     for (area_type, section) in &layout.sidebar_sections {

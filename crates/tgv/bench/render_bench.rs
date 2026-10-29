@@ -16,9 +16,10 @@
 
 use crossterm::event::{KeyModifiers, MouseEvent, MouseEventKind};
 use gv_core::{
-    message::{AlignmentDisplayOption, Message as CoreMessage, Movement, Scroll},
+    message::{AlignmentDisplayOption, Movement, Scroll},
     state::CachePolicy,
 };
+use gv_viewer::message::{NavigationAction, TrackAction};
 use gv_viewer::{layout::RenderEvent, message::Action};
 use ratatui::{buffer::Buffer, layout::Rect};
 use std::time::{Duration, Instant};
@@ -47,12 +48,8 @@ impl Bench {
         self.app.viewer.self_correct().expect("self-correct");
     }
 
-    async fn handle(&mut self, messages: Vec<CoreMessage>) -> Vec<RenderEvent> {
-        let events = self
-            .app
-            .handle(messages.into_iter().map(Action::from).collect())
-            .await
-            .expect("handle");
+    async fn handle(&mut self, messages: Vec<Action>) -> Vec<RenderEvent> {
+        let events = self.app.handle(messages).await.expect("handle");
         self.self_correct();
         events
     }
@@ -170,7 +167,9 @@ async fn main() {
                 Scroll::Up(1)
             };
             let started = Instant::now();
-            let events = bench.handle(vec![CoreMessage::Scroll(scroll)]).await;
+            let events = bench
+                .handle(vec![Action::Navigate(NavigationAction::Scroll(scroll))])
+                .await;
             bench.render(&events);
             samples.push(started.elapsed());
         }
@@ -187,7 +186,9 @@ async fn main() {
                 Movement::Left(1)
             };
             let started = Instant::now();
-            let events = bench.handle(vec![CoreMessage::Move(movement)]).await;
+            let events = bench
+                .handle(vec![Action::Navigate(NavigationAction::Move(movement))])
+                .await;
             bench.render(&events);
             samples.push(started.elapsed());
         }
@@ -245,7 +246,9 @@ async fn main() {
             let started = Instant::now();
             for _ in 0..BURST {
                 let events = bench
-                    .handle(vec![CoreMessage::Move(movement.clone())])
+                    .handle(vec![Action::Navigate(NavigationAction::Move(
+                        movement.clone(),
+                    ))])
                     .await;
                 bench.render(&events);
             }
@@ -256,7 +259,9 @@ async fn main() {
             for _ in 0..BURST {
                 events.extend(
                     bench
-                        .handle(vec![CoreMessage::Move(movement.clone())])
+                        .handle(vec![Action::Navigate(NavigationAction::Move(
+                            movement.clone(),
+                        ))])
                         .await,
                 );
             }
@@ -269,9 +274,9 @@ async fn main() {
 
     if run("paired") {
         bench
-            .handle(vec![CoreMessage::SetAlignmentOption(vec![
+            .handle(vec![Action::Track(TrackAction::SetAlignmentOption(vec![
                 AlignmentDisplayOption::ViewAsPairs,
-            ])])
+            ]))])
             .await;
         let mut samples = Vec::with_capacity(iterations);
         for _ in 0..iterations {

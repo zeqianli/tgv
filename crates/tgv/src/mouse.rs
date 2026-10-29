@@ -33,14 +33,19 @@ fn read_at(
     Ok(hover::read_at(state, index, left, right, y)?.map(|read_id| (index, read_id)))
 }
 
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum DragTarget {
+    Area(AreaType),
+    Divider(TrackId, TrackId),
+    Sidebar,
+}
+
 /// Mouse interaction state for the currently displayed layout.
 #[derive(Default)]
 pub struct MouseRegister {
-    mouse_down_area: Option<AreaType>,
+    drag_target: Option<DragTarget>,
     last_x: u16,
     last_y: u16,
-    active_divider: Option<(TrackId, TrackId)>,
-    sidebar_resizing: bool,
     /// Whether the pointer moved since the left button went down, which makes it a drag
     /// rather than a click.
     dragged: bool,
@@ -57,14 +62,15 @@ impl MouseRegister {
         match area_type {
             AreaType::AlignmentDivider { upper, lower } => {
                 let pair = Some((*upper, *lower));
-                self.hovered_divider == pair || self.active_divider == pair
+                self.hovered_divider == pair
+                    || self.drag_target == Some(DragTarget::Divider(*upper, *lower))
             }
             _ => false,
         }
     }
 
     pub fn is_sidebar_divider_highlighted(&self) -> bool {
-        self.sidebar_resizing
+        self.drag_target == Some(DragTarget::Sidebar)
     }
 
     /// Translate a mouse event into app messages using the last rendered layout.
@@ -101,10 +107,9 @@ impl MouseRegister {
             MouseEventKind::Down(MouseButton::Left) => {
                 self.last_x = event.column;
                 self.last_y = event.row;
-                self.mouse_down_area = None;
-                self.active_divider = None;
+                self.drag_target = matches!(hovered, HoveringAreaType::SidebarDivider)
+                    .then_some(DragTarget::Sidebar);
                 self.dragged = false;
-                self.sidebar_resizing = matches!(hovered, HoveringAreaType::SidebarDivider);
                 // Clicking a track or its sidebar section focuses it. Hovering doesn't, so the
                 // pointer can't undo a focus chosen with the keyboard.
                 if let HoveringAreaType::Track(index) | HoveringAreaType::Sidebar(index) = hovered {
@@ -125,7 +130,7 @@ impl MouseRegister {
                 }
                 if let HoveringAreaType::Track(track_index) = hovered {
                     let area = layout.areas[track_index].0;
-                    self.mouse_down_area = Some(area);
+                    self.drag_target = Some(DragTarget::Area(area));
                     // The cytoband spans the whole contig, so a click there goes to that part of
                     // the contig at the same zoom.
                     let rect = layout.areas[track_index].1;
@@ -143,7 +148,7 @@ impl MouseRegister {
                         messages.push(Movement::Position(position).into());
                     }
                     if let AreaType::AlignmentDivider { upper, lower } = area {
-                        self.active_divider = Some((upper, lower));
+                        self.drag_target = Some(DragTarget::Divider(upper, lower));
                     }
                 }
             }
@@ -189,11 +194,11 @@ impl MouseRegister {
                 if (event.column, event.row) != (self.last_x, self.last_y) {
                     self.dragged = true;
                 }
-                if self.sidebar_resizing {
+                if self.drag_target == Some(DragTarget::Sidebar) {
                     messages.push(Action::from(UpdateLayoutAction::SetSidebarWidth(
                         event.column,
                     )));
-                } else if let Some((upper, lower)) = self.active_divider {
+                } else if let Some(DragTarget::Divider(upper, lower)) = self.drag_target {
                     let delta_rows = event.row as i32 - self.last_y as i32;
                     if delta_rows != 0 {
                         messages.push(Action::from(UpdateLayoutAction::ResizeAlignmentPair {
@@ -202,7 +207,7 @@ impl MouseRegister {
                             delta_rows,
                         }));
                     }
-                } else if let Some(area) = self.mouse_down_area {
+                } else if let Some(DragTarget::Area(area)) = self.drag_target {
                     match area {
                         AreaType::Alignment(id) | AreaType::Coverage(id) => {
                             if event.column < self.last_x {
@@ -241,7 +246,7 @@ impl MouseRegister {
             MouseEventKind::Up(MouseButton::Left) => {
                 // A click on a read, without dragging, shows its details.
                 if !self.dragged
-                    && let Some(AreaType::Alignment(track)) = self.mouse_down_area
+                    && let Some(DragTarget::Area(AreaType::Alignment(track))) = self.drag_target
                     && let HoveringAreaType::Track(track_index) = hovered
                     && let (AreaType::Alignment(id), area) = &layout.areas[track_index]
                     && *id == track
@@ -260,9 +265,7 @@ impl MouseRegister {
                         read_id,
                     }));
                 }
-                self.mouse_down_area = None;
-                self.active_divider = None;
-                self.sidebar_resizing = false;
+                self.drag_target = None;
             }
             MouseEventKind::Moved => {
                 if let HoveringAreaType::Track(track_index) = hovered {

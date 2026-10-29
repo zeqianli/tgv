@@ -29,7 +29,7 @@ pub fn render_console(area: &Rect, buf: &mut Buffer, buffer: &Registers) -> Resu
         area.y,
         format!(
             "{}{}",
-            if buffer.current == KeyRegisterType::Search {
+            if matches!(buffer.current, KeyRegisterType::Search(_)) {
                 '/'
             } else {
                 ':'
@@ -68,7 +68,7 @@ pub fn render_mode_line(
         focus.name.clone()
     };
     match registers.current {
-        KeyRegisterType::Insert { .. } => buf.set_stringn(
+        KeyRegisterType::Editing(gv_viewer::keys::Mode::Insert(_)) => buf.set_stringn(
             area.x,
             area.y,
             format!("-- INSERT -- {name}"),

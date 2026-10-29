@@ -15,6 +15,7 @@ use crate::message::{
 
 use crate::{
     jumps::{JumpList, ViewPoint},
+    keys::Mode,
     layout::{AreaType, RenderEvent},
     menu::{self, MenuItem},
     message::{
@@ -614,7 +615,10 @@ impl<Z: Scale> Viewer<Z> {
                     );
                     self.viewport
                         .zoom(zoom.clone(), self.width, contig_length)?;
-                    if matches!(self.registers.current, KeyRegisterType::Insert { .. }) {
+                    if matches!(
+                        self.registers.current,
+                        KeyRegisterType::Editing(Mode::Insert(_))
+                    ) {
                         self.viewport.zoom = self.viewport.zoom.for_insert_mode();
                         self.self_correct()?;
                     }
@@ -719,16 +723,8 @@ impl<Z: Scale> Viewer<Z> {
                 }
                 Action::Input(InputAction::SwitchKeyRegister(register)) => {
                     let previous_register = self.registers.current.clone();
-                    if register == KeyRegisterType::ContigList {
-                        self.registers.contig_list_cursor = self.viewport.focus.contig_index
-                    }
-                    if matches!(register, KeyRegisterType::Command | KeyRegisterType::Search)
-                        && matches!(
-                            previous_register,
-                            KeyRegisterType::Normal | KeyRegisterType::Insert { .. }
-                        )
-                    {
-                        self.registers.return_to = previous_register.clone();
+                    if matches!(register, KeyRegisterType::ContigList(_)) {
+                        self.registers.contig_list_cursor = self.viewport.focus.contig_index;
                     }
                     self.registers.current = register;
                     log::debug!(
@@ -787,7 +783,7 @@ impl<Z: Scale> Viewer<Z> {
                         self.apply_movement(Movement::Right(self.viewport.zoom.column_bases()))
                             .await?;
                     }
-                    self.registers.current = KeyRegisterType::Insert { track: id };
+                    self.registers.current = KeyRegisterType::Editing(Mode::Insert(id));
                     if self.warn_shift_backspace {
                         self.warn_shift_backspace = false;
                         messages.push(
@@ -1001,17 +997,10 @@ impl<Z: Scale> Viewer<Z> {
             return Vec::new();
         }
         self.focused = target;
-        if let KeyRegisterType::Insert { track } = self.registers.current
+        if let Mode::Insert(track) = self.registers.shown_mode()
             && target != FocusTarget::Track(track)
         {
-            self.registers.current = KeyRegisterType::Normal;
-            self.registers.pending.clear();
-        }
-        // Command input started in insert mode returns to normal mode instead.
-        if let KeyRegisterType::Insert { track } = self.registers.return_to
-            && target != FocusTarget::Track(track)
-        {
-            self.registers.return_to = KeyRegisterType::Normal;
+            self.registers.leave_insert_mode(track);
         }
         vec![RenderEvent::All]
     }
@@ -1401,12 +1390,7 @@ impl<Z: Scale> Viewer<Z> {
         if self.track_clipboard == Some(id) {
             self.track_clipboard = None;
         }
-        if self.registers.current == (KeyRegisterType::Insert { track: id }) {
-            self.registers.current = KeyRegisterType::Normal;
-        }
-        if self.registers.return_to == (KeyRegisterType::Insert { track: id }) {
-            self.registers.return_to = KeyRegisterType::Normal;
-        }
+        self.registers.leave_insert_mode(id);
         let entry = self.dataset.remove_track(id)?;
         if let RepositoryFileIndex::Alignment(index) = entry.repository_index {
             self.viewport.y.remove(index);

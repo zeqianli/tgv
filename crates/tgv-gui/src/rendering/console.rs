@@ -13,7 +13,7 @@ const CURSOR_COLOR: Rgb = Rgb::from_u32(0xcd3131);
 /// Render the command line for command (`:`) and search (`/`) mode.
 pub fn render_console(painter: &mut Painter, area: &Rect, registers: &Registers) {
     let y = area.y + (area.height - LINE_HEIGHT) / 2.0;
-    let prompt = if registers.current == KeyRegisterType::Search {
+    let prompt = if matches!(registers.current, KeyRegisterType::Search(_)) {
         '/'
     } else {
         ':'
@@ -56,7 +56,7 @@ pub fn render_mode_line(
         focus.name.clone()
     };
     match registers.current {
-        KeyRegisterType::Insert { .. } => {
+        KeyRegisterType::Editing(gv_viewer::keys::Mode::Insert(_)) => {
             painter.bold_text(
                 area.x + 4.0,
                 y,
