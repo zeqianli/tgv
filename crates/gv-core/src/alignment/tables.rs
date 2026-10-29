@@ -50,7 +50,7 @@ fn phred_scores(encoding: QualityEncoding, stored: &[u8]) -> Vec<u8> {
 }
 
 /// The read and CIGAR tables share stable `read_id` values with the record sidecar.
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct AlignmentTables {
     pub reads: DataFrame,
     /// All CIGAR operations in read and operation order, with nullable SEQ and qualities.

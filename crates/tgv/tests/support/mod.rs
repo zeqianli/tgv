@@ -4,10 +4,11 @@ use gv_core::{
     error::TGVError,
     message::{Message as CoreMessage, Movement},
 };
+use gv_viewer::{layout::RenderEvent, message::Action};
 use ratatui::{Terminal, backend::TestBackend};
 use tgv::{
-    app::{App, RenderEvent},
-    message::Action,
+    app::App,
+    keys::key_from_event,
     settings::{Cli, Settings},
 };
 
@@ -39,19 +40,10 @@ impl AppHarness {
 
     async fn initialize(&mut self) -> Result<(), TGVError> {
         self.terminal
-            .draw(|frame| {
-                self.app.resolved_layout = self
-                    .app
-                    .layout
-                    .resolve(frame.area(), &self.app.dataset.repository);
-            })
+            .draw(|frame| self.app.resolve_layout(frame.area()))
             .expect("initial layout draw");
 
-        self.app
-            .handle(self.app.settings.initial_actions.clone())
-            .await?;
-        self.app.jumps = tgv::jumps::JumpList::default();
-        self.self_correct()?;
+        self.app.start().await?;
         self.render(&vec![RenderEvent::All]);
         Ok(())
     }
@@ -74,10 +66,13 @@ impl AppHarness {
     ) -> Result<(), TGVError> {
         let mut render_events = Vec::new();
         for key_code in key_codes {
-            let messages = self.app.registers.handle_key_event(
-                KeyEvent::new(key_code, KeyModifiers::NONE),
-                &self.app.dataset.view,
-            )?;
+            let key = key_from_event(KeyEvent::new(key_code, KeyModifiers::NONE))
+                .expect("a key the grammar reads");
+            let messages = self
+                .app
+                .viewer
+                .registers
+                .handle_key_event(key, &self.app.viewer.dataset.view)?;
             render_events.extend(self.app.handle(messages).await?);
         }
         self.self_correct()?;
@@ -116,9 +111,10 @@ impl AppHarness {
 
     pub fn locus(&self) -> String {
         self.app
-            .alignment_view
+            .viewer
+            .viewport
             .focus
-            .to_locus_str(&self.app.dataset.view.contig_header)
+            .to_locus_str(&self.app.viewer.dataset.view.contig_header)
             .expect("focus to locus")
     }
 
@@ -131,15 +127,7 @@ impl AppHarness {
     }
 
     fn self_correct(&mut self) -> Result<(), TGVError> {
-        let contig_length = self
-            .app
-            .dataset
-            .view
-            .contig_length(&self.app.alignment_view.focus)?;
-        self.app
-            .alignment_view
-            .self_correct(&self.app.resolved_layout.main_area, contig_length);
-        Ok(())
+        self.app.viewer.self_correct()
     }
 
     fn render(&mut self, render_events: &Vec<RenderEvent>) {

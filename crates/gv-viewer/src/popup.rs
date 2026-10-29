@@ -5,7 +5,7 @@
 use gv_core::prelude::*;
 use noodles::sam::{self, alignment::RecordBuf, alignment::io::Write as _};
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct TextPopup {
     pub title: String,
     /// Rows of a label and a value. Values line up in one column, and the renderer wraps long

@@ -19,12 +19,12 @@ use gv_core::{
     message::{AlignmentDisplayOption, Message as CoreMessage, Movement, Scroll},
     state::CachePolicy,
 };
+use gv_viewer::{layout::RenderEvent, message::Action};
 use ratatui::{buffer::Buffer, layout::Rect};
 use std::time::{Duration, Instant};
 use tgv::{
-    app::{App, RenderEvent},
+    app::App,
     layout::AreaType,
-    message::Action,
     settings::{Cli, Settings},
 };
 
@@ -44,15 +44,7 @@ impl Bench {
     }
 
     fn self_correct(&mut self) {
-        let contig_length = self
-            .app
-            .dataset
-            .view
-            .contig_length(&self.app.alignment_view.focus)
-            .expect("contig length");
-        self.app
-            .alignment_view
-            .self_correct(&self.app.resolved_layout.main_area, contig_length);
+        self.app.viewer.self_correct().expect("self-correct");
     }
 
     async fn handle(&mut self, messages: Vec<CoreMessage>) -> Vec<RenderEvent> {
@@ -101,7 +93,7 @@ async fn main() {
     let reference = &args[3];
     let iterations: usize = args.get(4).map_or(200, |n| n.parse().expect("iterations"));
     let scenario = args.get(5).map_or("all", String::as_str);
-    let zoom: Option<u64> = args.get(6).map(|zoom| zoom.parse().expect("zoom"));
+    let zoom: Option<f64> = args.get(6).map(|zoom| zoom.parse().expect("zoom"));
     let run = |name: &str| scenario == "all" || scenario == name;
 
     let cli = Cli::parse_from(["tgv", bam, "-r", region, "-g", reference]);
@@ -115,45 +107,41 @@ async fn main() {
         app,
         buffer: Buffer::empty(Rect::new(0, 0, WIDTH, HEIGHT)),
     };
-    bench.app.resolved_layout = bench
-        .app
-        .layout
-        .resolve(bench.buffer.area, &bench.app.dataset.repository);
-    let initial = bench.app.settings.initial_actions.clone();
-    bench.app.handle(initial).await.expect("initial load");
-    bench.self_correct();
+    bench.app.resolve_layout(bench.buffer.area);
+    bench.app.start().await.expect("initial load");
     bench.render(&vec![RenderEvent::All]);
     println!(
         "initial load + first render: {:?} (reads={} runs={} depth={})",
         started.elapsed(),
-        bench.app.dataset.view.alignments[0].tables.reads.height(),
-        bench.app.dataset.view.alignments[0]
+        bench.app.viewer.dataset.view.alignments[0]
+            .tables
+            .reads
+            .height(),
+        bench.app.viewer.dataset.view.alignments[0]
             .tables
             .cigar_runs
             .height(),
-        bench.app.dataset.view.alignments[0].depth().expect("depth"),
+        bench.app.viewer.dataset.view.alignments[0]
+            .depth()
+            .expect("depth"),
     );
 
     if run("load") {
         // Reload the alignment cache window: BAM query, table building, stacking, coverage, and
         // display options. The reference sequence is already cached, so no network is involved.
-        let region = CachePolicy::VIEWER.alignment_region(
-            &bench
-                .app
-                .alignment_view
-                .region(&bench.app.resolved_layout.main_area),
-        );
+        let region = CachePolicy::VIEWER.alignment_region(&bench.app.viewer.region());
         let mut samples = Vec::with_capacity(iterations);
         for _ in 0..iterations {
             let started = Instant::now();
             bench
                 .app
+                .viewer
                 .dataset
                 .view
                 .load_alignment_data(
                     0,
                     &region,
-                    &mut bench.app.dataset.repository.alignment_repositories[0],
+                    &mut bench.app.viewer.dataset.repository.alignment_repositories[0],
                 )
                 .await
                 .expect("load");
@@ -224,9 +212,9 @@ async fn main() {
                 .app
                 .mouse_register
                 .handle_mouse_event(
-                    &bench.app.dataset.view,
+                    &bench.app.viewer.dataset.view,
                     &bench.app.resolved_layout,
-                    &bench.app.alignment_view,
+                    &bench.app.viewer.viewport,
                     event,
                 )
                 .expect("mouse");

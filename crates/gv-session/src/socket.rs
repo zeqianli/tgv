@@ -33,6 +33,7 @@ pub enum Call {
     Highlight(HighlightRequest),
     ClearHighlights,
     ViewState,
+    ViewerInfo,
 }
 
 /// The answer to one [`Call`] on a socket connection.
@@ -76,6 +77,7 @@ impl SessionHandle {
             Call::Highlight(request) => json(self.highlight(request).await?),
             Call::ClearHighlights => json(self.clear_highlights().await?),
             Call::ViewState => json(self.view_state().await?),
+            Call::ViewerInfo => json(self.viewer_info().await?),
         }
     }
 }
@@ -171,11 +173,50 @@ impl SessionConnection {
         })
     }
 
-    /// Connects to the most recently started viewer that accepts connections, and removes
-    /// socket files that no process listens on.
-    pub async fn find_viewer() -> Option<Self> {
-        let mut sockets: Vec<(std::time::SystemTime, PathBuf)> = fs::read_dir(socket_dir())
-            .ok()?
+    /// Connects to the viewer with a process ID.
+    pub async fn connect_to(pid: u32) -> io::Result<Self> {
+        Self::connect(&socket_dir().join(format!("{pid}.sock"))).await
+    }
+
+    /// Connects to every viewer that accepts connections and describes itself, newest first,
+    /// and removes socket files that no process listens on.
+    pub async fn list_viewers() -> Vec<(Self, ViewerInfo)> {
+        let mut viewers = Vec::new();
+        for path in Self::sockets() {
+            match Self::connect(&path).await {
+                Ok(mut connection) => match connection.call(&Call::ViewerInfo).await {
+                    Ok(info) => match serde_json::from_value::<ViewerInfo>(info) {
+                        Ok(info) => viewers.push((connection, info)),
+                        Err(error) => {
+                            log::warn!(
+                                "The viewer at {} can't describe itself: {error}",
+                                path.display()
+                            )
+                        }
+                    },
+                    Err(error) => {
+                        log::warn!(
+                            "The viewer at {} can't describe itself: {error}",
+                            path.display()
+                        )
+                    }
+                },
+                // A viewer that exits without cleaning up leaves its socket behind.
+                Err(error) if error.kind() == io::ErrorKind::ConnectionRefused => {
+                    let _ = fs::remove_file(&path);
+                }
+                Err(error) => log::warn!("Cannot connect to {}: {error}", path.display()),
+            }
+        }
+        viewers
+    }
+
+    /// The sockets in the viewer directory, newest first.
+    fn sockets() -> Vec<PathBuf> {
+        let Ok(entries) = fs::read_dir(socket_dir()) else {
+            return Vec::new();
+        };
+        let mut sockets: Vec<(std::time::SystemTime, PathBuf)> = entries
             .filter_map(Result::ok)
             .map(|entry| entry.path())
             .filter(|path| {
@@ -184,18 +225,8 @@ impl SessionConnection {
             })
             .filter_map(|path| Some((fs::metadata(&path).ok()?.modified().ok()?, path)))
             .collect();
-        sockets.sort_by(|a, b| b.0.cmp(&a.0));
-        for (_, path) in sockets {
-            match Self::connect(&path).await {
-                Ok(connection) => return Some(connection),
-                // A viewer that exits without cleaning up leaves its socket behind.
-                Err(error) if error.kind() == io::ErrorKind::ConnectionRefused => {
-                    let _ = fs::remove_file(&path);
-                }
-                Err(error) => log::warn!("Cannot connect to {}: {error}", path.display()),
-            }
-        }
-        None
+        sockets.sort_by_key(|(modified, _)| std::cmp::Reverse(*modified));
+        sockets.into_iter().map(|(_, path)| path).collect()
     }
 
     /// Sends a call and waits for its reply.

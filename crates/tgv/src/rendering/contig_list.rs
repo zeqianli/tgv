@@ -1,12 +1,14 @@
-use crate::register::Registers;
+use crate::rendering::colors::ToColor;
 use gv_core::{contig_header::Contig, prelude::*};
+use gv_viewer::prepare::coordinate::get_abbreviated_length_string;
+use gv_viewer::register::Registers;
 use ratatui::{
     buffer::Buffer,
     layout::{Position, Rect},
     style::Style,
 };
 
-use crate::rendering::{colors::Palette, get_abbreviated_length_string};
+use crate::rendering::colors::Palette;
 const MIN_CONTIG_NAME_SPACING: u16 = 10;
 const MIN_CONTIG_LENGTH_SPACING: u16 = 10;
 
@@ -38,7 +40,7 @@ pub fn render_contig_list(
         let cell = buf.cell_mut(Position::new(x, area.y + selection_row));
         if let Some(cell) = cell {
             cell.set_char(' ');
-            cell.set_bg(pallete.HIGHLIGHT_COLOR);
+            cell.set_bg(pallete.HIGHLIGHT_COLOR.color());
         }
     }
 

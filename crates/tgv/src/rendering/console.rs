@@ -1,8 +1,7 @@
-use crate::{
-    register::{KeyRegisterType, Registers},
-    rendering::{TrackFocus, colors::Palette},
-};
+use crate::rendering::colors::ToColor;
+use crate::rendering::{TrackFocus, colors::Palette};
 use gv_core::prelude::*;
+use gv_viewer::register::{KeyRegisterType, Registers};
 use ratatui::{
     buffer::Buffer,
     layout::Rect,
@@ -75,7 +74,7 @@ pub fn render_mode_line(
             format!("-- INSERT -- {name}"),
             area.width as usize,
             Style::default()
-                .fg(palette.MODE_INSERT)
+                .fg(palette.MODE_INSERT.color())
                 .add_modifier(Modifier::BOLD),
         ),
         _ if sidebar_hidden => {

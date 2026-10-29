@@ -170,6 +170,16 @@ impl UcscDbTrackService {
         Ok(assemblies)
     }
 
+    /// The columns of a table.
+    async fn gene_columns(&self, track_name: &str) -> Result<Vec<String>, TGVError> {
+        let rows = sqlx::query(&format!("SHOW COLUMNS FROM {track_name}"))
+            .fetch_all(&*self.pool)
+            .await?;
+        rows.iter()
+            .map(|row| Ok(row.try_get::<String, &str>("Field")?))
+            .collect()
+    }
+
     async fn get_preferred_track_name_with_cache(
         &mut self,
         reference: &Reference,
@@ -425,11 +435,22 @@ impl TrackService for UcscDbTrackService {
         contig_header: &ContigHeader,
     ) -> Result<DataFrame, TGVError> {
         let track_name = self.get_preferred_track_name_with_cache(reference).await?;
+        // Gene symbols are in `name2`. Basic gene tables have no `name2`, so their genes are
+        // found by `name`.
+        let name_column = if self
+            .gene_columns(&track_name)
+            .await?
+            .iter()
+            .any(|column| column == "name2")
+        {
+            "name2"
+        } else {
+            "name"
+        };
         let sql = format!(
             "SELECT *
-            FROM {}
-            WHERE name2 = ?",
-            track_name
+            FROM {track_name}
+            WHERE {name_column} = ?"
         );
         log::info!(
             "Database query: database=ucsc-mysql sql=\"{}\" context=query gene by name reference={} track={} gene={}",
@@ -453,7 +474,14 @@ impl TrackService for UcscDbTrackService {
             "Failed to query gene: {gene_name}"
         )))?;
         let contig_index = contig_header.try_get_index_by_str(&row.chrom)?;
-        Ok(GeneTable::from_gene_rows(vec![row], contig_index, contig_header, None)?.data)
+        let genes = GeneTable::from_gene_rows(vec![row], contig_index, contig_header, None)?.data;
+        // An invalid row is left out of the table.
+        if genes.height() == 0 {
+            return Err(TGVError::IOError(format!(
+                "Failed to query gene: {gene_name}"
+            )));
+        }
+        Ok(genes)
     }
 
     async fn query_k_genes_after(

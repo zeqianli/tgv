@@ -76,6 +76,59 @@ impl LocalDbTrackService {
             .collect()
     }
 
+    /// The columns of a table.
+    async fn gene_columns(&self, track_name: &str) -> Result<Vec<String>, TGVError> {
+        Ok(sqlx::query_scalar("SELECT name FROM pragma_table_info(?)")
+            .bind(track_name)
+            .fetch_all(&*self.pool)
+            .await?)
+    }
+
+    /// Repairs a gene table that an earlier version converted from a bigBed file. It stored
+    /// the coding bounds in `txStart` and `txEnd`, and the transcript bounds in `cdsStart` and
+    /// `cdsEnd`, the reverse of UCSC's tables. The transcript bounds are always in `chromStart`
+    /// and `chromEnd`, so a row whose `txStart` or `txEnd` differs from them has the old layout,
+    /// and a repaired table has none.
+    async fn repair_bigbed_gene_table(&self, track_name: &str) -> Result<(), TGVError> {
+        let columns = self.gene_columns(track_name).await?;
+        if ![
+            "chromStart",
+            "chromEnd",
+            "txStart",
+            "txEnd",
+            "cdsStart",
+            "cdsEnd",
+        ]
+        .iter()
+        .all(|column| columns.iter().any(|name| name == column))
+        {
+            return Ok(());
+        }
+        let stale: bool = sqlx::query_scalar(&format!(
+            "SELECT EXISTS(SELECT 1 FROM {track_name} WHERE txStart != chromStart OR txEnd != chromEnd)"
+        ))
+        .fetch_one(&*self.pool)
+        .await?;
+        if !stale {
+            return Ok(());
+        }
+        // SQLite evaluates every assignment with the row's old values, so this swaps the pairs.
+        let sql = format!(
+            "UPDATE {track_name} SET cdsStart = txStart, cdsEnd = txEnd, txStart = chromStart, txEnd = chromEnd"
+        );
+        log::info!(
+            "Database query: database=local-sqlite sql=\"{sql}\" context=repair gene table converted from bigBed track={track_name}"
+        );
+        let started = Instant::now();
+        let result = sqlx::query(&sql).execute(&*self.pool).await?;
+        log::info!(
+            "Database query result: database=local-sqlite context=repair gene table rows={} elapsed_ms={}",
+            result.rows_affected(),
+            started.elapsed().as_millis()
+        );
+        Ok(())
+    }
+
     async fn get_preferred_track_name_with_cache(
         &mut self,
         reference: &Reference,
@@ -83,6 +136,9 @@ impl LocalDbTrackService {
         match &self.cache.preferred_track_name {
             None => {
                 let preferred_track = self.get_preferred_track_name(reference).await?;
+                if let Some(track_name) = &preferred_track {
+                    self.repair_bigbed_gene_table(track_name).await?;
+                }
                 self.cache.preferred_track_name = Some(preferred_track.clone());
                 preferred_track
             }
@@ -332,11 +388,22 @@ impl TrackService for LocalDbTrackService {
         contig_header: &ContigHeader,
     ) -> Result<DataFrame, TGVError> {
         let track_name = self.get_preferred_track_name_with_cache(reference).await?;
+        // Gene symbols are in `name2`. Basic gene tables have no `name2`, so their genes are
+        // found by `name`.
+        let name_column = if self
+            .gene_columns(&track_name)
+            .await?
+            .iter()
+            .any(|column| column == "name2")
+        {
+            "name2"
+        } else {
+            "name"
+        };
         let sql = format!(
             "SELECT *
-            FROM {}
-            WHERE name2 = ?",
-            track_name
+            FROM {track_name}
+            WHERE {name_column} = ?"
         );
         log::info!(
             "Database query: database=local-sqlite sql=\"{}\" context=query gene by name reference={} track={} gene={}",
@@ -360,7 +427,14 @@ impl TrackService for LocalDbTrackService {
             "Failed to query gene: {gene_name}"
         )))?;
         let contig_index = contig_header.try_get_index_by_str(&row.chrom)?;
-        Ok(GeneTable::from_gene_rows(vec![row], contig_index, contig_header, None)?.data)
+        let genes = GeneTable::from_gene_rows(vec![row], contig_index, contig_header, None)?.data;
+        // An invalid row is left out of the table.
+        if genes.height() == 0 {
+            return Err(TGVError::IOError(format!(
+                "Failed to query gene: {gene_name}"
+            )));
+        }
+        Ok(genes)
     }
 
     async fn query_k_genes_after(

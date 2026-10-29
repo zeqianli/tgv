@@ -9,6 +9,7 @@ use crate::message::{AlignmentFilter, AlignmentSort};
 use crate::sequence::Sequence;
 use noodles::sam::alignment::RecordBuf;
 use polars::prelude::*;
+use std::sync::Arc;
 
 /// What a read shows at one reference position.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -20,13 +21,14 @@ pub enum ReadBase {
 }
 
 /// An alignment stack
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Alignment {
     /// Contig of the current alignment
     pub contig_index: usize,
 
-    /// The original decoded records in stable read-ID order.
-    pub records: Vec<RecordBuf>,
+    /// The original decoded records in stable read-ID order. They are shared, so a viewer can
+    /// clone the state to draw it on another thread.
+    pub records: Arc<Vec<RecordBuf>>,
 
     /// The queryable alignment representation, with qualities as Phred scores.
     pub tables: AlignmentTables,
@@ -50,7 +52,7 @@ impl Default for Alignment {
     fn default() -> Self {
         Self {
             contig_index: 0,
-            records: Vec::new(),
+            records: Arc::new(Vec::new()),
             tables: AlignmentTables::default(),
             quality_encoding: QualityEncoding::default(),
             coverage: CoverageTable::default(),
@@ -238,7 +240,7 @@ impl Alignment {
             .with_columns([lit(Series::new(ReadSchema::Y.into(), y)).alias(ReadSchema::Y)])
             .collect()?;
         let mut alignment = Self {
-            records,
+            records: Arc::new(records),
             tables: AlignmentTables { reads, ..tables },
             quality_encoding,
             coverage: CoverageTable::default(),

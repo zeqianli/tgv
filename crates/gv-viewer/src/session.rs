@@ -1,10 +1,12 @@
 //! Session file support: read and write `~/.tgv/sessions/*.toml`.
 //!
-//! A session file is a snapshot of the current [`App`] state that can be
+//! A session file is a snapshot of the current [`Viewer`] state that can be
 //! restored on the next launch. The file format is documented in the tgv
 //! book under "Session files".
 
-use crate::{app::App, message::Action, settings::Settings};
+use crate::{
+    colors::DARK_THEME, message::Action, settings::Settings, viewer::Viewer, viewport::Scale,
+};
 use gv_core::{
     alignment::is_url,
     message::Movement,
@@ -29,8 +31,9 @@ pub struct SessionFile {
     pub genome: String,
     /// `"us"`, `"eu"`, or `"auto"`. Resolved to a concrete host on load.
     pub ucsc_host: UcscHost,
-    /// Bases per character.
-    pub zoom: u64,
+    /// Bases per screen unit: a terminal column, or a pixel. The terminal UI rounds it to a
+    /// whole number of bases.
+    pub zoom: f64,
     #[serde(default)]
     pub tracks: Vec<TrackEntry>,
 }
@@ -214,24 +217,24 @@ impl TryFrom<SessionFile> for Settings {
             zoom: Some(session.zoom),
             test_mode: false,
             debug: false,
-            palette: crate::rendering::DARK_THEME,
+            palette: DARK_THEME,
             session_path: None,
         })
     }
 }
 
-// ─── App → SessionFile ───────────────────────────────────────────────────────
+// ─── Viewer → SessionFile ────────────────────────────────────────────────────
 
-/// Snapshot the current [`App`] state into a [`SessionFile`].
+/// Snapshot the current [`Viewer`] state into a [`SessionFile`].
 ///
-/// The locus is taken from `app.alignment_view.focus` (the live viewport position),
-/// not from `app.settings.initial_actions`.
-impl TryFrom<&App> for SessionFile {
+/// The locus is taken from `viewer.viewport.focus` (the live viewport position),
+/// not from `viewer.settings.initial_actions`.
+impl<Z: Scale> TryFrom<&Viewer<Z>> for SessionFile {
     type Error = TGVError;
 
-    fn try_from(app: &App) -> Result<Self, TGVError> {
+    fn try_from(app: &Viewer<Z>) -> Result<Self, TGVError> {
         let locus = app
-            .alignment_view
+            .viewport
             .focus
             .to_locus_str(&app.dataset.view.contig_header)?;
 
@@ -239,7 +242,7 @@ impl TryFrom<&App> for SessionFile {
 
         // The display order includes files opened since startup and leaves out removed ones.
         // Untitled tracks have no file to point to, so they are left out.
-        for &id in &app.layout.track_order {
+        for &id in &app.track_order {
             match &app.dataset.tracks.get(id).file_path {
                 FilePath::AlignmentPath(alignment_path) => {
                     tracks.push(TrackEntry::try_from(alignment_path)?);
@@ -261,7 +264,7 @@ impl TryFrom<&App> for SessionFile {
             locus,
             genome: app.settings.core.reference.to_string(),
             ucsc_host: app.settings.core.ucsc_host.clone(),
-            zoom: app.alignment_view.zoom,
+            zoom: app.viewport.zoom.bases_per_unit(),
             tracks,
         })
     }

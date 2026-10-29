@@ -57,7 +57,17 @@ pub enum Zoom {
     Fit {
         bases: u64,
     },
+    /// Sets the zoom to a number of bases per screen unit. Front ends with whole-number scales
+    /// round it. Continuous gestures, such as a pinch, zoom this way.
+    Set(BasesPerUnit),
 }
+
+/// A zoom in bases per screen unit: per terminal column, or per pixel.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct BasesPerUnit(pub f64);
+
+// Zooms are computed from finite screen sizes, never NaN.
+impl Eq for BasesPerUnit {}
 
 /// A vertical scroll of an alignment track. The front end decides which track it applies to.
 #[derive(Debug, Clone, Eq, PartialEq, Display)]
@@ -109,8 +119,9 @@ impl WordMotion {
 // TODO: indicate which movement requires resetting y to 0
 #[derive(Debug, Clone, Eq, PartialEq, Display)]
 pub enum Movement {
-    /// State messages
+    /// Moves left by a number of bases. Front ends convert screen columns to bases.
     Left(u64),
+    /// Moves right by a number of bases.
     Right(u64),
 
     Position(u64),

@@ -1,17 +1,17 @@
-use crate::{
-    app::{Highlight, Scene},
-    register::KeyRegisterType,
-};
+//! The actions that change a viewer, whatever front end or agent they come from.
+
+use crate::{register::KeyRegisterType, viewer::Scene};
 use gv_core::bed::BedEditKind;
 use gv_core::message::{AlignmentFilter, AlignmentSort, WordMotion};
 pub use gv_core::message::{Movement, Scroll};
 use gv_core::track_registry::TrackId;
 use strum::Display;
 
-/// A change to the TUI's view or input state, applied by `App::handle`.
+/// A change to a viewer's view or input state, applied by `Viewer::handle`.
 ///
 /// Key and mouse input produce actions, and so do agent view requests, so every change to what
-/// the screen shows goes through one path.
+/// the screen shows goes through one path. Actions that only a front end can apply, such as a
+/// layout change, are [`UiAction`]s, which `Viewer::handle` hands back to the front end.
 #[derive(Debug, Clone, Eq, PartialEq, Display)]
 pub enum Action {
     Core(gv_core::message::Message),
@@ -23,8 +23,6 @@ pub enum Action {
     CommandChanged,
 
     SwitchKeyRegister(KeyRegisterType),
-
-    UpdateLayout(UpdateLayoutAction),
 
     /// Returns to the view before the last jump.
     JumpBack,
@@ -95,11 +93,17 @@ pub enum Action {
         update: AlignmentOptionUpdate,
     },
 
-    /// Opens the context menu for `target`, anchored at a terminal cell.
+    /// Opens the context menu for `target`, anchored at a point on the screen.
     OpenContextMenu {
         target: ContextMenuTarget,
-        column: u16,
-        row: u16,
+        anchor: Anchor,
+    },
+
+    /// Adds file tracks from these paths at a position in the display order, as a drop between
+    /// two tracks does. Position 0 is above the first track.
+    OpenFilesAt {
+        paths: Vec<String>,
+        position: usize,
     },
 
     /// Removes a file track from the dataset and the layout. Without `force`, a track with
@@ -115,19 +119,49 @@ pub enum Action {
         read_id: usize,
     },
 
-    ClosePopup,
-
-    /// The open context menu changed its hover or submenu state.
-    ContextMenuChanged,
-
-    CloseContextMenu,
-
     ClearAllKeyRegisters,
 
     /// Replaces the highlighted intervals.
     SetHighlights(Vec<Highlight>),
 
     ClearHighlights,
+
+    /// An action that only the front end applies.
+    Ui(UiAction),
+}
+
+/// An action that only a front end can apply, because it changes the front end's own layout or
+/// widgets.
+#[derive(Debug, Clone, Eq, PartialEq, Display)]
+pub enum UiAction {
+    UpdateLayout(UpdateLayoutAction),
+
+    /// The open context menu changed its hover or submenu state.
+    ContextMenuChanged,
+
+    CloseContextMenu,
+
+    ClosePopup,
+}
+
+/// A point on the screen, in the front end's units: a terminal cell, or a pixel.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Anchor {
+    pub x: f32,
+    pub y: f32,
+}
+
+// Anchors come from whole cells or pixel positions, never from NaN.
+impl Eq for Anchor {}
+
+/// An interval that an agent marks in the view.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Highlight {
+    pub contig_index: usize,
+    /// 1-based, inclusive.
+    pub start: u64,
+    /// 1-based, inclusive.
+    pub end: u64,
 }
 
 /// What has the focus: the reference (the sequence and gene rows) or a file track.
@@ -158,10 +192,10 @@ pub enum Direction {
     Right,
 }
 
-/// A cursor motion, before `App` resolves it against the focus.
+/// A cursor motion, before `Viewer` resolves it against the focus.
 #[derive(Debug, Clone, Copy, Eq, PartialEq)]
 pub enum Motion {
-    /// `h`, `l`, `H`, and `L`: whole columns, which are `zoom` bases each.
+    /// `h`, `l`, `H`, and `L`: whole columns, which `Scale::column_bases` turns into bases.
     Columns { direction: Direction, count: u64 },
     /// `w`, `b`, `e`, and `ge`, with `big` for their uppercase forms.
     Word {
@@ -235,16 +269,29 @@ pub enum ContextMenuTarget {
     Track { track: TrackId },
 }
 
-/// Layout changes.
+/// Layout changes, in the front end's units: terminal cells, or pixels.
 #[derive(Debug, Clone, Eq, PartialEq, Display)]
 pub enum UpdateLayoutAction {
     ToggleSidebar,
+    /// Moves the sidebar's right edge to an x position.
     SetSidebarWidth(u16),
     ResizeAlignmentPair {
         upper: TrackId,
         lower: TrackId,
         delta_rows: i32,
     },
+}
+
+impl From<UpdateLayoutAction> for Action {
+    fn from(update: UpdateLayoutAction) -> Self {
+        Action::Ui(UiAction::UpdateLayout(update))
+    }
+}
+
+impl From<UiAction> for Action {
+    fn from(action: UiAction) -> Self {
+        Action::Ui(action)
+    }
 }
 
 impl Action {

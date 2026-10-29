@@ -10,7 +10,7 @@ use polars::prelude::*;
 use std::{io, sync::Arc};
 
 /// BED features overlapping the loaded region of one track.
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct BedTable {
     /// Rows are sorted by contig, start, end, and row ID.
     pub data: DataFrame,

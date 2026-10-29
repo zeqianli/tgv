@@ -1103,9 +1103,12 @@ impl BigBedConverter {
                 continue;
             }
 
+            // UCSC's gene tables keep the transcript bounds in txStart and txEnd, and the coding
+            // bounds in cdsStart and cdsEnd. bigBed files keep the transcript bounds in
+            // chromStart and chromEnd, and the coding bounds in thickStart and thickEnd.
             field_names.push(match field.name.as_str() {
-                "thickStart" => "txStart".to_string(), // To be consistent with UCSC db.
-                "thickEnd" => "txEnd".to_string(),     // To be consistent with UCSC db.
+                "thickStart" => "cdsStart".to_string(),
+                "thickEnd" => "cdsEnd".to_string(),
                 name => name.to_string(),
             });
             field_types.push(match field.field_type {
@@ -1206,8 +1209,13 @@ impl BigBedConverter {
             }
         }
 
+        // Gene tracks get the transcript bounds under UCSC's names too.
+        let is_gene_track = field_names.contains(&"cdsStart".to_string());
+        if is_gene_track {
+            query.push_str(", txStart INTEGER, txEnd INTEGER");
+        }
         if need_exon_conversion {
-            query.push_str(", exonStarts BLOB, exonEnds BLOB, cdsStart INTEGER, cdsEnd INTEGER");
+            query.push_str(", exonStarts BLOB, exonEnds BLOB");
         }
 
         let query_string = format!("CREATE TABLE {} ({})", track_name, query);
@@ -1242,12 +1250,24 @@ impl BigBedConverter {
             track_name,
             "chrom, chromStart, chromEnd, ".to_string()
                 + &field_names.join(", ")
+                + if is_gene_track {
+                    ", txStart, txEnd"
+                } else {
+                    ""
+                }
                 + if need_exon_conversion {
-                    ", exonStarts, exonEnds, cdsStart, cdsEnd"
+                    ", exonStarts, exonEnds"
                 } else {
                     ""
                 },
-            vec!["?"; field_names.len() + 3 + if need_exon_conversion { 4 } else { 0 }].join(", ")
+            vec![
+                "?";
+                field_names.len()
+                    + 3
+                    + if is_gene_track { 2 } else { 0 }
+                    + if need_exon_conversion { 2 } else { 0 }
+            ]
+            .join(", ")
         );
         log::info!(
             "Database query: database=local-sqlite sql=\"{}\" context=prepare BigBed row insert track={} path={}",
@@ -1320,19 +1340,17 @@ impl BigBedConverter {
                     }
                 }
 
+                if is_gene_track {
+                    query = query.bind(interval.start as i64).bind(interval.end as i64);
+                }
                 // exonStarts and exonEnds calculation
                 if need_exon_conversion {
-                    let (exon_starts_blob, exon_ends_blob, cds_start, cds_end) =
-                        Self::convert_blocks_to_exons(
-                            interval.start,
-                            fields[block_sizes_field_index].as_bytes().to_vec(),
-                            fields[chrom_starts_field_index].as_bytes().to_vec(),
-                        )?;
-                    query = query
-                        .bind(exon_starts_blob)
-                        .bind(exon_ends_blob)
-                        .bind(cds_start)
-                        .bind(cds_end);
+                    let (exon_starts_blob, exon_ends_blob) = Self::convert_blocks_to_exons(
+                        interval.start,
+                        fields[block_sizes_field_index].as_bytes().to_vec(),
+                        fields[chrom_starts_field_index].as_bytes().to_vec(),
+                    )?;
+                    query = query.bind(exon_starts_blob).bind(exon_ends_blob);
                 }
 
                 query.execute(&mut *transaction).await?;
@@ -1369,12 +1387,12 @@ impl BigBedConverter {
 
     // Note: UCSC database store exon information with exonStarts and exonEnds. But the bigbed files stores blockStarts and blockSize.
     // Compute them to new columns to reduce compute at run time.
-    /// Return: (exonStarts (blob), exonEnds (blob), cdsStart (u32), cdsEnd (u32))
+    /// Return: (exonStarts (blob), exonEnds (blob))
     fn convert_blocks_to_exons(
         chrom_start: u32,
         block_sizes_blob: Vec<u8>,
         chrom_starts_blob: Vec<u8>,
-    ) -> Result<(Vec<u8>, Vec<u8>, u32, u32), TGVError> {
+    ) -> Result<(Vec<u8>, Vec<u8>), TGVError> {
         let block_sizes_str = String::from_utf8(block_sizes_blob).map_err(|e| {
             TGVError::ValueError(format!("Failed to convert block sizes to string: {}", e))
         })?;
@@ -1414,9 +1432,6 @@ impl BigBedConverter {
             exon_ends.push(exon_end);
         }
 
-        let cds_start = exon_starts[0];
-        let cds_end = exon_ends[exon_ends.len() - 1];
-
         // Convert to blob
         let exon_starts_str = exon_starts
             .iter()
@@ -1431,7 +1446,7 @@ impl BigBedConverter {
             .join(",");
         let exon_ends_blob = exon_ends_str.into_bytes();
 
-        Ok((exon_starts_blob, exon_ends_blob, cds_start, cds_end))
+        Ok((exon_starts_blob, exon_ends_blob))
     }
 }
 

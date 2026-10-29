@@ -1,5 +1,9 @@
+use crate::layout::CellView;
 use crate::layout::{AlignmentView, OnScreenCoordinate};
 use gv_core::prelude::*;
+use gv_viewer::prepare::coordinate::{
+    calculate_intermarker_distance, get_abbreviated_coordinate_text,
+};
 
 use itertools::izip;
 use ratatui::{buffer::Buffer, layout::Rect, style::Style};
@@ -57,7 +61,8 @@ fn calculate_coordinates(
     area: &Rect,
     contig_length: Option<u64>,
 ) -> (Vec<String>, Vec<u16>, Vec<u16>) {
-    let (intermarker_distance, power) = calculate_intermarker_distance(alignment_view.zoom);
+    let (intermarker_distance, power) =
+        calculate_intermarker_distance(alignment_view.zoom.0 * MIN_SPACING_BETWEEN_MARKERS as u64);
 
     let mut pivot = (alignment_view.left(area) / intermarker_distance + 1) * intermarker_distance; // First marker
     let mut markers_onscreen_x: Vec<u16> = Vec::new();
@@ -95,60 +100,4 @@ fn calculate_coordinates(
     }
 
     (coordinate_texts, coordinate_texts_xs, markers_onscreen_x)
-}
-
-fn calculate_intermarker_distance(zoom: u64) -> (u64, u64) {
-    let mut distance = zoom * MIN_SPACING_BETWEEN_MARKERS as u64;
-
-    // Find the smallest number among [1,2,10,20,50,100, ....] that is greater than or equal to min_distance
-    let mut power: usize = 1;
-    while distance > 10 {
-        distance /= 10;
-        power += 1;
-    }
-
-    if distance < 2 {
-        (2 * 10u64.pow(power as u32 - 1), power as u64 - 1)
-    } else {
-        (10u64.pow(power as u32), power as u64)
-    }
-}
-
-fn get_abbreviated_coordinate_text(coordinate: u64, power: u64) -> String {
-    if power < 3 {
-        format!("{}bp", to_thousand_separated(coordinate))
-    } else if power < 6 {
-        format!("{}kb", to_thousand_separated(coordinate / 1_000))
-    } else if power < 9 {
-        format!("{}Mb", to_thousand_separated(coordinate / 1_000_000))
-    } else if power < 12 {
-        format!("{}Gb", to_thousand_separated(coordinate / 1_000_000_000))
-    } else {
-        format!(
-            "{}Tb",
-            to_thousand_separated(coordinate / 1_000_000_000_000)
-        )
-    }
-}
-
-fn to_thousand_separated(number: u64) -> String {
-    if number < 1000 {
-        return format!("{}", number);
-    }
-    let mut number = number;
-    let mut reminder = number % 1000;
-    let mut output = format!("{:03}", reminder);
-
-    while number >= 1000 {
-        number /= 1000;
-        reminder = number % 1000;
-
-        if number < 1000 {
-            output = format!("{},{}", reminder, output);
-        } else {
-            output = format!("{:03},{}", reminder, output);
-        }
-    }
-
-    output
 }

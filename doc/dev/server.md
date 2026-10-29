@@ -42,6 +42,8 @@ Validation and dataset failures are MCP tool results with `isError: true`. The t
 | `no_viewer` | A viewer tool is called while no TGV viewer is running. | `null` |
 | `dataset_fixed` | `load_dataset` is called while connected to a viewer. | `null` |
 | `viewer_disconnected` | The viewer closed since the last call. | `null` |
+| `viewer_ambiguous` | Several viewers are open and the agent hasn't chosen one with `attach`. | `null` |
+| `viewer_not_found` | `attach` names a process that no viewer runs in. | `pid` |
 | `internal_error` | Reading files or computing results fails. | `null` |
 
 Malformed MCP requests, and arguments that do not match a tool's input schema, receive protocol errors instead of tool results.

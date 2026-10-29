@@ -11,7 +11,7 @@ use polars::prelude::*;
 use std::sync::Arc;
 
 /// Sparse coverage by one-based position, independent of the alignment tables.
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct CoverageTable {
     /// Rows are sorted by position, and every column is non-null.
     pub data: DataFrame,

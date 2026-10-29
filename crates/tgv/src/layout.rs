@@ -1,44 +1,30 @@
-use crate::settings::Settings;
-use gv_core::{
-    message::{Scroll, Zoom},
-    prelude::*,
+//! The terminal layout: which rows each area takes, and the viewport in terminal cells.
+
+use gv_core::prelude::*;
+pub use gv_viewer::layout::AreaType;
+use gv_viewer::{
+    settings::Settings,
+    viewport::{ColumnScale, Scale, Viewport},
 };
 use ratatui::layout::Rect;
 use std::{collections::HashMap, sync::Arc};
 use unicode_width::UnicodeWidthChar;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum AreaType {
-    Cytoband,
-    Coordinate,
-    Coverage(TrackId),
-    Alignment(TrackId),
-    AlignmentDivider { upper: TrackId, lower: TrackId },
-    Sequence,
-    GeneTrack,
-    Console,
-    Error,
-    Variant(TrackId),
-    Bed(TrackId),
-    Fill,
-}
-
-impl AreaType {
-    fn desired_height(&self) -> Option<u16> {
-        match self {
-            AreaType::Cytoband => Some(2),
-            AreaType::Coordinate => Some(2),
-            AreaType::Coverage(_) => Some(6),
-            AreaType::Alignment(_) => None,
-            AreaType::AlignmentDivider { .. } => Some(1),
-            AreaType::Sequence => Some(1),
-            AreaType::GeneTrack => Some(2),
-            AreaType::Console => Some(2),
-            AreaType::Error => Some(2),
-            AreaType::Variant(_) => Some(1),
-            AreaType::Bed(_) => Some(1),
-            AreaType::Fill => None,
-        }
+/// The height an area asks for, in rows. Alignments and the fill take what is left.
+fn desired_height(area: &AreaType) -> Option<u16> {
+    match area {
+        AreaType::Cytoband => Some(2),
+        AreaType::Coordinate => Some(2),
+        AreaType::Coverage(_) => Some(6),
+        AreaType::Alignment(_) => None,
+        AreaType::AlignmentDivider { .. } => Some(1),
+        AreaType::Sequence => Some(1),
+        AreaType::GeneTrack => Some(2),
+        AreaType::Console => Some(2),
+        AreaType::Error => Some(2),
+        AreaType::Variant(_) => Some(1),
+        AreaType::Bed(_) => Some(1),
+        AreaType::Fill => None,
     }
 }
 
@@ -78,149 +64,25 @@ pub(crate) fn wrap_sidebar_label(label: &str, width: u16) -> Vec<String> {
     lines
 }
 
-pub struct AlignmentView {
-    pub focus: Focus,
-    pub zoom: u64,
-    pub y: Vec<usize>,
-}
+/// The viewport in terminal cells: one column is a whole number of bases.
+pub type AlignmentView = Viewport<ColumnScale>;
 
-/// States for the alignment view
-impl AlignmentView {
-    pub const MAX_ZOOM_TO_DISPLAY_ALIGNMENTS: u64 = 32;
-    pub const MAX_ZOOM_TO_DISPLAY_SEQUENCES: u64 = 2;
-
-    /// Indexed variant and BED files can be too large to read for a zoomed-out view. At this
-    /// zoom, an 80-column track area shows 8 kb, and the viewer cache loads about 80 kb.
-    pub const MAX_ZOOM_TO_DISPLAY_INDEXED_FEATURES: u64 = 100;
-
-    pub fn new(focus: Focus, alignment_count: usize) -> Self {
-        Self::new_with_zoom(focus, 1, alignment_count)
-    }
-
-    /// Creates an alignment view with an explicit initial zoom.
-    pub fn new_with_zoom(focus: Focus, zoom: u64, alignment_count: usize) -> Self {
-        Self {
-            focus,
-            zoom,
-            y: vec![0; alignment_count],
-        }
-    }
-
-    pub fn scroll(&mut self, index: usize, scroll: Scroll, depth: usize) {
-        match scroll {
-            Scroll::Up(n) => self.y[index] = self.y[index].saturating_sub(n),
-            Scroll::Down(n) => self.y[index] = self.y[index].saturating_add(n).min(depth),
-            Scroll::Top => self.y[index] = 0,
-            Scroll::Bottom => self.y[index] = depth.saturating_sub(1),
-        }
-    }
-
-    pub fn region(&self, area: &Rect) -> Region {
-        Region {
-            focus: self.focus.clone(),
-            half_width: (area.width as u64 * self.zoom) / 2,
-        }
-    }
-
-    /// FIXME: cost of this is pretty high. Lots of useless calculation here.
-    pub fn left(&self, area: &Rect) -> u64 {
-        self.region(area).start()
-    }
-
-    /// FIXME: cost of this is pretty high. Lots of useless calculation here.
-    pub fn right(&self, area: &Rect) -> u64 {
-        self.region(area).end()
-    }
-
-    pub fn zoom(
-        &mut self,
-        zoom: Zoom,
-        area: &Rect,
-        contig_length: Option<u64>,
-    ) -> Result<(), TGVError> {
-        self.zoom = match zoom {
-            Zoom::In(r) => {
-                if r == 0 {
-                    return Err(TGVError::ValueError(
-                        "Zoom in factor cannot be 0".to_string(),
-                    ));
-                };
-                u64::max(1, self.zoom / r)
-            }
-            Zoom::Out(r) => {
-                if r == 0 {
-                    return Err(TGVError::ValueError(
-                        "Zoom out factor cannot be 0".to_string(),
-                    ));
-                }
-
-                self.zoom.saturating_mul(r) // Will be bounded and self-corrected later.
-            }
-            Zoom::Fit { bases } => bases.div_ceil(u64::from(area.width).max(1)).max(1),
-        };
-
-        self.self_correct(area, contig_length);
-        Ok(())
-    }
-
-    /// Set the top track # of the viewing window.
-    /// 0-based.
-    pub fn set_y(&mut self, index: usize, y: usize, depth: usize) {
-        self.y[index] = usize::min(y, depth.saturating_sub(1))
-    }
+/// The viewport's positions in a terminal area. The area's width is the track area's width.
+pub trait CellView {
+    fn left(&self, area: &Rect) -> u64;
+    fn right(&self, area: &Rect) -> u64;
 
     /// Check if the viewing window overlaps with [left, right].
     /// 1-based, inclusive.
-    pub fn overlaps_x_interval(&self, left: u64, right: u64, area: &Rect) -> bool {
-        // FIXME: can reduce some useless calculation here.
-        left <= self.right(area) && right >= self.left(area)
-    }
-
-    /// Top track # of the viewing window.
-    /// 0-based, inclusive.
-    pub fn top(&self, index: usize) -> usize {
-        self.y[index]
-    }
+    fn overlaps_x_interval(&self, left: u64, right: u64, area: &Rect) -> bool;
 
     /// Bottom track # of the viewing window.
     /// 0-based, exclusive.
-    pub fn bottom(&self, index: usize, area: &Rect) -> usize {
-        self.top(index) + area.height as usize
-    }
-
-    /// Move the viewing window be within the contig range.
-    pub fn self_correct(&mut self, area: &Rect, contig_length: Option<u64>) {
-        if area.width == 0 {
-            return;
-        }
-        if let Some(contig_length) = contig_length {
-            // 1. Zoom: cannot be large than contig_length / area.width
-            self.zoom = u64::min(self.zoom, contig_length / area.width as u64).max(1);
-
-            // 2. Right: cannot be larger than contig_length
-            let right = self.region(area).end();
-            if right > contig_length {
-                self.focus.position = self.focus.position.saturating_sub(right - contig_length);
-            }
-        }
-
-        // left end must be >=1. TODO: consider loosen this?
-        self.focus.position = self
-            .focus
-            .position
-            .max(1 + (area.width as u64 * self.zoom) / 2);
-    }
-
-    /// Height of the viewing window.
-    // pub fn height(&self, area: &Rect) -> usize {
-    //     area.height as usize
-    // }
+    fn bottom(&self, index: usize, area: &Rect) -> usize;
 
     /// Check if the viewing window overlaps with [top, bottom).
     /// y: 0-based.
-    pub fn overlaps_y(&self, index: usize, y: usize, area: &Rect) -> bool {
-        (self.top(index)..self.bottom(index, area)).contains(&y)
-    }
+    fn overlaps_y(&self, index: usize, y: usize, area: &Rect) -> bool;
 
     /// Returns the onscreen x coordinate in the area. Example:
     /// Bases displayed in the window: 1 2 | 3 4 5 6 7 8 | 9 10
@@ -232,33 +94,69 @@ impl AlignmentView {
     /// 9/10 -> Right(1)
     ///
     /// x: 1-based
-    pub fn onscreen_x_coordinate(&self, x: u64, area: &Rect) -> OnScreenCoordinate {
+    fn onscreen_x_coordinate(&self, x: u64, area: &Rect) -> OnScreenCoordinate;
+
+    /// Given an onscreen x position, return the genome coordinate range (1-based, inclusive) at that x location.
+    fn coordinates_of_onscreen_x(&self, x: u16, area: &Rect) -> Option<(u64, u64)>;
+
+    /// Given an onscreen y position, return the row (0-based) at that y location.
+    fn coordinate_of_onscreen_y(&self, index: usize, y: u16, area: &Rect) -> Option<usize>;
+
+    /// Returns the onscreen y coordinate in the area. Example
+    /// y: 0-based.
+    fn onscreen_y_coordinate(&self, index: usize, y: usize, area: &Rect) -> OnScreenCoordinate;
+}
+
+impl CellView for AlignmentView {
+    /// FIXME: cost of this is pretty high. Lots of useless calculation here.
+    fn left(&self, area: &Rect) -> u64 {
+        self.region(area.width as f64).start()
+    }
+
+    /// FIXME: cost of this is pretty high. Lots of useless calculation here.
+    fn right(&self, area: &Rect) -> u64 {
+        self.region(area.width as f64).end()
+    }
+
+    fn overlaps_x_interval(&self, left: u64, right: u64, area: &Rect) -> bool {
+        // FIXME: can reduce some useless calculation here.
+        left <= self.right(area) && right >= self.left(area)
+    }
+
+    fn bottom(&self, index: usize, area: &Rect) -> usize {
+        self.top(index) + area.height as usize
+    }
+
+    fn overlaps_y(&self, index: usize, y: usize, area: &Rect) -> bool {
+        (self.top(index)..self.bottom(index, area)).contains(&y)
+    }
+
+    fn onscreen_x_coordinate(&self, x: u64, area: &Rect) -> OnScreenCoordinate {
         // TODO: for now, we assume that left and right area equals to the alignment area. Fix this in the future if we need x axis layouts.
         let self_left = self.left(area);
         let self_right = self.right(area);
+        let zoom = self.zoom.column_bases();
 
         if x < self_left {
-            OnScreenCoordinate::Left(usize::max(((self_left - x) / self.zoom) as usize, 1))
+            OnScreenCoordinate::Left(usize::max(((self_left - x) / zoom) as usize, 1))
         } else if x > self_right {
-            OnScreenCoordinate::Right(usize::max(((x - self_right) / self.zoom) as usize, 1))
+            OnScreenCoordinate::Right(usize::max(((x - self_right) / zoom) as usize, 1))
         } else {
-            OnScreenCoordinate::OnScreen(((x - self_left) / self.zoom) as usize)
+            OnScreenCoordinate::OnScreen(((x - self_left) / zoom) as usize)
         }
     }
 
-    /// Given an onscreen x position, return the genome coordinate range (1-based, inclusive) at that x location.
-    pub fn coordinates_of_onscreen_x(&self, x: u16, area: &Rect) -> Option<(u64, u64)> {
+    fn coordinates_of_onscreen_x(&self, x: u16, area: &Rect) -> Option<(u64, u64)> {
         if x < area.left() || x >= area.right() {
             return None;
         }
+        let zoom = self.zoom.column_bases();
+        let left = self.left(area) + (x - area.left()) as u64 * zoom;
 
-        let left = self.left(area) + (x - area.left()) as u64 * self.zoom;
-
-        Some((left, left + self.zoom - 1))
+        Some((left, left + zoom - 1))
     }
 
-    /// Given an onscreen x position, return the genome coordinate range (1-based, inclusive) at that x location.
-    pub fn coordinate_of_onscreen_y(&self, index: usize, y: u16, area: &Rect) -> Option<usize> {
+    fn coordinate_of_onscreen_y(&self, index: usize, y: u16, area: &Rect) -> Option<usize> {
         if y < area.top() || y >= area.bottom() {
             return None;
         }
@@ -266,9 +164,7 @@ impl AlignmentView {
         Some(self.top(index) + (y - area.top()) as usize)
     }
 
-    /// Returns the onscreen y coordinate in the area. Example
-    /// y: 0-based.
-    pub fn onscreen_y_coordinate(&self, index: usize, y: usize, area: &Rect) -> OnScreenCoordinate {
+    fn onscreen_y_coordinate(&self, index: usize, y: usize, area: &Rect) -> OnScreenCoordinate {
         let self_top = self.top(index);
         let self_bottom = self.bottom(index, area);
 
@@ -294,9 +190,6 @@ pub struct MainLayout {
     pub sidebar_width: u16,
     pub sidebar_visible: bool,
     pub track_registry: Arc<TrackRegistry>,
-    /// File tracks in display order. The registry stays in ID order for lookups, so the order
-    /// lives here.
-    pub track_order: Vec<TrackId>,
 }
 
 impl MainLayout {
@@ -304,72 +197,32 @@ impl MainLayout {
     const SIDEBAR_DEFAULT_WIDTH: u16 = 18;
     const SIDEBAR_MIN_WIDTH: u16 = 6;
 
+    /// Lays out the areas for the file tracks in `track_order`, the viewer's display order.
     pub fn new(
         settings: &Settings,
         track_registry: Arc<TrackRegistry>,
-        visible: &[TrackId],
+        track_order: &[TrackId],
     ) -> Self {
-        let mut tracks = vec![];
-        if settings.core.reference.needs_track() {
-            tracks.push(AreaType::Cytoband);
-        }
-
-        tracks.push(AreaType::Coordinate);
-
-        let mut last_alignment_id = None;
-        for &id in visible {
-            match track_registry.get(id).repository_index {
-                RepositoryFileIndex::Alignment(_) => {
-                    if let Some(upper) = last_alignment_id {
-                        tracks.push(AreaType::AlignmentDivider { upper, lower: id });
-                    }
-                    tracks.push(AreaType::Coverage(id));
-                    tracks.push(AreaType::Alignment(id));
-                    last_alignment_id = Some(id);
-                }
-                RepositoryFileIndex::Variant(_) => tracks.push(AreaType::Variant(id)),
-                RepositoryFileIndex::Bed(_) => tracks.push(AreaType::Bed(id)),
-            }
-        }
-
-        if last_alignment_id.is_none() {
-            tracks.push(AreaType::Fill);
-        }
-        if settings.core.reference.needs_sequence() {
-            tracks.push(AreaType::Sequence);
-        }
-        if settings.core.reference.needs_track() {
-            tracks.push(AreaType::GeneTrack);
-        }
-
-        tracks.push(AreaType::Console);
-        tracks.push(AreaType::Error);
-        let track_heights = tracks.iter().map(AreaType::desired_height).collect();
+        let tracks = AreaType::for_tracks(&settings.core.reference, &track_registry, track_order);
+        let track_heights = tracks.iter().map(desired_height).collect();
         MainLayout {
             tracks,
             track_heights,
             sidebar_width: Self::SIDEBAR_DEFAULT_WIDTH,
             sidebar_visible: true,
             track_registry,
-            track_order: visible.to_vec(),
         }
     }
 
-    /// Rebuilds the track rows after tracks were added or removed. Rows that remain keep their
-    /// requested heights and order. Tracks missing from `track_order` go after the others.
-    pub fn set_tracks(&mut self, settings: &Settings, track_registry: Arc<TrackRegistry>) {
-        let mut ids = self
-            .track_order
-            .iter()
-            .copied()
-            .filter(|&id| track_registry.contains(id))
-            .collect::<Vec<_>>();
-        for entry in &track_registry.entries {
-            if !ids.contains(&entry.id) {
-                ids.push(entry.id);
-            }
-        }
-        let rebuilt = Self::new(settings, track_registry, &ids);
+    /// Rebuilds the track rows after tracks were added, removed, or reordered. Rows that remain
+    /// keep their requested heights.
+    pub fn set_tracks(
+        &mut self,
+        settings: &Settings,
+        track_registry: Arc<TrackRegistry>,
+        track_order: &[TrackId],
+    ) {
+        let rebuilt = Self::new(settings, track_registry, track_order);
         self.track_heights = rebuilt
             .tracks
             .iter()
@@ -383,7 +236,6 @@ impl MainLayout {
             .collect();
         self.tracks = rebuilt.tracks;
         self.track_registry = rebuilt.track_registry;
-        self.track_order = rebuilt.track_order;
     }
 
     pub fn toggle_sidebar(&mut self) {
@@ -906,6 +758,7 @@ pub fn linear_scale(
 mod tests {
     use super::*;
     use gv_core::alignment::Alignment;
+    use gv_core::message::Scroll;
     use gv_core::{
         reference::Reference,
         settings::{AlignmentPath, FilePath},
@@ -1062,7 +915,8 @@ mod tests {
     #[test]
     fn alignment_view_scrolls_only_the_requested_alignment() {
         let alignments = vec![alignment_with_depth(10), alignment_with_depth(10)];
-        let mut alignment_view = AlignmentView::new(Focus::default(), alignments.len());
+        let mut alignment_view =
+            AlignmentView::new(Focus::default(), ColumnScale::default(), alignments.len());
 
         alignment_view.scroll(1, Scroll::Down(3), alignments[1].depth().unwrap());
         assert_eq!(alignment_view.top(0), 0);
