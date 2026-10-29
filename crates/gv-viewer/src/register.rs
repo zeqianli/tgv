@@ -7,10 +7,8 @@ use crate::{
     message::{Action, Movement},
     viewer::Scene,
 };
-use gv_core::alignment::is_url;
 use gv_core::prelude::*;
 use itertools::Itertools;
-use std::path::Path;
 
 /// The active input mode and the editing mode to resume after a temporary mode closes.
 #[derive(Debug, Clone, Copy, Eq, PartialEq)]
@@ -91,33 +89,16 @@ impl Registers {
 }
 
 impl Registers {
-    /// Handles a bracketed paste. Terminals paste dropped files as shell-escaped paths, so in
-    /// normal mode a paste of existing files opens them. On the command line, the text is
-    /// inserted at the cursor.
+    /// Inserts pasted text into the command or search line.
     pub fn handle_paste(&mut self, text: &str) -> Vec<Action> {
         match self.current {
-            KeyRegisterType::Editing(Mode::Normal) => {
-                let paths = shlex::split(text.trim()).unwrap_or_default();
-                if paths.is_empty() {
-                    return vec![Action::message(format!("Not a file: {}", text.trim()))];
-                }
-                match paths
-                    .iter()
-                    .find(|path| !is_url(path) && !Path::new(path).is_file())
-                {
-                    Some(missing) => vec![Action::message(format!("Not a file: {missing}"))],
-                    None => vec![Action::Track(crate::message::TrackAction::OpenFiles(paths))],
-                }
-            }
             KeyRegisterType::Command(_) | KeyRegisterType::Search(_) => {
                 let text: String = text.chars().filter(|c| !matches!(c, '\n' | '\r')).collect();
                 self.command.insert_str(self.command_cursor, &text);
                 self.command_cursor += text.len();
                 vec![Action::Input(InputAction::CommandChanged)]
             }
-            KeyRegisterType::ContigList(_) | KeyRegisterType::Editing(Mode::Insert(_)) => {
-                Vec::new()
-            }
+            KeyRegisterType::ContigList(_) | KeyRegisterType::Editing(_) => Vec::new(),
         }
     }
 

@@ -50,16 +50,9 @@ Shifting indexes on removal is the recommendation. The alternative leaves holes,
 
 ### 3. Drag and drop
 
-Terminals don't send a drop event. Ghostty, iTerm2, kitty, WezTerm, and Terminal.app paste the dropped paths as shell-escaped text. With bracketed paste enabled (`crossterm::event::EnableBracketedPaste`), a paste arrives as one `Event::Paste(String)`.
-
-- **Normal mode:** split the paste into paths and undo the shell escaping, for example with `shlex`.
-  - If every path exists, add the files as `:e` does.
-  - Otherwise, show "Not a file: …".
-- **Command and search mode:** insert the pasted text into the command line. This also lets users paste a locus into `/`.
-- **Limits:**
-  - The terminal doesn't report where a drop landed, so dropped tracks are appended.
-  - A paste and a drop look the same to tgv.
-  - Over SSH, the pasted path names a file on the local machine, so it is reported as not found.
+The GUI accepts file drops and opens the files at the indicated position. In the terminal,
+bracketed paste inserts text into the command or search line. A paste in normal mode does
+not open tracks.
 
 ### 4. Responsive loading
 

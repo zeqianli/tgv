@@ -112,7 +112,7 @@ pub struct Viewer<Z: Scale> {
     /// Whether the last action was a typing edit (`Space`, `Backspace`, or `Shift-Backspace`),
     /// so the next one joins its undo step.
     edit_typing: bool,
-    /// Files from `:e`, a paste, or a drop. They open after the next frame, which shows that
+    /// Files from `:e` or a drop. They open after the next frame, which shows that
     /// they are opening.
     pub pending_open: Option<PendingOpen>,
 

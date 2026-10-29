@@ -366,8 +366,7 @@ crates/tgv-gui/src/
     from `gv_viewer::menu`.
   - **Hover and dividers:** hovering shows the shared hover description in the status bar,
     and dividers and the sidebar edge are dragged to resize.
-  - **Files:** dropping files on the window opens them (`OpenFiles`), like a paste in the
-    TUI.
+  - **Files:** dropping files on the window opens them (`OpenFiles`).
 
 ### Layout
 

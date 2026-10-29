@@ -262,7 +262,7 @@ impl App {
         Ok(render_events)
     }
 
-    /// Opens the files that `:e` or a paste requested, and returns the areas to redraw.
+    /// Opens the files that `:e` requested, and returns the areas to redraw.
     pub async fn open_pending(&mut self) -> Result<Vec<RenderEvent>, TGVError> {
         let mut render_events = self.viewer.open_pending().await?;
         render_events.extend(self.apply_effects().await?);

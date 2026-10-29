@@ -47,7 +47,7 @@ keys and commands also provide these actions.
 | `⌘O` | Open files. |
 | `⌘S` | Write the focused BED track, as `:w` does. |
 | `⌘=` and `⌘-` | Zoom in and out. |
-| `⌘V` | Paste. A pasted file path opens the file. |
+| `⌘V` | Paste into the command or search line. |
 
 ## Mouse and trackpad
 
