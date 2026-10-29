@@ -392,6 +392,7 @@ impl State {
             .collect::<Result<Vec<_>, _>>()?;
         for (alignment, table) in self.alignments.iter_mut().zip(mismatch_tables) {
             alignment.tables.reference_mismatches = table;
+            alignment.build_coverage(&sequence)?;
         }
         self.sequence = sequence;
         log::debug!(
@@ -491,12 +492,35 @@ impl State {
         request: &LoadRequest<'_>,
         repository: &mut Repository,
     ) -> Result<(), TGVError> {
-        // Load the sequence first: alignment loads compute mismatches against it.
-        if request.sequence
+        let alignment_requested = request
+            .files
+            .iter()
+            .any(|file| matches!(file, RepositoryFileIndex::Alignment(_)));
+        let alignment_cache_miss = request.files.iter().any(|file| match file {
+            RepositoryFileIndex::Alignment(index) => {
+                !self.alignments[*index].has_complete_data(region)
+            }
+            _ => false,
+        });
+        let required_sequence_region = if alignment_cache_miss {
+            request.cache.alignment_region(region)
+        } else {
+            region.clone()
+        };
+
+        // Coverage and mismatches depend on the reference, even when its track is hidden.
+        if (request.sequence || alignment_requested)
             && let Some(sequence_service) = repository.sequence_service.as_mut()
-            && !self.sequence.has_complete_data(region)
+            && !self.sequence.has_complete_data(&required_sequence_region)
         {
-            let cache_region = request.cache.sequence_region(region);
+            let cache_region = CachePolicy::padded(
+                region,
+                request.cache.sequence_ratio.max(if alignment_cache_miss {
+                    request.cache.alignment_ratio
+                } else {
+                    1
+                }),
+            );
             log::trace!(
                 "Sequence cache miss; requesting data load: region={:?} cache_region={:?}",
                 region,
