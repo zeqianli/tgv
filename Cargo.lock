@@ -3009,23 +3009,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "gv-gui"
-version = "0.4.0"
-dependencies = [
- "block",
- "clap",
- "gpui",
- "gv-core",
- "gv-session",
- "gv-viewer",
- "log",
- "objc",
- "polars",
- "shellexpand",
- "tokio",
-]
-
-[[package]]
 name = "gv-mcp"
 version = "0.4.0"
 dependencies = [
@@ -8005,6 +7988,23 @@ dependencies = [
  "thiserror 2.0.21",
  "tokio",
  "unicode-width 0.2.0",
+]
+
+[[package]]
+name = "tgv-gui"
+version = "0.4.0"
+dependencies = [
+ "block",
+ "clap",
+ "gpui",
+ "gv-core",
+ "gv-session",
+ "gv-viewer",
+ "log",
+ "objc",
+ "polars",
+ "shellexpand",
+ "tokio",
 ]
 
 [[package]]

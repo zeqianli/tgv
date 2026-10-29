@@ -1,6 +1,6 @@
 //! The viewer logic that TGV's front ends share.
 //!
-//! A front end, such as the terminal UI in `tgv` or the window in `gv-gui`, owns a [`Viewer`]
+//! A front end, such as the terminal UI in `tgv` or the window in `tgv-gui`, owns a [`Viewer`]
 //! and translates its own input events into [`Action`]s. The viewer applies them to the
 //! dataset, the viewport, the focus, and the modes, and tells the front end what to redraw.
 //! Front ends keep only what depends on their screen: layout geometry, input decoding, widgets,

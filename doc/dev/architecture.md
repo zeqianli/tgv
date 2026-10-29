@@ -6,7 +6,7 @@ TGV is a Cargo workspace with six crates. This page explains how the crates depe
 
 ```text
    ┌──────────────────────────────┐            ┌──────────────────────────────┐
-   │ tgv                          │            │ gv-gui                       │
+   │ tgv                          │            │ tgv-gui                      │
    │ TUI, `tgv`, `tgv mcp`        │            │ window, `tgv-gui` (gpui)     │
    └────┬───────────────┬─────────┘            └──────────────┬───────────────┘
         │               ▼                                     │
@@ -40,7 +40,7 @@ Arrows point from a crate to the crates it depends on. The front ends also depen
 | `gv-mcp` | The MCP tools, the mapping from `SessionError` to MCP error codes, `McpError`, and `serve` | Terminals |
 | `gv-viewer` | `Viewer` (the controller, which owns the `Dataset` and hosts the session), `Action` and `UiAction`, the key grammar over a neutral `Key`, `Registers`, `JumpList`, `Viewport<Z>` and its `Scale`, `AreaType`, menu items, `TextPopup`, `SessionFile`, `Settings` and the shared CLI options, the RGB `Palette`, and the data preparation in `prepare` | Terminals, windows, and MCP |
 | `tgv` | `App`, cell layout, decoding terminal keys, mouse handling, the menu widget, ratatui rendering, the CLI, and the `tgv mcp` subcommand | gpui |
-| `gv-gui` | `App`, pixel layout, decoding window keystrokes, mouse and trackpad gestures, the menu widget, gpui rendering, the dataset worker thread, and the `tgv-gui` binary | ratatui |
+| `tgv-gui` | `App`, pixel layout, decoding window keystrokes, mouse and trackpad gestures, the menu widget, gpui rendering, the dataset worker thread, and the `tgv-gui` binary | ratatui |
 
 No crate depends on a front end. The front ends share their logic through `gv-viewer`, and their files mirror each other: `app.rs`, `keys.rs`, `layout.rs`, `mouse.rs`, `menu.rs`, `settings.rs`, and one rendering file per kind of area, with the same function names.
 
@@ -141,7 +141,7 @@ App
 
 ### Viewer: the window
 
-The window can't wait for loads the way a terminal can: gestures send dozens of events a second, and gpui draws on the main thread. So `gv-gui` runs its `Viewer<PixelScale>` on a worker thread with its own Tokio runtime, and the window draws snapshots.
+The window can't wait for loads the way a terminal can: gestures send dozens of events a second, and gpui draws on the main thread. So `tgv-gui` runs its `Viewer<PixelScale>` on a worker thread with its own Tokio runtime, and the window draws snapshots.
 
 ```text
  gpui main thread                               dataset worker thread
@@ -256,6 +256,6 @@ Data requests never change the screen, so `Dataset::serve` answers them without 
 | A new request | `gv-session/src/session.rs`, both hosts (`Dataset::run` and `Viewer::serve`), and a tool in `gv-mcp` if agents need it |
 | How the viewers react to agents | `Viewer::serve_view`, which translates requests into actions, in `gv-viewer/src/viewer.rs` |
 | What a key or a command does | `gv-viewer/src/keys.rs`, `register.rs`, and `Viewer::handle`, shared by both front ends |
-| How a track is drawn | The matching file in `tgv/src/rendering/` and `gv-gui/src/rendering/`, from the shared preparation in `gv-viewer/src/prepare/` |
+| How a track is drawn | The matching file in `tgv/src/rendering/` and `tgv-gui/src/rendering/`, from the shared preparation in `gv-viewer/src/prepare/` |
 | Which viewer an agent uses | `McpHandler::call` in `gv-mcp/src/lib.rs`, and `SessionConnection::list_viewers` in `gv-session/src/socket.rs` |
 | What gets loaded and cached | `State::ensure_loaded` and `CachePolicy` in `gv-core/src/state.rs` |

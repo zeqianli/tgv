@@ -4,13 +4,13 @@ use gpui::{
 };
 use gv_core::logging::{init_file_logging_with_level, timestamped_log_file_name};
 use gv_core::prelude::*;
-use gv_gui::{
+use gv_viewer::session::SessionFile;
+use std::path::PathBuf;
+use tgv_gui::{
     app::App,
     settings::{Cli, Settings},
     worker::WorkerHandle,
 };
-use gv_viewer::session::SessionFile;
-use std::path::PathBuf;
 
 fn main() -> Result<(), TGVError> {
     let cli = Cli::parse();

@@ -1,6 +1,6 @@
 //! Headless timing harness for the window's render and input paths.
 //!
-//! Usage: `cargo bench -p gv-gui --bench render_bench -- <bam> <region> <reference> [iterations]
+//! Usage: `cargo bench -p tgv-gui --bench render_bench -- <bam> <region> <reference> [iterations]
 //! [scenario] [bases_per_pixel]`. Pass `none` as the reference for `--no-reference`. Scenarios
 //! are `all` (default), `prepare`, `snapshot`, `render`, `pan`, `scroll`, `zoom`, and `hover`.
 //!
@@ -13,7 +13,7 @@
 //!
 //! ```text
 //! CARGO_PROFILE_BENCH_STRIP=false CARGO_PROFILE_BENCH_DEBUG=true \
-//!     cargo flamegraph -p gv-gui --bench render_bench -o render.svg -- \
+//!     cargo flamegraph -p tgv-gui --bench render_bench -o render.svg -- \
 //!     $PWD/test/output/HG002.GRCh38.300x_chr20.bam chr20:88000 hg38 2000 render
 //! ```
 
@@ -23,14 +23,14 @@ use gpui::{
     ScrollWheelEvent, TestAppContext, TouchPhase, VisualTestContext, point, px,
 };
 use gv_core::message::AlignmentDisplayOption;
-use gv_gui::{
+use gv_viewer::prepare::{alignment::AlignmentScene, track::Gene};
+use std::time::{Duration, Instant};
+use tgv_gui::{
     app::App,
     layout::{ALIGNMENT_ROW_HEIGHT, AreaType, PixelView, Rect},
     settings::{Cli, Settings},
     worker::WorkerHandle,
 };
-use gv_viewer::prepare::{alignment::AlignmentScene, track::Gene};
-use std::time::{Duration, Instant};
 
 fn report(name: &str, samples: &mut [Duration]) {
     samples.sort();

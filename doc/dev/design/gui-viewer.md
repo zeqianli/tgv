@@ -1,6 +1,6 @@
 # Design: a GUI viewer
 
-Status: the first version is implemented, in `gv-viewer` and `gv-gui`. See [As built](#as-built)
+Status: the first version is implemented, in `gv-viewer` and `tgv-gui`. See [As built](#as-built)
 for where it differs from the plan below. Not yet done: animated zooms, IME input, an app
 bundle and signing, and Linux and Windows.
 
@@ -68,7 +68,7 @@ The plan below held, with these changes:
 - **Insert mode zooms in further.** One `h` step is `PixelScale::KEY_STEP_PIXELS` (8) pixels,
   so insert mode keeps a base at least 8 pixels wide. A column is then one base, and the cursor
   is one base, as the decision below intends.
-- **Pinch through AppKit.** gpui 0.2.2 has no pinch events, so `gv-gui/src/pinch.rs` installs
+- **Pinch through AppKit.** gpui 0.2.2 has no pinch events, so `tgv-gui/src/pinch.rs` installs
   a local AppKit event monitor for magnify events and forwards each step to the window. Pinches
   and Control or Command with a vertical scroll zoom continuously around the pointer, with
   `Zoom::Set`, which carries an exact number of bases per screen unit.
@@ -87,7 +87,7 @@ The plan below held, with these changes:
 
 ```text
           ┌────────────────────────┐   ┌────────────────────────┐
-          │ tgv                    │   │ gv-gui                 │
+          │ tgv                    │   │ tgv-gui                │
           │ TUI, `tgv`, `tgv mcp`  │   │ GUI, `tgv-gui`         │
           └───────┬────────────────┘   └───────────┬────────────┘
                   │  ratatui, crossterm            │  gpui
@@ -105,11 +105,11 @@ The plan below held, with these changes:
 |---|---|---|
 | `gv-viewer` (new) | `Viewer` (the controller, which owns the `Dataset`), the shared `Action` and its parts, the key grammar over a neutral `Key`, `Registers`, `JumpList`, `Viewport<Z>`, `AreaType`, track order, menu contents, popup contents, `SessionFile`, `Palette` in RGB, and the per-track data preparation | Terminals, windows, and pixels |
 | `tgv` | Decoding crossterm keys, cell layout, `MouseRegister`, the menu and popup widgets, ratatui rendering, and the `tgv` and `tgv mcp` binaries | gpui |
-| `gv-gui` (new) | Decoding gpui keystrokes, pixel layout, `MouseRegister` with gestures, the menu and popup elements, gpui rendering, the dataset worker thread, and the `tgv-gui` binary | ratatui |
+| `tgv-gui` (new) | Decoding gpui keystrokes, pixel layout, `MouseRegister` with gestures, the menu and popup elements, gpui rendering, the dataset worker thread, and the `tgv-gui` binary | ratatui |
 
 - **A separate binary** keeps gpui out of the `tgv` build and its install. Agents still connect
   through `tgv mcp`, which finds either kind of viewer through `SessionConnection`.
-- **gv-gui never depends on tgv**, as the previous proposal required.
+- **tgv-gui never depends on tgv**, as the previous proposal required.
 
 ## What moves into `gv-viewer`
 
@@ -143,7 +143,7 @@ What stays in each front end, with the same file names in both: `main.rs`, `app.
 // gv-viewer: what the viewer does, wherever the input came from.
 pub enum Action { Core(Message), Motion(Motion), Focus(FocusTarget), EditColumns { .. }, .. }
 
-// tgv and gv-gui: the shared actions plus the actions that only make sense on one screen.
+// tgv and tgv-gui: the shared actions plus the actions that only make sense on one screen.
 pub enum Action {
     Viewer(gv_viewer::Action),
     OpenContextMenu { target: ContextMenuTarget, anchor: Anchor }, // A cell or a point.
@@ -302,12 +302,12 @@ Both front ends run the same `Viewer`. Later, the TUI can move its `Viewer` onto
 worker to stop freezing during loads, without changing the shared code. That is not part of
 this plan.
 
-## The gv-gui crate
+## The tgv-gui crate
 
 ### File layout, matching `tgv`
 
 ```text
-crates/gv-gui/src/
+crates/tgv-gui/src/
 ├── main.rs        Cli parsing, gpui Application::run, window, SessionSocket::bind on the worker
 ├── lib.rs
 ├── app.rs         App: Render impl, handle(), the frame and preview, Scene
@@ -442,7 +442,7 @@ Every track draws from `Frame` and `Viewport<PixelScale>`. Below, bpp means base
     Viewer<ColumnScale>, layout, resolved_layout, registers, mouse_register, context_menu,
     popup, scene, render_buffer, .. }`.
   - The architecture tables in `architecture.md` and the AGENTS.md crate layout gain
-    `gv-viewer` and `gv-gui`.
+    `gv-viewer` and `tgv-gui`.
 
 ## Implementation order
 
@@ -457,7 +457,7 @@ Every track draws from `Frame` and `Viewport<PixelScale>`. Below, bpp means base
    - finally `Viewer` and the `handle`, `serve`, and `load_data` paths.
 
    After each step, `cargo nextest run` passes, and the insta snapshots are unchanged.
-4. **The gv-gui skeleton:**
+4. **The tgv-gui skeleton:**
    - the window, `worker.rs`, the frames, `layout.rs`, and `keys.rs`;
    - the ruler, cytoband, gene, and sequence tracks;
    - the status line and console.
@@ -508,7 +508,7 @@ Every track draws from `Frame` and `Viewport<PixelScale>`. Below, bpp means base
   - The color helpers, such as `base_color` and `cytoband_color`, return `Rgb`.
   - Each front end converts at its edge: the TUI with `From<Rgb> for ratatui::style::Color`,
     which gives `Color::Rgb`, in `tgv/src/rendering/colors.rs`, and the GUI with
-    `From<Rgb> for gpui::Hsla` in `gv-gui/src/rendering/colors.rs`.
+    `From<Rgb> for gpui::Hsla` in `tgv-gui/src/rendering/colors.rs`.
   - `Modifier` and `Style` stay in the TUI.
 - **Insert mode needs at least one pixel per base in the GUI.**
   - Entering insert mode zooms in to at most 1 base per pixel, centered on the cursor, so

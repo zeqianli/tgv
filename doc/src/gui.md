@@ -9,7 +9,7 @@ UI's. It runs on macOS for now.
 Build it from the repository and pass the same options and files as `tgv`:
 
 ```sh
-cargo install --path crates/gv-gui
+cargo install --path crates/tgv-gui
 tgv-gui -g hg38 -r chr20:88108 /data/simple.bam /data/simple.vcf /data/simple.bed
 ```
 

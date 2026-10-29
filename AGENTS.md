@@ -47,7 +47,7 @@
 - `gv-mcp`: the MCP tools, which translate MCP calls into session calls and send them to a running viewer or a headless session. It owns the MCP tool results and `McpError`.
 - `gv-viewer`: the viewer logic both front ends share: `Viewer` (which owns the `Dataset` and applies actions), `Action`, the vim key grammar over a neutral `Key`, `Registers`, `JumpList`, `Viewport<Z>` with its `Scale`, menu items, popups, session files, settings, the RGB `Palette`, and the screen-independent data preparation in `prepare`. It knows nothing about terminals or windows.
 - `tgv`: the TUI and the `tgv` binary, including the `tgv mcp` subcommand.
-- `gv-gui`: the window and the `tgv-gui` binary, built with gpui. Its modules mirror `tgv`'s, plus `worker`, which runs the `Viewer` on its own thread.
+- `tgv-gui`: the window and the `tgv-gui` binary, built with gpui. Its modules mirror `tgv`'s, plus `worker`, which runs the `Viewer` on its own thread.
 
 ## Documentation
 
