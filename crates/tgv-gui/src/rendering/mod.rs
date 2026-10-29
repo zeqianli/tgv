@@ -64,7 +64,12 @@ impl<'a> Painter<'a> {
         Self {
             window,
             cx,
-            font: gpui::font("Menlo"),
+            // Menlo is a macOS font. Linux needs a monospaced family installed there.
+            font: gpui::font(if cfg!(target_os = "linux") {
+                "Liberation Mono"
+            } else {
+                "Menlo"
+            }),
         }
     }
 

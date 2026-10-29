@@ -13,8 +13,14 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - name: Install Linux GUI dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y pkg-config libfontconfig1-dev libfreetype6-dev libwayland-dev libxkbcommon-dev libxkbcommon-x11-dev libssl-dev fonts-liberation
       - name: Install cargo-nextest
         uses: taiki-e/install-action@nextest
+      - name: Build the Linux GUI
+        run: cargo build -p tgv-gui --locked
       - name: Run unit tests
         run: cargo nextest run --workspace --lib
         env:

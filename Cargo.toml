@@ -20,6 +20,8 @@ futures = "0"
 # Metal shaders compile when the app starts, so building doesn't need Xcode's Metal toolchain.
 gpui = { version = "0.2.2", features = ["runtime_shaders"] }
 itertools = "0.13"
+# GPUI's xattr 0.2.3 uses ENOATTR, which libc 0.2.190 removes on Linux.
+libc = "=0.2.189"
 log = { version = "0.4", features = ["std"] }
 # Objective-C messages, for the GUI's macOS event monitor. The version gpui uses.
 objc = "0.2"
