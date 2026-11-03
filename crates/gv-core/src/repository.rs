@@ -236,12 +236,12 @@ impl Repository {
             }
             FilePath::VariantPath(vcf_path) => {
                 self.variant_repositories
-                    .push(VariantRepositoryEnum::new(vcf_path)?);
+                    .push(VariantRepositoryEnum::new(vcf_path).await?);
                 RepositoryFileIndex::Variant(self.variant_repositories.len() - 1)
             }
             FilePath::BedPath(bed_path) => {
                 self.bed_repositories
-                    .push(BedRepositoryEnum::new(bed_path)?);
+                    .push(BedRepositoryEnum::new(bed_path).await?);
                 RepositoryFileIndex::Bed(self.bed_repositories.len() - 1)
             }
             FilePath::UntitledBed(_) => {

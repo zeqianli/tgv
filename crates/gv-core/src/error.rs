@@ -97,8 +97,33 @@ pub enum TGVError {
     #[error("Noodles parse error")]
     NoodlesParseError(#[from] noodles::core::region::ParseError),
 
-    #[error("OpenDAL error")]
-    OpenDALError(#[from] opendal::Error),
+    #[error("Failed to {operation} {url}: {source}")]
+    ObjectStorage {
+        operation: &'static str,
+        url: String,
+        // Boxed because `opendal::Error` would make every `TGVError` large.
+        #[source]
+        source: Box<opendal::Error>,
+    },
+
+    #[error("Failed to {operation} {url}: {source}")]
+    ObjectStorageRead {
+        operation: &'static str,
+        url: String,
+        #[source]
+        source: std::io::Error,
+    },
+
+    #[error("{url} is not a valid S3 URL: {reason}. Use s3://<bucket>/<key>.")]
+    InvalidObjectUrl { url: String, reason: &'static str },
+
+    #[error(
+        "{url}: remote {format} files are not supported yet. Download the file and open it locally."
+    )]
+    UnsupportedRemoteFormat { url: String, format: &'static str },
+
+    #[error("Cannot write {url}: tgv writes BED files to local paths. Use :w <path>.")]
+    RemoteBedWrite { url: String },
 
     #[error("Not a file: {0}")]
     NotAFile(String),

@@ -5,7 +5,7 @@
 //! cheap.
 
 use super::{bed::BedSchema, repository::PlainBed};
-use crate::error::TGVError;
+use crate::{alignment::is_url, error::TGVError};
 use noodles::bgzf;
 use polars::prelude::*;
 use std::{
@@ -384,7 +384,13 @@ impl PlainBed {
     ///
     /// The file goes to a temporary file in the same directory first and is renamed over the
     /// target, so a crash can't leave half a file. Paths ending in `.gz` are written with bgzf.
+    /// URLs are refused, including the track's own when it was read from S3.
     pub fn write(&self, path: &str) -> Result<usize, TGVError> {
+        if is_url(path) {
+            return Err(TGVError::RemoteBedWrite {
+                url: path.to_owned(),
+            });
+        }
         let failed = |operation: &'static str| {
             move |source: io::Error| TGVError::FileOperationError {
                 operation,

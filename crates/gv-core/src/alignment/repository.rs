@@ -6,7 +6,7 @@ use crate::{
     settings::{AlignmentPath, BamSource},
 };
 
-use async_compat::CompatExt;
+use crate::object_storage::S3Object;
 use futures::TryStreamExt;
 use itertools::Itertools;
 use noodles::cram::{self as cram};
@@ -16,13 +16,14 @@ use noodles::{
     bam::{self, bai},
     sam::alignment::RecordBuf,
 };
-use opendal::{Operator, services};
+use opendal::Operator;
 use std::fs;
 use std::path::Path;
 use std::time::Instant;
 use tokio::fs::File;
 
 const RECORD_BATCH_SIZE: usize = 1024;
+const QUERY_REMOTE_BAM: &str = "query the BAM";
 
 pub struct BamRepository {
     bam_path: String,
@@ -47,12 +48,23 @@ impl BamRepository {
             });
         }
 
+        let failed = |operation, path: &str, source| TGVError::FileOperationError {
+            operation,
+            path: path.into(),
+            source,
+        };
         let mut reader = File::open(bam_path)
             .await
-            .map(bam::r#async::io::Reader::new)?;
-        let header = reader.read_header().await?;
+            .map(bam::r#async::io::Reader::new)
+            .map_err(|source| failed("open the BAM", bam_path, source))?;
+        let header = reader
+            .read_header()
+            .await
+            .map_err(|source| failed("read the BAM header", bam_path, source))?;
 
-        let index = bai::r#async::fs::read(bai_path).await?;
+        let index = bai::r#async::fs::read(bai_path)
+            .await
+            .map_err(|source| failed("read the BAM index", bai_path, source))?;
 
         Ok(Self {
             bam_path: bam_path.to_string(),
@@ -118,74 +130,48 @@ impl CramRepository {
 }
 
 pub struct RemoteBamRepository {
-    bam_path: String,
-    bai_path: String,
+    object: S3Object,
+    index_object: S3Object,
 
     index: bai::Index,
 
     header: Header,
 
     operator: Operator,
-    key: String,
 }
 
 impl RemoteBamRepository {
     pub async fn new(s3_bam_path: &str, s3_bai_path: &str) -> Result<Self, TGVError> {
-        let (bucket, name) = s3_bam_path
-            .strip_prefix("s3://")
-            .unwrap()
-            .split_once("/")
-            .unwrap();
+        let object = S3Object::parse(s3_bam_path)?;
+        let index_object = S3Object::parse(s3_bai_path)?;
+        let operator = object.operator()?;
+        // The index can live in another bucket.
+        let index_operator = if index_object.bucket == object.bucket {
+            operator.clone()
+        } else {
+            index_object.operator()?
+        };
 
-        let builder = services::S3::default().bucket(bucket);
+        const READ_INDEX: &str = "read the BAM index";
+        let index = bai::r#async::io::Reader::new(
+            index_object.open_read(&index_operator, READ_INDEX).await?,
+        )
+        .read_index()
+        .await
+        .map_err(index_object.read_error(READ_INDEX))?;
 
-        let operator = Operator::new(builder)?.finish();
-
-        let (index_bucket, index_name) = s3_bai_path
-            .strip_prefix("s3://")
-            .unwrap()
-            .split_once("/")
-            .unwrap();
-        let index_operator = Operator::new(services::S3::default().bucket(index_bucket))?.finish();
-        log::info!(
-            "Object storage request: operation=read object_url={} bucket={} key={} context=remote BAM index",
-            s3_bai_path,
-            index_bucket,
-            index_name
-        );
-        let index_stream = index_operator
-            .reader(index_name)
-            .await?
-            .into_futures_async_read(..)
-            .await?;
-        let mut index_reader = bai::r#async::io::Reader::new(index_stream.compat());
-        let index = index_reader.read_index().await?;
-
-        log::info!(
-            "Object storage request: operation=read object_url={} bucket={} key={} context=remote BAM header",
-            s3_bam_path,
-            bucket,
-            name
-        );
-        let stream = operator
-            .reader(name)
-            .await?
-            .into_futures_async_read(..)
-            .await?;
-
-        let mut reader = bam::r#async::io::Reader::new(stream.compat());
-
-        let header = reader.read_header().await?;
+        const READ_HEADER: &str = "read the BAM header";
+        let header = bam::r#async::io::Reader::new(object.open_read(&operator, READ_HEADER).await?)
+            .read_header()
+            .await
+            .map_err(object.read_error(READ_HEADER))?;
 
         Ok(Self {
-            bam_path: s3_bam_path.to_string(),
-            bai_path: s3_bai_path.to_string(),
-
+            object,
+            index_object,
             index,
-
             header,
             operator,
-            key: name.to_owned(),
         })
     }
 }
@@ -256,7 +242,7 @@ impl AlignmentRepositoryEnum {
     pub fn path(&self) -> &str {
         match self {
             Self::Bam(inner) => &inner.bam_path,
-            Self::RemoteBam(inner) => &inner.bam_path,
+            Self::RemoteBam(inner) => &inner.object.url,
             Self::Cram(inner) => &inner.cram_path,
         }
     }
@@ -302,9 +288,11 @@ impl AlignmentRepositoryEnum {
             AlignmentRepositoryEnum::Bam(inner) => {
                 ("BAM", inner.bam_path.clone(), inner.bai_path.clone())
             }
-            AlignmentRepositoryEnum::RemoteBam(inner) => {
-                ("remote BAM", inner.bam_path.clone(), inner.bai_path.clone())
-            }
+            AlignmentRepositoryEnum::RemoteBam(inner) => (
+                "remote BAM",
+                inner.object.url.clone(),
+                inner.index_object.url.clone(),
+            ),
             AlignmentRepositoryEnum::Cram(inner) => {
                 ("CRAM", inner.cram_path.clone(), inner.crai_path.clone())
             }
@@ -330,7 +318,13 @@ impl AlignmentRepositoryEnum {
                     AlignmentRepositoryEnum::Bam(inner) => {
                         // Reopen the reader because repeated queries at the same BGZF offset
                         // can otherwise reuse a completed seek and return no records.
-                        let file = File::open(&inner.bam_path).await?;
+                        let file = File::open(&inner.bam_path).await.map_err(|source| {
+                            TGVError::FileOperationError {
+                                operation: "open the BAM",
+                                path: inner.bam_path.clone().into(),
+                                source,
+                            }
+                        })?;
                         let mut reader = bam::r#async::io::Reader::new(file);
                         let mut query = reader
                             .query(&inner.header, &inner.index, &query_region)?
@@ -353,24 +347,18 @@ impl AlignmentRepositoryEnum {
                         }
                     }
                     AlignmentRepositoryEnum::RemoteBam(inner) => {
-                        log::info!(
-                            "Object storage request: operation=query object_url={} index_url={} region={:?} context=remote BAM records",
-                            inner.bam_path,
-                            inner.bai_path,
-                            region
-                        );
                         let stream = inner
-                            .operator
-                            .reader(&inner.key)
-                            .await?
-                            .into_futures_async_read(..)
+                            .object
+                            .open_read(&inner.operator, QUERY_REMOTE_BAM)
                             .await?;
-                        let mut reader = bam::r#async::io::Reader::new(stream.compat());
+                        let mut reader = bam::r#async::io::Reader::new(stream);
+                        let read_error = inner.object.read_error(QUERY_REMOTE_BAM);
                         let mut query = reader
-                            .query(&inner.header, &inner.index, &query_region)?
+                            .query(&inner.header, &inner.index, &query_region)
+                            .map_err(&read_error)?
                             .records();
 
-                        while let Some(record) = query.try_next().await? {
+                        while let Some(record) = query.try_next().await.map_err(&read_error)? {
                             batch.push(RecordBuf::try_from_alignment_record(
                                 &inner.header,
                                 &record,

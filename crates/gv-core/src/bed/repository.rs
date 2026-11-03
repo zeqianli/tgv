@@ -1,21 +1,26 @@
-//! Readers for plain BED, indexed BED, and bigBed files.
+//! Readers for plain BED, indexed BED, and bigBed files, on the local filesystem or in S3.
 
 use super::{
     bed::{BedColumns, BedSchema, BedTable, is_data_line},
     edit::BedHistory,
 };
 use crate::{
+    alignment::is_url,
     error::TGVError,
     intervals::Region,
+    object_storage::{S3Object, index_contigs, read_tabix_or_csi_index},
     settings::{FilePath, file_name},
 };
+use async_compat::Compat;
 use bigtools::{BigBedRead, utils::reopen::ReopenableFile};
+use futures::TryStreamExt;
 use noodles::{bgzf, csi, csi::BinningIndex, tabix};
+use opendal::{FuturesAsyncReader, Operator};
 use polars::prelude::*;
 use std::{
     collections::HashSet,
     fs::File,
-    io::{BufRead, BufReader},
+    io::{BufRead, BufReader, Cursor},
     path::Path,
 };
 
@@ -44,12 +49,44 @@ impl PlainBed {
 
     /// Parses the whole file and lists the contig names it uses.
     fn open(path: &str) -> Result<Self, TGVError> {
+        let failed = |operation| {
+            move |source| TGVError::FileOperationError {
+                operation,
+                path: path.into(),
+                source,
+            }
+        };
+        let file = File::open(path).map_err(failed("open the BED"))?;
         // Bgzipped files without an index are read whole.
         let lines: Box<dyn BufRead> = if path.to_lowercase().ends_with(".gz") {
-            Box::new(BufReader::new(bgzf::io::Reader::new(File::open(path)?)))
+            Box::new(BufReader::new(bgzf::io::Reader::new(file)))
         } else {
-            Box::new(BufReader::new(File::open(path)?))
+            Box::new(BufReader::new(file))
         };
+        Self::parse(path, lines).map_err(|error| match error {
+            TGVError::FileIOError(source) => failed("read the BED")(source),
+            error => error,
+        })
+    }
+
+    /// Downloads the whole object and parses it. Bgzipped objects are decompressed.
+    ///
+    /// The track can be edited, and written to a local path.
+    async fn open_remote(object: &S3Object, operator: &Operator) -> Result<Self, TGVError> {
+        const READ: &str = "read the BED";
+        let bytes = Cursor::new(object.read_all(operator, READ).await?);
+        let lines: Box<dyn BufRead> = if object.url.to_lowercase().ends_with(".gz") {
+            Box::new(BufReader::new(bgzf::io::Reader::new(bytes)))
+        } else {
+            Box::new(bytes)
+        };
+        Self::parse(&object.url, lines).map_err(|error| match error {
+            TGVError::FileIOError(source) => object.read_error(READ)(source),
+            error => error,
+        })
+    }
+
+    fn parse(path: &str, lines: impl BufRead) -> Result<Self, TGVError> {
         let mut columns = BedColumns::default();
         let mut row_contigs: Vec<String> = Vec::new();
         let mut header_lines = Vec::new();
@@ -163,19 +200,15 @@ pub struct IndexedBed {
 
 impl IndexedBed {
     fn open(path: &str, index: Box<dyn BinningIndex>) -> Result<Self, TGVError> {
-        let contigs = index
-            .header()
-            .map(|header| {
-                header
-                    .reference_sequence_names()
-                    .iter()
-                    .map(|name| name.to_string())
-                    .collect()
-            })
-            .unwrap_or_default();
+        let contigs = index_contigs(&index);
+        let file = File::open(path).map_err(|source| TGVError::FileOperationError {
+            operation: "open the BED",
+            path: path.into(),
+            source,
+        })?;
         Ok(Self {
             path: path.to_owned(),
-            reader: csi::io::IndexedReader::new(File::open(path)?, index),
+            reader: csi::io::IndexedReader::new(file, index),
             contigs,
         })
     }
@@ -201,6 +234,72 @@ impl IndexedBed {
         };
         for record in self.reader.query(&region.to_noodles_region(name)?)? {
             columns.push_line(record?.as_ref(), contig_index)?;
+        }
+        columns.into_table(contig_index, (region.start(), region.end()))
+    }
+}
+
+/// A bgzipped BED object in S3 with a tabix or CSI index, read by region.
+///
+/// Like a remote BAM, the index is read once, and each query reads through a new stream.
+pub struct RemoteIndexedBed {
+    object: S3Object,
+    operator: Operator,
+    reader: csi::r#async::io::IndexedReader<
+        bgzf::r#async::io::Reader<Compat<FuturesAsyncReader>>,
+        Box<dyn BinningIndex + Send + Sync>,
+    >,
+    /// Contig names in the index, which queries must use.
+    contigs: Vec<String>,
+}
+
+impl RemoteIndexedBed {
+    const QUERY: &str = "query the BED";
+
+    async fn open(
+        object: S3Object,
+        operator: Operator,
+        index: Box<dyn BinningIndex + Send + Sync>,
+    ) -> Result<Self, TGVError> {
+        let contigs = index_contigs(&index);
+        let stream = object.open_read(&operator, "open the BED").await?;
+        Ok(Self {
+            reader: csi::r#async::io::IndexedReader::new(stream, index),
+            object,
+            operator,
+            contigs,
+        })
+    }
+
+    fn read_contigs(&self) -> Vec<(String, Option<u64>)> {
+        self.contigs
+            .iter()
+            .map(|name| (name.clone(), None))
+            .collect()
+    }
+
+    /// Returns the region, or an empty table covering the whole contig when the file has no
+    /// features on it.
+    async fn read_bed(
+        &mut self,
+        region: &Region,
+        contig_name: Option<&str>,
+    ) -> Result<BedTable, TGVError> {
+        let contig_index = region.contig_index();
+        let mut columns = BedColumns::default();
+        let Some(name) = contig_name else {
+            return columns.into_table(contig_index, (1, u64::MAX));
+        };
+        let query_region = region.to_noodles_region(name)?;
+        // A new stream for each query, as remote BAM queries do, so that a query never resumes
+        // from where the last one stopped.
+        *self.reader.get_mut() = bgzf::r#async::io::Reader::new(
+            self.object.open_read(&self.operator, Self::QUERY).await?,
+        );
+        let read_error = self.object.read_error(Self::QUERY);
+        let mut query = self.reader.query(&query_region).map_err(&read_error)?;
+        while let Some(record) = query.try_next().await.map_err(&read_error)? {
+            columns.push_line(record.as_ref(), contig_index)?;
         }
         columns.into_table(contig_index, (region.start(), region.end()))
     }
@@ -268,14 +367,20 @@ pub enum BedRepositoryEnum {
     Bed(PlainBed),
     IndexedBed(IndexedBed),
     BigBed(BigBed),
+    // Boxed because the async reader's buffers are much larger than the other variants.
+    RemoteIndexedBed(Box<RemoteIndexedBed>),
 }
 
 impl BedRepositoryEnum {
-    /// Opens a file, choosing the reader from its extension and whether an index exists.
+    /// Opens a file or S3 object, choosing the reader from its extension and whether an index
+    /// exists.
     ///
     /// Bgzipped BED files use a `.tbi` or `.csi` index when one exists next to them, and are
-    /// otherwise read whole.
-    pub fn new(path: &str) -> Result<Self, TGVError> {
+    /// otherwise read whole. Remote bigBed files are not supported yet.
+    pub async fn new(path: &str) -> Result<Self, TGVError> {
+        if is_url(path) {
+            return Self::new_remote(path).await;
+        }
         let lower = path.to_lowercase();
         if lower.ends_with(".bb") || lower.ends_with(".bigbed") {
             return Ok(Self::BigBed(BigBed::open(path)?));
@@ -295,6 +400,26 @@ impl BedRepositoryEnum {
         Ok(Self::Bed(PlainBed::open(path)?))
     }
 
+    async fn new_remote(url: &str) -> Result<Self, TGVError> {
+        let lower = url.to_lowercase();
+        if lower.ends_with(".bb") || lower.ends_with(".bigbed") {
+            return Err(TGVError::UnsupportedRemoteFormat {
+                url: url.to_owned(),
+                format: "bigBed",
+            });
+        }
+        let object = S3Object::parse(url)?;
+        let operator = object.operator()?;
+        if lower.ends_with(".gz")
+            && let Some(index) = read_tabix_or_csi_index(&object, &operator).await?
+        {
+            return Ok(Self::RemoteIndexedBed(Box::new(
+                RemoteIndexedBed::open(object, operator, index).await?,
+            )));
+        }
+        Ok(Self::Bed(PlainBed::open_remote(&object, &operator).await?))
+    }
+
     /// Creates the empty repository of a new track.
     pub fn untitled(file_path: &FilePath) -> Result<Self, TGVError> {
         Ok(Self::Bed(PlainBed::empty(file_path.to_string())?))
@@ -305,6 +430,7 @@ impl BedRepositoryEnum {
             Self::Bed(file) => &file.path,
             Self::IndexedBed(file) => &file.path,
             Self::BigBed(file) => &file.path,
+            Self::RemoteIndexedBed(file) => &file.object.url,
         }
     }
 
@@ -312,9 +438,9 @@ impl BedRepositoryEnum {
     pub fn as_editable_mut(&mut self) -> Result<&mut PlainBed, TGVError> {
         match self {
             Self::Bed(file) => Ok(file),
-            Self::IndexedBed(IndexedBed { path, .. }) | Self::BigBed(BigBed { path, .. }) => {
+            Self::IndexedBed(_) | Self::BigBed(_) | Self::RemoteIndexedBed(_) => {
                 Err(TGVError::ReadOnlyBed {
-                    name: file_name(path).to_owned(),
+                    name: file_name(self.path()).to_owned(),
                 })
             }
         }
@@ -324,7 +450,7 @@ impl BedRepositoryEnum {
     pub fn is_modified(&self) -> bool {
         match self {
             Self::Bed(file) => file.history.is_modified(),
-            Self::IndexedBed(_) | Self::BigBed(_) => false,
+            Self::IndexedBed(_) | Self::BigBed(_) | Self::RemoteIndexedBed(_) => false,
         }
     }
 
@@ -339,13 +465,14 @@ impl BedRepositoryEnum {
             Self::Bed(file) => file.read_contigs(),
             Self::IndexedBed(file) => file.read_contigs(),
             Self::BigBed(file) => file.read_contigs(),
+            Self::RemoteIndexedBed(file) => file.read_contigs(),
         }
     }
 
     /// Reads the features overlapping a region. Plain files return the whole contig.
     /// `contig_name` is the file's name for the region's contig, or `None` when the file
     /// doesn't have it, which reads an empty table.
-    pub fn read_bed(
+    pub async fn read_bed(
         &mut self,
         region: &Region,
         contig_name: Option<&str>,
@@ -354,6 +481,7 @@ impl BedRepositoryEnum {
             Self::Bed(file) => file.read_bed(region, contig_name),
             Self::IndexedBed(file) => file.read_bed(region, contig_name),
             Self::BigBed(file) => file.read_bed(region, contig_name),
+            Self::RemoteIndexedBed(file) => file.read_bed(region, contig_name).await,
         }
     }
 }
@@ -422,7 +550,8 @@ mod tests {
     #[rstest]
     #[case::plain(false)]
     #[case::indexed(true)]
-    fn reads_bed_by_region(#[case] indexed: bool) {
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn reads_bed_by_region(#[case] indexed: bool) {
         let dir = TempDir::new().unwrap();
         let path = if indexed {
             let path = dir
@@ -445,10 +574,10 @@ mod tests {
         } else {
             SIMPLE_BED.to_owned()
         };
-        let mut repository = BedRepositoryEnum::new(&path).unwrap();
+        let mut repository = BedRepositoryEnum::new(&path).await.unwrap();
         assert_eq!(repository.is_indexed(), indexed);
         let viewed = region(1, 88_000, 88_300);
-        let table = repository.read_bed(&viewed, Some("chr20")).unwrap();
+        let table = repository.read_bed(&viewed, Some("chr20")).await.unwrap();
         assert!(table.has_complete_data(&viewed));
         let rows = table.query(1, viewed.start(), viewed.end()).unwrap();
         let column = |name: &str| -> Vec<u64> {
@@ -464,14 +593,14 @@ mod tests {
     }
 
     /// bigBed features convert to 1-based coordinates and keep their names and strands.
-    #[test]
-    fn reads_bigbed_by_region() {
-        let mut repository = BedRepositoryEnum::new(BIGBED).unwrap();
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn reads_bigbed_by_region() {
+        let mut repository = BedRepositoryEnum::new(BIGBED).await.unwrap();
         assert!(repository.is_indexed());
         let (name, _) = repository.read_contigs().remove(0);
 
         let viewed = region(0, 1, 20_000);
-        let table = repository.read_bed(&viewed, Some(&name)).unwrap();
+        let table = repository.read_bed(&viewed, Some(&name)).await.unwrap();
         assert!(table.has_complete_data(&viewed));
         let rows = table.query(0, viewed.start(), viewed.end()).unwrap();
         assert!(rows.height() > 0);

@@ -194,20 +194,26 @@ impl State {
                         self.previous_genes_end(focus, repository, count).await
                     }
                 },
-                FeatureSource::Bed(index) => self.file_feature_boundary(
-                    focus,
-                    repository,
-                    RepositoryFileIndex::Bed(index),
-                    motion,
-                    count,
-                ),
-                FeatureSource::Variants(index) => self.file_feature_boundary(
-                    focus,
-                    repository,
-                    RepositoryFileIndex::Variant(index),
-                    motion,
-                    count,
-                ),
+                FeatureSource::Bed(index) => {
+                    self.file_feature_boundary(
+                        focus,
+                        repository,
+                        RepositoryFileIndex::Bed(index),
+                        motion,
+                        count,
+                    )
+                    .await
+                }
+                FeatureSource::Variants(index) => {
+                    self.file_feature_boundary(
+                        focus,
+                        repository,
+                        RepositoryFileIndex::Variant(index),
+                        motion,
+                        count,
+                    )
+                    .await
+                }
             },
 
             Movement::NextContig(n) => Ok(self.next_contig(focus, n)),
@@ -421,7 +427,7 @@ impl State {
             .contig_header
             .try_get(region.contig_index())?
             .file_name(RepositoryFileIndex::Variant(index));
-        let variants = match variant_repository.read_variants(region, name) {
+        let variants = match variant_repository.read_variants(region, name).await {
             Ok(variants) => variants,
             Err(e) => {
                 log::warn!(
@@ -460,7 +466,7 @@ impl State {
             .contig_header
             .try_get(region.contig_index())?
             .file_name(RepositoryFileIndex::Bed(index));
-        let bed_intervals = match bed_repository.read_bed(region, name) {
+        let bed_intervals = match bed_repository.read_bed(region, name).await {
             Ok(bed_intervals) => bed_intervals,
             Err(e) => {
                 log::warn!(
@@ -1032,7 +1038,7 @@ impl State {
     ///
     /// Plain files read a whole contig at once. Indexed files read windows that double in size
     /// until they hold enough boundaries or reach the end of the contig.
-    fn file_feature_boundary(
+    async fn file_feature_boundary(
         &self,
         focus: Focus,
         repository: &mut Repository,
@@ -1104,12 +1110,14 @@ impl State {
                 let frame = match file {
                     RepositoryFileIndex::Bed(index) => {
                         repository.bed_repositories[index]
-                            .read_bed(&region, Some(name))?
+                            .read_bed(&region, Some(name))
+                            .await?
                             .data
                     }
                     RepositoryFileIndex::Variant(index) => {
                         repository.variant_repositories[index]
-                            .read_variants(&region, Some(name))?
+                            .read_variants(&region, Some(name))
+                            .await?
                             .data
                     }
                     RepositoryFileIndex::Alignment(_) => unreachable!("checked above"),
