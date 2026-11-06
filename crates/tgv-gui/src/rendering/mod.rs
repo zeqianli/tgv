@@ -26,6 +26,7 @@ pub use contig_list::render_contig_list;
 pub use coordinate::render_coordinates;
 pub use coverage::render_coverage;
 pub use cytoband::render_cytobands;
+pub use menu::TextPopupLayout;
 pub use sequence::render_sequence;
 pub use status_bar::render_status_bar;
 pub use track::render_track;

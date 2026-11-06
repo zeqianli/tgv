@@ -55,7 +55,7 @@ keys and commands also provide these actions.
 |---|---|
 | Drag | Pan. Over an alignment, a vertical drag also scrolls its reads. |
 | Horizontal scroll | Pan. |
-| Vertical scroll | Scroll the reads of the alignment under the pointer. |
+| Vertical scroll | Scroll the reads of the alignment under the pointer, or the open read record. |
 | Pinch (macOS only) | Zoom around the pointer. |
 | `Ctrl` or `⌘` with a vertical scroll | Zoom around the pointer. |
 | Double click | Zoom in around the point. |

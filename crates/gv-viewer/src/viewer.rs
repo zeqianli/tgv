@@ -910,13 +910,18 @@ impl<Z: Scale> Viewer<Z> {
                     self.effects.push(Effect::ShowContextMenu { items, anchor });
                     render_events.push(RenderEvent::All);
                 }
-                Action::Interaction(InteractionAction::OpenReadDetails { track, read_id }) => {
+                Action::Interaction(InteractionAction::OpenReadDetails {
+                    track,
+                    read_id,
+                    position,
+                }) => {
                     let index = self.dataset.tracks.alignment_index(track)?;
                     let popup = TextPopup::read_details(
                         self.dataset.repository.alignment_repositories[index]
                             .source
                             .header(),
                         &self.dataset.view.alignments[index].records[read_id],
+                        position,
                     )?;
                     self.effects.push(Effect::ShowPopup(popup));
                     render_events.push(RenderEvent::All);

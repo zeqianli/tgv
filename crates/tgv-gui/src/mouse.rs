@@ -275,8 +275,14 @@ impl MouseRegister {
             && *id == track
             && let Some((_, read_id)) = read_at(frame, layout, view, track, area, x, y)?
         {
+            let (left, right) = view.bases_at(x, area);
             actions.push(
-                Action::Interaction(InteractionAction::OpenReadDetails { track, read_id }).into(),
+                Action::Interaction(InteractionAction::OpenReadDetails {
+                    track,
+                    read_id,
+                    position: (left == right).then_some(left),
+                })
+                .into(),
             );
         }
         self.drag_target = None;

@@ -12,7 +12,7 @@ use crate::{
     layout::{AreaType, MainLayout, ResolvedMainLayout},
     menu::ContextMenu,
     mouse::MouseRegister,
-    rendering::TrackFocus,
+    rendering::{TextPopupLayout, TrackFocus},
     settings::Settings,
 };
 use gv_core::prelude::*;
@@ -20,10 +20,13 @@ use gv_session::ViewerKind;
 use gv_viewer::{
     layout::RenderEvent,
     message::{FocusTarget, UiAction, UpdateLayoutAction},
-    popup::TextPopup,
+    popup::{PopupScroll, TextPopup},
     prelude::*,
 };
 use std::{sync::Arc, time::Duration};
+
+/// Lines a wheel notch scrolls a popup.
+const POPUP_WHEEL_LINES: isize = 3;
 
 pub struct App {
     /// The dataset, the viewport, the focus, and the modes, shared with the GUI.
@@ -138,34 +141,49 @@ impl App {
                 let events = match event {
                     Ok(Event::Key(key_event)) if key_event.kind == KeyEventKind::Press => {
                         self.mouse_register.last_hover = None;
-                        let actions = if self.popup.is_some() {
-                            if key_event.code == event::KeyCode::Esc {
-                                vec![UiAction::ClosePopup.into()]
-                            } else {
-                                Vec::new()
-                            }
-                        } else if self.context_menu.is_some() {
-                            // The menu is mouse-only. Escape closes it, and other keys wait.
-                            if key_event.code == event::KeyCode::Esc {
-                                vec![UiAction::CloseContextMenu.into()]
-                            } else {
-                                Vec::new()
-                            }
+                        if self.popup.is_some() && key_event.code != event::KeyCode::Esc {
+                            Ok(key_from_event(*key_event)
+                                .and_then(PopupScroll::from_key)
+                                .map_or_else(Vec::new, |scroll| self.scroll_popup(scroll)))
                         } else {
-                            match key_from_event(*key_event) {
-                                Some(key) => self
-                                    .viewer
-                                    .registers
-                                    .handle_key_event(key, &self.viewer.dataset.view)?,
-                                None => Vec::new(),
+                            let actions = if self.popup.is_some() {
+                                vec![UiAction::ClosePopup.into()]
+                            } else if self.context_menu.is_some() {
+                                // The menu is mouse-only. Escape closes it, and other keys wait.
+                                if key_event.code == event::KeyCode::Esc {
+                                    vec![UiAction::CloseContextMenu.into()]
+                                } else {
+                                    Vec::new()
+                                }
+                            } else {
+                                match key_from_event(*key_event) {
+                                    Some(key) => self
+                                        .viewer
+                                        .registers
+                                        .handle_key_event(key, &self.viewer.dataset.view)?,
+                                    None => Vec::new(),
+                                }
+                            };
+                            self.handle(actions).await // TODO: this should not error out?
+                        }
+                    }
+
+                    Ok(Event::Mouse(mouse_event))
+                        if self.viewer.scene == Scene::Main && self.popup.is_some() =>
+                    {
+                        Ok(match mouse_event.kind {
+                            event::MouseEventKind::ScrollDown => {
+                                self.scroll_popup(PopupScroll::Lines(POPUP_WHEEL_LINES))
                             }
-                        };
-                        self.handle(actions).await // TODO: this should not error out?
+                            event::MouseEventKind::ScrollUp => {
+                                self.scroll_popup(PopupScroll::Lines(-POPUP_WHEEL_LINES))
+                            }
+                            _ => Vec::new(),
+                        })
                     }
 
                     Ok(Event::Mouse(mouse_event)) if self.viewer.scene == Scene::Main => {
                         let actions = match &mut self.context_menu {
-                            _ if self.popup.is_some() => Vec::new(),
                             Some(menu) => menu.handle_mouse_event(*mouse_event),
                             None => self.mouse_register.handle_mouse_event(
                                 &self.viewer.dataset.view,
@@ -267,6 +285,19 @@ impl App {
         let mut render_events = self.viewer.open_pending().await?;
         render_events.extend(self.apply_effects().await?);
         Ok(render_events)
+    }
+
+    /// Scrolls the open popup, and returns the areas to redraw.
+    fn scroll_popup(&mut self, scroll: PopupScroll) -> Vec<RenderEvent> {
+        let Some(popup) = &mut self.popup else {
+            return Vec::new();
+        };
+        let layout = TextPopupLayout::new(self.resolved_layout.terminal_area, popup);
+        if popup.scroll_by(scroll, layout.visible, layout.lines.len()) {
+            vec![RenderEvent::All]
+        } else {
+            Vec::new()
+        }
     }
 
     /// Applies what the viewer left for the terminal: layout changes, menus, and popups.

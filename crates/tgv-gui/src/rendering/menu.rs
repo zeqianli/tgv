@@ -44,38 +44,73 @@ fn render_panel(painter: &mut Painter, panel: &MenuPanel, palette: &Palette) {
     }
 }
 
-/// Draw a text popup centered in `area`. Long values wrap within the value column. Rows that
-/// don't fit are cut, and the last shown line says so.
-pub fn render_text_popup(painter: &mut Painter, area: Rect, popup: &TextPopup, palette: &Palette) {
-    let label_width = popup
-        .rows
-        .iter()
-        .map(|(label, _)| label.chars().count())
-        .max()
-        .unwrap_or(0) as f32
-        * CHAR_WIDTH;
-    let width = (area.width * 0.8).min(900.0);
-    let value_x = label_width + 2.0 * CHAR_WIDTH;
-    let value_columns = ((width - value_x - 2.0 * CHAR_WIDTH) / CHAR_WIDTH).max(8.0) as usize;
-    let mut lines: Vec<(String, String)> = Vec::new();
-    for (label, value) in &popup.rows {
-        let chars = value.chars().collect::<Vec<_>>();
-        for (index, chunk) in chars.chunks(value_columns).enumerate() {
-            let label = if index == 0 {
-                label.clone()
-            } else {
-                String::new()
-            };
-            lines.push((label, chunk.iter().collect()));
+/// A text popup's wrapped lines and how many of them fit in an area.
+pub struct TextPopupLayout {
+    /// The rows, wrapped to fit, as a label and a value.
+    pub lines: Vec<(String, String)>,
+    /// How many lines show at a time.
+    pub visible: usize,
+    width: f32,
+    value_x: f32,
+}
+
+impl TextPopupLayout {
+    /// Wraps a popup's rows within the value column, for a popup centered in `area`.
+    pub fn new(area: Rect, popup: &TextPopup) -> Self {
+        let label_width = popup
+            .rows
+            .iter()
+            .map(|(label, _)| label.chars().count())
+            .max()
+            .unwrap_or(0) as f32
+            * CHAR_WIDTH;
+        let width = (area.width * 0.8).min(900.0);
+        let value_x = label_width + 2.0 * CHAR_WIDTH;
+        let value_columns = ((width - value_x - 2.0 * CHAR_WIDTH) / CHAR_WIDTH).max(8.0) as usize;
+        let mut lines: Vec<(String, String)> = Vec::new();
+        for (label, value) in &popup.rows {
+            let chars = value.chars().collect::<Vec<_>>();
+            for (index, chunk) in chars.chunks(value_columns).enumerate() {
+                let label = if index == 0 {
+                    label.clone()
+                } else {
+                    String::new()
+                };
+                lines.push((label, chunk.iter().collect()));
+            }
+            if chars.is_empty() {
+                lines.push((label.clone(), String::new()));
+            }
         }
-        if chars.is_empty() {
-            lines.push((label.clone(), String::new()));
+        // The title goes above the rows. When the rows overflow, a line below them says which
+        // ones show.
+        let max_lines = (((area.height * 0.8) / LINE_HEIGHT) as usize).saturating_sub(2);
+        let visible = if lines.len() > max_lines {
+            max_lines.saturating_sub(1)
+        } else {
+            lines.len()
+        };
+        Self {
+            lines,
+            visible,
+            width,
+            value_x,
         }
     }
-    let max_lines = (((area.height * 0.8) / LINE_HEIGHT) as usize).saturating_sub(2);
-    let cut = lines.len() > max_lines;
-    lines.truncate(max_lines);
-    let height = (lines.len() as f32 + 2.0 + f32::from(u8::from(cut))) * LINE_HEIGHT;
+}
+
+/// Draw a text popup centered in `area`. Long values wrap within the value column. Rows that
+/// don't fit scroll, and the last line says which ones show.
+pub fn render_text_popup(painter: &mut Painter, area: Rect, popup: &TextPopup, palette: &Palette) {
+    let TextPopupLayout {
+        lines,
+        visible,
+        width,
+        value_x,
+    } = TextPopupLayout::new(area, popup);
+    let overflow = visible < lines.len();
+    let scroll = popup.scroll.min(lines.len() - visible);
+    let height = (visible as f32 + 2.0 + f32::from(u8::from(overflow))) * LINE_HEIGHT;
     let rect = Rect::new(
         area.x + (area.width - width) / 2.0,
         area.y + (area.height - height) / 2.0,
@@ -85,16 +120,21 @@ pub fn render_text_popup(painter: &mut Painter, area: Rect, popup: &TextPopup, p
     painter.fill(rect, palette.MENU_BACKGROUND.hsla());
     let x = rect.x + CHAR_WIDTH;
     painter.bold_text(x, rect.y + LINE_HEIGHT / 2.0, &popup.title, TEXT);
-    for (index, (label, value)) in lines.iter().enumerate() {
+    for (index, (label, value)) in lines[scroll..scroll + visible].iter().enumerate() {
         let y = rect.y + (index as f32 + 1.5) * LINE_HEIGHT;
         painter.text(x, y, label, MUTED_TEXT);
         painter.text(x + value_x, y, value, palette.MENU_FOREGROUND);
     }
-    if cut {
+    if overflow {
         painter.text(
             x,
-            rect.y + (lines.len() as f32 + 1.5) * LINE_HEIGHT,
-            "… more rows don't fit",
+            rect.y + (visible as f32 + 1.5) * LINE_HEIGHT,
+            &format!(
+                "Lines {}–{} of {}",
+                scroll + 1,
+                scroll + visible,
+                lines.len()
+            ),
             MUTED_TEXT,
         );
     }

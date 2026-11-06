@@ -197,7 +197,12 @@ Hover over a track for details on the message line: genes and exons, reference
 bases, coverage, variants, BED features, and reads. Over a read, it shows the
 position, read name, CIGAR, and MAPQ, plus the read's base and base quality
 there when each column shows one base. Click a read to see its SAM record;
-press `Esc` to close it. Other keys and clicks are ignored while it is open.
+press `Esc` to close it. When each column shows one base, the title names the
+clicked base, and optional `B` arrays with one value per read base, like IGV's
+per-base tags, show only the value at that base. A record taller than the
+screen scrolls with the mouse wheel, `j`/`k` or the arrow keys, `Ctrl-d`/`Ctrl-u`
+for half a page, `Space`/`Page Down` and `Page Up` for a page, and `g` or `G`
+for the top or the bottom. Other keys and clicks are ignored while it is open.
 
 Alignment tracks follow IGV's defaults: duplicate and QC-fail reads are hidden,
 reads with MAPQ 0 are drawn in a darker gray, and mismatched bases with a base

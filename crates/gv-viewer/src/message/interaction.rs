@@ -12,8 +12,13 @@ pub enum InteractionAction {
         anchor: Anchor,
     },
 
-    /// Shows the SAM record of a read in a popup.
-    OpenReadDetails { track: TrackId, read_id: usize },
+    /// Shows the SAM record of a read in a popup. `position` is the clicked base, or `None`
+    /// when a column covers several bases.
+    OpenReadDetails {
+        track: TrackId,
+        read_id: usize,
+        position: Option<u64>,
+    },
 }
 
 /// A point on the screen, in the front end's units: a terminal cell, or a pixel.

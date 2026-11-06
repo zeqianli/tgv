@@ -16,7 +16,7 @@ use crate::{
     mouse::{MouseButton, MouseRegister, zoom_step},
     pinch::{Pinch, PinchMonitor},
     rendering::{
-        self, DropGap, Painter, Status, TrackFocus,
+        self, DropGap, Painter, Status, TextPopupLayout, TrackFocus,
         colors::{Palette, ToHsla},
     },
     worker::{Frame, WorkerEvent, WorkerHandle, WorkerMessage},
@@ -29,7 +29,7 @@ use gpui::{
 use gv_core::message::{BasesPerUnit, Movement, Zoom};
 use gv_viewer::{
     message::{UiAction, UpdateLayoutAction},
-    popup::TextPopup,
+    popup::{PopupScroll, TextPopup},
     prelude::*,
     settings::Settings,
 };
@@ -72,6 +72,8 @@ pub struct App {
     pub context_menu: Option<ContextMenu>,
     /// The open text popup. While it is open, it blocks all other input.
     pub popup: Option<TextPopup>,
+    /// Pixels of a popup scroll that haven't added up to a whole line.
+    popup_scroll_remainder: f32,
     /// What the message line says about the data under the pointer.
     pub hover: Option<String>,
     /// When the window started waiting for the worker, if it waits.
@@ -124,6 +126,7 @@ impl App {
             mouse_register: MouseRegister::default(),
             context_menu: None,
             popup: None,
+            popup_scroll_remainder: 0.0,
             hover: None,
             waiting_since: None,
             width_sent: 0.0,
@@ -349,7 +352,10 @@ impl App {
                             Some(ContextMenu::new(items, anchor.x, anchor.y, resolved.window));
                     }
                 }
-                Effect::ShowPopup(popup) => self.popup = Some(popup),
+                Effect::ShowPopup(popup) => {
+                    self.popup = Some(popup);
+                    self.popup_scroll_remainder = 0.0;
+                }
                 Effect::TracksChanged => {
                     // Divider state names tracks, which may no longer be adjacent or present.
                     self.mouse_register = MouseRegister::default();
@@ -376,6 +382,10 @@ impl App {
         if self.popup.is_some() {
             if escape {
                 self.handle(vec![Action::from(UiAction::ClosePopup).into()], cx);
+            } else if let Some(scroll) =
+                key_from_keystroke(keystroke).and_then(PopupScroll::from_key)
+            {
+                self.scroll_popup(scroll, cx);
             }
             return;
         }
@@ -389,6 +399,17 @@ impl App {
         if let Some(key) = key_from_keystroke(keystroke) {
             self.hover = None;
             self.send(WorkerMessage::Keys(vec![key]), cx);
+        }
+    }
+
+    /// Scrolls the open popup within the window.
+    fn scroll_popup(&mut self, scroll: PopupScroll, cx: &mut Context<Self>) {
+        let (Some(popup), Some(resolved)) = (&mut self.popup, &self.resolved_layout) else {
+            return;
+        };
+        let layout = TextPopupLayout::new(resolved.window, popup);
+        if popup.scroll_by(scroll, layout.visible, layout.lines.len()) {
+            cx.notify();
         }
     }
 
@@ -533,7 +554,18 @@ impl App {
     }
 
     fn on_scroll_wheel(&mut self, event: &ScrollWheelEvent, cx: &mut Context<Self>) {
-        if self.popup.is_some() || self.context_menu.is_some() {
+        if self.popup.is_some() {
+            let delta = event.delta.pixel_delta(px(rendering::LINE_HEIGHT));
+            // Positive pixels scroll down, toward later lines.
+            self.popup_scroll_remainder -= f32::from(delta.y);
+            let lines = (self.popup_scroll_remainder / rendering::LINE_HEIGHT).trunc();
+            if lines != 0.0 {
+                self.popup_scroll_remainder -= lines * rendering::LINE_HEIGHT;
+                self.scroll_popup(PopupScroll::Lines(lines as isize), cx);
+            }
+            return;
+        }
+        if self.context_menu.is_some() {
             return;
         }
         let Some(resolved) = self.resolved_layout.clone() else {

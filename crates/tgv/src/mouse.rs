@@ -259,10 +259,13 @@ impl MouseRegister {
                         event.column,
                         event.row,
                     )?
+                    && let Some((left, right)) =
+                        alignment_view.coordinates_of_onscreen_x(event.column, area)
                 {
                     messages.push(Action::Interaction(InteractionAction::OpenReadDetails {
                         track,
                         read_id,
+                        position: (left == right).then_some(left),
                     }));
                 }
                 self.drag_target = None;
