@@ -3,6 +3,7 @@ mod coverage;
 mod paired_alignment;
 mod quality;
 mod repository;
+mod s3;
 pub mod tables;
 pub use alignment::{Alignment, ReadBase};
 pub use coverage::{CoverageSchema, CoverageTable};

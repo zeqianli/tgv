@@ -69,7 +69,9 @@ Other tracks, such as BCF (`.bcf`), `.vcf.bgz`, and bigBed (`.bb` and `.bigbed`)
 
 #### BAM-specific fields
 
-No additional fields beyond the common ones.
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `aws_profile` | string | no | `s3://` tracks only. The AWS profile the file is read with, as named in `~/.aws/config`. When absent, tgv uses `--aws-profile`, then `AWS_PROFILE`, then the `default` profile. |
 
 #### CRAM-specific fields
 

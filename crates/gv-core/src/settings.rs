@@ -27,7 +27,11 @@ pub enum BamSource {
     Local,
 
     /// File on AWS S3 or S3-compatible object storage.
-    S3,
+    S3 {
+        /// The AWS profile the file is read with. `None` follows the AWS CLI: the
+        /// `AWS_PROFILE` environment variable, or the `default` profile.
+        aws_profile: Option<String>,
+    },
 }
 
 /// Alignment input file with the auxiliary files required to read it.
@@ -107,6 +111,10 @@ pub struct Settings {
 
     /// The base-quality encoding of every alignment file.
     pub quality_encoding: QualityEncodingSetting,
+
+    /// The AWS profile for `s3://` files opened without one, such as files from the command
+    /// line. Each track keeps its own profile in [`BamSource::S3`]. `None` follows the AWS CLI.
+    pub aws_profile: Option<String>,
     //pub palette: Palette,
 }
 
@@ -118,6 +126,7 @@ impl Default for Settings {
             ucsc_host: UcscHost::default(),
             cache_dir: shellexpand::tilde("~/.tgv").to_string(),
             quality_encoding: QualityEncodingSetting::default(),
+            aws_profile: None,
         }
     }
 }
@@ -130,10 +139,13 @@ pub const VARIANT_EXTENSIONS: [&str; 4] = [".vcf", ".vcf.gz", ".vcf.bgz", ".bcf"
 /// are read by region.
 pub const BED_EXTENSIONS: [&str; 4] = [".bed", ".bed.gz", ".bb", ".bigbed"];
 
-/// Classify input files and build the track paths.
+/// Classify input files and build the track paths. `s3://` files are read with `aws_profile`.
 ///
 /// Returns file paths in the same order as the input paths.
-pub fn classify_and_build_tracks(files: &[String]) -> Result<Vec<FilePath>, TGVError> {
+pub fn classify_and_build_tracks(
+    files: &[String],
+    aws_profile: Option<&str>,
+) -> Result<Vec<FilePath>, TGVError> {
     for file in files {
         let lower = file.to_lowercase();
         if lower.ends_with(".fa")
@@ -174,7 +186,9 @@ pub fn classify_and_build_tracks(files: &[String]) -> Result<Vec<FilePath>, TGVE
                 path: file.clone(),
                 index,
                 source: if is_url(file.as_str()) {
-                    BamSource::S3
+                    BamSource::S3 {
+                        aws_profile: aws_profile.map(str::to_owned),
+                    }
                 } else {
                     BamSource::Local
                 },

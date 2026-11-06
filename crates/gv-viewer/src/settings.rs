@@ -10,7 +10,7 @@ use clap::{Args, ValueEnum};
 use gv_core::alignment::QualityEncodingSetting;
 use gv_core::message::Movement;
 use gv_core::prelude::*;
-use gv_core::settings::{BackendType, classify_and_build_tracks};
+use gv_core::settings::{AlignmentPath, BackendType, BamSource, classify_and_build_tracks};
 use gv_core::tracks::UcscHost;
 use std::path::PathBuf;
 
@@ -87,6 +87,13 @@ pub struct ViewerArgs {
     #[arg(long, value_enum)]
     pub phred: Option<QualityEncodingSetting>,
 
+    /// AWS profile for reading `s3://` files, as named in `~/.aws/config`. SSO profiles work
+    /// after `aws sso login --profile <profile>`. Applies to the input files, files opened
+    /// later, and resumed session tracks that don't name a profile. Defaults to the
+    /// `AWS_PROFILE` environment variable, or the `default` profile.
+    #[arg(long = "aws-profile", value_name = "profile")]
+    pub aws_profile: Option<String>,
+
     /// Resume a saved session: a name in `~/.tgv/sessions/` or a path to a session TOML file.
     #[arg(long)]
     pub resume: Option<String>,
@@ -152,7 +159,7 @@ impl ViewerArgs {
 
         // Track override: if any files were provided, replace all session tracks.
         if !self.files.is_empty() {
-            settings.files = classify_and_build_tracks(&self.files)?;
+            settings.files = classify_and_build_tracks(&self.files, self.aws_profile.as_deref())?;
         }
 
         // Backend override: only when explicitly requested.
@@ -177,6 +184,20 @@ impl ViewerArgs {
 
         if let Some(phred) = self.phred {
             settings.core.quality_encoding = phred;
+        }
+
+        // The profile also reaches session tracks that didn't save one.
+        if let Some(ref profile) = self.aws_profile {
+            settings.core.aws_profile = Some(profile.clone());
+            for file in settings.files.iter_mut() {
+                if let FilePath::AlignmentPath(AlignmentPath::Bam {
+                    source: BamSource::S3 { aws_profile },
+                    ..
+                }) = file
+                {
+                    aws_profile.get_or_insert_with(|| profile.clone());
+                }
+            }
         }
 
         settings.debug = self.debug_enabled();
@@ -299,7 +320,7 @@ impl TryFrom<&ViewerArgs> for Settings {
             ));
         }
 
-        let files = classify_and_build_tracks(&cli.files)?;
+        let files = classify_and_build_tracks(&cli.files, cli.aws_profile.as_deref())?;
 
         let cache_dir =
             shellexpand::tilde(cli.cache_dir.as_deref().unwrap_or("~/.tgv")).to_string();
@@ -312,6 +333,7 @@ impl TryFrom<&ViewerArgs> for Settings {
                 ucsc_host: cli.host.clone().unwrap_or(UcscHostCli::Auto).into(),
                 cache_dir,
                 quality_encoding: cli.phred.unwrap_or_default(),
+                aws_profile: cli.aws_profile.clone(),
             },
             files,
             initial_actions,

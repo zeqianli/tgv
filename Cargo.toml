@@ -5,6 +5,8 @@ resolver = "3"
 [workspace.dependencies]
 # Non-local crates
 
+# The error type of reqsign's credential loader trait.
+anyhow = "1"
 async-compat = "0"
 async-compression = { version = "0.4", features = ["gzip", "tokio"] }
 async-trait = "0"
@@ -31,6 +33,8 @@ opendal = { version = "0.53", default-features = false, features = ["services-s3
 # their features in their own manifests.
 polars = { version = "0.55", default-features = false, features = ["dtype-u8", "dtype-u16", "lazy", "strings", "is_in", "cum_agg", "dtype-i128", "temporal", "round_series"] }
 ratatui = "0.29"
+# The credential loader trait that opendal's S3 service accepts. Must match opendal's version.
+reqsign = { version = "0.16", default-features = false, features = ["services-aws"] }
 rmcp = { version = "3", default-features = false, features = ["server", "macros", "transport-io"] }
 schemars = "1"
 reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls", "stream"] }

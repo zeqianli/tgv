@@ -344,9 +344,11 @@ impl Dataset {
         Ok(dataset)
     }
 
-    /// Classifies paths by file type, then adds them like [`Dataset::add_file_paths`].
+    /// Classifies paths by file type, then adds them like [`Dataset::add_file_paths`]. `s3://`
+    /// files are read with the dataset's default AWS profile.
     pub async fn add_files(&mut self, files: &[String]) -> Result<Vec<TrackId>, TGVError> {
-        self.add_file_paths(classify_and_build_tracks(files)?).await
+        let file_paths = classify_and_build_tracks(files, self.settings.aws_profile.as_deref())?;
+        self.add_file_paths(file_paths).await
     }
 
     /// Opens files and appends them as tracks with fresh IDs, in order.
@@ -766,7 +768,7 @@ mod tests {
     }
 
     async fn covid_dataset() -> Dataset {
-        let files = classify_and_build_tracks(&[format!("{DATA}/covid.sorted.bam")]).unwrap();
+        let files = classify_and_build_tracks(&[format!("{DATA}/covid.sorted.bam")], None).unwrap();
         Dataset::new(covid_settings(), files).await.unwrap()
     }
 

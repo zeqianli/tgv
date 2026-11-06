@@ -49,8 +49,8 @@ impl DatasetRequest {
                 message: "Provide a reference or at least one file.".to_owned(),
             });
         }
-        let files =
-            classify_and_build_tracks(&self.files).map_err(|error| SessionError::InvalidInput {
+        let files = classify_and_build_tracks(&self.files, settings.aws_profile.as_deref())
+            .map_err(|error| SessionError::InvalidInput {
                 field: "files",
                 message: error.to_string(),
             })?;

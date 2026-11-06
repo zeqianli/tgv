@@ -52,6 +52,9 @@ pub struct TrackEntry {
     /// CRAM only: `.fai` index for the decoding FASTA. Inferred as `reference + ".fai"` when absent.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub reference_index: Option<String>,
+    /// `s3://` BAM only: the AWS profile the file is read with.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub aws_profile: Option<String>,
 }
 
 // ─── AlignmentPath → TrackEntry ─────────────────────────────────────────────
@@ -61,11 +64,19 @@ impl TryFrom<&AlignmentPath> for TrackEntry {
 
     fn try_from(ap: &AlignmentPath) -> Result<Self, TGVError> {
         match ap {
-            AlignmentPath::Bam { path, index, .. } => Ok(TrackEntry {
+            AlignmentPath::Bam {
+                path,
+                index,
+                source,
+            } => Ok(TrackEntry {
                 path: path.clone(),
                 index: Some(index.clone()),
                 reference: None,
                 reference_index: None,
+                aws_profile: match source {
+                    BamSource::S3 { aws_profile } => aws_profile.clone(),
+                    BamSource::Local => None,
+                },
             }),
             AlignmentPath::Cram {
                 path,
@@ -77,6 +88,7 @@ impl TryFrom<&AlignmentPath> for TrackEntry {
                 index: Some(crai.clone()),
                 reference: Some(fasta.clone()),
                 reference_index: Some(fai.clone()),
+                aws_profile: None,
             }),
         }
     }
@@ -167,7 +179,9 @@ impl TryFrom<SessionFile> for Settings {
                 let index = track.index.unwrap_or_else(|| format!("{}.bai", track.path));
                 file_paths.push(FilePath::AlignmentPath(AlignmentPath::Bam {
                     source: if is_url(&track.path) {
-                        BamSource::S3
+                        BamSource::S3 {
+                            aws_profile: track.aws_profile,
+                        }
                     } else {
                         BamSource::Local
                     },
@@ -212,6 +226,7 @@ impl TryFrom<SessionFile> for Settings {
                 ucsc_host: session.ucsc_host,
                 cache_dir: gv_core::settings::Settings::default().cache_dir,
                 quality_encoding: Default::default(),
+                aws_profile: None,
             },
             files: file_paths,
             initial_actions,
@@ -254,6 +269,7 @@ impl<Z: Scale> TryFrom<&Viewer<Z>> for SessionFile {
                         index: None,
                         reference: None,
                         reference_index: None,
+                        aws_profile: None,
                     });
                 }
                 FilePath::UntitledBed(_) => {}

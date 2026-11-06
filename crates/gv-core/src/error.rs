@@ -97,7 +97,7 @@ pub enum TGVError {
     #[error("Noodles parse error")]
     NoodlesParseError(#[from] noodles::core::region::ParseError),
 
-    #[error("OpenDAL error")]
+    #[error("OpenDAL error: {0}")]
     OpenDALError(#[from] opendal::Error),
 
     #[error("Not a file: {0}")]

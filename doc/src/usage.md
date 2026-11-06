@@ -11,7 +11,7 @@ For example, `tgv -g hg38 -r chr20:88108 /data/simple.bam /data/simple.vcf /data
 - BAM (indexed and sorted). A `.bai` file is needed.
   - Local paths and `s3://` URLs are supported.
   - The index path is inferred as `<bam>.bai`. There is no separate CLI option for a custom index path.
-  - For `s3://` BAMs, place the `.bai` object at the inferred path and configure S3 credentials in the environment.
+  - For `s3://` BAMs, place the `.bai` object at the inferred path. Credentials come from environment variables and `~/.aws/credentials`, and otherwise from the AWS CLI (`aws configure export-credentials`), which covers SSO sessions from `aws sso login`, `credential_process`, and assumed roles. SSO profiles need AWS CLI v2. Pick a profile with `--aws-profile`; otherwise tgv uses `AWS_PROFILE`, or the `default` profile. tgv asks S3 for each bucket's region, so the profile's region doesn't need to match.
 - Variant files: VCF (`.vcf`, `.vcf.gz`, and `.vcf.bgz`) and BCF (`.bcf`).
   - A bgzipped VCF with a `.tbi` or `.csi` index next to it, and a BCF with a `.csi` index, load by region, so large files such as gnomAD or ClinVar stay fast. A BCF without a `.csi` index is an error.
   - Other VCF files load whole the first time they're shown.
@@ -34,6 +34,7 @@ For example, `tgv -g hg38 -r chr20:88108 /data/simple.bam /data/simple.vcf /data
 | `--host us\|eu\|auto` | UCSC mirror. Defaults to `auto`, which picks a mirror from the local time zone. |
 | `--cache-dir` _dir_ | Cache directory. Defaults to `~/.tgv`. |
 | `--phred 33\|64\|auto` | Base-quality encoding of the alignment files. Defaults to `auto`. |
+| `--aws-profile` _profile_ | AWS profile for `s3://` files, such as an SSO profile after `aws sso login --profile <profile>`. Defaults to `AWS_PROFILE`, or `default`. |
 | `--resume` _session_ | Resume a saved [session](./session.md), by name or path. |
 | `--debug` | Write detailed logs. Intended for development. |
 

@@ -2980,6 +2980,7 @@ checksum = "12101ecc8225ea6d675bc70263074eab6169079621c2186fe0c66590b2df9681"
 name = "gv-core"
 version = "0.4.0"
 dependencies = [
+ "anyhow",
  "async-compat",
  "async-compression",
  "async-trait",
@@ -2993,6 +2994,7 @@ dependencies = [
  "noodles",
  "opendal",
  "polars",
+ "reqsign",
  "reqwest",
  "rstest",
  "serde",

@@ -1,5 +1,7 @@
 use crate::{
-    alignment::{Alignment, AlignmentTables, QualityEncoding, QualityEncodingSetting},
+    alignment::{
+        Alignment, AlignmentTables, QualityEncoding, QualityEncodingSetting, s3::S3Access,
+    },
     error::TGVError,
     intervals::Region,
     sequence::Sequence,
@@ -16,7 +18,7 @@ use noodles::{
     bam::{self, bai},
     sam::alignment::RecordBuf,
 };
-use opendal::{Operator, services};
+use opendal::Operator;
 use std::fs;
 use std::path::Path;
 use std::time::Instant;
@@ -130,23 +132,30 @@ pub struct RemoteBamRepository {
 }
 
 impl RemoteBamRepository {
-    pub async fn new(s3_bam_path: &str, s3_bai_path: &str) -> Result<Self, TGVError> {
+    pub async fn new(
+        s3_bam_path: &str,
+        s3_bai_path: &str,
+        aws_profile: Option<&str>,
+    ) -> Result<Self, TGVError> {
         let (bucket, name) = s3_bam_path
             .strip_prefix("s3://")
             .unwrap()
             .split_once("/")
             .unwrap();
 
-        let builder = services::S3::default().bucket(bucket);
-
-        let operator = Operator::new(builder)?.finish();
+        let access = S3Access::new(aws_profile);
+        let operator = access.operator(bucket).await?;
 
         let (index_bucket, index_name) = s3_bai_path
             .strip_prefix("s3://")
             .unwrap()
             .split_once("/")
             .unwrap();
-        let index_operator = Operator::new(services::S3::default().bucket(index_bucket))?.finish();
+        let index_operator = if index_bucket == bucket {
+            operator.clone()
+        } else {
+            access.operator(index_bucket).await?
+        };
         log::info!(
             "Object storage request: operation=read object_url={} bucket={} key={} context=remote BAM index",
             s3_bai_path,
@@ -266,9 +275,9 @@ impl AlignmentRepositoryEnum {
             AlignmentPath::Bam {
                 path,
                 index,
-                source: BamSource::S3,
+                source: BamSource::S3 { aws_profile },
             } => Ok(AlignmentRepositoryEnum::RemoteBam(
-                RemoteBamRepository::new(path, index).await?,
+                RemoteBamRepository::new(path, index, aws_profile.as_deref()).await?,
             )),
             AlignmentPath::Bam {
                 path,
