@@ -38,7 +38,9 @@ use crate::{
     worker::Frame,
 };
 use colors::{Palette, Rgb, ToHsla};
-use gpui::{App, Bounds, ContentMask, Font, SharedString, TextRun, Window, point, px, size};
+use gpui::{
+    App, Bounds, ContentMask, Font, SharedString, TextAlign, TextRun, Window, point, px, size,
+};
 use gv_core::prelude::*;
 use gv_viewer::{popup::TextPopup, prelude::*};
 
@@ -102,6 +104,51 @@ impl<'a> Painter<'a> {
     /// Draws one line of bold text, and returns its width.
     pub fn bold_text(&mut self, x: f32, y: f32, text: &str, color: Rgb) -> f32 {
         self.text_with(x, y, text, color.hsla(), true, FONT_SIZE, LINE_HEIGHT)
+    }
+
+    /// Draws text wrapped at `width` with its top-left corner at `(x, y)`, and returns its
+    /// height. Newlines start new lines.
+    pub fn wrapped_text(&mut self, x: f32, y: f32, width: f32, text: &str, color: Rgb) -> f32 {
+        if text.is_empty() {
+            return 0.0;
+        }
+        let text: SharedString = text.to_string().into();
+        let run = TextRun {
+            len: text.len(),
+            font: self.font.clone(),
+            color: color.hsla(),
+            background_color: None,
+            underline: None,
+            strikethrough: None,
+        };
+        let lines = match self.window.text_system().shape_text(
+            text,
+            px(FONT_SIZE),
+            &[run],
+            Some(px(width.max(CHAR_WIDTH))),
+            None,
+        ) {
+            Ok(lines) => lines,
+            Err(error) => {
+                log::warn!("Failed to shape text: {error}");
+                return 0.0;
+            }
+        };
+        let mut height = 0.0;
+        for line in lines {
+            if let Err(error) = line.paint(
+                point(px(x), px(y + height)),
+                px(LINE_HEIGHT),
+                TextAlign::Left,
+                None,
+                self.window,
+                self.cx,
+            ) {
+                log::warn!("Failed to draw text: {error}");
+            }
+            height += f32::from(line.size(px(LINE_HEIGHT)).height);
+        }
+        height
     }
 
     /// Draws a small letter centered in a box, such as a read base.

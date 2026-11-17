@@ -765,7 +765,13 @@ impl Render for App {
                                 None if opening.is_empty() => "Opening…".to_string(),
                                 None => format!("Opening {opening}…"),
                             };
-                            painter.text(16.0, 16.0, &text, rendering::colors::TEXT);
+                            painter.wrapped_text(
+                                16.0,
+                                16.0,
+                                window_rect.width - 32.0,
+                                &text,
+                                rendering::colors::TEXT,
+                            );
                             return;
                         };
                         let result = match frame.scene {
