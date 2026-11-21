@@ -1,7 +1,7 @@
 //! Columnar gene storage, loaded-region state, and genomic navigation.
 
 use crate::{
-    error::TGVError,
+    error::Error,
     intervals::{IntervalSchema, IntervalTable, Region},
     table_schema::{ColumnDoc, TableSchema},
 };
@@ -29,9 +29,9 @@ impl Default for GeneTable {
 }
 
 impl IntervalTable for GeneTable {
-    fn query(&self, contig_index: usize, start: u64, end: u64) -> Result<DataFrame, TGVError> {
+    fn query(&self, contig_index: usize, start: u64, end: u64) -> Result<DataFrame, Error> {
         if start == 0 {
-            return Err(TGVError::ValueError(
+            return Err(Error::ValueError(
                 "Interval queries require a positive start.".into(),
             ));
         }
@@ -57,7 +57,7 @@ impl GeneTable {
         data: DataFrame,
         contig_index: usize,
         loaded_bounds: (u64, u64),
-    ) -> Result<Self, TGVError> {
+    ) -> Result<Self, Error> {
         Ok(Self {
             data: data
                 .lazy()
@@ -83,7 +83,7 @@ impl GeneTable {
             && region.end() <= self.data_complete_right_bound
     }
 
-    pub fn gene_by_name(&self, name: &str) -> Result<DataFrame, TGVError> {
+    pub fn gene_by_name(&self, name: &str) -> Result<DataFrame, Error> {
         let rows = self
             .data
             .clone()
@@ -94,9 +94,9 @@ impl GeneTable {
         Ok(rows)
     }
 
-    pub fn get_gene_at(&self, position: u64) -> Result<DataFrame, TGVError> {
+    pub fn get_gene_at(&self, position: u64) -> Result<DataFrame, Error> {
         if position == 0 {
-            return Err(TGVError::ValueError(
+            return Err(Error::ValueError(
                 "Interval queries require a positive start.".into(),
             ));
         }
@@ -113,44 +113,44 @@ impl GeneTable {
             .collect()?)
     }
 
-    pub fn get_k_genes_before(&self, position: u64, k: usize) -> Result<DataFrame, TGVError> {
+    pub fn get_k_genes_before(&self, position: u64, k: usize) -> Result<DataFrame, Error> {
         navigate_genes(self, position, k, false, false)
     }
-    pub fn get_k_genes_after(&self, position: u64, k: usize) -> Result<DataFrame, TGVError> {
+    pub fn get_k_genes_after(&self, position: u64, k: usize) -> Result<DataFrame, Error> {
         navigate_genes(self, position, k, true, false)
     }
     pub fn get_saturating_k_genes_before(
         &self,
         position: u64,
         k: usize,
-    ) -> Result<DataFrame, TGVError> {
+    ) -> Result<DataFrame, Error> {
         navigate_genes(self, position, k, false, true)
     }
     pub fn get_saturating_k_genes_after(
         &self,
         position: u64,
         k: usize,
-    ) -> Result<DataFrame, TGVError> {
+    ) -> Result<DataFrame, Error> {
         navigate_genes(self, position, k, true, true)
     }
-    pub fn get_k_exons_before(&self, position: u64, k: usize) -> Result<DataFrame, TGVError> {
+    pub fn get_k_exons_before(&self, position: u64, k: usize) -> Result<DataFrame, Error> {
         navigate_exons(self, position, k, false, false)
     }
-    pub fn get_k_exons_after(&self, position: u64, k: usize) -> Result<DataFrame, TGVError> {
+    pub fn get_k_exons_after(&self, position: u64, k: usize) -> Result<DataFrame, Error> {
         navigate_exons(self, position, k, true, false)
     }
     pub fn get_saturating_k_exons_before(
         &self,
         position: u64,
         k: usize,
-    ) -> Result<DataFrame, TGVError> {
+    ) -> Result<DataFrame, Error> {
         navigate_exons(self, position, k, false, true)
     }
     pub fn get_saturating_k_exons_after(
         &self,
         position: u64,
         k: usize,
-    ) -> Result<DataFrame, TGVError> {
+    ) -> Result<DataFrame, Error> {
         navigate_exons(self, position, k, true, true)
     }
 }
@@ -161,7 +161,7 @@ fn navigate_genes(
     k: usize,
     after: bool,
     saturating: bool,
-) -> Result<DataFrame, TGVError> {
+) -> Result<DataFrame, Error> {
     if k == 0 {
         return if saturating {
             Ok(DataFrame::full_null(table.data.schema(), 0))
@@ -225,7 +225,7 @@ fn navigate_exons(
     k: usize,
     after: bool,
     saturating: bool,
-) -> Result<DataFrame, TGVError> {
+) -> Result<DataFrame, Error> {
     let after = k == 0 || after;
     let exons = table
         .data
@@ -296,7 +296,7 @@ fn navigate_exons(
 
 /// Derive viewport drawing segments without materializing gene or exon objects.
 /// Exon numbers refer to complete transcripts, before CDS splitting or viewport filtering.
-pub fn query_segments(genes: DataFrame, start: u64, end: u64) -> Result<DataFrame, TGVError> {
+pub fn query_segments(genes: DataFrame, start: u64, end: u64) -> Result<DataFrame, Error> {
     use polars::lazy::dsl::{max_horizontal, min_horizontal};
 
     let exons = genes

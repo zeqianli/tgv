@@ -17,7 +17,7 @@ use tgv::{
     settings::{Cli, Commands, Settings},
 };
 #[tokio::main]
-async fn main() -> Result<(), TGVError> {
+async fn main() -> Result<(), gv_core::Error> {
     let cli = Cli::parse();
     let log_path = default_log_file_path();
     let log_level = if cli.debug_enabled() {
@@ -69,7 +69,10 @@ async fn main() -> Result<(), TGVError> {
             let mut settings = SessionFile::from_path(&path)
                 .and_then(Settings::try_from)
                 .map_err(|e| {
-                    TGVError::CliError(format!("Failed to resume session {}: {e}", path.display()))
+                    gv_core::Error::CliError(format!(
+                        "Failed to resume session {}: {e}",
+                        path.display()
+                    ))
                 })?;
             log::info!("Resumed session from {}", path.display());
             cli.apply_overrides(&mut settings)?;
@@ -152,7 +155,7 @@ fn default_log_file_path() -> PathBuf {
     PathBuf::from(shellexpand::tilde("~/.tgv").as_ref()).join(timestamped_log_file_name())
 }
 
-fn print_common_genomes() -> Result<usize, TGVError> {
+fn print_common_genomes() -> Result<usize, gv_core::Error> {
     println!("{}", Reference::HG19);
     println!("{}", Reference::HG38);
     let genomes = Reference::get_common_genome_names()?;
@@ -162,7 +165,7 @@ fn print_common_genomes() -> Result<usize, TGVError> {
     Ok(genomes.len() + 2)
 }
 
-async fn print_ucsc_assemblies() -> Result<usize, TGVError> {
+async fn print_ucsc_assemblies() -> Result<usize, gv_core::Error> {
     let assemblies = UcscDbTrackService::list_assemblies(None).await?;
 
     for (name, common_name) in &assemblies {

@@ -20,7 +20,7 @@ pub fn read_at(
     left: u64,
     right: u64,
     y: usize,
-) -> Result<Option<usize>, TGVError> {
+) -> Result<Option<usize>, gv_core::Error> {
     let alignment = &state.alignments[index];
     match &state.paired_alignments[index] {
         Some(paired) => paired.read_overlapping(alignment, left, right, y),
@@ -36,7 +36,7 @@ pub fn describe_read(
     contig_index: usize,
     left: u64,
     right: u64,
-) -> Result<String, TGVError> {
+) -> Result<String, gv_core::Error> {
     let alignment = &state.alignments[index];
     let record = &alignment.records[read_id];
     let contig = &state.contig_header.contigs[contig_index].name;
@@ -80,7 +80,7 @@ pub fn describe_genes(
     contig_index: usize,
     left: u64,
     right: u64,
-) -> Result<Vec<String>, TGVError> {
+) -> Result<Vec<String>, gv_core::Error> {
     let genes = state.track.query(contig_index, left, right)?;
     let segments = query_segments(genes.clone(), left, right)?;
     let contig = &state.contig_header.contigs[contig_index].name;
@@ -149,9 +149,9 @@ pub fn describe_coverage(
     index: usize,
     left: u64,
     right: u64,
-) -> Result<String, TGVError> {
+) -> Result<String, gv_core::Error> {
     let coverage = state.alignments[index].coverage.query(left, right)?;
-    let sum = |column: &str| -> Result<u64, TGVError> {
+    let sum = |column: &str| -> Result<u64, gv_core::Error> {
         Ok(coverage.column(column)?.u64()?.sum().unwrap_or(0))
     };
     let counts = format!(
@@ -177,7 +177,7 @@ pub fn describe_variants(
     contig_index: usize,
     left: u64,
     right: u64,
-) -> Result<Vec<String>, TGVError> {
+) -> Result<Vec<String>, gv_core::Error> {
     let rows = state.variants[index].query(contig_index, left, right)?;
     let starts = rows.column(VariantSchema::START)?.u64()?;
     let references = rows.column(VariantSchema::REFERENCE)?.str()?;
@@ -217,7 +217,7 @@ pub fn describe_bed(
     contig_index: usize,
     left: u64,
     right: u64,
-) -> Result<Vec<String>, TGVError> {
+) -> Result<Vec<String>, gv_core::Error> {
     let rows = state.bed_intervals[index].query(contig_index, left, right)?;
     let starts = rows.column(BedSchema::START)?.u64()?;
     let ends = rows.column(BedSchema::END)?.u64()?;

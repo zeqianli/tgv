@@ -15,7 +15,7 @@ pub fn render_variants(
     palette: &Palette,
     window: &mut Window,
     cx: &mut App,
-) -> Result<(), TGVError> {
+) -> Result<(), gv_core::Error> {
     let region = view.region(area);
     if !variants.has_complete_data(&region) {
         render_zoom_in_notice(area, "variants", window, cx)?;

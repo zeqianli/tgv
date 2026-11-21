@@ -5,7 +5,7 @@
 //! cheap.
 
 use super::{bed::BedSchema, repository::PlainBed};
-use crate::{alignment::is_url, error::TGVError};
+use crate::{alignment::is_url, error::Error};
 use noodles::bgzf;
 use polars::prelude::*;
 use std::{
@@ -117,7 +117,7 @@ impl PlainBed {
     const CONTIG_RANK: &'static str = "contig_rank";
 
     /// Applies an edit and returns whether any feature changed.
-    pub fn apply(&mut self, edit: &BedEdit) -> Result<bool, TGVError> {
+    pub fn apply(&mut self, edit: &BedEdit) -> Result<bool, Error> {
         let edited = match edit.kind {
             BedEditKind::Add => self.added(edit)?,
             BedEditKind::Remove => self.removed(edit)?,
@@ -172,7 +172,7 @@ impl PlainBed {
     /// An uncovered run extends the feature that ends just before it, or else the feature that
     /// starts just after it. Otherwise it becomes a new feature. Features never merge, so names
     /// and extra columns aren't lost.
-    fn added(&self, edit: &BedEdit) -> Result<Option<DataFrame>, TGVError> {
+    fn added(&self, edit: &BedEdit) -> Result<Option<DataFrame>, Error> {
         let nearby = self
             .whole_file
             .clone()
@@ -246,7 +246,7 @@ impl PlainBed {
 
     /// Clears the edit's range: deletes the features inside it, trims the ones that cross one
     /// end, and splits the ones that contain it. Returns `None` if no feature overlaps it.
-    fn removed(&self, edit: &BedEdit) -> Result<Option<DataFrame>, TGVError> {
+    fn removed(&self, edit: &BedEdit) -> Result<Option<DataFrame>, Error> {
         let (start, end) = (edit.start, edit.end);
         let overlapping = col(Self::CONTIG)
             .eq(lit(edit.contig.as_str()))
@@ -304,7 +304,7 @@ impl PlainBed {
     }
 
     /// Rows for new features with no name, score, strand, or extra columns.
-    fn new_features(&self, contig: &str, features: &[(u64, u64)]) -> Result<DataFrame, TGVError> {
+    fn new_features(&self, contig: &str, features: &[(u64, u64)]) -> Result<DataFrame, Error> {
         let first_row = self.whole_file.height() as u64;
         let count = features.len();
         Ok(DataFrame::new(
@@ -334,7 +334,7 @@ impl PlainBed {
 
     /// Sorts rows into the order a write uses. Files that were sorted stay sorted, and others
     /// keep their row order, with new rows at the end.
-    fn in_file_order(&self, frame: DataFrame) -> Result<DataFrame, TGVError> {
+    fn in_file_order(&self, frame: DataFrame) -> Result<DataFrame, Error> {
         if !self.sorted_on_load {
             return Ok(frame.sort([BedSchema::ROW_ID], SortMultipleOptions::default())?);
         }
@@ -367,7 +367,7 @@ impl PlainBed {
     }
 
     /// Numbers rows from 0 in file order, and sorts them as reads expect.
-    fn renumbered(&self, frame: DataFrame) -> Result<DataFrame, TGVError> {
+    fn renumbered(&self, frame: DataFrame) -> Result<DataFrame, Error> {
         let mut frame = self.in_file_order(frame)?;
         frame.with_column(Column::new(
             BedSchema::ROW_ID.into(),
@@ -385,14 +385,14 @@ impl PlainBed {
     /// The file goes to a temporary file in the same directory first and is renamed over the
     /// target, so a crash can't leave half a file. Paths ending in `.gz` are written with bgzf.
     /// URLs are refused, including the track's own when it was read from S3.
-    pub fn write(&self, path: &str) -> Result<usize, TGVError> {
+    pub fn write(&self, path: &str) -> Result<usize, Error> {
         if is_url(path) {
-            return Err(TGVError::RemoteBedWrite {
+            return Err(Error::RemoteBedWrite {
                 url: path.to_owned(),
             });
         }
         let failed = |operation: &'static str| {
-            move |source: io::Error| TGVError::FileOperationError {
+            move |source: io::Error| Error::FileOperationError {
                 operation,
                 path: PathBuf::from(path),
                 source,
@@ -428,7 +428,7 @@ impl PlainBed {
     }
 
     /// The file's text: the header lines, then every feature with the file's column count.
-    fn to_text(&self) -> Result<String, TGVError> {
+    fn to_text(&self) -> Result<String, Error> {
         let frame = self.in_file_order(self.whole_file.clone())?;
         let contigs = frame.column(Self::CONTIG)?.str()?;
         let starts = frame.column(BedSchema::START)?.u64()?;
@@ -473,7 +473,7 @@ impl PlainBed {
 }
 
 /// The permissions a new file usually gets.
-fn default_permissions(path: &Path) -> Result<fs::Permissions, TGVError> {
+fn default_permissions(path: &Path) -> Result<fs::Permissions, Error> {
     let mut permissions = fs::metadata(path)?.permissions();
     #[cfg(unix)]
     {

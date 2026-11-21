@@ -20,7 +20,7 @@ pub fn render_sequence(
     palette: &Palette,
     window: &mut Window,
     cx: &mut App,
-) -> Result<(), TGVError> {
+) -> Result<(), gv_core::Error> {
     let ppb = view.pixels_per_base();
     let (left, right) = view.visible(area);
     if ppb >= 1.0 {

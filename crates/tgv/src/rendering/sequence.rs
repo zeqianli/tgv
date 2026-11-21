@@ -12,7 +12,7 @@ pub fn render_sequence(
     state: &State,
     alignment_view: &AlignmentView,
     pallete: &Palette,
-) -> Result<(), TGVError> {
+) -> Result<(), gv_core::Error> {
     let region = alignment_view.region(f64::from(area.width));
 
     match alignment_view.zoom.0 {
@@ -28,7 +28,7 @@ fn render_sequence_at_1x(
     region: &Region,
     sequence: &Sequence,
     pallete: &Palette,
-) -> Result<(), TGVError> {
+) -> Result<(), gv_core::Error> {
     if area.width < MIN_AREA_WIDTH || area.height < MIN_AREA_HEIGHT {
         return Ok(());
     }
@@ -59,7 +59,7 @@ fn render_sequence_at_2x(
     region: &Region,
     sequence: &Sequence,
     palette: &Palette,
-) -> Result<(), TGVError> {
+) -> Result<(), gv_core::Error> {
     if area.width < MIN_AREA_WIDTH || area.height < MIN_AREA_HEIGHT {
         return Ok(());
     }

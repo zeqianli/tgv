@@ -1,5 +1,5 @@
 use crate::table_schema::TableSchema;
-use crate::{contig_header::ContigHeader, error::TGVError};
+use crate::{contig_header::ContigHeader, error::Error};
 use noodles;
 use polars::prelude::{DataFrame, DataType, Schema, SchemaRef};
 use std::sync::Arc;
@@ -29,7 +29,7 @@ impl TableSchema for IntervalSchema {
 pub trait IntervalTable {
     /// Select overlapping rows in deterministic genomic order.
     /// Unknown contigs and reversed bounds yield an empty frame; a zero start is invalid.
-    fn query(&self, contig_index: usize, start: u64, end: u64) -> Result<DataFrame, TGVError>;
+    fn query(&self, contig_index: usize, start: u64, end: u64) -> Result<DataFrame, Error>;
 }
 
 /// A genomic region.
@@ -64,7 +64,7 @@ impl Region {
     }
 
     /// Converts to a noodles region
-    pub fn to_noodles_region(&self, contig_name: &str) -> Result<noodles::core::Region, TGVError> {
+    pub fn to_noodles_region(&self, contig_name: &str) -> Result<noodles::core::Region, Error> {
         let start = noodles::core::Position::try_from(self.start() as usize)?;
         let end = noodles::core::Position::try_from(self.end() as usize)?;
         Ok(noodles::core::Region::new(contig_name, start..=end))
@@ -77,9 +77,9 @@ impl Region {
         end: u64,
         contig_header: &ContigHeader,
         max_width: Option<u64>,
-    ) -> Result<Region, TGVError> {
+    ) -> Result<Region, Error> {
         if start == 0 || end < start {
-            return Err(TGVError::StateError(
+            return Err(Error::StateError(
                 "Use a positive 1-based inclusive interval with an end at or after the start."
                     .to_string(),
             ));
@@ -88,7 +88,7 @@ impl Region {
 
         let header = &contig_header.contigs[contig_index];
         if header.length.is_some_and(|length| start > length) {
-            return Err(TGVError::StateError(
+            return Err(Error::StateError(
                 "The interval starts beyond the contig.".to_string(),
             ));
         }
@@ -96,7 +96,7 @@ impl Region {
         if let Some(max_width) = max_width
             && end - start >= max_width
         {
-            return Err(TGVError::StateError(
+            return Err(Error::StateError(
                 format!(
                     "Use an interval of at most {} bases within the platform coordinate range.",
                     max_width
@@ -145,7 +145,7 @@ impl Focus {
     }
 
     /// Format the focus as `"contig_name:position"` using the provided contig header.
-    pub fn to_locus_str(&self, contig_header: &ContigHeader) -> Result<String, TGVError> {
+    pub fn to_locus_str(&self, contig_header: &ContigHeader) -> Result<String, Error> {
         let contig = contig_header.try_get(self.contig_index)?;
         Ok(format!("{}:{}", contig.name, self.position))
     }

@@ -52,7 +52,7 @@ pub fn alignment_items(
     position: Option<u64>,
     alignment: &Alignment,
     options: &[AlignmentDisplayOption],
-) -> Result<Vec<MenuItem>, TGVError> {
+) -> Result<Vec<MenuItem>, gv_core::Error> {
     let update = |update| Action::Track(TrackAction::UpdateAlignmentOptions { track, update });
     // Without a single clicked base, the base items have no position to name.
     let at = position.map_or_else(String::new, |position| format!(" at {position}"));

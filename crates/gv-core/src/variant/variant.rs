@@ -1,7 +1,7 @@
 //! Queryable VCF core fields for a loaded region, and their table schema.
 
 use crate::{
-    error::TGVError,
+    error::Error,
     intervals::{IntervalSchema, IntervalTable, Region},
     table_schema::{ColumnDoc, TableSchema},
 };
@@ -105,9 +105,9 @@ impl Default for VariantTable {
 }
 
 impl IntervalTable for VariantTable {
-    fn query(&self, contig_index: usize, start: u64, end: u64) -> Result<DataFrame, TGVError> {
+    fn query(&self, contig_index: usize, start: u64, end: u64) -> Result<DataFrame, Error> {
         if start == 0 {
-            return Err(TGVError::ValueError(
+            return Err(Error::ValueError(
                 "Interval queries require a positive start.".into(),
             ));
         }
@@ -140,7 +140,7 @@ impl VariantTable {
     pub(super) fn records_frame(
         records: &[vcf::variant::RecordBuf],
         contig_index: usize,
-    ) -> Result<DataFrame, TGVError> {
+    ) -> Result<DataFrame, Error> {
         let mut row_ids = Vec::with_capacity(records.len());
         let mut contigs = Vec::with_capacity(records.len());
         let mut starts = Vec::with_capacity(records.len());
@@ -162,13 +162,11 @@ impl VariantTable {
         for (id, record) in records.iter().enumerate() {
             let start = record
                 .variant_start()
-                .ok_or_else(|| {
-                    TGVError::ValueError(format!("VCF row {id} has no positive start."))
-                })?
+                .ok_or_else(|| Error::ValueError(format!("VCF row {id} has no positive start.")))?
                 .get() as u64;
             let bases = record.reference_bases();
             if bases.is_empty() {
-                return Err(TGVError::ValueError(format!(
+                return Err(Error::ValueError(format!(
                     "VCF row {id} has no reference bases."
                 )));
             }
@@ -218,7 +216,7 @@ impl VariantTable {
         records: &[vcf::variant::RecordBuf],
         contig_index: usize,
         loaded_bounds: (u64, u64),
-    ) -> Result<Self, TGVError> {
+    ) -> Result<Self, Error> {
         let data = Self::records_frame(records, contig_index)?
             .lazy()
             .sort(
@@ -240,7 +238,7 @@ impl VariantTable {
     }
 
     /// Wraps a frame holding every record of one contig, read before contig indexes were known.
-    pub(super) fn whole_contig(data: &DataFrame, contig_index: usize) -> Result<Self, TGVError> {
+    pub(super) fn whole_contig(data: &DataFrame, contig_index: usize) -> Result<Self, Error> {
         Ok(Self {
             data: data
                 .clone()

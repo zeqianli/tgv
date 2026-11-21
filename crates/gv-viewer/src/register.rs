@@ -107,7 +107,7 @@ impl Registers {
         &mut self,
         key_event: Key,
         state: &State,
-    ) -> Result<Vec<Action>, TGVError> {
+    ) -> Result<Vec<Action>, gv_core::Error> {
         match key_event.code {
             KeyCode::Enter if state.contig_header.contigs.is_empty() => Ok(vec![]),
             KeyCode::Enter => Ok(vec![
@@ -160,8 +160,8 @@ impl Registers {
     fn handle_command_line(
         &mut self,
         key_event: Key,
-        submit: fn(&str) -> Result<Vec<Action>, TGVError>,
-    ) -> Result<Vec<Action>, TGVError> {
+        submit: fn(&str) -> Result<Vec<Action>, gv_core::Error>,
+    ) -> Result<Vec<Action>, gv_core::Error> {
         match key_event.code {
             KeyCode::Esc => Ok(vec![
                 Action::Input(InputAction::ClearAllKeyRegisters),
@@ -210,7 +210,7 @@ impl Registers {
                     .clamp(0, self.command.len());
                 Ok(vec![Action::Input(InputAction::CommandChanged)])
             }
-            _ => Err(TGVError::RegisterError(format!(
+            _ => Err(gv_core::Error::RegisterError(format!(
                 "Invalid command mode input: {:?}",
                 key_event
             ))),
@@ -221,7 +221,7 @@ impl Registers {
         &mut self,
         key_event: Key,
         state: &State,
-    ) -> Result<Vec<Action>, TGVError> {
+    ) -> Result<Vec<Action>, gv_core::Error> {
         Ok(match self.current {
             KeyRegisterType::Editing(mode) => self.pending.push(key_event, mode),
             KeyRegisterType::Command(_) => {

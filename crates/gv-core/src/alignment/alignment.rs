@@ -3,7 +3,7 @@ use crate::alignment::{
     coverage::CoverageTable,
     tables::{AlignmentTables, CigarSchema, ReadSchema},
 };
-use crate::error::TGVError;
+use crate::error::Error;
 use crate::intervals::Region;
 use crate::message::{AlignmentFilter, AlignmentSort};
 use crate::sequence::Sequence;
@@ -71,9 +71,9 @@ impl Alignment {
             && (region.end() <= self.data_complete_right_bound)
     }
 
-    pub(super) fn ensure_position_has_complete_data(&self, position: u64) -> Result<(), TGVError> {
+    pub(super) fn ensure_position_has_complete_data(&self, position: u64) -> Result<(), Error> {
         if position < self.data_complete_left_bound || position > self.data_complete_right_bound {
-            return Err(TGVError::AlignmentSortPositionNotLoaded {
+            return Err(Error::AlignmentSortPositionNotLoaded {
                 position,
                 loaded_left: self.data_complete_left_bound,
                 loaded_right: self.data_complete_right_bound,
@@ -84,7 +84,7 @@ impl Alignment {
     }
 
     /// Return the number of alignment tracks.
-    pub fn depth(&self) -> Result<usize, TGVError> {
+    pub fn depth(&self) -> Result<usize, Error> {
         if !self.tables.reads.column(ReadSchema::SHOW)?.bool()?.any() {
             return Ok(0);
         }
@@ -103,7 +103,7 @@ impl Alignment {
         left: u64,
         right: u64,
         y: usize,
-    ) -> Result<Option<usize>, TGVError> {
+    ) -> Result<Option<usize>, Error> {
         if left > right {
             return Ok(None);
         }
@@ -133,11 +133,7 @@ impl Alignment {
 
     /// The base that read `read_id` shows at a 1-based position: an aligned or soft-clipped
     /// base with its Phred quality, or a deletion. `None` if the read doesn't cover the position.
-    pub fn read_base_at(
-        &self,
-        read_id: usize,
-        position: u64,
-    ) -> Result<Option<ReadBase>, TGVError> {
+    pub fn read_base_at(&self, read_id: usize, position: u64) -> Result<Option<ReadBase>, Error> {
         let runs = self
             .tables
             .cigar_runs
@@ -202,7 +198,7 @@ impl Alignment {
         contig_index: usize,
         data_complete_bound: (u64, u64),
         reference_sequence: &Sequence,
-    ) -> Result<Self, TGVError> {
+    ) -> Result<Self, Error> {
         let tables = AlignmentTables::default().add_records(
             &records,
             quality_encoding,
@@ -226,7 +222,7 @@ impl Alignment {
         contig_index: usize,
         data_complete_bound: (u64, u64),
         reference_sequence: &Sequence,
-    ) -> Result<Self, TGVError> {
+    ) -> Result<Self, Error> {
         assert_eq!(
             records.len(),
             tables.reads.height(),
@@ -252,7 +248,7 @@ impl Alignment {
         Ok(alignment)
     }
 
-    pub fn build_coverage(&mut self, reference_sequence: &Sequence) -> Result<&mut Self, TGVError> {
+    pub fn build_coverage(&mut self, reference_sequence: &Sequence) -> Result<&mut Self, Error> {
         // PERF: this is built base-by-base.
         let runs = self.tables.cigar_runs.clone().lazy().inner_join(
             self.tables
@@ -273,7 +269,7 @@ impl Alignment {
         &mut self,
         filter: AlignmentFilter,
         reference_sequence: &Sequence,
-    ) -> Result<(), TGVError> {
+    ) -> Result<(), Error> {
         let predicate = match filter {
             AlignmentFilter::Base(position, base) => {
                 let kind = col(CigarSchema::KIND);
@@ -342,7 +338,7 @@ impl Alignment {
         Ok(())
     }
 
-    pub fn sort(&mut self, option: AlignmentSort) -> Result<(), TGVError> {
+    pub fn sort(&mut self, option: AlignmentSort) -> Result<(), Error> {
         let keys = self.sort_keys(&option)?;
         let items = self
             .tables
@@ -365,7 +361,7 @@ impl Alignment {
 
     /// Sort keys, as `READ_ID` and `SORT_KEY`, for the reads covering the sort position. Keys
     /// sort ascending, and reads without a key keep their packed rows below the sorted ones.
-    pub(super) fn sort_keys(&self, option: &AlignmentSort) -> Result<LazyFrame, TGVError> {
+    pub(super) fn sort_keys(&self, option: &AlignmentSort) -> Result<LazyFrame, Error> {
         let read_keys = |position: u64, key: Expr| {
             self.ensure_position_has_complete_data(position)?;
             Ok(self
@@ -418,7 +414,7 @@ impl Alignment {
                     .otherwise(lit(0i32) - col(ReadSchema::TLEN)),
             ),
             AlignmentSort::ReadName(position) => read_keys(position, col(ReadSchema::QNAME)),
-            ref option => Err(TGVError::ValueError(format!(
+            ref option => Err(Error::ValueError(format!(
                 "Alignment sorting is not implemented yet for option {option}"
             ))),
         }
@@ -460,7 +456,7 @@ pub(super) fn base_sort_key_at(position: u64) -> Expr {
         .otherwise(lit(5u8))
 }
 
-pub(super) fn stack_tracks(items: &DataFrame, min_gap: u64) -> Result<Vec<u64>, TGVError> {
+pub(super) fn stack_tracks(items: &DataFrame, min_gap: u64) -> Result<Vec<u64>, Error> {
     let starts = items.column(ReadSchema::STACKING_START)?.u64()?;
     let ends = items.column(ReadSchema::STACKING_END)?.u64()?;
     let show = items.column(ReadSchema::SHOW)?.bool()?;
@@ -484,7 +480,7 @@ pub(super) fn stack_tracks_by_sort_key(
     items: &DataFrame,
     id_column: &str,
     min_gap: u64,
-) -> Result<Vec<u64>, TGVError> {
+) -> Result<Vec<u64>, Error> {
     let sorted = items
         .clone()
         .lazy()
@@ -705,7 +701,7 @@ mod tests {
 
         assert!(matches!(
             error,
-            TGVError::AlignmentSortPositionNotLoaded {
+            Error::AlignmentSortPositionNotLoaded {
                 position: 21,
                 loaded_left: 10,
                 loaded_right: 20,

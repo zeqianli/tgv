@@ -2,7 +2,7 @@ use crate::{
     alignment::{AlignmentRepository, QualityEncodingSetting},
     bed::BedRepositoryEnum,
     contig_header::{ContigHeader, ContigSource},
-    error::TGVError,
+    error::Error,
     reference::Reference,
     sequence::SequenceRepositoryEnum,
     settings::{FilePath, Settings},
@@ -63,7 +63,7 @@ impl Repository {
 
     /// Opens the reference services and reads the reference's contigs. Track files open later,
     /// with [`Repository::open_file`].
-    pub async fn new(settings: &Settings) -> Result<(Self, ContigHeader), TGVError> {
+    pub async fn new(settings: &Settings) -> Result<(Self, ContigHeader), Error> {
         let started = Instant::now();
         log::info!(
             "Initializing repository resources: reference={}",
@@ -227,7 +227,7 @@ impl Repository {
         &mut self,
         file_path: &FilePath,
         quality_encoding: QualityEncodingSetting,
-    ) -> Result<RepositoryFileIndex, TGVError> {
+    ) -> Result<RepositoryFileIndex, Error> {
         Ok(match file_path {
             FilePath::AlignmentPath(alignment_path) => {
                 self.alignment_repositories
@@ -273,7 +273,7 @@ impl Repository {
         &self,
         index: RepositoryFileIndex,
         contig_header: &mut ContigHeader,
-    ) -> Result<(), TGVError> {
+    ) -> Result<(), Error> {
         let contigs = match index {
             RepositoryFileIndex::Alignment(i) => self.alignment_repositories[i]
                 .source
@@ -290,25 +290,25 @@ impl Repository {
         Ok(())
     }
 
-    pub fn track_service_checked(&mut self) -> Result<&mut TrackServiceEnum, TGVError> {
+    pub fn track_service_checked(&mut self) -> Result<&mut TrackServiceEnum, Error> {
         match self.track_service.as_mut() {
             Some(track_service) => Ok(track_service),
-            None => Err(TGVError::StateError(
+            None => Err(Error::StateError(
                 "Track service is not initialized".to_string(),
             )),
         }
     }
 
-    pub fn sequence_service_checked(&mut self) -> Result<&mut SequenceRepositoryEnum, TGVError> {
+    pub fn sequence_service_checked(&mut self) -> Result<&mut SequenceRepositoryEnum, Error> {
         match self.sequence_service.as_mut() {
             Some(sequence_service) => Ok(sequence_service),
-            None => Err(TGVError::StateError(
+            None => Err(Error::StateError(
                 "Sequence service is not initialized".to_string(),
             )),
         }
     }
 
-    pub async fn close(&mut self) -> Result<(), TGVError> {
+    pub async fn close(&mut self) -> Result<(), Error> {
         if let Some(ts) = self.track_service.as_mut() {
             ts.close().await?;
         }

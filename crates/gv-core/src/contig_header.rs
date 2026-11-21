@@ -1,4 +1,4 @@
-use crate::error::TGVError;
+use crate::error::Error;
 use crate::{reference::Reference, repository::RepositoryFileIndex};
 use std::collections::HashMap;
 use std::fmt;
@@ -213,22 +213,22 @@ impl ContigHeader {
         }
     }
 
-    pub fn first(&self) -> Result<usize, TGVError> {
+    pub fn first(&self) -> Result<usize, Error> {
         if self.contigs.is_empty() {
-            return Err(TGVError::StateError("No contigs found".to_string()));
+            return Err(Error::StateError("No contigs found".to_string()));
         }
         Ok(0)
     }
 
-    pub fn last(&self) -> Result<usize, TGVError> {
+    pub fn last(&self) -> Result<usize, Error> {
         if self.contigs.is_empty() {
-            return Err(TGVError::StateError("No contigs found".to_string()));
+            return Err(Error::StateError("No contigs found".to_string()));
         }
         Ok(self.contigs.len() - 1)
     }
 
-    pub fn try_get(&self, index: usize) -> Result<&Contig, TGVError> {
-        self.get(index).ok_or(TGVError::StateError(format!(
+    pub fn try_get(&self, index: usize) -> Result<&Contig, Error> {
+        self.get(index).ok_or(Error::StateError(format!(
             "Contig index out of bounds: {}",
             index
         )))
@@ -238,11 +238,11 @@ impl ContigHeader {
         self.contigs.get(index)
     }
 
-    pub fn try_get_index_by_str(&self, contig_name: &str) -> Result<usize, TGVError> {
+    pub fn try_get_index_by_str(&self, contig_name: &str) -> Result<usize, Error> {
         self.contig_lookup
             .get(contig_name)
             .cloned()
-            .ok_or(TGVError::StateError(format!(
+            .ok_or(Error::StateError(format!(
                 "Contig {} not found",
                 contig_name
             )))

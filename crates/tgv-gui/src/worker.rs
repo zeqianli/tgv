@@ -229,7 +229,7 @@ async fn apply(
     viewer: &mut Viewer<PixelScale>,
     started: &mut bool,
     message: WorkerMessage,
-) -> Result<(), TGVError> {
+) -> Result<(), gv_core::Error> {
     match message {
         WorkerMessage::Keys(keys) => {
             for key in keys {

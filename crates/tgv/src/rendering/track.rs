@@ -27,7 +27,7 @@ pub fn render_track(
     state: &State,
     alignment_view: &AlignmentView,
     pallete: &Palette,
-) -> Result<(), TGVError> {
+) -> Result<(), gv_core::Error> {
     if area.width < MIN_AREA_WIDTH || area.height < MIN_AREA_HEIGHT {
         return Ok(());
     }

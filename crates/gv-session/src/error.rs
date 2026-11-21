@@ -1,13 +1,11 @@
 //! Errors returned by session commands.
 
 use crate::schema::{ViewerInfo, ViewerKind};
-use gv_core::error::TGVError;
 use polars::prelude::PolarsError;
-use thiserror::Error;
 
 /// A failed session command.
-#[derive(Debug, Error)]
-pub enum SessionError {
+#[derive(Debug, thiserror::Error)]
+pub enum Error {
     /// A request field is invalid for the current dataset.
     #[error("{message}")]
     InvalidInput {
@@ -60,16 +58,16 @@ pub enum SessionError {
 
     /// Reading or computing data fails.
     #[error(transparent)]
-    Core(#[from] TGVError),
+    Core(#[from] gv_core::Error),
 }
 
-impl From<PolarsError> for SessionError {
+impl From<PolarsError> for Error {
     fn from(error: PolarsError) -> Self {
         Self::Core(error.into())
     }
 }
 
-impl SessionError {
+impl Error {
     /// A stable code for clients, such as MCP tool errors and socket replies.
     pub fn code(&self) -> &str {
         match self {

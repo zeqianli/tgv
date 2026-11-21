@@ -1,10 +1,9 @@
 //! SQL query request and response types, and the table catalog.
 
 use super::inspect::{InspectInterval, InspectWarning};
-use crate::error::SessionError;
+use crate::error::Error;
 use crate::functions::{CatalogFunction, OpFunction, OpFunctions};
 use crate::tables::{CatalogTable, TABLES};
-use gv_core::prelude::*;
 use polars::{prelude::*, sql::SQLContext};
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
@@ -29,10 +28,10 @@ impl QueryRequest {
     pub const MAX_LIMIT: usize = 10_000;
 
     /// Validates the row limit.
-    pub fn limit(&self) -> Result<usize, SessionError> {
+    pub fn limit(&self) -> Result<usize, Error> {
         let limit = self.limit.unwrap_or(Self::DEFAULT_LIMIT);
         if !(1..=Self::MAX_LIMIT).contains(&limit) {
-            return Err(SessionError::InvalidInput {
+            return Err(Error::InvalidInput {
                 field: "limit",
                 message: format!("The limit must be 1–{}.", Self::MAX_LIMIT),
             });
@@ -45,7 +44,7 @@ impl QueryRequest {
         &self,
         tables: Vec<(&'static str, LazyFrame)>,
         limit: usize,
-    ) -> Result<(DataFrame, bool), SessionError> {
+    ) -> Result<(DataFrame, bool), Error> {
         // A fresh context per query keeps `CREATE TABLE` and similar statements from persisting.
         // Rejecting them as well keeps the tool's contract read-only.
         let statement = self.sql.trim_start().to_ascii_lowercase();
@@ -53,7 +52,7 @@ impl QueryRequest {
             .iter()
             .any(|prefix| statement.starts_with(prefix))
         {
-            return Err(SessionError::InvalidInput {
+            return Err(Error::InvalidInput {
                 field: "sql",
                 message: "Use a single SELECT or WITH statement.".to_owned(),
             });
@@ -66,7 +65,7 @@ impl QueryRequest {
             } else {
                 ""
             };
-            SessionError::InvalidInput {
+            Error::InvalidInput {
                 field: "sql",
                 message: format!("{message}{hint}"),
             }
@@ -115,7 +114,7 @@ impl QueryResponse {
         frame: &DataFrame,
         truncated: bool,
         warnings: Vec<InspectWarning>,
-    ) -> Result<Self, TGVError> {
+    ) -> Result<Self, gv_core::Error> {
         let columns = frame
             .columns()
             .iter()
@@ -130,7 +129,7 @@ impl QueryResponse {
                     .columns()
                     .iter()
                     .map(|column| Ok(json_value(column.get(row)?)))
-                    .collect::<Result<Vec<_>, TGVError>>()
+                    .collect::<Result<Vec<_>, gv_core::Error>>()
             })
             .collect::<Result<Vec<_>, _>>()?;
         Ok(Self {
@@ -240,7 +239,7 @@ impl TablesResponse {
         },
     ];
 
-    pub fn new() -> Result<Self, SessionError> {
+    pub fn new() -> Result<Self, Error> {
         Ok(Self {
             tables: TABLES
                 .iter()
@@ -287,10 +286,7 @@ mod tests {
     #[case::unknown_table("SELECT * FROM reads")]
     fn rejects_statements(#[case] sql: &str) {
         let error = request(sql, None).execute(tables(), 10).unwrap_err();
-        assert!(matches!(
-            error,
-            SessionError::InvalidInput { field: "sql", .. }
-        ));
+        assert!(matches!(error, Error::InvalidInput { field: "sql", .. }));
     }
 
     /// Tables concatenate per-track frames, and `count(*)` over a union needs 128-bit counts.

@@ -1,6 +1,6 @@
 use clap::Parser;
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
-use gv_core::{error::TGVError, message::Movement};
+use gv_core::message::Movement;
 use gv_viewer::message::NavigationAction;
 use gv_viewer::{layout::RenderEvent, message::Action};
 use ratatui::{Terminal, backend::TestBackend};
@@ -24,7 +24,7 @@ pub struct AppHarness {
 }
 
 impl AppHarness {
-    pub async fn from_args(args: &str) -> Result<Self, TGVError> {
+    pub async fn from_args(args: &str) -> Result<Self, gv_core::Error> {
         let cli = cli_from_args(args);
         let mut settings: Settings = cli.try_into()?;
         settings.test_mode = true;
@@ -36,7 +36,7 @@ impl AppHarness {
         Ok(harness)
     }
 
-    async fn initialize(&mut self) -> Result<(), TGVError> {
+    async fn initialize(&mut self) -> Result<(), gv_core::Error> {
         self.terminal
             .draw(|frame| self.app.resolve_layout(frame.area()))
             .expect("initial layout draw");
@@ -46,7 +46,7 @@ impl AppHarness {
         Ok(())
     }
 
-    pub async fn handle(&mut self, messages: Vec<Action>) -> Result<(), TGVError> {
+    pub async fn handle(&mut self, messages: Vec<Action>) -> Result<(), gv_core::Error> {
         let render_events = self.app.handle(messages).await?;
         self.self_correct()?;
         self.render(&render_events);
@@ -56,7 +56,7 @@ impl AppHarness {
     pub async fn handle_key_codes(
         &mut self,
         key_codes: impl IntoIterator<Item = KeyCode>,
-    ) -> Result<(), TGVError> {
+    ) -> Result<(), gv_core::Error> {
         let mut render_events = Vec::new();
         for key_code in key_codes {
             let key = key_from_event(KeyEvent::new(key_code, KeyModifiers::NONE))
@@ -73,7 +73,7 @@ impl AppHarness {
         Ok(())
     }
 
-    pub async fn handle_command(&mut self, command: &str) -> Result<(), TGVError> {
+    pub async fn handle_command(&mut self, command: &str) -> Result<(), gv_core::Error> {
         let mut key_codes = Vec::with_capacity(command.len() + 2);
         key_codes.push(KeyCode::Char(':'));
         key_codes.extend(command.chars().map(KeyCode::Char));
@@ -82,14 +82,14 @@ impl AppHarness {
     }
 
     /// Opens the files that `:e` requested, as the event loop does after a frame.
-    pub async fn open_pending(&mut self) -> Result<(), TGVError> {
+    pub async fn open_pending(&mut self) -> Result<(), gv_core::Error> {
         let render_events = self.app.open_pending().await?;
         self.self_correct()?;
         self.render(&render_events);
         Ok(())
     }
 
-    pub async fn handle_movement(&mut self, movement: Movement) -> Result<(), TGVError> {
+    pub async fn handle_movement(&mut self, movement: Movement) -> Result<(), gv_core::Error> {
         self.handle(vec![Action::Navigate(NavigationAction::Move(movement))])
             .await
     }
@@ -116,11 +116,11 @@ impl AppHarness {
         self.terminal.backend()
     }
 
-    pub async fn close(self) -> Result<(), TGVError> {
+    pub async fn close(self) -> Result<(), gv_core::Error> {
         self.app.close().await
     }
 
-    fn self_correct(&mut self) -> Result<(), TGVError> {
+    fn self_correct(&mut self) -> Result<(), gv_core::Error> {
         self.app.viewer.self_correct()
     }
 

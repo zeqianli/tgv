@@ -6,7 +6,7 @@ use super::{
 };
 use crate::{
     alignment::is_url,
-    error::TGVError,
+    error::Error,
     intervals::Region,
     object_storage::{S3Object, index_contigs, read_tabix_or_csi_index},
     settings::{FilePath, file_name},
@@ -48,9 +48,9 @@ impl PlainBed {
     pub(super) const CONTIG: &'static str = "contig";
 
     /// Parses the whole file and lists the contig names it uses.
-    fn open(path: &str) -> Result<Self, TGVError> {
+    fn open(path: &str) -> Result<Self, Error> {
         let failed = |operation| {
-            move |source| TGVError::FileOperationError {
+            move |source| Error::FileOperationError {
                 operation,
                 path: path.into(),
                 source,
@@ -64,7 +64,7 @@ impl PlainBed {
             Box::new(BufReader::new(file))
         };
         Self::parse(path, lines).map_err(|error| match error {
-            TGVError::FileIOError(source) => failed("read the BED")(source),
+            Error::FileIOError(source) => failed("read the BED")(source),
             error => error,
         })
     }
@@ -72,7 +72,7 @@ impl PlainBed {
     /// Downloads the whole object and parses it. Bgzipped objects are decompressed.
     ///
     /// The track can be edited, and written to a local path.
-    async fn open_remote(object: &S3Object, operator: &Operator) -> Result<Self, TGVError> {
+    async fn open_remote(object: &S3Object, operator: &Operator) -> Result<Self, Error> {
         const READ: &str = "read the BED";
         let bytes = Cursor::new(object.read_all(operator, READ).await?);
         let lines: Box<dyn BufRead> = if object.url.to_lowercase().ends_with(".gz") {
@@ -81,12 +81,12 @@ impl PlainBed {
             Box::new(bytes)
         };
         Self::parse(&object.url, lines).map_err(|error| match error {
-            TGVError::FileIOError(source) => object.read_error(READ)(source),
+            Error::FileIOError(source) => object.read_error(READ)(source),
             error => error,
         })
     }
 
-    fn parse(path: &str, lines: impl BufRead) -> Result<Self, TGVError> {
+    fn parse(path: &str, lines: impl BufRead) -> Result<Self, Error> {
         let mut columns = BedColumns::default();
         let mut row_contigs: Vec<String> = Vec::new();
         let mut header_lines = Vec::new();
@@ -136,7 +136,7 @@ impl PlainBed {
     }
 
     /// Creates a track with no features and no file, named `name`.
-    fn empty(name: String) -> Result<Self, TGVError> {
+    fn empty(name: String) -> Result<Self, Error> {
         let mut whole_file = BedColumns::default().into_frame()?;
         whole_file.with_column(Column::new(Self::CONTIG.into(), Vec::<String>::new()))?;
         Ok(Self {
@@ -174,7 +174,7 @@ impl PlainBed {
     }
 
     /// Returns the whole contig, filtered from the whole file.
-    fn read_bed(&self, region: &Region, contig_name: Option<&str>) -> Result<BedTable, TGVError> {
+    fn read_bed(&self, region: &Region, contig_name: Option<&str>) -> Result<BedTable, Error> {
         let contig_index = region.contig_index();
         let Some(name) = contig_name else {
             return BedColumns::default().into_table(contig_index, (1, u64::MAX));
@@ -199,9 +199,9 @@ pub struct IndexedBed {
 }
 
 impl IndexedBed {
-    fn open(path: &str, index: Box<dyn BinningIndex>) -> Result<Self, TGVError> {
+    fn open(path: &str, index: Box<dyn BinningIndex>) -> Result<Self, Error> {
         let contigs = index_contigs(&index);
-        let file = File::open(path).map_err(|source| TGVError::FileOperationError {
+        let file = File::open(path).map_err(|source| Error::FileOperationError {
             operation: "open the BED",
             path: path.into(),
             source,
@@ -222,11 +222,7 @@ impl IndexedBed {
 
     /// Returns the region, or an empty table covering the whole contig when the file has no
     /// features on it.
-    fn read_bed(
-        &mut self,
-        region: &Region,
-        contig_name: Option<&str>,
-    ) -> Result<BedTable, TGVError> {
+    fn read_bed(&mut self, region: &Region, contig_name: Option<&str>) -> Result<BedTable, Error> {
         let contig_index = region.contig_index();
         let mut columns = BedColumns::default();
         let Some(name) = contig_name else {
@@ -260,7 +256,7 @@ impl RemoteIndexedBed {
         object: S3Object,
         operator: Operator,
         index: Box<dyn BinningIndex + Send + Sync>,
-    ) -> Result<Self, TGVError> {
+    ) -> Result<Self, Error> {
         let contigs = index_contigs(&index);
         let stream = object.open_read(&operator, "open the BED").await?;
         Ok(Self {
@@ -284,7 +280,7 @@ impl RemoteIndexedBed {
         &mut self,
         region: &Region,
         contig_name: Option<&str>,
-    ) -> Result<BedTable, TGVError> {
+    ) -> Result<BedTable, Error> {
         let contig_index = region.contig_index();
         let mut columns = BedColumns::default();
         let Some(name) = contig_name else {
@@ -313,7 +309,7 @@ pub struct BigBed {
 }
 
 impl BigBed {
-    fn open(path: &str) -> Result<Self, TGVError> {
+    fn open(path: &str) -> Result<Self, Error> {
         Ok(Self {
             path: path.to_owned(),
             reader: BigBedRead::open_file(path)?,
@@ -330,11 +326,7 @@ impl BigBed {
 
     /// Returns the region, or an empty table covering the whole contig when the file has no
     /// features on it.
-    fn read_bed(
-        &mut self,
-        region: &Region,
-        contig_name: Option<&str>,
-    ) -> Result<BedTable, TGVError> {
+    fn read_bed(&mut self, region: &Region, contig_name: Option<&str>) -> Result<BedTable, Error> {
         let contig_index = region.contig_index();
         let mut columns = BedColumns::default();
         let Some(name) = contig_name else {
@@ -377,7 +369,7 @@ impl BedRepositoryEnum {
     ///
     /// Bgzipped BED files use a `.tbi` or `.csi` index when one exists next to them, and are
     /// otherwise read whole. Remote bigBed files are not supported yet.
-    pub async fn new(path: &str) -> Result<Self, TGVError> {
+    pub async fn new(path: &str) -> Result<Self, Error> {
         if is_url(path) {
             return Self::new_remote(path).await;
         }
@@ -400,10 +392,10 @@ impl BedRepositoryEnum {
         Ok(Self::Bed(PlainBed::open(path)?))
     }
 
-    async fn new_remote(url: &str) -> Result<Self, TGVError> {
+    async fn new_remote(url: &str) -> Result<Self, Error> {
         let lower = url.to_lowercase();
         if lower.ends_with(".bb") || lower.ends_with(".bigbed") {
-            return Err(TGVError::UnsupportedRemoteFormat {
+            return Err(Error::UnsupportedRemoteFormat {
                 url: url.to_owned(),
                 format: "bigBed",
             });
@@ -421,7 +413,7 @@ impl BedRepositoryEnum {
     }
 
     /// Creates the empty repository of a new track.
-    pub fn untitled(file_path: &FilePath) -> Result<Self, TGVError> {
+    pub fn untitled(file_path: &FilePath) -> Result<Self, Error> {
         Ok(Self::Bed(PlainBed::empty(file_path.to_string())?))
     }
 
@@ -435,11 +427,11 @@ impl BedRepositoryEnum {
     }
 
     /// The editable file, or an error naming the file for indexed and bigBed files.
-    pub fn as_editable_mut(&mut self) -> Result<&mut PlainBed, TGVError> {
+    pub fn as_editable_mut(&mut self) -> Result<&mut PlainBed, Error> {
         match self {
             Self::Bed(file) => Ok(file),
             Self::IndexedBed(_) | Self::BigBed(_) | Self::RemoteIndexedBed(_) => {
-                Err(TGVError::ReadOnlyBed {
+                Err(Error::ReadOnlyBed {
                     name: file_name(self.path()).to_owned(),
                 })
             }
@@ -476,7 +468,7 @@ impl BedRepositoryEnum {
         &mut self,
         region: &Region,
         contig_name: Option<&str>,
-    ) -> Result<BedTable, TGVError> {
+    ) -> Result<BedTable, Error> {
         match self {
             Self::Bed(file) => file.read_bed(region, contig_name),
             Self::IndexedBed(file) => file.read_bed(region, contig_name),
@@ -487,7 +479,7 @@ impl BedRepositoryEnum {
 }
 
 /// Whether the rows, in file order, are grouped by contig and sorted by start within each.
-fn is_sorted(frame: &DataFrame) -> Result<bool, TGVError> {
+fn is_sorted(frame: &DataFrame) -> Result<bool, Error> {
     let contigs = frame.column(PlainBed::CONTIG)?.str()?;
     let starts = frame.column(BedSchema::START)?.u64()?;
     let mut finished = HashSet::new();

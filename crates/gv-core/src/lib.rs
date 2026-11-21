@@ -3,6 +3,7 @@ pub mod bed;
 pub mod contig_header;
 pub mod cytoband;
 pub mod error;
+pub use error::Error;
 pub mod intervals;
 pub mod logging;
 pub mod message;
@@ -11,7 +12,6 @@ pub mod object_storage;
 pub mod prelude {
     pub use crate::{
         contig_header::ContigHeader,
-        error::TGVError,
         intervals::{Focus, IntervalTable, Region},
         reference::Reference,
         repository::{Repository, RepositoryFileIndex},

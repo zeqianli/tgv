@@ -3,7 +3,6 @@ use gpui::{
     AppContext, Application, Bounds, TitlebarOptions, WindowBounds, WindowOptions, px, size,
 };
 use gv_core::logging::{init_file_logging_with_level, timestamped_log_file_name};
-use gv_core::prelude::*;
 use gv_viewer::session::SessionFile;
 use std::path::PathBuf;
 use tgv_gui::{
@@ -12,7 +11,7 @@ use tgv_gui::{
     worker::WorkerHandle,
 };
 
-fn main() -> Result<(), TGVError> {
+fn main() -> Result<(), gv_core::Error> {
     let cli = Cli::parse();
     let log_path = default_log_file_path();
     let log_level = if cli.viewer.debug {
@@ -29,7 +28,10 @@ fn main() -> Result<(), TGVError> {
             let mut settings = SessionFile::from_path(&path)
                 .and_then(Settings::try_from)
                 .map_err(|e| {
-                    TGVError::CliError(format!("Failed to resume session {}: {e}", path.display()))
+                    gv_core::Error::CliError(format!(
+                        "Failed to resume session {}: {e}",
+                        path.display()
+                    ))
                 })?;
             log::info!("Resumed session from {}", path.display());
             cli.viewer.apply_overrides(&mut settings)?;

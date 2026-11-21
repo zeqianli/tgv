@@ -4,7 +4,7 @@
 //! `tgv mcp` process started by an agent can find the viewer and drive it. Each line on a
 //! connection holds one JSON [`Call`], and the session answers each with one JSON reply line.
 
-use crate::{error::SessionError, schema::*, session::SessionHandle};
+use crate::{error::Error, schema::*, session::SessionHandle};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::{
@@ -46,8 +46,8 @@ enum Reply {
     },
 }
 
-impl From<Result<Value, SessionError>> for Reply {
-    fn from(result: Result<Value, SessionError>) -> Self {
+impl From<Result<Value, Error>> for Reply {
+    fn from(result: Result<Value, Error>) -> Self {
         match result {
             Ok(value) => Self::Ok(value),
             Err(error) => Self::Error {
@@ -62,9 +62,9 @@ impl From<Result<Value, SessionError>> for Reply {
 impl SessionHandle {
     /// Runs a call and returns its reply as JSON. `Describe` returns `null` before the first
     /// load, and calls without a result return `null`.
-    pub async fn call(&self, call: Call) -> Result<Value, SessionError> {
-        fn json(value: impl Serialize) -> Result<Value, SessionError> {
-            serde_json::to_value(value).map_err(|error| SessionError::Core(error.into()))
+    pub async fn call(&self, call: Call) -> Result<Value, Error> {
+        fn json(value: impl Serialize) -> Result<Value, Error> {
+            serde_json::to_value(value).map_err(|error| Error::Core(error.into()))
         }
         match call {
             Call::Describe => json(self.describe().await?),
@@ -226,10 +226,9 @@ impl SessionConnection {
     }
 
     /// Sends a call and waits for its reply.
-    pub async fn call(&mut self, call: &Call) -> Result<Value, SessionError> {
-        let connection = |error: io::Error| SessionError::Connection(error.to_string());
-        let mut line =
-            serde_json::to_string(call).map_err(|error| SessionError::Core(error.into()))?;
+    pub async fn call(&mut self, call: &Call) -> Result<Value, Error> {
+        let connection = |error: io::Error| Error::Connection(error.to_string());
+        let mut line = serde_json::to_string(call).map_err(|error| Error::Core(error.into()))?;
         line.push('\n');
         self.write
             .write_all(line.as_bytes())
@@ -240,16 +239,14 @@ impl SessionConnection {
             .next_line()
             .await
             .map_err(connection)?
-            .ok_or_else(|| {
-                SessionError::Connection("the viewer closed the connection".to_owned())
-            })?;
-        match serde_json::from_str(&reply).map_err(|error| SessionError::Core(error.into()))? {
+            .ok_or_else(|| Error::Connection("the viewer closed the connection".to_owned()))?;
+        match serde_json::from_str(&reply).map_err(|error| Error::Core(error.into()))? {
             Reply::Ok(value) => Ok(value),
             Reply::Error {
                 code,
                 message,
                 field,
-            } => Err(SessionError::Remote {
+            } => Err(Error::Remote {
                 code,
                 message,
                 field,

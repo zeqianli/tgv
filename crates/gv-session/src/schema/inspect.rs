@@ -1,6 +1,6 @@
 //! Inspection request and response types, independent of session file serialization.
 
-use crate::error::SessionError;
+use crate::error::Error;
 use gv_core::{
     alignment::{Alignment, CoverageSchema, tables::ReadSchema},
     bed::{BedSchema, BedTable},
@@ -38,10 +38,7 @@ impl InspectInterval {
     ///
     /// Returns the core query region and the effective interval, with its end clamped to a
     /// known contig length.
-    pub fn resolve(
-        &self,
-        contigs: &ContigHeader,
-    ) -> Result<(Region, InspectInterval), SessionError> {
+    pub fn resolve(&self, contigs: &ContigHeader) -> Result<(Region, InspectInterval), Error> {
         let query = Region::try_from_contig_names_and_bounds(
             &self.contig,
             self.start,
@@ -49,7 +46,7 @@ impl InspectInterval {
             contigs,
             Some(Self::MAX_QUERY_WIDTH),
         )
-        .map_err(|error| SessionError::InvalidInput {
+        .map_err(|error| Error::InvalidInput {
             field: "region",
             message: error.to_string(),
         })?;
@@ -110,7 +107,7 @@ impl TrackSummary {
         alignment: &Alignment,
         contig_index: usize,
         region: &InspectInterval,
-    ) -> Result<Self, TGVError> {
+    ) -> Result<Self, gv_core::Error> {
         let overlapping_records =
             if alignment.contig_index != contig_index || region.start > region.end {
                 0
@@ -165,7 +162,7 @@ impl TrackSummary {
         variants: &VariantTable,
         contig_index: usize,
         region: &InspectInterval,
-    ) -> Result<Self, TGVError> {
+    ) -> Result<Self, gv_core::Error> {
         let rows = variants.query(contig_index, region.start, region.end)?;
         let starts = rows.column(VariantSchema::START)?.u64()?;
         let ends = rows.column(VariantSchema::END)?.u64()?;
@@ -192,7 +189,7 @@ impl TrackSummary {
                     },
                 })
             })
-            .collect::<Result<Vec<_>, TGVError>>()?;
+            .collect::<Result<Vec<_>, gv_core::Error>>()?;
         Ok(Self::Variant {
             track_id,
             overlapping_records: rows.height(),
@@ -207,7 +204,7 @@ impl TrackSummary {
         intervals: &BedTable,
         contig_index: usize,
         region: &InspectInterval,
-    ) -> Result<Self, TGVError> {
+    ) -> Result<Self, gv_core::Error> {
         let rows = intervals.query(contig_index, region.start, region.end)?;
         let items = rows
             .column(BedSchema::START)?
@@ -258,7 +255,7 @@ impl GeneSummary {
         available: bool,
         contig_index: usize,
         region: &InspectInterval,
-    ) -> Result<Self, TGVError> {
+    ) -> Result<Self, gv_core::Error> {
         let rows = genes
             .query(contig_index, region.start, region.end)?
             .lazy()

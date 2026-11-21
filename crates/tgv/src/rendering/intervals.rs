@@ -1,7 +1,6 @@
 use crate::layout::CellView;
 use crate::layout::{AlignmentView, OnScreenCoordinate};
 use gv_core::intervals::IntervalSchema;
-use gv_core::prelude::*;
 use polars::prelude::DataFrame;
 
 use ratatui::{buffer::Buffer, layout::Rect, style::Color, style::Style};
@@ -15,7 +14,7 @@ pub fn render_simple_intervals(
     alignment_view: &AlignmentView,
     colors: &[Color],
     first_color_index: usize,
-) -> Result<(), TGVError> {
+) -> Result<(), gv_core::Error> {
     // TODO:
     // A better solution for overlapping intervals.
 

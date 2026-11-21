@@ -7,10 +7,7 @@ use crate::{
     },
 };
 use gpui::{App, Window};
-use gv_core::{
-    alignment::{CoverageSchema, CoverageTable},
-    prelude::*,
-};
+use gv_core::alignment::{CoverageSchema, CoverageTable};
 use gv_viewer::prepare::coverage::{get_linear_space, round_up_max_coverage};
 use polars::prelude::ChunkAgg;
 
@@ -27,7 +24,7 @@ pub fn render_coverage(
     palette: &Palette,
     window: &mut Window,
     cx: &mut App,
-) -> Result<(), TGVError> {
+) -> Result<(), gv_core::Error> {
     let plot = Rect::new(
         area.x,
         area.y + LINE_HEIGHT,
@@ -51,7 +48,7 @@ pub fn render_coverage(
         ]
         .into_iter()
         .map(|(column, base, color)| Ok((table.column(column)?.u64()?.clone(), base, color)))
-        .collect::<Result<Vec<_>, TGVError>>()?;
+        .collect::<Result<Vec<_>, gv_core::Error>>()?;
         let references = table.column(CoverageSchema::REFERENCE_BASE)?.u8()?;
         for (row, position) in positions.into_no_null_iter().enumerate() {
             let total = totals.get(row).expect("coverage totals are non-null");

@@ -36,8 +36,8 @@ Arrows point from a crate to the crates it depends on. The front ends also depen
 | Crate | Owns | Doesn't know about |
 |---|---|---|
 | `gv-core` | `State` (the loaded region of each track), `Repository` (open BAM, VCF, BED, reference, and annotation readers), `State::ensure_loaded` and `CachePolicy`, `TrackRegistry`, table schemas, and file classification | Sessions, MCP, and terminals |
-| `gv-session` | `Dataset`, the request types (`Request`, `SessionHandle`, `Requests`, `Responder`), request and response types such as `QueryRequest` and `ViewState`, `SessionError`, and the SQL tables built on Polars SQL | MCP and terminals |
-| `gv-mcp` | The MCP tools, the mapping from `SessionError` to MCP error codes, `McpError`, and `serve` | Terminals |
+| `gv-session` | `Dataset`, the request types (`Request`, `SessionHandle`, `Requests`, `Responder`), request and response types such as `QueryRequest` and `ViewState`, `gv_session::Error`, and the SQL tables built on Polars SQL | MCP and terminals |
+| `gv-mcp` | The MCP tools, the mapping from `gv_session::Error` to MCP error codes, `gv_mcp::Error`, and `serve` | Terminals |
 | `gv-viewer` | `Viewer` (the controller, which owns the `Dataset` and hosts the session), `Action` and `UiAction`, the key grammar over a neutral `Key`, `Registers`, `JumpList`, `Viewport<Z>` and its `Scale`, `AreaType`, menu items, `TextPopup`, `SessionFile`, `Settings` and the shared CLI options, the RGB `Palette`, and the data preparation in `prepare` | Terminals, windows, and MCP |
 | `tgv` | `App`, cell layout, decoding terminal keys, mouse handling, the menu widget, ratatui rendering, the CLI, and the `tgv mcp` subcommand | gpui |
 | `tgv-gui` | `App`, pixel layout, decoding window keystrokes, mouse and trackpad gestures, the menu widget, gpui rendering, the dataset worker thread, and the `tgv-gui` binary | ratatui |
@@ -87,7 +87,7 @@ Callers hold a `SessionHandle` and send `Request`s. Whoever owns the `Dataset`, 
 │  .load_dataset() │                         │ View      → navigate, ...    │
 │  .navigate()     │                         │ Shutdown                     │
 │  .navigate()    │ ◄────── oneshot ─────── │ Responder::respond(result)   │
-│  .view_state()   │   Result<T, SessionError>                              │
+│  .view_state()   │   Result<T, gv_session::Error>                         │
 └──────────────────┘                         └──────────────────────────────┘
 ```
 
@@ -168,9 +168,9 @@ The window can't wait for loads the way a terminal can: gestures send dozens of 
 
 - **`Call`** is the serializable form of each request: describe, load a dataset, inspect, query, navigate, view state, and viewer info. `SessionHandle::call` runs a `Call` in-process and returns its reply as JSON, so the headless path and the socket path share one dispatch.
 - **`SessionSocket`** listens at `$XDG_RUNTIME_DIR/tgv/<pid>.sock`, in a directory only the user can open. Each connection sends one JSON `Call` per line and gets one JSON reply per line: `{"ok": …}`, or `{"error": {"code", "message", "field"}}`. Dropping the socket removes its file.
-- **`SessionConnection::list_viewers`** connects to every viewer, newest first, asks each for its `ViewerInfo`, and removes sockets that no process listens on. `SessionConnection::connect_to` connects to one viewer by process ID. Remote errors come back as `SessionError::Remote`, keeping their codes.
+- **`SessionConnection::list_viewers`** connects to every viewer, newest first, asks each for its `ViewerInfo`, and removes sockets that no process listens on. `SessionConnection::connect_to` connects to one viewer by process ID. Remote errors come back as `gv_session::Error::Remote`, keeping their codes.
 - **`tgv mcp`** looks for viewers before each call until the agent loads a dataset headlessly or attaches. With one viewer, it connects. With several, it fails with `viewer_ambiguous`, whose message lists them, until the agent calls `attach`. Once connected, it keeps the connection; when the viewer closes, it reports `viewer_disconnected` and looks again on the next call.
-- **Error codes** come from `SessionError::code`, so socket replies and MCP tool errors report the same codes.
+- **Error codes** come from `gv_session::Error::code`, so socket replies and MCP tool errors report the same codes.
 
 ## Actions and requests
 

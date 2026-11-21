@@ -97,7 +97,7 @@ impl ViewerArgs {
         self.debug
     }
 
-    pub fn initial_movement(&self) -> Result<Vec<Action>, TGVError> {
+    pub fn initial_movement(&self) -> Result<Vec<Action>, gv_core::Error> {
         let region_string = match &self.region {
             Some(region_string) => region_string,
             None => {
@@ -121,9 +121,9 @@ impl ViewerArgs {
                     ))]
                 })
                 .map_err(|_| {
-                    TGVError::CliError(format!("Invalid genome region: {}", region_string))
+                    gv_core::Error::CliError(format!("Invalid genome region: {}", region_string))
                 }),
-            _ => Err(TGVError::CliError(format!(
+            _ => Err(gv_core::Error::CliError(format!(
                 "Cannot interpret the region: {}",
                 region_string
             ))),
@@ -137,7 +137,7 @@ impl ViewerArgs {
     /// Apply CLI overrides on top of an existing [`Settings`] loaded from a resumed session.
     ///
     /// Only fields that were explicitly provided on the command line are overridden.
-    pub fn apply_overrides(&self, settings: &mut Settings) -> Result<(), TGVError> {
+    pub fn apply_overrides(&self, settings: &mut Settings) -> Result<(), gv_core::Error> {
         // Reference override.
         if self.no_reference {
             settings.core.reference = Reference::NoReference;
@@ -158,7 +158,7 @@ impl ViewerArgs {
         // Backend override: only when explicitly requested.
         match (self.offline, self.online) {
             (true, true) => {
-                return Err(TGVError::CliError(
+                return Err(gv_core::Error::CliError(
                     "Both --offline and --online flags are used. Please use only one.".to_string(),
                 ));
             }
@@ -188,7 +188,7 @@ impl ViewerArgs {
                     gene_name,
                 ))) = m
                 {
-                    return Err(TGVError::CliError(format!(
+                    return Err(gv_core::Error::CliError(format!(
                         "The initial region cannot be a gene name {} when no reference is provided.",
                         gene_name
                     )));
@@ -198,7 +198,7 @@ impl ViewerArgs {
 
         // Validate: input data and reference cannot both be absent.
         if settings.files.is_empty() && settings.core.reference == Reference::NoReference {
-            return Err(TGVError::CliError(
+            return Err(gv_core::Error::CliError(
                 "Input files and reference cannot both be none".to_string(),
             ));
         }
@@ -253,8 +253,8 @@ impl Default for Settings {
 ///
 /// Used when no session is resumed.
 impl TryFrom<&ViewerArgs> for Settings {
-    type Error = TGVError;
-    fn try_from(cli: &ViewerArgs) -> Result<Self, TGVError> {
+    type Error = gv_core::Error;
+    fn try_from(cli: &ViewerArgs) -> Result<Self, gv_core::Error> {
         let reference = if cli.no_reference {
             Reference::NoReference
         } else {
@@ -268,7 +268,7 @@ impl TryFrom<&ViewerArgs> for Settings {
 
         let backend = match (cli.offline, cli.online) {
             (true, true) => {
-                return Err(TGVError::CliError(
+                return Err(gv_core::Error::CliError(
                     "Both --offline and --online flags are used. Please use only one.".to_string(),
                 ));
             }
@@ -284,7 +284,7 @@ impl TryFrom<&ViewerArgs> for Settings {
                     gene_name,
                 ))) = m
                 {
-                    return Err(TGVError::CliError(format!(
+                    return Err(gv_core::Error::CliError(format!(
                         "The initial region cannot not be a gene name {} when no reference is provided. ",
                         gene_name
                     )));
@@ -294,7 +294,7 @@ impl TryFrom<&ViewerArgs> for Settings {
 
         // Input data and reference cannot both be absent.
         if cli.files.is_empty() && cli.no_reference {
-            return Err(TGVError::CliError(
+            return Err(gv_core::Error::CliError(
                 "Input files and reference cannot both be none".to_string(),
             ));
         }

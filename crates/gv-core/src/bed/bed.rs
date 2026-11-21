@@ -1,7 +1,7 @@
 //! Columnar BED features for a loaded region, and their table schema.
 
 use crate::{
-    error::TGVError,
+    error::Error,
     intervals::{IntervalSchema, IntervalTable, Region},
     table_schema::{ColumnDoc, TableSchema},
 };
@@ -94,9 +94,9 @@ impl Default for BedTable {
 }
 
 impl IntervalTable for BedTable {
-    fn query(&self, contig_index: usize, start: u64, end: u64) -> Result<DataFrame, TGVError> {
+    fn query(&self, contig_index: usize, start: u64, end: u64) -> Result<DataFrame, Error> {
         if start == 0 {
-            return Err(TGVError::ValueError(
+            return Err(Error::ValueError(
                 "Interval queries require a positive start.".into(),
             ));
         }
@@ -126,7 +126,7 @@ impl BedTable {
     }
 
     /// Wraps a frame holding every feature of one contig, read before contig indexes were known.
-    pub(super) fn whole_contig(data: &DataFrame, contig_index: usize) -> Result<Self, TGVError> {
+    pub(super) fn whole_contig(data: &DataFrame, contig_index: usize) -> Result<Self, Error> {
         Ok(Self {
             data: data
                 .clone()
@@ -160,7 +160,7 @@ impl BedColumns {
     ///
     /// The line is read with as many standard fields as it has, up to six. Further columns are
     /// kept as they are in `EXTRA`.
-    pub(super) fn push_line(&mut self, line: &str, contig_index: usize) -> Result<(), TGVError> {
+    pub(super) fn push_line(&mut self, line: &str, contig_index: usize) -> Result<(), Error> {
         let line = line.trim_end();
         if !is_data_line(line) {
             return Ok(());
@@ -170,11 +170,10 @@ impl BedColumns {
         let score_missing = fields.get(4) == Some(&".");
         let extra = (fields.len() > 6).then(|| fields[6..].join("\t"));
         self.standard_columns = self.standard_columns.max(fields.len().min(6));
-        let parsed = |error: io::Error| {
-            TGVError::ValueError(format!("BED line {line:?} is invalid: {error}"))
-        };
+        let parsed =
+            |error: io::Error| Error::ValueError(format!("BED line {line:?} is invalid: {error}"));
         match fields.len() {
-            0..=2 => Err(TGVError::ValueError(format!(
+            0..=2 => Err(Error::ValueError(format!(
                 "BED line {line:?} has fewer than three tab-separated fields."
             ))),
             3 => self.push_record(
@@ -215,7 +214,7 @@ impl BedColumns {
         contig_index: usize,
         score_missing: bool,
         extra: Option<String>,
-    ) -> Result<(), TGVError> {
+    ) -> Result<(), Error> {
         let start = record.feature_start()?.get() as u64;
         // noodles reads an end of 0 as missing, which the check below rejects.
         let end = record
@@ -223,7 +222,7 @@ impl BedColumns {
             .transpose()?
             .map_or(0, |end| end.get() as u64);
         if end < start {
-            return Err(TGVError::ValueError(format!(
+            return Err(Error::ValueError(format!(
                 "Invalid BED interval [{start}, {end}] at row {}.",
                 self.starts.len()
             )));
@@ -250,7 +249,7 @@ impl BedColumns {
     }
 
     /// Builds the columns into a frame in the order rows were added, numbering them from 0.
-    pub(super) fn into_frame(self) -> Result<DataFrame, TGVError> {
+    pub(super) fn into_frame(self) -> Result<DataFrame, Error> {
         Ok(DataFrame::new(
             self.starts.len(),
             vec![
@@ -273,7 +272,7 @@ impl BedColumns {
         self,
         contig_index: usize,
         loaded_bounds: (u64, u64),
-    ) -> Result<BedTable, TGVError> {
+    ) -> Result<BedTable, Error> {
         let data = self
             .into_frame()?
             .lazy()

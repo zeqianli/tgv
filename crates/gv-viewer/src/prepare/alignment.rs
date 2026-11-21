@@ -111,7 +111,7 @@ impl AlignmentScene {
         region: &Region,
         top: usize,
         rows: usize,
-    ) -> Result<Self, TGVError> {
+    ) -> Result<Self, gv_core::Error> {
         let mut scene = Self::default();
         if rows == 0 || region.contig_index() != alignment.contig_index {
             return Ok(scene);
@@ -187,7 +187,7 @@ impl AlignmentScene {
         tables: &AlignmentTables,
         reads: LazyFrame,
         region: &Region,
-    ) -> Result<(), TGVError> {
+    ) -> Result<(), gv_core::Error> {
         let reads = reads
             .select([
                 col(ReadSchema::READ_ID),
@@ -302,7 +302,7 @@ impl AlignmentScene {
                         // `X` runs are rare, so their qualities are read only here.
                         let qualities = run_qualities
                             .get_as_series(row)
-                            .map(|qualities| -> Result<Vec<Option<u8>>, TGVError> {
+                            .map(|qualities| -> Result<Vec<Option<u8>>, gv_core::Error> {
                                 Ok(qualities.u8()?.iter().collect())
                             })
                             .transpose()?;
@@ -446,7 +446,7 @@ fn pair_gaps(
     tables: &AlignmentTables,
     pairs: &DataFrame,
     region: &Region,
-) -> Result<Vec<RowSpan>, TGVError> {
+) -> Result<Vec<RowSpan>, gv_core::Error> {
     let first = pairs.column(PairSchema::READ_1_ID)?.u64()?;
     let second = pairs.column(PairSchema::READ_2_ID)?.u64()?;
     let ys = pairs.column(PairSchema::Y)?.u64()?;

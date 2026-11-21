@@ -65,7 +65,7 @@ pub fn render_main(
     popup: Option<&TextPopup>,
     pallete: &Palette,
     render_events: &Vec<RenderEvent>,
-) -> Result<(), TGVError> {
+) -> Result<(), gv_core::Error> {
     // Expand render events
     let mut render_areas = Vec::new();
     let mut render_side_bar = false;
@@ -170,15 +170,12 @@ pub fn render_main(
                     let top = alignment_view.top(index);
                     if state.alignment_options[index].contains(&AlignmentDisplayOption::ViewAsPairs)
                     {
-                        let paired_alignment =
-                            state.paired_alignments[index]
-                                .as_mut()
-                                .ok_or(TGVError::StateError(
-                                    format!(
-                                        "Paired alignment {index} not yet calculated at rendering"
-                                    )
+                        let paired_alignment = state.paired_alignments[index].as_mut().ok_or(
+                            gv_core::Error::StateError(
+                                format!("Paired alignment {index} not yet calculated at rendering")
                                     .to_string(),
-                                ))?;
+                            ),
+                        )?;
 
                         render_paired_alignment(
                             top,

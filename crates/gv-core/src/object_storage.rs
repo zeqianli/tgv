@@ -3,7 +3,7 @@
 //! Every request names the object it reads and what the object is for, so a failure says
 //! whether the data file, its index, or its header could not be read.
 
-use crate::error::TGVError;
+use crate::error::Error;
 use async_compat::{Compat, CompatExt};
 use noodles::{csi, csi::BinningIndex, tabix};
 use opendal::{FuturesAsyncReader, Operator, services};
@@ -17,8 +17,8 @@ pub struct S3Object {
 }
 
 impl S3Object {
-    pub fn parse(url: &str) -> Result<Self, TGVError> {
-        let invalid = |reason| TGVError::InvalidObjectUrl {
+    pub fn parse(url: &str) -> Result<Self, Error> {
+        let invalid = |reason| Error::InvalidObjectUrl {
             url: url.to_owned(),
             reason,
         };
@@ -52,10 +52,10 @@ impl S3Object {
 
     /// Builds an operator for the object's bucket. Credentials and the region come from the
     /// environment.
-    pub fn operator(&self) -> Result<Operator, TGVError> {
+    pub fn operator(&self) -> Result<Operator, Error> {
         Operator::new(services::S3::default().bucket(&self.bucket))
             .map(|builder| builder.finish())
-            .map_err(|source| TGVError::ObjectStorage {
+            .map_err(|source| Error::ObjectStorage {
                 operation: "configure S3 access for",
                 url: self.url.clone(),
                 source: Box::new(source),
@@ -68,9 +68,9 @@ impl S3Object {
         &self,
         operator: &Operator,
         operation: &'static str,
-    ) -> Result<Compat<FuturesAsyncReader>, TGVError> {
+    ) -> Result<Compat<FuturesAsyncReader>, Error> {
         self.log_request(operation);
-        let error = |source| TGVError::ObjectStorage {
+        let error = |source| Error::ObjectStorage {
             operation,
             url: self.url.clone(),
             source: Box::new(source),
@@ -90,13 +90,13 @@ impl S3Object {
         &self,
         operator: &Operator,
         operation: &'static str,
-    ) -> Result<Vec<u8>, TGVError> {
+    ) -> Result<Vec<u8>, Error> {
         self.log_request(operation);
         operator
             .read(&self.key)
             .await
             .map(|buffer| buffer.to_vec())
-            .map_err(|source| TGVError::ObjectStorage {
+            .map_err(|source| Error::ObjectStorage {
                 operation,
                 url: self.url.clone(),
                 source: Box::new(source),
@@ -109,12 +109,12 @@ impl S3Object {
         &self,
         operator: &Operator,
         operation: &'static str,
-    ) -> Result<bool, TGVError> {
+    ) -> Result<bool, Error> {
         self.log_request(operation);
         operator
             .exists(&self.key)
             .await
-            .map_err(|source| TGVError::ObjectStorage {
+            .map_err(|source| Error::ObjectStorage {
                 operation,
                 url: self.url.clone(),
                 source: Box::new(source),
@@ -122,9 +122,9 @@ impl S3Object {
     }
 
     /// Wraps an error from reading or parsing the object's contents.
-    pub fn read_error(&self, operation: &'static str) -> impl Fn(std::io::Error) -> TGVError {
+    pub fn read_error(&self, operation: &'static str) -> impl Fn(std::io::Error) -> Error {
         let url = self.url.clone();
-        move |source| TGVError::ObjectStorageRead {
+        move |source| Error::ObjectStorageRead {
             operation,
             url: url.clone(),
             source,
@@ -146,7 +146,7 @@ impl S3Object {
 pub async fn read_tabix_or_csi_index(
     data: &S3Object,
     operator: &Operator,
-) -> Result<Option<Box<dyn BinningIndex + Send + Sync>>, TGVError> {
+) -> Result<Option<Box<dyn BinningIndex + Send + Sync>>, Error> {
     const READ: &str = "read the tabix index";
     let tbi = data.with_suffix(".tbi");
     if tbi.exists(operator, "check for the tabix index").await? {
@@ -163,7 +163,7 @@ pub async fn read_tabix_or_csi_index(
 pub async fn read_csi_index(
     data: &S3Object,
     operator: &Operator,
-) -> Result<Option<Box<dyn BinningIndex + Send + Sync>>, TGVError> {
+) -> Result<Option<Box<dyn BinningIndex + Send + Sync>>, Error> {
     const READ: &str = "read the CSI index";
     let csi = data.with_suffix(".csi");
     if !csi.exists(operator, "check for the CSI index").await? {

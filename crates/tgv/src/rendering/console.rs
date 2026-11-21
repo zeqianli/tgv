@@ -1,6 +1,5 @@
 use crate::rendering::colors::ToColor;
 use crate::rendering::{TrackFocus, colors::Palette};
-use gv_core::prelude::*;
 use gv_viewer::register::{KeyRegisterType, Registers};
 use ratatui::{
     buffer::Buffer,
@@ -11,7 +10,11 @@ use ratatui::{
 /// Render the command line for command (`:`) and search (`/`) mode.
 const MIN_AREA_WIDTH: u16 = 2;
 const MIN_AREA_HEIGHT: u16 = 1;
-pub fn render_console(area: &Rect, buf: &mut Buffer, buffer: &Registers) -> Result<(), TGVError> {
+pub fn render_console(
+    area: &Rect,
+    buf: &mut Buffer,
+    buffer: &Registers,
+) -> Result<(), gv_core::Error> {
     if area.width < MIN_AREA_WIDTH || area.height < MIN_AREA_HEIGHT {
         return Ok(());
     }

@@ -2,7 +2,7 @@
 
 use super::tables::CigarSchema;
 use crate::{
-    error::TGVError,
+    error::Error,
     sequence::Sequence,
     table_schema::{ColumnDoc, TableSchema},
 };
@@ -31,7 +31,7 @@ impl CoverageTable {
         runs: LazyFrame,
         contig_index: usize,
         reference_sequence: &Sequence,
-    ) -> Result<Self, TGVError> {
+    ) -> Result<Self, Error> {
         // TODO: used only once. Consolidate.
         let kind = col(CigarSchema::KIND);
         let runs = runs
@@ -135,7 +135,7 @@ impl CoverageTable {
     }
 
     /// Select sparse rows within a one-based, inclusive interval.
-    pub fn query(&self, start: u64, end: u64) -> Result<DataFrame, TGVError> {
+    pub fn query(&self, start: u64, end: u64) -> Result<DataFrame, Error> {
         Ok(self
             .data
             .clone()

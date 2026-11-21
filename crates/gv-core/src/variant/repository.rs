@@ -3,7 +3,7 @@
 use super::variant::{VariantSchema, VariantTable};
 use crate::{
     alignment::is_url,
-    error::TGVError,
+    error::Error,
     intervals::Region,
     object_storage::{S3Object, index_contigs, read_csi_index, read_tabix_or_csi_index},
 };
@@ -34,16 +34,16 @@ impl PlainVcf {
     const CONTIG: &'static str = "contig";
 
     /// Parses the whole file and lists the contig names its records use.
-    fn open(path: &str) -> Result<Self, TGVError> {
+    fn open(path: &str) -> Result<Self, Error> {
         let reader = vcf::io::reader::Builder::default()
             .build_from_path(path)
-            .map_err(|source| TGVError::FileOperationError {
+            .map_err(|source| Error::FileOperationError {
                 operation: "open the VCF",
                 path: path.into(),
                 source,
             })?;
         Self::parse(path, reader).map_err(|error| match error {
-            TGVError::FileIOError(source) => TGVError::FileOperationError {
+            Error::FileIOError(source) => Error::FileOperationError {
                 operation: "read the VCF",
                 path: path.into(),
                 source,
@@ -53,7 +53,7 @@ impl PlainVcf {
     }
 
     /// Downloads the whole object and parses it. Bgzipped objects are decompressed.
-    async fn open_remote(object: &S3Object, operator: &Operator) -> Result<Self, TGVError> {
+    async fn open_remote(object: &S3Object, operator: &Operator) -> Result<Self, Error> {
         const READ: &str = "read the VCF";
         let bytes = Cursor::new(object.read_all(operator, READ).await?);
         let lines: Box<dyn BufRead> = if is_bgzipped_vcf(&object.url) {
@@ -62,12 +62,12 @@ impl PlainVcf {
             Box::new(bytes)
         };
         Self::parse(&object.url, vcf::io::Reader::new(lines)).map_err(|error| match error {
-            TGVError::FileIOError(source) => object.read_error(READ)(source),
+            Error::FileIOError(source) => object.read_error(READ)(source),
             error => error,
         })
     }
 
-    fn parse<R: BufRead>(path: &str, mut reader: vcf::io::Reader<R>) -> Result<Self, TGVError> {
+    fn parse<R: BufRead>(path: &str, mut reader: vcf::io::Reader<R>) -> Result<Self, Error> {
         let header = reader.read_header()?;
         let records = reader
             .records()
@@ -76,7 +76,7 @@ impl PlainVcf {
                     &header, &record?,
                 )?)
             })
-            .collect::<Result<Vec<_>, TGVError>>()?;
+            .collect::<Result<Vec<_>, Error>>()?;
         let row_contigs: Vec<&str> = records
             .iter()
             .map(|record| record.reference_sequence_name())
@@ -122,7 +122,7 @@ impl PlainVcf {
         &self,
         region: &Region,
         contig_name: Option<&str>,
-    ) -> Result<VariantTable, TGVError> {
+    ) -> Result<VariantTable, Error> {
         let contig_index = region.contig_index();
         let Some(name) = contig_name else {
             return VariantTable::from_records(&[], contig_index, (1, u64::MAX));
@@ -148,7 +148,7 @@ pub struct IndexedVcf {
 }
 
 impl IndexedVcf {
-    fn open(path: &str) -> Result<Self, TGVError> {
+    fn open(path: &str) -> Result<Self, Error> {
         let mut reader = vcf::io::indexed_reader::Builder::default().build_from_path(path)?;
         let header = reader.read_header()?;
         let contigs = index_contigs(reader.index());
@@ -171,7 +171,7 @@ impl IndexedVcf {
         &mut self,
         region: &Region,
         contig_name: Option<&str>,
-    ) -> Result<VariantTable, TGVError> {
+    ) -> Result<VariantTable, Error> {
         let contig_index = region.contig_index();
         let Some(name) = contig_name else {
             return VariantTable::from_records(&[], contig_index, (1, u64::MAX));
@@ -186,7 +186,7 @@ impl IndexedVcf {
                     &record?,
                 )?)
             })
-            .collect::<Result<Vec<_>, TGVError>>()?;
+            .collect::<Result<Vec<_>, Error>>()?;
         VariantTable::from_records(&records, contig_index, (region.start(), region.end()))
     }
 }
@@ -199,10 +199,10 @@ pub struct Bcf {
 }
 
 impl Bcf {
-    fn open(path: &str) -> Result<Self, TGVError> {
+    fn open(path: &str) -> Result<Self, Error> {
         let index = format!("{path}.csi");
         if !Path::new(&index).exists() {
-            return Err(TGVError::MissingIndex {
+            return Err(Error::MissingIndex {
                 file: path.to_owned(),
                 index,
             });
@@ -227,7 +227,7 @@ impl Bcf {
         &mut self,
         region: &Region,
         contig_name: Option<&str>,
-    ) -> Result<VariantTable, TGVError> {
+    ) -> Result<VariantTable, Error> {
         let contig_index = region.contig_index();
         let Some(name) = contig_name else {
             return VariantTable::from_records(&[], contig_index, (1, u64::MAX));
@@ -242,7 +242,7 @@ impl Bcf {
                     &record?,
                 )?)
             })
-            .collect::<Result<Vec<_>, TGVError>>()?;
+            .collect::<Result<Vec<_>, Error>>()?;
         VariantTable::from_records(&records, contig_index, (region.start(), region.end()))
     }
 }
@@ -267,7 +267,7 @@ impl RemoteIndexedVcf {
         object: S3Object,
         operator: Operator,
         index: Box<dyn BinningIndex + Send + Sync>,
-    ) -> Result<Self, TGVError> {
+    ) -> Result<Self, Error> {
         let header = vcf::r#async::io::Reader::new(bgzf::r#async::io::Reader::new(
             object.open_read(&operator, Self::READ_HEADER).await?,
         ))
@@ -294,7 +294,7 @@ impl RemoteIndexedVcf {
         &mut self,
         region: &Region,
         contig_name: Option<&str>,
-    ) -> Result<VariantTable, TGVError> {
+    ) -> Result<VariantTable, Error> {
         let contig_index = region.contig_index();
         let Some(name) = contig_name else {
             return VariantTable::from_records(&[], contig_index, (1, u64::MAX));
@@ -333,9 +333,9 @@ impl RemoteBcf {
     const READ_HEADER: &str = "read the BCF header";
     const QUERY: &str = "query the BCF";
 
-    async fn open(object: S3Object, operator: Operator) -> Result<Self, TGVError> {
+    async fn open(object: S3Object, operator: Operator) -> Result<Self, Error> {
         let Some(index) = read_csi_index(&object, &operator).await? else {
-            return Err(TGVError::MissingIndex {
+            return Err(Error::MissingIndex {
                 file: object.url.clone(),
                 index: object.with_suffix(".csi").url,
             });
@@ -364,7 +364,7 @@ impl RemoteBcf {
         &mut self,
         region: &Region,
         contig_name: Option<&str>,
-    ) -> Result<VariantTable, TGVError> {
+    ) -> Result<VariantTable, Error> {
         let contig_index = region.contig_index();
         let Some(name) = contig_name else {
             return VariantTable::from_records(&[], contig_index, (1, u64::MAX));
@@ -404,7 +404,7 @@ impl VariantRepositoryEnum {
     ///
     /// `.bcf` files need a `.csi` index. Bgzipped VCF files use a `.tbi` or `.csi` index when
     /// one exists next to them, and are otherwise read whole.
-    pub async fn new(path: &str) -> Result<Self, TGVError> {
+    pub async fn new(path: &str) -> Result<Self, Error> {
         if is_url(path) {
             return Self::new_remote(path).await;
         }
@@ -419,7 +419,7 @@ impl VariantRepositoryEnum {
         Ok(Self::Vcf(PlainVcf::open(path)?))
     }
 
-    async fn new_remote(url: &str) -> Result<Self, TGVError> {
+    async fn new_remote(url: &str) -> Result<Self, Error> {
         let object = S3Object::parse(url)?;
         let operator = object.operator()?;
         if url.to_lowercase().ends_with(".bcf") {
@@ -469,7 +469,7 @@ impl VariantRepositoryEnum {
         &mut self,
         region: &Region,
         contig_name: Option<&str>,
-    ) -> Result<VariantTable, TGVError> {
+    ) -> Result<VariantTable, Error> {
         match self {
             Self::Vcf(file) => file.read_variants(region, contig_name),
             Self::IndexedVcf(file) => file.read_variants(region, contig_name),

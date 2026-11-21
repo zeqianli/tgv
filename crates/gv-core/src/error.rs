@@ -1,10 +1,9 @@
 use bigtools::{BBIReadError, BigBedReadOpenError};
 use std::path::PathBuf;
-use thiserror::Error;
 
-#[derive(Debug, Error)]
+#[derive(Debug, thiserror::Error)]
 #[allow(clippy::enum_variant_names)]
-pub enum TGVError {
+pub enum Error {
     #[error("CLI error: {0}")]
     CliError(String),
 
@@ -18,8 +17,8 @@ pub enum TGVError {
         "The UCSC MariaDB download and HTTPS fallback failed. MariaDB: {mysql}. HTTPS: {https}."
     )]
     UcscDownloadFallbackError {
-        mysql: Box<TGVError>,
-        https: Box<TGVError>,
+        mysql: Box<Error>,
+        https: Box<Error>,
     },
 
     #[error("Failed to {operation} from {url}: {source}")]
@@ -104,7 +103,7 @@ pub enum TGVError {
     ObjectStorage {
         operation: &'static str,
         url: String,
-        // Boxed because `opendal::Error` would make every `TGVError` large.
+        // Boxed because `opendal::Error` would make every `Error` large.
         #[source]
         source: Box<opendal::Error>,
     },

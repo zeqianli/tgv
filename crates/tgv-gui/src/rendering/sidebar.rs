@@ -9,7 +9,6 @@ use crate::{
     worker::Frame,
 };
 use gpui::{App, Window};
-use gv_core::prelude::*;
 use gv_viewer::{
     message::FocusTarget,
     prepare::sidebar::{alignment_depth_description, describe_option},
@@ -39,7 +38,7 @@ pub fn render_sidebar(
     palette: &Palette,
     window: &mut Window,
     cx: &mut App,
-) -> Result<(), TGVError> {
+) -> Result<(), gv_core::Error> {
     if layout.sidebar_width == 0.0 {
         return Ok(());
     }

@@ -12,7 +12,7 @@ use ratatui::{
 
 use ratatui::symbols::bar::{NINE_LEVELS, Set};
 
-use gv_core::{alignment::CoverageTable, prelude::*};
+use gv_core::alignment::CoverageTable;
 
 use crate::{layout::AlignmentView, rendering::Palette};
 const MIN_AREA_WIDTH: u16 = 2;
@@ -25,7 +25,7 @@ pub fn render_coverage(
     coverage: &CoverageTable,
     alignment_view: &AlignmentView,
     palette: &Palette,
-) -> Result<(), TGVError> {
+) -> Result<(), gv_core::Error> {
     if area.width < MIN_AREA_WIDTH || area.height < MIN_AREA_HEIGHT {
         return Ok(());
     }

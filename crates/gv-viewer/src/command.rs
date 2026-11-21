@@ -1,10 +1,7 @@
 //! Parsing for command mode (`:`) and search mode (`/`) input.
 
 use crate::message::{Action, NavigationAction, SessionAction, TrackAction};
-use gv_core::{
-    error::TGVError,
-    message::{AlignmentDisplayOption, Movement, Zoom},
-};
+use gv_core::message::{AlignmentDisplayOption, Movement, Zoom};
 
 /// Parse command mode input. Supported commands:
 /// - `:q`: Quit, unless a track has unsaved changes. `:q!` quits anyway.
@@ -20,7 +17,7 @@ use gv_core::{
 /// - `:clear`, `:default`: Restore the default alignment display.
 ///
 /// The front end handles commands that only change its own view, such as listing contigs.
-pub fn parse(input: &str) -> Result<Vec<Action>, TGVError> {
+pub fn parse(input: &str) -> Result<Vec<Action>, gv_core::Error> {
     let input = input.trim();
     match input {
         "q" => return Ok(vec![Action::Session(SessionAction::Quit)]),
@@ -70,7 +67,9 @@ pub fn parse(input: &str) -> Result<Vec<Action>, TGVError> {
         ]))]);
     }
 
-    Err(TGVError::RegisterError(format!("Unknown command: {input}")))
+    Err(gv_core::Error::RegisterError(format!(
+        "Unknown command: {input}"
+    )))
 }
 
 /// Parse search mode input into messages. Supported targets:
@@ -81,9 +80,9 @@ pub fn parse(input: &str) -> Result<Vec<Action>, TGVError> {
 /// - `/TP53`: Go to a gene.
 ///
 /// Positions may use comma separators, such as `chr1:1,000,000`.
-pub fn parse_search(input: &str) -> Result<Vec<Action>, TGVError> {
+pub fn parse_search(input: &str) -> Result<Vec<Action>, gv_core::Error> {
     let input = input.trim();
-    let invalid = || TGVError::RegisterError(format!("Invalid search: {input}"));
+    let invalid = || gv_core::Error::RegisterError(format!("Invalid search: {input}"));
     if input.is_empty() {
         return Err(invalid());
     }
@@ -143,7 +142,7 @@ fn parse_locus(locus: &str) -> Option<SearchLocus> {
     }
 }
 
-fn parse_open_command(input: &str) -> Option<Result<Action, TGVError>> {
+fn parse_open_command(input: &str) -> Option<Result<Action, gv_core::Error>> {
     let (command, arguments) = input.split_once(char::is_whitespace).unwrap_or((input, ""));
     if command != "e" && command != "open" {
         return None;
@@ -152,12 +151,12 @@ fn parse_open_command(input: &str) -> Option<Result<Action, TGVError>> {
     let paths = match shlex::split(arguments) {
         Some(paths) if !paths.is_empty() => paths,
         Some(_) => {
-            return Some(Err(TGVError::RegisterError(format!(
+            return Some(Err(gv_core::Error::RegisterError(format!(
                 "Name the files to open: :{command} PATH…"
             ))));
         }
         None => {
-            return Some(Err(TGVError::RegisterError(format!(
+            return Some(Err(gv_core::Error::RegisterError(format!(
                 "Unmatched quote in: {arguments}"
             ))));
         }

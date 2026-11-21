@@ -16,7 +16,7 @@ pub fn render_coordinates(
     buf: &mut Buffer,
     alignment_view: &AlignmentView,
     state: &State,
-) -> Result<(), TGVError> {
+) -> Result<(), gv_core::Error> {
     if area.width < MIN_AREA_WIDTH || area.height < MIN_AREA_HEIGHT {
         return Ok(());
     }

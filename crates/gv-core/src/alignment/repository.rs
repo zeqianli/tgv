@@ -1,6 +1,6 @@
 use crate::{
     alignment::{Alignment, AlignmentTables, QualityEncoding, QualityEncodingSetting},
-    error::TGVError,
+    error::Error,
     intervals::Region,
     sequence::Sequence,
     settings::{AlignmentPath, BamSource},
@@ -35,20 +35,20 @@ pub struct BamRepository {
 }
 
 impl BamRepository {
-    async fn new(bam_path: &str, bai_path: &str) -> Result<Self, TGVError> {
+    async fn new(bam_path: &str, bai_path: &str) -> Result<Self, Error> {
         use tokio::fs::File;
 
         if !Path::new(bam_path).exists() {
-            return Err(TGVError::NotAFile(bam_path.to_string()));
+            return Err(Error::NotAFile(bam_path.to_string()));
         }
         if !Path::new(bai_path).exists() {
-            return Err(TGVError::MissingIndex {
+            return Err(Error::MissingIndex {
                 file: bam_path.to_string(),
                 index: bai_path.to_string(),
             });
         }
 
-        let failed = |operation, path: &str, source| TGVError::FileOperationError {
+        let failed = |operation, path: &str, source| Error::FileOperationError {
             operation,
             path: path.into(),
             source,
@@ -94,12 +94,9 @@ impl CramRepository {
         crai_path: &str,
         fasta_path: &str,
         fai_path: &str,
-    ) -> Result<Self, TGVError> {
+    ) -> Result<Self, Error> {
         if !Path::new(cram_path).exists() {
-            return Err(TGVError::IOError(format!(
-                "CRAM file {} not found",
-                cram_path
-            )));
+            return Err(Error::IOError(format!("CRAM file {} not found", cram_path)));
         }
 
         let repository = fasta::io::indexed_reader::Builder::default()
@@ -141,7 +138,7 @@ pub struct RemoteBamRepository {
 }
 
 impl RemoteBamRepository {
-    pub async fn new(s3_bam_path: &str, s3_bai_path: &str) -> Result<Self, TGVError> {
+    pub async fn new(s3_bam_path: &str, s3_bai_path: &str) -> Result<Self, Error> {
         let object = S3Object::parse(s3_bam_path)?;
         let index_object = S3Object::parse(s3_bai_path)?;
         let operator = object.operator()?;
@@ -178,7 +175,7 @@ impl RemoteBamRepository {
 
 fn get_contig_names_and_lengths_from_header(
     header: &Header,
-) -> Result<Vec<(String, Option<usize>)>, TGVError> {
+) -> Result<Vec<(String, Option<usize>)>, Error> {
     Ok(header
         .reference_sequences()
         .iter()
@@ -197,7 +194,7 @@ impl AlignmentRepository {
     pub async fn new(
         alignment_path: &AlignmentPath,
         quality_encoding: QualityEncodingSetting,
-    ) -> Result<Self, TGVError> {
+    ) -> Result<Self, Error> {
         Ok(Self {
             source: AlignmentRepositoryEnum::new(alignment_path).await?,
             quality_encoding,
@@ -211,7 +208,7 @@ impl AlignmentRepository {
         region: &Region,
         contig_name: Option<&str>,
         reference_sequence: &Sequence,
-    ) -> Result<Alignment, TGVError> {
+    ) -> Result<Alignment, Error> {
         self.source
             .read_alignment(
                 region,
@@ -247,7 +244,7 @@ impl AlignmentRepositoryEnum {
         }
     }
 
-    pub async fn new(alignment_path: &AlignmentPath) -> Result<Self, TGVError> {
+    pub async fn new(alignment_path: &AlignmentPath) -> Result<Self, Error> {
         match alignment_path {
             AlignmentPath::Bam {
                 path,
@@ -282,7 +279,7 @@ impl AlignmentRepositoryEnum {
         contig_name: Option<&str>,
         reference_sequence: &Sequence,
         quality_encoding: &mut QualityEncodingSetting,
-    ) -> Result<Alignment, TGVError> {
+    ) -> Result<Alignment, Error> {
         let started = Instant::now();
         let (source_kind, data_path, index_path) = match self {
             AlignmentRepositoryEnum::Bam(inner) => {
@@ -319,7 +316,7 @@ impl AlignmentRepositoryEnum {
                         // Reopen the reader because repeated queries at the same BGZF offset
                         // can otherwise reuse a completed seek and return no records.
                         let file = File::open(&inner.bam_path).await.map_err(|source| {
-                            TGVError::FileOperationError {
+                            Error::FileOperationError {
                                 operation: "open the BAM",
                                 path: inner.bam_path.clone().into(),
                                 source,
@@ -458,7 +455,7 @@ impl AlignmentRepositoryEnum {
 
     /// Read BAM headers and return contig namesa and lengths.
     /// Note that this function does not interprete the contig name as contg vs chromosome.
-    pub fn read_header(&self) -> Result<Vec<(String, Option<usize>)>, TGVError> {
+    pub fn read_header(&self) -> Result<Vec<(String, Option<usize>)>, Error> {
         let header = match self {
             AlignmentRepositoryEnum::Bam(inner) => &inner.header,
             AlignmentRepositoryEnum::RemoteBam(inner) => &inner.header,

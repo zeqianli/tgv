@@ -1,9 +1,6 @@
 //! Coverage binned to screen units, and the scale of its y-axis.
 
-use gv_core::{
-    alignment::{CoverageSchema, CoverageTable},
-    prelude::*,
-};
+use gv_core::alignment::{CoverageSchema, CoverageTable};
 
 const MAX_DISPLAY_ALLELE_FREQUENCY_RECIPROCOL: u64 = 100;
 
@@ -34,20 +31,26 @@ pub fn round_up_max_coverage(x: usize) -> usize {
 /// Get a linear space of n_bins between left and right.
 /// 1-based, inclusive.
 /// Returns a vector of n_bins elements.
-pub fn get_linear_space(left: u64, right: u64, n_bins: usize) -> Result<Vec<(u64, u64)>, TGVError> {
+pub fn get_linear_space(
+    left: u64,
+    right: u64,
+    n_bins: usize,
+) -> Result<Vec<(u64, u64)>, gv_core::Error> {
     if n_bins == 0 {
-        return Err(TGVError::ValueError("n_bins is 0".to_string()));
+        return Err(gv_core::Error::ValueError("n_bins is 0".to_string()));
     }
 
     if right < left {
-        return Err(TGVError::ValueError("Right is less than left".to_string()));
+        return Err(gv_core::Error::ValueError(
+            "Right is less than left".to_string(),
+        ));
     }
 
     let length = right - left + 1;
     if n_bins as u64 > length {
         // FIXME: make this permissive? Don't wanna crash the app because of a rendering problem.
         // Could happen if the region is weird.
-        return Err(TGVError::ValueError(format!(
+        return Err(gv_core::Error::ValueError(format!(
             "n_bins = {} is greater than the number of bases in the region [{}, {}]",
             n_bins, left, right
         )));
@@ -70,7 +73,7 @@ pub fn calculate_binned_coverage(
     left: u64,
     right: u64,
     n_bins: usize,
-) -> Result<Vec<Vec<usize>>, TGVError> {
+) -> Result<Vec<Vec<usize>>, gv_core::Error> {
     let linear_space = get_linear_space(left, right, n_bins)?;
     let table = coverage.query(left, right)?;
     let positions = table.column(CoverageSchema::POS)?.u64()?;
@@ -136,10 +139,10 @@ mod tests {
     }
 
     #[rstest]
-    #[case(1, 5, 0, Err(TGVError::ValueError("n_bins is 0".to_string())))]
+    #[case(1, 5, 0, Err(gv_core::Error::ValueError("n_bins is 0".to_string())))]
     #[case(1, 5, 5, Ok(vec![(1,1), (2,2), (3,3), (4,4), (5,5)]))]
     #[case(5,5, 1, Ok(vec![(5,5)]))]
-    #[case(5, 4, 1, Err(TGVError::ValueError("Right is less than left".to_string())))]
+    #[case(5, 4, 1, Err(gv_core::Error::ValueError("Right is less than left".to_string())))]
     #[case(25398019, 25398025, 3, Ok(vec![(25398019, 25398020), (25398021, 25398022), (25398023, 25398025)]))]
     #[case(5,10, 1, Ok(vec![(5,10)]))]
     #[case(5, 10, 2, Ok(vec![(5,7), (8,10)]))]
@@ -147,7 +150,7 @@ mod tests {
         #[case] left: u64,
         #[case] right: u64,
         #[case] n_bins: usize,
-        #[case] expected: Result<Vec<(u64, u64)>, TGVError>,
+        #[case] expected: Result<Vec<(u64, u64)>, gv_core::Error>,
     ) {
         let result = get_linear_space(left, right, n_bins);
         match (result, expected) {

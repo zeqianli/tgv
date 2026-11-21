@@ -33,7 +33,7 @@ pub fn render_alignment(
     alignment: &Alignment,
     view: &AlignmentView,
     palette: &Palette,
-) -> Result<(), TGVError> {
+) -> Result<(), gv_core::Error> {
     if area.is_empty() {
         return Ok(());
     }
@@ -55,7 +55,7 @@ pub fn render_paired_alignment(
     view: &AlignmentView,
     paired: &PairedAlignment,
     palette: &Palette,
-) -> Result<(), TGVError> {
+) -> Result<(), gv_core::Error> {
     if area.is_empty() {
         return Ok(());
     }

@@ -7,7 +7,6 @@ use crate::{
     },
 };
 use gpui::{App, Window};
-use gv_core::error::TGVError;
 use gv_viewer::register::{KeyRegisterType, Registers};
 
 /// The command line's cursor.
@@ -19,7 +18,7 @@ pub fn render_console(
     registers: &Registers,
     window: &mut Window,
     cx: &mut App,
-) -> Result<(), TGVError> {
+) -> Result<(), gv_core::Error> {
     let y = area.y + (area.height - LINE_HEIGHT) / 2.0;
     let prompt = if matches!(registers.current, KeyRegisterType::Search(_)) {
         '/'
@@ -67,7 +66,7 @@ pub fn render_mode_line(
     palette: &Palette,
     window: &mut Window,
     cx: &mut App,
-) -> Result<(), TGVError> {
+) -> Result<(), gv_core::Error> {
     let y = area.y + (area.height - LINE_HEIGHT) / 2.0;
     let name = if focus.modified {
         format!("{} [+]", focus.name)

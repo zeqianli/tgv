@@ -22,7 +22,7 @@ pub fn render_bed(
     bed: &BedTable,
     alignment_view: &AlignmentView,
     palette: &Palette,
-) -> Result<(), TGVError> {
+) -> Result<(), gv_core::Error> {
     let region = alignment_view.region(f64::from(area.width));
     if !bed.has_complete_data(&region) {
         render_zoom_in_notice(area, buf, "BED features");

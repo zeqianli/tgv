@@ -35,6 +35,7 @@
 - Do not add lazy `ensure_*` helpers, `get(...).unwrap_or_default()`, or similar defaulting around every indexed access when the correct invariant is that the index is valid.
 - Use explicit optional lookups only when a missing value is a real domain case, not as a substitute for maintaining indexed state invariants.
 - Use `thiserror` for error types with `#[derive(Error)]`.
+- Each crate names its error enum `Error`, derived with `#[derive(Debug, thiserror::Error)]`. Refer to other crates' errors by path, such as `gv_core::Error`, and wrap them with `#[from]`. Conversions only go from a dependency's error to the dependent crate's error.
 - Provide rich error context using structured error types.
 - Use `Arc` or borrows for shared immutable data.
 - Use direct typed column reductions for simple DataFrame statistics, such as sums, maxima, and visibility checks. Keep lazy expressions for row selection, transformations, joins, and grouped aggregations.
@@ -43,8 +44,8 @@
 ## Crate layout
 
 - `gv-core`: the data model, repositories, `State`, data loading, `TrackRegistry`, and file classification. It knows nothing about front ends or MCP.
-- `gv-session`: the session worker that owns a loaded dataset and serves typed commands through `SessionHandle`, plus the SQL tables and the local socket (`SessionSocket` and `SessionConnection`) that lets agents drive a viewer. Requests, responses, `Call`, and `SessionError` with its stable error codes live here.
-- `gv-mcp`: the MCP tools, which translate MCP calls into session calls and send them to a running viewer or a headless session. It owns the MCP tool results and `McpError`.
+- `gv-session`: the session worker that owns a loaded dataset and serves typed commands through `SessionHandle`, plus the SQL tables and the local socket (`SessionSocket` and `SessionConnection`) that lets agents drive a viewer. Requests, responses, `Call`, and `gv_session::Error` with its stable error codes live here.
+- `gv-mcp`: the MCP tools, which translate MCP calls into session calls and send them to a running viewer or a headless session. It owns the MCP tool results and `gv_mcp::Error`.
 - `gv-viewer`: the viewer logic both front ends share: `Viewer` (which owns the `Dataset` and applies actions), `Action`, the vim key grammar over a neutral `Key`, `Registers`, `JumpList`, `Viewport<Z>` with its `Scale`, menu items, popups, session files, settings, the RGB `Palette`, and the screen-independent data preparation in `prepare`. It knows nothing about terminals or windows.
 - `tgv`: the TUI and the `tgv` binary, including the `tgv mcp` subcommand.
 - `tgv-gui`: the window and the `tgv-gui` binary, built with gpui. Its modules mirror `tgv`'s, plus `worker`, which runs the `Viewer` on its own thread.

@@ -1,7 +1,7 @@
 //! Cytoband stains, and the reference's cytobands for every contig, loaded once per session.
 
 use crate::{
-    error::TGVError,
+    error::Error,
     intervals::{IntervalSchema, IntervalTable},
     table_schema::TableSchema,
 };
@@ -19,9 +19,9 @@ pub enum Stain {
 }
 
 impl TryFrom<&str> for Stain {
-    type Error = TGVError;
+    type Error = Error;
 
-    fn try_from(s: &str) -> Result<Self, TGVError> {
+    fn try_from(s: &str) -> Result<Self, Error> {
         match s {
             "gneg" => Ok(Stain::Gneg),
             "acen" => Ok(Stain::Acen),
@@ -102,9 +102,9 @@ impl Default for CytobandTable {
 }
 
 impl IntervalTable for CytobandTable {
-    fn query(&self, contig_index: usize, start: u64, end: u64) -> Result<DataFrame, TGVError> {
+    fn query(&self, contig_index: usize, start: u64, end: u64) -> Result<DataFrame, Error> {
         if start == 0 {
-            return Err(TGVError::ValueError(
+            return Err(Error::ValueError(
                 "Interval queries require a positive start.".into(),
             ));
         }
@@ -127,7 +127,7 @@ impl IntervalTable for CytobandTable {
 
 impl CytobandTable {
     /// Builds the loaded table from every band of the reference.
-    pub fn from_bands(bands: Vec<CytobandBand>) -> Result<Self, TGVError> {
+    pub fn from_bands(bands: Vec<CytobandBand>) -> Result<Self, Error> {
         let column = |name: &str, values: Vec<u64>| Column::new(name.into(), values);
         let data = DataFrame::new(
             bands.len(),
