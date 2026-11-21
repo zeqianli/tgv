@@ -41,14 +41,11 @@ use colors::{Palette, Rgb, ToHsla};
 use gpui::{
     App, Bounds, ContentMask, Font, SharedString, TextAlign, TextRun, Window, point, px, size,
 };
-use gv_core::prelude::*;
+use gv_core::{message::AlignmentFilter::False, prelude::*};
 use gv_viewer::{popup::TextPopup, prelude::*};
 
-/// The font size of all text.
 pub const FONT_SIZE: f32 = 12.0;
-/// The height of one line of text.
 pub const LINE_HEIGHT: f32 = 16.0;
-/// The width of one character of the monospaced font, for layout that counts characters.
 pub const CHAR_WIDTH: f32 = 7.3;
 
 /// Paints rectangles and text, in window pixels.
@@ -58,30 +55,25 @@ pub struct Painter<'a> {
     font: Font,
 }
 
-impl<'a> Painter<'a> {
-    pub fn new(window: &'a mut Window, cx: &'a mut App) -> Self {
-        Self {
-            window,
-            cx,
-            // Menlo is a macOS font. Linux needs a monospaced family installed there.
-            font: gpui::font(if cfg!(target_os = "linux") {
-                "Liberation Mono"
-            } else {
-                "Menlo"
-            }),
-        }
-    }
+fn default_font() -> Font{
+    gpui::font(if cfg!(target_os = "linux") {
+                    "Liberation Mono"
+                } else {
+                    "Menlo"
+                })
+}
 
-    pub fn fill(&mut self, rect: Rect, color: impl Into<gpui::Hsla>) {
+
+    pub fn fill(rect: Rect, color: impl Into<gpui::Hsla>, window: &mut Window) {
         if rect.is_empty() {
             return;
         }
-        self.window
+        window
             .paint_quad(gpui::fill(bounds(rect), color.into()));
     }
 
     /// Fills a polygon, such as a read's strand arrow.
-    pub fn polygon(&mut self, points: &[(f32, f32)], color: impl Into<gpui::Hsla>) {
+    pub fn polygon( points: &[(f32, f32)], color: impl Into<gpui::Hsla>, window: &Window) {
         let mut builder = gpui::PathBuilder::fill();
         builder.add_polygon(
             &points
@@ -190,11 +182,16 @@ impl<'a> Painter<'a> {
     }
 
     /// The width that a line of text takes.
-    pub fn text_width(&mut self, text: &str) -> f32 {
-        f32::from(self.shape(text, gpui::black(), false, FONT_SIZE).width)
-    }
 
-    fn shape(&mut self, text: &str, color: gpui::Hsla, bold: bool, size: f32) -> gpui::ShapedLine {
+
+    fn paint_text(
+        &mut self,
+        x: f32,
+        y: f32,
+        line_height: f32,
+        window: &mut Window,
+        cx: &mut App,
+    ) -> Result<f32, TGVError> {
         let font = if bold {
             self.font.clone().bold()
         } else {
@@ -209,9 +206,12 @@ impl<'a> Painter<'a> {
             underline: None,
             strikethrough: None,
         };
-        self.window
+        let line = self
+            .window
             .text_system()
-            .shape_line(text, px(size), &[run], None)
+            .shape_line(text, px(size), &[run], None);
+        let width = f32::from(line.width);
+        line.paint(point(px(x), px(y)), px(line_height), window, cx)?
     }
 
     /// Paints within `rect` only.
@@ -224,6 +224,53 @@ impl<'a> Painter<'a> {
             }),
             |window| paint(&mut Painter { window, cx, font }),
         )
+    }
+
+#[derive(Debug)]
+struct TextContext{
+
+    text: &str,
+    color: gpui::Hsla,
+    bold: bool,
+    size: f32,
+    font: Font,
+
+}
+
+impl TextContext{
+    pub fn width(&self, &mut Window) -> f32 {
+        let font = if self.bold {
+                    self.font.clone().bold()
+                } else {
+                    self.font.clone()
+                };
+                let text: SharedString = self.text.replace('\n', " ").into();
+        let run = TextRun {
+                    len: self.text.len(),
+                    font,
+                    self.color,
+                    background_color: None,
+                    underline: None,
+                    strikethrough: None,
+                };
+
+                          let shape = window
+                          .text_system()
+                          .shape_line(self.text, px(self.size), &[run], None);
+                return f32::from(shape.width);
+
+      }
+}
+
+impl Default for TextContext {
+    fn default() -> Self {
+        Self{
+            text: "",
+            color: gpui::Hsla::black(),
+            bold: False,
+            size: FONT_SIZE,
+            font:
+        }
     }
 }
 
