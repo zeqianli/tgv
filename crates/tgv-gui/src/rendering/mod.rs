@@ -29,7 +29,7 @@ pub use variants::render_variants;
 use crate::{
     layout::{PixelView, Rect, ResolvedMainLayout},
     menu::ContextMenu,
-    mouse::MouseRegister,
+    mouse::MouseState,
     worker::Frame,
 };
 use colors::{Palette, Rgb, ToHsla};
@@ -246,7 +246,7 @@ pub fn render_main(
     frame: &Frame,
     layout: &ResolvedMainLayout,
     view: &PixelView,
-    mouse_register: &MouseRegister,
+    mouse_state: &MouseState,
     focus: &TrackFocus,
     context_menu: Option<&ContextMenu>,
     popup: Option<&TextPopup>,
@@ -261,7 +261,7 @@ pub fn render_main(
         frame,
         layout,
         view,
-        mouse_register,
+        mouse_state,
         focus,
         palette,
         window,
@@ -321,7 +321,7 @@ pub fn render_main(
                     }
                 }
                 AreaType::AlignmentDivider { .. } => {
-                    let color = if mouse_register.is_divider_highlighted(area_type) {
+                    let color = if mouse_state.is_divider_highlighted(area_type) {
                         palette.HIGHLIGHT_COLOR
                     } else {
                         colors::SEPARATOR

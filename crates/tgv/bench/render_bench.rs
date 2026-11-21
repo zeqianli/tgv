@@ -211,7 +211,7 @@ async fn main() {
             let started = Instant::now();
             let messages = bench
                 .app
-                .mouse_register
+                .mouse_state
                 .handle_mouse_event(
                     &bench.app.viewer.dataset.view,
                     &bench.app.resolved_layout,

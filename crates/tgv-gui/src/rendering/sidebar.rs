@@ -1,6 +1,6 @@
 use crate::{
     layout::{AreaType, PixelView, Rect, ResolvedMainLayout},
-    mouse::MouseRegister,
+    mouse::MouseState,
     rendering::{
         CHAR_WIDTH, LINE_HEIGHT, TextContext, TrackFocus,
         colors::{MUTED_TEXT, Palette, SEPARATOR, TEXT, ToHsla},
@@ -33,7 +33,7 @@ pub fn render_sidebar(
     frame: &Frame,
     layout: &ResolvedMainLayout,
     view: &PixelView,
-    mouse_register: &MouseRegister,
+    mouse_state: &MouseState,
     focus: &TrackFocus,
     palette: &Palette,
     window: &mut Window,
@@ -192,7 +192,7 @@ pub fn render_sidebar(
         }
     }
 
-    let divider = if mouse_register.is_sidebar_divider_highlighted() {
+    let divider = if mouse_state.is_sidebar_divider_highlighted() {
         palette.HIGHLIGHT_COLOR
     } else {
         SEPARATOR

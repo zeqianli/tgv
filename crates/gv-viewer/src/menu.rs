@@ -3,7 +3,7 @@
 //! A menu is built once when it opens, from the clicked target and the current state. Each
 //! front end draws the items and turns clicks on them into their actions.
 
-use crate::message::{Action, AlignmentOptionUpdate, TrackAction, UpdateLayoutAction};
+use crate::message::{Action, AlignmentOptionUpdate, TrackAction, UiAction, UpdateLayoutAction};
 use gv_core::{
     alignment::{Alignment, CoverageSchema},
     message::{AlignmentDisplayOption, AlignmentFilter, AlignmentSort},
@@ -42,6 +42,77 @@ impl MenuItem {
         match self {
             Self::Entry { action, .. } => action.is_some(),
             Self::Submenu { .. } => true,
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct MenuLevel {
+    pub items: Vec<MenuItem>,
+    pub hovered: Option<usize>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum MenuHit {
+    Item { level: usize, index: usize },
+    Outside,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Menu {
+    pub levels: Vec<MenuLevel>,
+}
+
+impl Menu {
+    pub fn new(items: Vec<MenuItem>) -> Self {
+        Self {
+            levels: vec![MenuLevel {
+                items,
+                hovered: None,
+            }],
+        }
+    }
+
+    pub fn hover(&mut self, hit: MenuHit) -> bool {
+        let before: Vec<Option<usize>> = self.levels.iter().map(|level| level.hovered).collect();
+        match hit {
+            MenuHit::Item { level, index } => {
+                if self.levels[level].hovered != Some(index) {
+                    self.levels.truncate(level + 1);
+                    self.levels[level].hovered = Some(index);
+                    if let MenuItem::Submenu { items, .. } = &self.levels[level].items[index] {
+                        let items = items.clone();
+                        self.levels.push(MenuLevel {
+                            items,
+                            hovered: None,
+                        });
+                    }
+                }
+            }
+            MenuHit::Outside => {
+                if self.levels.len() > 1
+                    && let Some(deepest) = self.levels.last_mut()
+                {
+                    deepest.hovered = None;
+                }
+            }
+        }
+        self.levels
+            .iter()
+            .map(|level| level.hovered)
+            .ne(before.into_iter())
+    }
+
+    pub fn click(&self, hit: MenuHit) -> Vec<Action> {
+        let MenuHit::Item { level, index } = hit else {
+            return vec![UiAction::CloseContextMenu.into()];
+        };
+        match &self.levels[level].items[index] {
+            MenuItem::Entry {
+                action: Some(action),
+                ..
+            } => vec![action.clone(), UiAction::CloseContextMenu.into()],
+            _ => Vec::new(),
         }
     }
 }

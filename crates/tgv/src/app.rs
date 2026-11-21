@@ -11,7 +11,7 @@ use crate::{
     keys::key_from_event,
     layout::{AreaType, MainLayout, ResolvedMainLayout},
     menu::ContextMenu,
-    mouse::MouseRegister,
+    mouse::MouseState,
     rendering::TrackFocus,
     settings::Settings,
 };
@@ -30,7 +30,7 @@ pub struct App {
 
     pub layout: MainLayout,
     pub resolved_layout: ResolvedMainLayout,
-    pub mouse_register: MouseRegister,
+    pub mouse_state: MouseState,
     /// The open right-click menu. While it is open, it takes all mouse input.
     pub context_menu: Option<ContextMenu>,
     /// The open text popup. While it is open, it blocks all other input.
@@ -51,7 +51,7 @@ impl App {
             viewer,
             layout,
             resolved_layout: ResolvedMainLayout::default(),
-            mouse_register: MouseRegister::default(),
+            mouse_state: MouseState::default(),
             context_menu: None,
             popup: None,
             render_buffer: Buffer::empty(Rect::default()),
@@ -139,7 +139,7 @@ impl App {
 
                 let events = match event {
                     Ok(Event::Key(key_event)) if key_event.kind == KeyEventKind::Press => {
-                        self.mouse_register.last_hover = None;
+                        self.mouse_state.last_hover = None;
                         let actions = if self.popup.is_some() {
                             if key_event.code == event::KeyCode::Esc {
                                 vec![UiAction::ClosePopup.into()]
@@ -169,7 +169,7 @@ impl App {
                         let actions = match &mut self.context_menu {
                             _ if self.popup.is_some() => Vec::new(),
                             Some(menu) => menu.handle_mouse_event(*mouse_event),
-                            None => self.mouse_register.handle_mouse_event(
+                            None => self.mouse_state.handle_mouse_event(
                                 &self.viewer.dataset.view,
                                 &self.resolved_layout,
                                 &self.viewer.viewport,
@@ -189,7 +189,7 @@ impl App {
 
                     Ok(Event::Resize(width, height)) => {
                         log::debug!("Terminal resized to {width}x{height}");
-                        self.mouse_register.last_hover = None;
+                        self.mouse_state.last_hover = None;
                         self.resolve_layout(Rect::new(0, 0, *width, *height));
                         self.viewer.self_correct()?;
                         self.viewer.load_data().await?;
@@ -306,13 +306,13 @@ impl App {
                 Effect::Ui(UiAction::CloseContextMenu) => {
                     if self.context_menu.take().is_some() {
                         // The cell under the cursor may show something new after the menu closes.
-                        self.mouse_register.last_hover = None;
+                        self.mouse_state.last_hover = None;
                         render_events.push(RenderEvent::All);
                     }
                 }
                 Effect::Ui(UiAction::ClosePopup) => {
                     if self.popup.take().is_some() {
-                        self.mouse_register = MouseRegister::default();
+                        self.mouse_state = MouseState::default();
                         render_events.push(RenderEvent::All);
                     }
                 }
@@ -327,7 +327,7 @@ impl App {
                 Effect::ShowPopup(popup) => self.popup = Some(popup),
                 Effect::TracksChanged => {
                     // Divider state names tracks, which may no longer be adjacent or present.
-                    self.mouse_register = MouseRegister::default();
+                    self.mouse_state = MouseState::default();
                     self.layout.set_tracks(
                         &self.viewer.settings,
                         Arc::clone(&self.viewer.dataset.tracks),
@@ -335,7 +335,7 @@ impl App {
                     );
                     self.resolve_layout(self.resolved_layout.terminal_area);
                 }
-                Effect::SceneChanged => self.mouse_register = MouseRegister::default(),
+                Effect::SceneChanged => self.mouse_state = MouseState::default(),
             }
         }
         Ok(render_events)
@@ -370,7 +370,7 @@ impl App {
                 &self.viewer.registers,
                 &self.resolved_layout,
                 &self.viewer.viewport,
-                &self.mouse_register,
+                &self.mouse_state,
                 &focus,
                 self.context_menu.as_ref(),
                 self.popup.as_ref(),

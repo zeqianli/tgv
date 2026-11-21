@@ -1,6 +1,6 @@
 use crate::{
     layout::Rect,
-    menu::{ContextMenu, ITEM_HEIGHT, MenuPanel},
+    menu::{ContextMenu, ITEM_HEIGHT},
     rendering::{
         CHAR_WIDTH, LINE_HEIGHT, TextContext,
         colors::{MUTED_TEXT, Palette, TEXT, ToHsla},
@@ -8,7 +8,10 @@ use crate::{
     },
 };
 use gpui::{App, Window};
-use gv_viewer::{menu::MenuItem, popup::TextPopup};
+use gv_viewer::{
+    menu::{MenuItem, MenuLevel},
+    popup::TextPopup,
+};
 
 /// Draw the context menu over everything else.
 pub fn render_context_menu(
@@ -17,31 +20,31 @@ pub fn render_context_menu(
     window: &mut Window,
     cx: &mut App,
 ) -> Result<(), crate::Error> {
-    render_panel(&menu.main, palette, window, cx)?;
-    if let Some((_, panel)) = &menu.submenu {
-        render_panel(panel, palette, window, cx)?;
+    for (level, rect) in menu.menu.levels.iter().zip(&menu.rects) {
+        render_level(*rect, level, palette, window, cx)?;
     }
     Ok(())
 }
 
-fn render_panel(
-    panel: &MenuPanel,
+fn render_level(
+    rect: Rect,
+    level: &MenuLevel,
     palette: &Palette,
     window: &mut Window,
     cx: &mut App,
 ) -> Result<(), crate::Error> {
-    fill_rect(panel.area, palette.MENU_BACKGROUND.hsla(), window);
-    for (index, item) in panel.items.iter().enumerate() {
+    fill_rect(rect, palette.MENU_BACKGROUND.hsla(), window);
+    for (index, item) in level.items.iter().enumerate() {
         let row = Rect::new(
-            panel.area.x,
-            panel.area.y + index as f32 * ITEM_HEIGHT,
-            panel.area.width,
+            rect.x,
+            rect.y + index as f32 * ITEM_HEIGHT,
+            rect.width,
             ITEM_HEIGHT,
         );
-        if row.y >= panel.area.bottom() {
+        if row.y >= rect.bottom() {
             break;
         }
-        if panel.hovered == Some(index) && item.enabled() {
+        if level.hovered == Some(index) && item.enabled() {
             fill_rect(row, palette.MENU_HOVER_BACKGROUND.hsla(), window);
         }
         let foreground = if item.enabled() {

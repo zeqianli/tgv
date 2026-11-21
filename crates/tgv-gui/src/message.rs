@@ -1,6 +1,3 @@
-//! The window's actions: the shared viewer actions, plus gestures the window predicts before
-//! the viewer applies them.
-
 use gv_viewer::message::Action;
 
 #[derive(Debug, Clone, PartialEq)]

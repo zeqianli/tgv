@@ -176,7 +176,7 @@ async fn offline_sequence_updates_tracks_and_scenes() {
     };
     harness
         .app
-        .mouse_register
+        .mouse_state
         .handle_mouse_event(
             &harness.app.viewer.dataset.view,
             &harness.app.resolved_layout,
@@ -191,7 +191,7 @@ async fn offline_sequence_updates_tracks_and_scenes() {
     };
     let messages = harness
         .app
-        .mouse_register
+        .mouse_state
         .handle_mouse_event(
             &harness.app.viewer.dataset.view,
             &harness.app.resolved_layout,

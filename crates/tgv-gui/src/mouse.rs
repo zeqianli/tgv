@@ -27,7 +27,7 @@ enum DragTarget {
 
 /// Mouse interaction state for the currently displayed layout.
 #[derive(Clone, Default)]
-pub struct MouseRegister {
+pub struct MouseState {
     drag_target: Option<DragTarget>,
     last_x: f32,
     last_y: f32,
@@ -37,7 +37,7 @@ pub struct MouseRegister {
     scroll_remainder: f32,
 }
 
-impl MouseRegister {
+impl MouseState {
     pub fn is_divider_highlighted(&self, area_type: &AreaType) -> bool {
         match area_type {
             AreaType::AlignmentDivider { upper, lower } => {

@@ -134,7 +134,7 @@ App
 │   ├── session: SessionHandle    sends requests to this viewer
 │   └── requests: Requests        receives them
 ├── layout, resolved_layout       areas on screen
-├── mouse_register                mouse input state
+├── mouse_state                   mouse input state
 └── context_menu, popup           widgets
 ```
 
@@ -190,7 +190,7 @@ Some actions only a front end can apply, such as a layout change or closing a me
 An agent's view request becomes actions. `Viewer::serve_view` validates the request, translates it into actions, and applies them with `Viewer::handle`, the same path key presses take. It then replies with the result:
 
 ```text
-keys, mouse ──► Registers / MouseRegister ──► Vec<Action> ─┐
+keys, mouse ──► Registers / MouseState ──► Vec<Action> ────┐
                                                            ├──► Viewer::handle ──► view
 Request::View ──► Viewer::serve_view (validate, translate) ┘          │
        ▲                                                              │

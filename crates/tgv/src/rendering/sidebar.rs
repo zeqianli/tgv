@@ -1,7 +1,7 @@
 use crate::rendering::colors::ToColor;
 use crate::{
     layout::{AlignmentView, AreaType, ResolvedMainLayout, wrap_sidebar_label},
-    mouse::MouseRegister,
+    mouse::MouseState,
     rendering::{TrackFocus, colors::Palette},
 };
 use gv_viewer::prepare::sidebar::{alignment_depth_description, describe_option};
@@ -36,7 +36,7 @@ pub fn render_sidebar(
     registers: &Registers,
     layout: &ResolvedMainLayout,
     alignment_view: &AlignmentView,
-    mouse_register: &MouseRegister,
+    mouse_state: &MouseState,
     focus: &TrackFocus,
     pallete: &Palette,
     render_events: &Vec<RenderEvent>,
@@ -139,7 +139,7 @@ pub fn render_sidebar(
                 sidebar_style,
             );
         }
-        let divider_style = if mouse_register.is_sidebar_divider_highlighted() {
+        let divider_style = if mouse_state.is_sidebar_divider_highlighted() {
             Style::default().fg(pallete.HIGHLIGHT_COLOR.color())
         } else {
             sidebar_style

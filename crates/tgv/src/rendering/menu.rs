@@ -1,25 +1,23 @@
 use crate::rendering::colors::ToColor;
-use crate::{
-    layout::wrap_sidebar_label,
-    menu::{ContextMenu, MenuPanel},
-    rendering::colors::Palette,
+use crate::{layout::wrap_sidebar_label, menu::ContextMenu, rendering::colors::Palette};
+use gv_viewer::{
+    menu::{MenuItem, MenuLevel},
+    popup::TextPopup,
 };
-use gv_viewer::{menu::MenuItem, popup::TextPopup};
 use ratatui::{buffer::Buffer, layout::Rect, style::Style};
 
 /// Draw the context menu over everything else.
 pub fn render_context_menu(buf: &mut Buffer, menu: &ContextMenu, palette: &Palette) {
-    render_panel(buf, &menu.main, palette);
-    if let Some((_, panel)) = &menu.submenu {
-        render_panel(buf, panel, palette);
+    for (level, rect) in menu.menu.levels.iter().zip(&menu.rects) {
+        render_level(buf, *rect, level, palette);
     }
 }
 
-fn render_panel(buf: &mut Buffer, panel: &MenuPanel, palette: &Palette) {
-    let area = panel.area.intersection(buf.area);
+fn render_level(buf: &mut Buffer, rect: Rect, level: &MenuLevel, palette: &Palette) {
+    let area = rect.intersection(buf.area);
     let width = area.width as usize;
-    for (index, item) in panel.items.iter().enumerate().take(area.height as usize) {
-        let background = if panel.hovered == Some(index) && item.enabled() {
+    for (index, item) in level.items.iter().enumerate().take(area.height as usize) {
+        let background = if level.hovered == Some(index) && item.enabled() {
             palette.MENU_HOVER_BACKGROUND.color()
         } else {
             palette.MENU_BACKGROUND.color()

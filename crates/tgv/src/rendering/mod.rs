@@ -34,7 +34,7 @@ pub use variants::render_variants;
 use crate::{
     layout::{AlignmentView, AreaType, OnScreenCoordinate, ResolvedMainLayout, wrap_sidebar_label},
     menu::ContextMenu,
-    mouse::MouseRegister,
+    mouse::MouseState,
 };
 
 use gv_core::{message::AlignmentDisplayOption, prelude::*};
@@ -59,7 +59,7 @@ pub fn render_main(
     registers: &Registers,
     layout: &ResolvedMainLayout,
     alignment_view: &AlignmentView,
-    mouse_register: &MouseRegister,
+    mouse_state: &MouseState,
     focus: &TrackFocus,
     context_menu: Option<&ContextMenu>,
     popup: Option<&TextPopup>,
@@ -121,7 +121,7 @@ pub fn render_main(
             registers,
             layout,
             alignment_view,
-            mouse_register,
+            mouse_state,
             focus,
             pallete,
             render_events,
@@ -199,7 +199,7 @@ pub fn render_main(
                 rect,
                 buf,
                 pallete,
-                mouse_register.is_divider_highlighted(area_type),
+                mouse_state.is_divider_highlighted(area_type),
             ),
             AreaType::Sequence => {
                 if alignment_view.zoom.0 <= ColumnScale::MAX_TO_DISPLAY_SEQUENCES {

@@ -13,7 +13,7 @@ use crate::{
     layout::{DropTarget, MainLayout, PixelView, Rect, ResolvedMainLayout},
     menu::ContextMenu,
     message::GuiAction,
-    mouse::{MouseRegister, zoom_step},
+    mouse::{MouseState, zoom_step},
     pinch::{Pinch, PinchMonitor},
     rendering::{
         self, DropGap, Status, TextContext, TrackFocus,
@@ -67,7 +67,7 @@ pub struct App {
 
     pub layout: Option<MainLayout>,
     pub resolved_layout: Option<ResolvedMainLayout>,
-    pub mouse_register: MouseRegister,
+    pub mouse_state: MouseState,
     /// The open right-click menu. While it is open, it takes all mouse input.
     pub context_menu: Option<ContextMenu>,
     /// The open text popup. While it is open, it blocks all other input.
@@ -121,7 +121,7 @@ impl App {
             offset: 0.0,
             layout: None,
             resolved_layout: None,
-            mouse_register: MouseRegister::default(),
+            mouse_state: MouseState::default(),
             context_menu: None,
             popup: None,
             hover: None,
@@ -340,7 +340,7 @@ impl App {
                 Effect::Ui(UiAction::CloseContextMenu) => self.context_menu = None,
                 Effect::Ui(UiAction::ClosePopup) => {
                     if self.popup.take().is_some() {
-                        self.mouse_register = MouseRegister::default();
+                        self.mouse_state = MouseState::default();
                     }
                 }
                 Effect::ShowContextMenu { items, anchor } => {
@@ -352,7 +352,7 @@ impl App {
                 Effect::ShowPopup(popup) => self.popup = Some(popup),
                 Effect::TracksChanged => {
                     // Divider state names tracks, which may no longer be adjacent or present.
-                    self.mouse_register = MouseRegister::default();
+                    self.mouse_state = MouseState::default();
                     if let (Some(layout), Some(frame)) = (self.layout.as_mut(), &self.frame) {
                         layout.set_tracks(
                             &self.settings,
@@ -361,7 +361,7 @@ impl App {
                         );
                     }
                 }
-                Effect::SceneChanged => self.mouse_register = MouseRegister::default(),
+                Effect::SceneChanged => self.mouse_state = MouseState::default(),
             }
         }
     }
@@ -462,11 +462,11 @@ impl App {
         match event.button {
             gpui::MouseButton::Right => {
                 let actions = self
-                    .mouse_register
+                    .mouse_state
                     .handle_right_mouse_down(x, y, &resolved, &view);
                 self.handle(actions, cx);
             }
-            gpui::MouseButton::Left => match self.mouse_register.handle_left_mouse_down(
+            gpui::MouseButton::Left => match self.mouse_state.handle_left_mouse_down(
                 x,
                 y,
                 event.click_count,
@@ -494,7 +494,7 @@ impl App {
         }
         let (x, y) = (f32::from(event.position.x), f32::from(event.position.y));
         match self
-            .mouse_register
+            .mouse_state
             .handle_mouse_up(x, y, &frame, &resolved, &view)
         {
             Ok(actions) => self.handle(actions, cx),
@@ -527,7 +527,7 @@ impl App {
         }
         let left_pressed = event.pressed_button == Some(gpui::MouseButton::Left);
         match self
-            .mouse_register
+            .mouse_state
             .handle_mouse_move(x, y, left_pressed, &frame, &resolved, &view)
         {
             Ok(actions) => self.handle(actions, cx),
@@ -551,7 +551,7 @@ impl App {
         }
         let delta = event.delta.pixel_delta(px(rendering::LINE_HEIGHT));
         let modifiers = event.modifiers;
-        let actions = self.mouse_register.handle_scroll(
+        let actions = self.mouse_state.handle_scroll(
             f32::from(delta.x),
             f32::from(delta.y),
             f32::from(event.position.x),
@@ -700,7 +700,7 @@ impl Render for App {
                 Arc::clone(frame),
                 resolved.clone(),
                 view,
-                self.mouse_register.clone(),
+                self.mouse_state.clone(),
                 self.context_menu.clone(),
                 self.popup.clone(),
                 self.hover.clone(),
@@ -752,8 +752,7 @@ impl Render for App {
                 canvas(
                     |_, _, _| {},
                     move |_, (), window, cx| {
-                        let Some((frame, resolved, view, mouse_register, menu, popup, hover)) =
-                            paint
+                        let Some((frame, resolved, view, mouse_state, menu, popup, hover)) = paint
                         else {
                             rendering::fill_rect(window_rect, palette.background.hsla(), window);
                             let text = match failure {
@@ -785,7 +784,7 @@ impl Render for App {
                                 &frame,
                                 &resolved,
                                 &view,
-                                &mouse_register,
+                                &mouse_state,
                                 &TrackFocus {
                                     target: frame.focused,
                                     name: frame.focus_name.clone(),
