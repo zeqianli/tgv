@@ -5,8 +5,6 @@ use std::path::PathBuf;
 
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
-    /// gpui reports its failures, such as a line of text that fails to paint, as `anyhow`
-    /// errors.
     #[error("Failed to draw: {0}")]
     Gpui(#[from] anyhow::Error),
 
@@ -30,7 +28,6 @@ pub enum Error {
     Core(#[from] gv_core::Error),
 }
 
-// Rendering reads DataFrame columns with `?`, which used to convert through `gv_core::Error`.
 impl From<PolarsError> for Error {
     fn from(error: PolarsError) -> Self {
         Self::Core(error.into())

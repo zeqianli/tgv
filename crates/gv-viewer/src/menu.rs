@@ -272,3 +272,139 @@ pub fn sidebar_items(track: Option<(TrackId, Vec<MenuItem>)>) -> Vec<MenuItem> {
     ));
     items
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use rstest::rstest;
+
+    fn width(pixels: u16) -> Action {
+        UpdateLayoutAction::SetSidebarWidth(pixels).into()
+    }
+
+    fn close() -> Action {
+        UiAction::CloseContextMenu.into()
+    }
+
+    fn sort_items() -> Vec<MenuItem> {
+        vec![
+            MenuItem::entry("By name", Some(width(2))),
+            MenuItem::Submenu {
+                label: "More".to_string(),
+                items: more_items(),
+            },
+        ]
+    }
+
+    fn more_items() -> Vec<MenuItem> {
+        vec![MenuItem::entry("Deep", Some(width(3)))]
+    }
+
+    fn menu() -> Menu {
+        Menu::new(vec![
+            MenuItem::entry("Copy", Some(width(1))),
+            MenuItem::entry("Disabled", None),
+            MenuItem::Submenu {
+                label: "Sort".to_string(),
+                items: sort_items(),
+            },
+            MenuItem::Submenu {
+                label: "Color".to_string(),
+                items: vec![MenuItem::entry("Red", Some(width(4)))],
+            },
+        ])
+    }
+
+    fn at(level: usize, index: usize) -> MenuHit {
+        MenuHit::Item { level, index }
+    }
+
+    fn hovered(menu: &Menu) -> Vec<Option<usize>> {
+        menu.levels.iter().map(|level| level.hovered).collect()
+    }
+
+    #[test]
+    fn new_opens_only_the_main_level_without_hover() {
+        let menu = menu();
+        assert_eq!(menu.levels.len(), 1);
+        assert_eq!(hovered(&menu), vec![None]);
+    }
+
+    #[rstest]
+    #[case::entry(vec![at(0, 0)], vec![true], vec![Some(0)])]
+    #[case::same_item_twice(vec![at(0, 0), at(0, 0)], vec![true, false], vec![Some(0)])]
+    #[case::disabled_item(vec![at(0, 1)], vec![true], vec![Some(1)])]
+    #[case::submenu_opens(vec![at(0, 2)], vec![true], vec![Some(2), None])]
+    #[case::into_submenu(vec![at(0, 2), at(1, 0)], vec![true, true], vec![Some(2), Some(0)])]
+    #[case::nested_submenu_opens(
+        vec![at(0, 2), at(1, 1)],
+        vec![true, true],
+        vec![Some(2), Some(1), None]
+    )]
+    #[case::into_nested_submenu(
+        vec![at(0, 2), at(1, 1), at(2, 0)],
+        vec![true, true, true],
+        vec![Some(2), Some(1), Some(0)]
+    )]
+    #[case::back_to_parent_keeps_submenu(
+        vec![at(0, 2), at(1, 0), at(0, 2)],
+        vec![true, true, false],
+        vec![Some(2), Some(0)]
+    )]
+    #[case::other_submenu_replaces_it(
+        vec![at(0, 2), at(1, 1), at(0, 3)],
+        vec![true, true, true],
+        vec![Some(3), None]
+    )]
+    #[case::entry_closes_submenu(vec![at(0, 2), at(0, 0)], vec![true, true], vec![Some(0)])]
+    #[case::sibling_closes_nested_submenu(
+        vec![at(0, 2), at(1, 1), at(1, 0)],
+        vec![true, true, true],
+        vec![Some(2), Some(0)]
+    )]
+    #[case::outside_keeps_main_hover(vec![at(0, 0), MenuHit::Outside], vec![true, false], vec![Some(0)])]
+    #[case::outside_clears_deepest_hover(
+        vec![at(0, 2), at(1, 0), MenuHit::Outside],
+        vec![true, true, true],
+        vec![Some(2), None]
+    )]
+    #[case::outside_twice(
+        vec![at(0, 2), at(1, 0), MenuHit::Outside, MenuHit::Outside],
+        vec![true, true, true, false],
+        vec![Some(2), None]
+    )]
+    fn hover(
+        #[case] hits: Vec<MenuHit>,
+        #[case] changes: Vec<bool>,
+        #[case] expected: Vec<Option<usize>>,
+    ) {
+        let mut menu = menu();
+        let changed: Vec<bool> = hits.into_iter().map(|hit| menu.hover(hit)).collect();
+        assert_eq!(changed, changes);
+        assert_eq!(hovered(&menu), expected);
+    }
+
+    #[test]
+    fn hover_opens_the_items_of_each_submenu() {
+        let mut menu = menu();
+        menu.hover(at(0, 2));
+        menu.hover(at(1, 1));
+        assert_eq!(menu.levels[1].items, sort_items());
+        assert_eq!(menu.levels[2].items, more_items());
+    }
+
+    #[rstest]
+    #[case::entry(vec![], at(0, 0), vec![width(1), close()])]
+    #[case::disabled_item(vec![], at(0, 1), vec![])]
+    #[case::submenu_item(vec![], at(0, 2), vec![])]
+    #[case::submenu_entry(vec![at(0, 2)], at(1, 0), vec![width(2), close()])]
+    #[case::nested_submenu_entry(vec![at(0, 2), at(1, 1)], at(2, 0), vec![width(3), close()])]
+    #[case::outside(vec![at(0, 2)], MenuHit::Outside, vec![close()])]
+    fn click(#[case] hovers: Vec<MenuHit>, #[case] hit: MenuHit, #[case] expected: Vec<Action>) {
+        let mut menu = menu();
+        for hover in hovers {
+            menu.hover(hover);
+        }
+        assert_eq!(menu.click(hit), expected);
+    }
+}
