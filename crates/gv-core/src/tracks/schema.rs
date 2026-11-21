@@ -3,7 +3,6 @@ use crate::{
     cytoband::{CytobandBand, CytobandTable},
     error::Error,
     gene::{GeneSchema, GeneTable},
-    reference::Reference,
     strand::Strand,
 };
 use polars::prelude::*;
@@ -467,7 +466,6 @@ pub struct GenarkGenome {
 ///     ...
 ///    }
 /// }
-
 #[allow(non_snake_case)]
 #[derive(Debug, Clone, Deserialize)]
 pub struct UcscListChromosomeResponse {

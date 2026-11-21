@@ -315,10 +315,10 @@ impl Dataset {
                     message: error.to_string(),
                 })?;
         let description = replacement.description();
-        if let Some(mut old) = current.replace(replacement) {
-            if let Err(error) = old.repository.close().await {
-                log::warn!("Failed to close the replaced dataset: {error}");
-            }
+        if let Some(mut old) = current.replace(replacement)
+            && let Err(error) = old.repository.close().await
+        {
+            log::warn!("Failed to close the replaced dataset: {error}");
         }
         Ok(description)
     }
@@ -616,18 +616,17 @@ impl Dataset {
 
     /// Validates requested track IDs and returns them in dataset order.
     fn selected_tracks(&self, tracks: Option<&[TrackId]>) -> Result<Vec<TrackId>, Error> {
-        if let Some(tracks) = tracks {
-            if tracks.is_empty()
+        if let Some(tracks) = tracks
+            && (tracks.is_empty()
                 || tracks
                     .iter()
                     .enumerate()
-                    .any(|(i, id)| tracks[..i].contains(id) || !self.tracks.contains(*id))
-            {
-                return Err(Error::InvalidInput {
-                    field: "tracks",
-                    message: "Select distinct track IDs from the current dataset.".to_owned(),
-                });
-            }
+                    .any(|(i, id)| tracks[..i].contains(id) || !self.tracks.contains(*id)))
+        {
+            return Err(Error::InvalidInput {
+                field: "tracks",
+                message: "Select distinct track IDs from the current dataset.".to_owned(),
+            });
         }
 
         Ok(self

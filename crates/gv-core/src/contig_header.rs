@@ -89,13 +89,8 @@ impl Contig {
             return std::cmp::Ordering::Greater;
         }
 
-        let numeric_part = |s: &String| -> Option<i32> {
-            if s.starts_with("chr") {
-                s[3..].parse().ok()
-            } else {
-                s.parse().ok()
-            }
-        };
+        let numeric_part =
+            |s: &String| -> Option<i32> { s.strip_prefix("chr").unwrap_or(s).parse().ok() };
 
         let a_num = numeric_part(a_name);
         let b_num = numeric_part(b_name);
@@ -116,7 +111,7 @@ impl Contig {
                 1
             } else if s_lower == "chry" {
                 2
-            } else if s_lower == "chrm" || s_lower == "chrm" {
+            } else if s_lower == "chrm" || s_lower == "chrmt" {
                 3
             } else {
                 4

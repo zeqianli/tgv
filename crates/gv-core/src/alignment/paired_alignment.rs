@@ -358,15 +358,13 @@ mod tests {
             .map(|(kind, len)| Op::new(kind, len))
             .collect();
 
-        let record = sam::alignment::RecordBuf::builder()
+        sam::alignment::RecordBuf::builder()
             .set_name(name)
             .set_flags(Flags::from(0x1))
             .set_alignment_start(noodles::core::Position::try_from(start as usize).unwrap())
             .set_cigar(cigar)
             .set_sequence(sam::alignment::record_buf::Sequence::from(sequence))
-            .build();
-
-        record
+            .build()
     }
 
     fn alignment_from_reads(reads: Vec<RecordBuf>) -> Alignment {

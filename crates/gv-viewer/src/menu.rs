@@ -96,10 +96,7 @@ impl Menu {
                 }
             }
         }
-        self.levels
-            .iter()
-            .map(|level| level.hovered)
-            .ne(before.into_iter())
+        self.levels.iter().map(|level| level.hovered).ne(before)
     }
 
     pub fn click(&self, hit: MenuHit) -> Vec<Action> {

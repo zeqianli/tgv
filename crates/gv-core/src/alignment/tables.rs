@@ -1133,17 +1133,17 @@ fn matches_base(base1: u8, base2: u8) -> bool {
         return true;
     }
 
-    match (base1, base2) {
+    matches!(
+        (base1, base2),
         (b'A', b'a')
-        | (b'a', b'A')
-        | (b'C', b'c')
-        | (b'c', b'C')
-        | (b'G', b'g')
-        | (b'g', b'G')
-        | (b'T', b't')
-        | (b't', b'T') => true,
-        _ => false,
-    }
+            | (b'a', b'A')
+            | (b'C', b'c')
+            | (b'c', b'C')
+            | (b'G', b'g')
+            | (b'g', b'G')
+            | (b'T', b't')
+            | (b't', b'T')
+    )
 }
 
 #[cfg(test)]
@@ -1216,13 +1216,11 @@ mod tests {
             .map(|(kind, len)| Op::new(kind, len))
             .collect();
 
-        let record = sam::alignment::RecordBuf::builder()
+        sam::alignment::RecordBuf::builder()
             .set_alignment_start(noodles::core::Position::try_from(start as usize).unwrap())
             .set_cigar(cigar)
             .set_sequence(sam::alignment::record_buf::Sequence::from(sequence))
-            .build();
-
-        record
+            .build()
     }
 
     #[test]

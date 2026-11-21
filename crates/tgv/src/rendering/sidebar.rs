@@ -11,7 +11,6 @@ use gv_core::prelude::*;
 use itertools::Itertools;
 use ratatui::{
     buffer::Buffer,
-    layout::Rect,
     style::{Color, Modifier, Style},
 };
 

@@ -154,8 +154,8 @@ impl Repository {
                         .unwrap()
                         .get_contig_2bit_file_lookup(&settings.reference, &contig_header)
                         .await?
-                        .iter()
-                        .filter_map(|(_contig_index, path)| path.as_ref())
+                        .values()
+                        .filter_map(|path| path.as_ref())
                         .collect::<Vec<_>>()
                         .into_iter()
                         .unique()

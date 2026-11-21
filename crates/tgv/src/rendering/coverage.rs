@@ -1,7 +1,6 @@
 use crate::layout::CellView;
 use crate::rendering::colors::to_color;
 use gv_viewer::prepare::coverage::{calculate_binned_coverage, round_up_max_coverage};
-use std::usize;
 
 use ratatui::{
     buffer::Buffer,

@@ -71,15 +71,17 @@ pub fn render_mode_line(
         focus.name.clone()
     };
     match keyboard_state.mode {
-        InputMode::Editing(gv_viewer::keys::Mode::Insert(_)) => buf.set_stringn(
-            area.x,
-            area.y,
-            format!("-- INSERT -- {name}"),
-            area.width as usize,
-            Style::default()
-                .fg(to_color(palette.MODE_INSERT))
-                .add_modifier(Modifier::BOLD),
-        ),
+        InputMode::Editing(gv_viewer::keys::Mode::Insert(_)) => {
+            buf.set_stringn(
+                area.x,
+                area.y,
+                format!("-- INSERT -- {name}"),
+                area.width as usize,
+                Style::default()
+                    .fg(to_color(palette.MODE_INSERT))
+                    .add_modifier(Modifier::BOLD),
+            );
+        }
         _ if sidebar_hidden => {
             let width = name.chars().count().min(area.width as usize);
             buf.set_stringn(
@@ -88,8 +90,8 @@ pub fn render_mode_line(
                 name,
                 width,
                 Style::default().fg(Color::Gray),
-            )
+            );
         }
-        _ => return,
-    };
+        _ => {}
+    }
 }

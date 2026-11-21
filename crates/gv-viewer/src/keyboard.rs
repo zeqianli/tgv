@@ -215,11 +215,9 @@ impl KeyboardState {
     ) -> Result<Vec<Action>, crate::Error> {
         Ok(match self.mode {
             InputMode::Editing(mode) => self.pending.push(key_event, mode),
-            InputMode::Command(_) => {
-                self.handle_command_line(key_event, |input| crate::command::parse(input))
-            }
+            InputMode::Command(_) => self.handle_command_line(key_event, crate::command::parse),
             InputMode::Search(_) => {
-                self.handle_command_line(key_event, |input| crate::command::parse_search(input))
+                self.handle_command_line(key_event, crate::command::parse_search)
             }
             InputMode::ContigList(_) => self.handle_contig_list(key_event, state),
             // KeyRegisterType::ContigListCommand => {

@@ -8,7 +8,6 @@ use std::collections::HashMap;
 use twobit::TwoBitFile;
 
 /// Repository for reading sequences from 2bit files
-
 pub struct TwoBitSequenceRepository {
     /// Reference genome.
     reference: Reference,
@@ -30,7 +29,7 @@ impl TwoBitSequenceRepository {
 
     pub fn add_2bit_file(&mut self, path: &str) -> Result<(), Error> {
         let tb: TwoBitFile<std::io::BufReader<std::fs::File>> = twobit::TwoBitFile::open(path)
-            .map_err(|e| Error::IOError(format!("Failed to open 2bit file {}: {}", &path, e)))?;
+            .map_err(|e| Error::IOError(format!("Failed to open 2bit file {}: {}", path, e)))?;
 
         let buffer_index = self.buffers.len();
         tb.chrom_names().into_iter().for_each(|chrom_name| {

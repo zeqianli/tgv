@@ -909,7 +909,7 @@ mod tests {
 
     #[test]
     fn alignment_view_scrolls_only_the_requested_alignment() {
-        let alignments = vec![alignment_with_depth(10), alignment_with_depth(10)];
+        let alignments = [alignment_with_depth(10), alignment_with_depth(10)];
         let mut alignment_view =
             AlignmentView::new(Focus::default(), ColumnScale::default(), alignments.len());
 

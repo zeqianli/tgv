@@ -105,7 +105,7 @@ impl SessionFile {
 
     /// Parse a session file from a TOML string.
     pub fn parse(content: &str) -> Result<Self, crate::Error> {
-        let session: Self = toml::from_str(content).map_err(|e| crate::Error::ParseSession(e))?;
+        let session: Self = toml::from_str(content).map_err(crate::Error::ParseSession)?;
         if !(MIN_SUPPORTED_VERSION..=CURRENT_VERSION).contains(&session.version) {
             return Err(crate::Error::UnsupportedSessionVersion {
                 version: session.version,
@@ -122,7 +122,7 @@ impl SessionFile {
             std::fs::create_dir_all(parent)?;
         }
         let content =
-            toml::to_string_pretty(self).map_err(|e| crate::Error::SerializeSession(e))?;
+            toml::to_string_pretty(self).map_err(crate::Error::SerializeSession)?;
         std::fs::write(path, content)?;
         Ok(())
     }

@@ -1530,7 +1530,7 @@ impl UcscHubFileParser {
     }
 }
 
-fn get_preferred_track_name_from_vec(names: &Vec<String>) -> Result<Option<String>, Error> {
+fn get_preferred_track_name_from_vec(names: &[String]) -> Result<Option<String>, Error> {
     for pref in TRACK_PREFERENCES {
         if names.contains(&pref.to_string()) {
             return Ok(Some(pref.to_string()));

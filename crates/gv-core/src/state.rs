@@ -1205,29 +1205,26 @@ impl State {
 
                 // Try to get the first gene in the first contig.
                 // We use query_k_genes_after starting from coordinate 0 with k=1.
-                match repository
+                if let Ok(gene) = repository
                     .track_service_checked()?
                     .query_k_genes_after(&self.reference, first_contig, 0, 1, &self.contig_header)
                     .await
                 {
-                    Ok(gene) => {
-                        // Found a gene, go to its start (using 1-based coordinates for Goto)
-                        return Ok(Focus {
-                            contig_index: gene
-                                .column(GeneSchema::CONTIG_INDEX)?
-                                .u64()?
-                                .get(0)
-                                .expect("selected contigs are non-null")
-                                as usize,
-                            position: gene
-                                .column(GeneSchema::START)?
-                                .u64()?
-                                .get(0)
-                                .expect("selected starts are non-null")
-                                + 1,
-                        });
-                    }
-                    Err(_) => {} // Gene not found. Handle later.
+                    // Found a gene, go to its start (using 1-based coordinates for Goto)
+                    return Ok(Focus {
+                        contig_index: gene
+                            .column(GeneSchema::CONTIG_INDEX)?
+                            .u64()?
+                            .get(0)
+                            .expect("selected contigs are non-null")
+                            as usize,
+                        position: gene
+                            .column(GeneSchema::START)?
+                            .u64()?
+                            .get(0)
+                            .expect("selected starts are non-null")
+                            + 1,
+                    });
                 }
             }
 
@@ -1275,15 +1272,13 @@ mod tests {
             .map(|(kind, len)| Op::new(kind, len))
             .collect();
 
-        let record = sam::alignment::RecordBuf::builder()
+        sam::alignment::RecordBuf::builder()
             .set_name(name)
             .set_flags(Flags::default())
             .set_alignment_start(noodles::core::Position::try_from(start as usize).unwrap())
             .set_cigar(cigar)
             .set_sequence(sam::alignment::record_buf::Sequence::from(sequence))
-            .build();
-
-        record
+            .build()
     }
 
     fn test_sequence() -> Sequence {

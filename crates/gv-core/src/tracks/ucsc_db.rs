@@ -405,8 +405,8 @@ impl TrackService for UcscDbTrackService {
         let started = Instant::now();
         let gene_rows: Vec<UcscGeneRow> = sqlx::query_as(sql.as_str())
             .bind(contig_name)
-            .bind(u64::try_from(region.end()).unwrap()) // A UCSC start must be strictly below the inclusive tgv end.
-            .bind(u64::try_from(region.start()).unwrap()) // UCSC ends are exclusive, while tgv starts are inclusive.
+            .bind(region.end()) // A UCSC start must be strictly below the inclusive tgv end.
+            .bind(region.start()) // UCSC ends are exclusive, while tgv starts are inclusive.
             .fetch_all(&*self.pool)
             .await?;
         log::info!(

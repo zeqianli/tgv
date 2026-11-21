@@ -15,7 +15,6 @@ mod sidebar;
 mod status_bar;
 mod track;
 mod variants;
-use std::collections::BTreeSet;
 
 pub use alignment::{render_alignment, render_paired_alignment};
 pub use bed::render_bed;
@@ -31,7 +30,7 @@ pub use track::render_track;
 pub use variants::render_variants;
 
 use crate::{
-    layout::{AlignmentView, AreaType, OnScreenCoordinate, ResolvedMainLayout, wrap_sidebar_label},
+    layout::{AlignmentView, AreaType, OnScreenCoordinate, ResolvedMainLayout},
     menu::ContextMenu,
     mouse::MouseState,
 };
@@ -76,7 +75,7 @@ pub fn render_main(
                 render_side_bar = true;
                 for (area_type, _rect) in layout.areas.iter() {
                     if !render_areas.contains(area_type) {
-                        render_areas.push(area_type.clone());
+                        render_areas.push(*area_type);
                     }
                 }
             }
@@ -84,7 +83,7 @@ pub fn render_main(
             RenderEvent::AllTracks => {
                 for (area_type, _rect) in layout.areas.iter() {
                     if !render_areas.contains(area_type) {
-                        render_areas.push(area_type.clone());
+                        render_areas.push(*area_type);
                     }
                 }
             }
@@ -95,7 +94,7 @@ pub fn render_main(
 
             RenderEvent::Area(area_type) => {
                 if !render_areas.contains(area_type) {
-                    render_areas.push(area_type.clone());
+                    render_areas.push(*area_type);
                 }
             }
         }
