@@ -1,7 +1,6 @@
 use crate::layout::CellView;
 use crate::layout::{AlignmentView, OnScreenCoordinate};
-use gv_core::intervals::IntervalSchema;
-use polars::prelude::DataFrame;
+use gv_core::variant::Variant;
 
 use ratatui::{buffer::Buffer, layout::Rect, style::Color, style::Style};
 
@@ -10,20 +9,18 @@ use ratatui::{buffer::Buffer, layout::Rect, style::Color, style::Style};
 pub fn render_simple_intervals(
     area: &Rect,
     buf: &mut Buffer,
-    intervals: &DataFrame,
+    intervals: &[Variant],
     alignment_view: &AlignmentView,
     colors: &[Color],
     first_color_index: usize,
-) -> Result<(), crate::Error> {
+) {
     // TODO:
     // A better solution for overlapping intervals.
 
     let mut i_color = first_color_index;
-    let starts = intervals.column(IntervalSchema::START)?.u64()?;
-    let ends = intervals.column(IntervalSchema::END)?.u64()?;
-    for (start, end) in starts.into_no_null_iter().zip(ends.into_no_null_iter()) {
-        let onscreen_x = alignment_view.onscreen_x_coordinate(start, area);
-        let onscreen_y = alignment_view.onscreen_x_coordinate(end, area);
+    for interval in intervals {
+        let onscreen_x = alignment_view.onscreen_x_coordinate(interval.start, area);
+        let onscreen_y = alignment_view.onscreen_x_coordinate(interval.end, area);
         if let Some((x, length)) =
             OnScreenCoordinate::onscreen_start_and_length(&onscreen_x, &onscreen_y, area)
         {
@@ -39,8 +36,6 @@ pub fn render_simple_intervals(
             i_color = 0;
         }
     }
-
-    Ok(())
 }
 
 /// Says that the track isn't loaded for this view, because the view is zoomed out too far.

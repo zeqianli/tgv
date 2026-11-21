@@ -321,3 +321,130 @@ where
     }
     Ok(record)
 }
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct BedFeature {
+    pub start: u64,
+    pub end: u64,
+    pub name: Option<String>,
+    pub strand: Option<crate::strand::Strand>,
+}
+
+impl BedTable {
+    pub fn features(
+        &self,
+        contig_index: usize,
+        start: u64,
+        end: u64,
+    ) -> Result<Vec<BedFeature>, Error> {
+        let rows = self.query(contig_index, start, end)?;
+        let starts = rows.column(BedSchema::START)?.u64()?;
+        let ends = rows.column(BedSchema::END)?.u64()?;
+        let names = rows.column(BedSchema::NAME)?.str()?;
+        let strands = rows.column(BedSchema::STRAND)?.str()?;
+        (0..rows.height())
+            .map(|row| {
+                Ok(BedFeature {
+                    start: starts.get(row).ok_or(Error::NullValue {
+                        column: BedSchema::START,
+                    })?,
+                    end: ends.get(row).ok_or(Error::NullValue {
+                        column: BedSchema::END,
+                    })?,
+                    name: names
+                        .get(row)
+                        .filter(|name| !name.is_empty())
+                        .map(str::to_string),
+                    strand: match strands.get(row) {
+                        Some("+") => Some(crate::strand::Strand::Forward),
+                        Some("-") => Some(crate::strand::Strand::Reverse),
+                        _ => None,
+                    },
+                })
+            })
+            .collect()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::strand::Strand as FeatureStrand;
+    use rstest::rstest;
+
+    fn table() -> BedTable {
+        let data = DataFrame::new(
+            5,
+            vec![
+                Column::new(BedSchema::CONTIG_INDEX.into(), vec![0u64, 0, 0, 0, 1]),
+                Column::new(BedSchema::START.into(), vec![10u64, 30, 50, 70, 10]),
+                Column::new(BedSchema::END.into(), vec![20u64, 40, 60, 80, 20]),
+                Column::new(
+                    BedSchema::NAME.into(),
+                    vec![Some("a"), Some(""), None, Some("d"), Some("other")],
+                ),
+                Column::new(
+                    BedSchema::STRAND.into(),
+                    vec![Some("+"), Some("-"), Some("."), None, Some("+")],
+                ),
+            ],
+        )
+        .unwrap();
+        BedTable {
+            data,
+            ..BedTable::default()
+        }
+    }
+
+    fn feature(
+        start: u64,
+        end: u64,
+        name: Option<&str>,
+        strand: Option<FeatureStrand>,
+    ) -> BedFeature {
+        BedFeature {
+            start,
+            end,
+            name: name.map(str::to_string),
+            strand,
+        }
+    }
+
+    #[rstest]
+    #[case::whole_contig(0, 1, 100, vec![
+        feature(10, 20, Some("a"), Some(FeatureStrand::Forward)),
+        feature(30, 40, None, Some(FeatureStrand::Reverse)),
+        feature(50, 60, None, None),
+        feature(70, 80, Some("d"), None),
+    ])]
+    #[case::partial_overlap(0, 15, 35, vec![
+        feature(10, 20, Some("a"), Some(FeatureStrand::Forward)),
+        feature(30, 40, None, Some(FeatureStrand::Reverse)),
+    ])]
+    #[case::inclusive_bounds(0, 20, 30, vec![
+        feature(10, 20, Some("a"), Some(FeatureStrand::Forward)),
+        feature(30, 40, None, Some(FeatureStrand::Reverse)),
+    ])]
+    #[case::between_features(0, 21, 29, vec![])]
+    #[case::other_contig(1, 1, 100, vec![
+        feature(10, 20, Some("other"), Some(FeatureStrand::Forward)),
+    ])]
+    #[case::contig_without_features(2, 1, 100, vec![])]
+    #[case::reversed_bounds(0, 60, 50, vec![])]
+    fn features(
+        #[case] contig_index: usize,
+        #[case] start: u64,
+        #[case] end: u64,
+        #[case] expected: Vec<BedFeature>,
+    ) {
+        assert_eq!(
+            table().features(contig_index, start, end).unwrap(),
+            expected
+        );
+    }
+
+    #[test]
+    fn features_reject_a_zero_start() {
+        assert!(table().features(0, 0, 100).is_err());
+    }
+}

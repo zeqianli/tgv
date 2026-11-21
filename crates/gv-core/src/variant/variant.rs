@@ -251,3 +251,180 @@ impl VariantTable {
         })
     }
 }
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct Variant {
+    pub start: u64,
+    pub end: u64,
+    pub reference: String,
+    pub alternates: Vec<String>,
+    pub quality: Option<f32>,
+}
+
+impl VariantTable {
+    pub fn variants(
+        &self,
+        contig_index: usize,
+        start: u64,
+        end: u64,
+    ) -> Result<Vec<Variant>, Error> {
+        let rows = crate::intervals::IntervalTable::query(self, contig_index, start, end)?;
+        let starts = rows.column(VariantSchema::START)?.u64()?;
+        let ends = rows.column(VariantSchema::END)?.u64()?;
+        let references = rows.column(VariantSchema::REFERENCE)?.str()?;
+        let alternates = rows.column(VariantSchema::ALTERNATE)?.list()?;
+        let qualities = rows.column(VariantSchema::QUALITY_SCORE)?.f32()?;
+        (0..rows.height())
+            .map(|row| {
+                let alternates = match alternates.get_as_series(row) {
+                    Some(alleles) => alleles
+                        .str()?
+                        .iter()
+                        .map(|allele| {
+                            allele.map(str::to_string).ok_or(Error::NullValue {
+                                column: VariantSchema::ALTERNATE,
+                            })
+                        })
+                        .collect::<Result<Vec<_>, Error>>()?,
+                    None => Vec::new(),
+                };
+                Ok(Variant {
+                    start: starts.get(row).ok_or(Error::NullValue {
+                        column: VariantSchema::START,
+                    })?,
+                    end: ends.get(row).ok_or(Error::NullValue {
+                        column: VariantSchema::END,
+                    })?,
+                    reference: references
+                        .get(row)
+                        .ok_or(Error::NullValue {
+                            column: VariantSchema::REFERENCE,
+                        })?
+                        .to_string(),
+                    alternates,
+                    quality: qualities.get(row),
+                })
+            })
+            .collect()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use rstest::rstest;
+
+    fn alleles(values: &[Option<&str>]) -> Series {
+        Series::new("".into(), values)
+    }
+
+    fn table(references: Vec<Option<&str>>, alternates: Vec<Series>) -> VariantTable {
+        let height = references.len();
+        let data = DataFrame::new(
+            height,
+            vec![
+                Column::new(
+                    VariantSchema::CONTIG_INDEX.into(),
+                    (0..height as u64).map(|row| row / 3).collect::<Vec<_>>(),
+                ),
+                Column::new(
+                    VariantSchema::START.into(),
+                    [100u64, 101, 200, 100][..height].to_vec(),
+                ),
+                Column::new(
+                    VariantSchema::END.into(),
+                    [100u64, 103, 200, 100][..height].to_vec(),
+                ),
+                Column::new(VariantSchema::REFERENCE.into(), references),
+                Column::new(VariantSchema::ALTERNATE.into(), alternates),
+                Column::new(
+                    VariantSchema::QUALITY_SCORE.into(),
+                    [Some(30.0f32), None, Some(10.0), Some(5.0)][..height].to_vec(),
+                ),
+            ],
+        )
+        .unwrap();
+        VariantTable {
+            data,
+            ..VariantTable::default()
+        }
+    }
+
+    fn sample() -> VariantTable {
+        table(
+            vec![Some("A"), Some("AC"), Some("G"), Some("T")],
+            vec![
+                alleles(&[Some("T")]),
+                alleles(&[Some("G"), Some("C")]),
+                alleles(&[]),
+                alleles(&[Some("A")]),
+            ],
+        )
+    }
+
+    fn variant(
+        start: u64,
+        end: u64,
+        reference: &str,
+        alternates: &[&str],
+        quality: Option<f32>,
+    ) -> Variant {
+        Variant {
+            start,
+            end,
+            reference: reference.to_string(),
+            alternates: alternates.iter().map(|allele| allele.to_string()).collect(),
+            quality,
+        }
+    }
+
+    #[rstest]
+    #[case::whole_contig(0, 1, 1000, vec![
+        variant(100, 100, "A", &["T"], Some(30.0)),
+        variant(101, 103, "AC", &["G", "C"], None),
+        variant(200, 200, "G", &[], Some(10.0)),
+    ])]
+    #[case::overlap_by_end(0, 102, 150, vec![variant(101, 103, "AC", &["G", "C"], None)])]
+    #[case::single_base(0, 200, 200, vec![variant(200, 200, "G", &[], Some(10.0))])]
+    #[case::between_variants(0, 104, 199, vec![])]
+    #[case::other_contig(1, 1, 1000, vec![variant(100, 100, "T", &["A"], Some(5.0))])]
+    #[case::reversed_bounds(0, 200, 100, vec![])]
+    fn variants(
+        #[case] contig_index: usize,
+        #[case] start: u64,
+        #[case] end: u64,
+        #[case] expected: Vec<Variant>,
+    ) {
+        assert_eq!(
+            sample().variants(contig_index, start, end).unwrap(),
+            expected
+        );
+    }
+
+    #[test]
+    fn variants_reject_a_zero_start() {
+        assert!(sample().variants(0, 0, 100).is_err());
+    }
+
+    #[test]
+    fn variants_report_a_missing_reference() {
+        let table = table(vec![None], vec![alleles(&[Some("T")])]);
+        assert!(matches!(
+            table.variants(0, 1, 1000),
+            Err(Error::NullValue {
+                column: VariantSchema::REFERENCE
+            })
+        ));
+    }
+
+    #[test]
+    fn variants_report_a_missing_alternate_allele() {
+        let table = table(vec![Some("A")], vec![alleles(&[Some("T"), None])]);
+        assert!(matches!(
+            table.variants(0, 1, 1000),
+            Err(Error::NullValue {
+                column: VariantSchema::ALTERNATE
+            })
+        ));
+    }
+}

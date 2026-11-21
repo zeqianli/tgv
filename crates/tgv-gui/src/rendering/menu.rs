@@ -3,7 +3,7 @@ use crate::{
     menu::{ContextMenu, ITEM_HEIGHT},
     rendering::{
         CHAR_WIDTH, LINE_HEIGHT, TextContext,
-        colors::{MUTED_TEXT, Palette, TEXT, ToHsla},
+        colors::{MUTED_TEXT, Palette, TEXT, to_hsla},
         fill_rect,
     },
 };
@@ -33,7 +33,7 @@ fn render_level(
     window: &mut Window,
     cx: &mut App,
 ) -> Result<(), crate::Error> {
-    fill_rect(rect, palette.MENU_BACKGROUND.hsla(), window);
+    fill_rect(rect, to_hsla(palette.MENU_BACKGROUND), window);
     for (index, item) in level.items.iter().enumerate() {
         let row = Rect::new(
             rect.x,
@@ -45,7 +45,7 @@ fn render_level(
             break;
         }
         if level.hovered == Some(index) && item.enabled() {
-            fill_rect(row, palette.MENU_HOVER_BACKGROUND.hsla(), window);
+            fill_rect(row, to_hsla(palette.MENU_HOVER_BACKGROUND), window);
         }
         let foreground = if item.enabled() {
             palette.MENU_FOREGROUND
@@ -114,7 +114,7 @@ pub fn render_text_popup(
         width,
         height,
     );
-    fill_rect(rect, palette.MENU_BACKGROUND.hsla(), window);
+    fill_rect(rect, to_hsla(palette.MENU_BACKGROUND), window);
     let x = rect.x + CHAR_WIDTH;
     TextContext::default()
         .text(&popup.title)

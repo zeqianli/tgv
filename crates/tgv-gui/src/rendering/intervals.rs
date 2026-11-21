@@ -1,38 +1,30 @@
 use crate::{
     layout::{PixelView, Rect},
     rendering::{
-        LINE_HEIGHT, TextContext, colors::MUTED_TEXT, colors::Rgb, colors::ToHsla, fill_rect,
+        LINE_HEIGHT, TextContext, colors::MUTED_TEXT, colors::Rgb, colors::to_hsla, fill_rect,
     },
 };
 use gpui::{App, Window};
-use gv_core::intervals::IntervalSchema;
-use polars::prelude::DataFrame;
+use gv_core::variant::Variant;
 
 /// Simple rendering of intervals, with alternating colors.
 /// The upstream code is responsible to pass only relevant intervals to this function.
 pub fn render_simple_intervals(
     area: &Rect,
-    intervals: &DataFrame,
+    intervals: &[Variant],
     view: &PixelView,
     colors: &[Rgb],
     window: &mut Window,
-) -> Result<(), crate::Error> {
-    let starts = intervals.column(IntervalSchema::START)?.u64()?;
-    let ends = intervals.column(IntervalSchema::END)?.u64()?;
-    for (index, (start, end)) in starts
-        .into_no_null_iter()
-        .zip(ends.into_no_null_iter())
-        .enumerate()
-    {
-        if let Some((x, width)) = view.span(start, end, area) {
+) {
+    for (index, interval) in intervals.iter().enumerate() {
+        if let Some((x, width)) = view.span(interval.start, interval.end, area) {
             fill_rect(
                 Rect::new(x, area.y + 2.0, width, area.height - 4.0),
-                colors[index % colors.len()].hsla(),
+                to_hsla(colors[index % colors.len()]),
                 window,
             );
         }
     }
-    Ok(())
 }
 
 /// Says that the track isn't loaded for this view, because the view is zoomed out too far.

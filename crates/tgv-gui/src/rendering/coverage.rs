@@ -2,14 +2,13 @@ use crate::{
     layout::{PixelView, Rect},
     rendering::{
         LINE_HEIGHT, TextContext,
-        colors::{MUTED_TEXT, Palette, ToHsla},
+        colors::{MUTED_TEXT, Palette, to_hsla, to_hsla_with_alpha},
         fill_rect,
     },
 };
 use gpui::{App, Window};
-use gv_core::alignment::{CoverageSchema, CoverageTable};
-use gv_viewer::prepare::coverage::{get_linear_space, round_up_max_coverage};
-use polars::prelude::ChunkAgg;
+use gv_core::alignment::CoverageTable;
+use gv_viewer::prepare::coverage::{mean_depths, round_up_max_coverage};
 
 /// A base whose other alleles reach this fraction of its depth shows each allele's share, as in
 /// IGV.
@@ -36,44 +35,36 @@ pub fn render_coverage(
     }
     let (left, right) = view.visible(area);
     if view.pixels_per_base() >= 1.0 {
-        let table = coverage.query(left, right)?;
-        let positions = table.column(CoverageSchema::POS)?.u64()?;
-        let totals = table.column(CoverageSchema::TOTAL)?.u64()?;
-        let y_max = round_up_max_coverage(totals.max().unwrap_or(0) as usize) as f32;
-        let counts = [
-            (CoverageSchema::A, b'A', palette.COVERAGE_A),
-            (CoverageSchema::C, b'C', palette.COVERAGE_C),
-            (CoverageSchema::G, b'G', palette.COVERAGE_G),
-            (CoverageSchema::T, b'T', palette.COVERAGE_T),
-        ]
-        .into_iter()
-        .map(|(column, base, color)| Ok((table.column(column)?.u64()?.clone(), base, color)))
-        .collect::<Result<Vec<_>, crate::Error>>()?;
-        let references = table.column(CoverageSchema::REFERENCE_BASE)?.u8()?;
-        for (row, position) in positions.into_no_null_iter().enumerate() {
-            let total = totals.get(row).expect("coverage totals are non-null");
-            let Some((x, width)) = view.span(position, position, area) else {
+        let bases = coverage.bases(left, right)?;
+        let y_max =
+            round_up_max_coverage(bases.iter().map(|base| base.total).max().unwrap_or(0) as usize)
+                as f32;
+        for base in &bases {
+            let total = base.total;
+            let Some((x, width)) = view.span(base.position, base.position, area) else {
                 continue;
             };
             // Leave a gap between wide bars, so neighboring bases stay apart.
             let width = if width > 4.0 { width - 1.0 } else { width };
-            let reference = references
-                .get(row)
-                .expect("reference bases are non-null")
-                .to_ascii_uppercase();
+            let reference = base.reference.to_ascii_uppercase();
+            let counts = [
+                (b'A', base.a, palette.COVERAGE_A),
+                (b'C', base.c, palette.COVERAGE_C),
+                (b'G', base.g, palette.COVERAGE_G),
+                (b'T', base.t, palette.COVERAGE_T),
+            ];
             let alternate = counts
                 .iter()
-                .filter(|(_, base, _)| *base != reference)
-                .map(|(counts, _, _)| counts.get(row).expect("coverage counts are non-null"))
+                .filter(|(letter, _, _)| *letter != reference)
+                .map(|(_, count, _)| count)
                 .sum::<u64>();
             if total > 0 && alternate as f64 / total as f64 >= ALLELE_FREQUENCY_THRESHOLD {
                 let mut bottom = plot.bottom();
-                for (counts, _, color) in &counts {
-                    let count = counts.get(row).expect("coverage counts are non-null");
-                    let height = count as f32 / y_max * plot.height;
+                for (_, count, color) in &counts {
+                    let height = *count as f32 / y_max * plot.height;
                     fill_rect(
                         Rect::new(x, bottom - height, width, height),
-                        color.hsla(),
+                        to_hsla(*color),
                         window,
                     );
                     bottom -= height;
@@ -82,7 +73,7 @@ pub fn render_coverage(
                 let height = total as f32 / y_max * plot.height;
                 fill_rect(
                     Rect::new(x, plot.bottom() - height, width, height),
-                    palette.COVERAGE_TOTAL.alpha(0.7),
+                    to_hsla_with_alpha(palette.COVERAGE_TOTAL, 0.7),
                     window,
                 );
             }
@@ -92,37 +83,23 @@ pub fn render_coverage(
             .color(MUTED_TEXT)
             .paint(area.x + 2.0, area.y, LINE_HEIGHT, window, cx)?;
     } else {
-        let bins = get_linear_space(
+        let bins = mean_depths(
+            coverage,
             left,
             right,
             (plot.width as usize).clamp(1, (right - left + 1) as usize),
         )?;
-        let table = coverage.query(left, right)?;
-        let positions = table.column(CoverageSchema::POS)?.u64()?;
-        let totals = table.column(CoverageSchema::TOTAL)?.u64()?;
-        let mut sums = vec![0u64; bins.len()];
-        let mut bin = 0;
-        for (row, position) in positions.into_no_null_iter().enumerate() {
-            while position > bins[bin].1 {
-                bin += 1;
-            }
-            sums[bin] += totals.get(row).expect("coverage totals are non-null");
-        }
-        let depths = sums
-            .iter()
-            .zip(&bins)
-            .map(|(sum, (start, end))| *sum as f32 / (end - start + 1) as f32)
-            .collect::<Vec<_>>();
-        let y_max = round_up_max_coverage(depths.iter().copied().fold(0.0, f32::max).ceil() as usize)
-            as f32;
-        for (depth, (start, end)) in depths.iter().zip(&bins) {
-            let Some((x, width)) = view.span(*start, *end, area) else {
+        let y_max = round_up_max_coverage(
+            bins.iter().map(|bin| bin.depth).fold(0.0, f32::max).ceil() as usize,
+        ) as f32;
+        for bin in &bins {
+            let Some((x, width)) = view.span(bin.start, bin.end, area) else {
                 continue;
             };
-            let height = depth / y_max * plot.height;
+            let height = bin.depth / y_max * plot.height;
             fill_rect(
                 Rect::new(x, plot.bottom() - height, width, height),
-                palette.COVERAGE_TOTAL.alpha(0.7),
+                to_hsla_with_alpha(palette.COVERAGE_TOTAL, 0.7),
                 window,
             );
         }

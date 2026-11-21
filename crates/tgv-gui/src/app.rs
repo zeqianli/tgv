@@ -39,10 +39,7 @@ use std::{
 };
 use tokio::sync::mpsc::{UnboundedReceiver, unbounded_channel};
 
-/// How long the window waits for the worker before it says that it is loading.
 const LOADING_NOTICE_DELAY: Duration = Duration::from_millis(150);
-
-/// How long the drop indicator takes to fade in.
 const DROP_FADE_IN: Duration = Duration::from_millis(120);
 
 /// The gap where dragged files will go, drawn while files are dragged over the window. It

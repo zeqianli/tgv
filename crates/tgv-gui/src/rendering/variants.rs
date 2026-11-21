@@ -6,7 +6,7 @@ use crate::{
     },
 };
 use gpui::{App, Window};
-use gv_core::{prelude::*, variant::VariantTable};
+use gv_core::variant::VariantTable;
 
 pub fn render_variants(
     area: &Rect,
@@ -21,8 +21,9 @@ pub fn render_variants(
         render_zoom_in_notice(area, "variants", window, cx)?;
         return Ok(());
     }
-    let rows = variants.query(region.contig_index(), region.start(), region.end())?;
+    let variants = variants.variants(region.contig_index(), region.start(), region.end())?;
     // Colors alternate by on-screen order, because row IDs of indexed files change between
     // loads.
-    render_simple_intervals(area, &rows, view, &[palette.VCF1, palette.VCF2], window)
+    render_simple_intervals(area, &variants, view, &[palette.VCF1, palette.VCF2], window);
+    Ok(())
 }

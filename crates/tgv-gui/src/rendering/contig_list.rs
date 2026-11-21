@@ -2,7 +2,7 @@ use crate::{
     layout::Rect,
     rendering::{
         CHAR_WIDTH, LINE_HEIGHT, TextContext,
-        colors::{MUTED_TEXT, Palette, TEXT, ToHsla},
+        colors::{MUTED_TEXT, Palette, TEXT, to_hsla, to_hsla_with_alpha},
         fill_rect,
     },
 };
@@ -23,7 +23,7 @@ pub fn render_contig_list(
     window: &mut Window,
     cx: &mut App,
 ) -> Result<(), crate::Error> {
-    fill_rect(*area, palette.background.hsla(), window);
+    fill_rect(*area, to_hsla(palette.background), window);
     TextContext::default()
         .text(&state.reference.to_string())
         .color(TEXT)
@@ -47,7 +47,7 @@ pub fn render_contig_list(
     let middle = area.y + (area.height / 2.0 / ROW_HEIGHT).floor() * ROW_HEIGHT;
     fill_rect(
         Rect::new(area.x, middle, area.width, ROW_HEIGHT),
-        palette.HIGHLIGHT_COLOR.alpha(0.6),
+        to_hsla_with_alpha(palette.HIGHLIGHT_COLOR, 0.6),
         window,
     );
     let first_row = area.y + ROW_HEIGHT;
@@ -70,7 +70,7 @@ pub fn render_contig_list(
                     width,
                     BAR_HEIGHT,
                 ),
-                palette.GENE_BACKGROUND_COLOR.hsla(),
+                to_hsla(palette.GENE_BACKGROUND_COLOR),
                 window,
             );
             TextContext::default()

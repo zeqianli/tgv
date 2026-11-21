@@ -3,7 +3,7 @@ use crate::{
     mouse::MouseState,
     rendering::{
         CHAR_WIDTH, LINE_HEIGHT, TextContext, TrackFocus,
-        colors::{MUTED_TEXT, Palette, SEPARATOR, TEXT, ToHsla},
+        colors::{MUTED_TEXT, Palette, SEPARATOR, TEXT, to_hsla},
         fill_rect,
     },
     worker::Frame,
@@ -60,7 +60,7 @@ pub fn render_sidebar(
             _ => false,
         };
         if focused {
-            fill_rect(*section, fill.hsla(), window);
+            fill_rect(*section, to_hsla(fill), window);
         }
         if matches!(
             area_type,
@@ -68,7 +68,7 @@ pub fn render_sidebar(
         ) {
             fill_rect(
                 Rect::new(section.x, section.bottom() - 1.0, section.width, 1.0),
-                SEPARATOR.hsla(),
+                to_hsla(SEPARATOR),
                 window,
             );
         }
@@ -197,6 +197,6 @@ pub fn render_sidebar(
     } else {
         SEPARATOR
     };
-    fill_rect(layout.sidebar_divider_area, divider.hsla(), window);
+    fill_rect(layout.sidebar_divider_area, to_hsla(divider), window);
     Ok(())
 }

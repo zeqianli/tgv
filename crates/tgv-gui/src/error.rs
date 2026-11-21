@@ -1,6 +1,5 @@
 //! Errors from drawing the window and starting the app.
 
-use polars::prelude::PolarsError;
 use std::path::PathBuf;
 
 #[derive(Debug, thiserror::Error)]
@@ -26,10 +25,4 @@ pub enum Error {
 
     #[error(transparent)]
     Core(#[from] gv_core::Error),
-}
-
-impl From<PolarsError> for Error {
-    fn from(error: PolarsError) -> Self {
-        Self::Core(error.into())
-    }
 }

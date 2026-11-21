@@ -19,7 +19,6 @@ gv-core.workspace = true
 gv-session.workspace = true
 gv-viewer.workspace = true
 log.workspace = true
-polars.workspace = true
 shellexpand.workspace = true
 thiserror.workspace = true
 tokio.workspace = true

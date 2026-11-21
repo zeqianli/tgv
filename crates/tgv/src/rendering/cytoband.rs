@@ -1,11 +1,10 @@
 use crate::layout::CellView;
 use crate::rendering::colors::ToColor;
 use gv_core::{
-    cytoband::{CytobandSchema, Stain},
+    cytoband::{Cytoband, Stain},
     prelude::*,
 };
 use gv_viewer::prepare::coordinate::get_abbreviated_length_string;
-use polars::prelude::{ChunkAgg, DataFrame};
 
 use crate::{
     layout::{AlignmentView, linear_scale},
@@ -54,10 +53,8 @@ pub fn render_cytobands(
     }
 
     // Cytoband
-    let bands = state
-        .cytobands
-        .query(alignment_view.focus.contig_index, 1, u64::MAX)?;
-    if bands.height() > 0 {
+    let bands = state.cytobands.bands(alignment_view.focus.contig_index)?;
+    if !bands.is_empty() {
         for (x, string, style) in get_cytoband_xs_strings_and_styles(
             &bands,
             cytoband_left_spacing,
@@ -104,28 +101,20 @@ pub fn render_cytobands(
 
 /// Lays out one contig's bands, scaled to the end of its last band.
 fn get_cytoband_xs_strings_and_styles(
-    bands: &DataFrame,
+    bands: &[Cytoband],
     area_start: u16,
     area_end: u16,
     palette: &Palette,
 ) -> Result<Vec<(u16, String, Style)>, crate::Error> {
-    let starts = bands.column(CytobandSchema::START)?.u64()?;
-    let ends = bands.column(CytobandSchema::END)?.u64()?;
-    let stains = bands.column(CytobandSchema::STAIN)?.str()?;
-    let total_length = ends.max().unwrap_or(0);
+    let total_length = bands.iter().map(|band| band.end).max().unwrap_or(0);
 
     let mut second_centromere = false;
     let mut output = Vec::new();
-    for ((start, end), stain) in starts
-        .into_no_null_iter()
-        .zip(ends.into_no_null_iter())
-        .zip(stains.iter().map(Option::unwrap_or_default))
-    {
-        let stain = Stain::try_from(stain)?;
+    for band in bands {
         if let Some((x, string, style)) = get_cytoband_segment_x_string_and_style(
-            start,
-            end,
-            &stain,
+            band.start,
+            band.end,
+            &band.stain,
             total_length,
             area_start,
             area_end,
@@ -135,7 +124,7 @@ fn get_cytoband_xs_strings_and_styles(
             output.push((x, string, style));
         }
 
-        if stain == Stain::Acen {
+        if band.stain == Stain::Acen {
             second_centromere = true;
         }
     }

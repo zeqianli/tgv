@@ -87,6 +87,9 @@ pub enum Error {
     #[error("an Interval must have a Range with a positive width")]
     InvalidRange,
 
+    #[error("The {column} column has a missing value")]
+    NullValue { column: &'static str },
+
     #[error("Invalid noodles position: {0}")]
     NoodlesPositionError(#[from] noodles::core::position::TryFromIntError),
 

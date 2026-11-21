@@ -4,7 +4,7 @@
 use crate::{
     layout::{ALIGNMENT_ROW_HEIGHT, PixelView, Rect},
     rendering::{
-        colors::{Palette, Rgb, ToHsla},
+        colors::{Palette, READ_BASE_LETTER, Rgb, to_hsla, to_hsla_with_alpha},
         fill_polygon, fill_rect, paint_letter,
         sequence::MIN_PIXELS_PER_LETTER,
     },
@@ -47,7 +47,7 @@ pub fn render_alignment(
         if let Some(rect) = span(gap) {
             fill_rect(
                 Rect::new(rect.x, rect.y + height / 2.0 - 0.5, rect.width, 1.0),
-                palette.PAIRGAP_COLOR.hsla(),
+                to_hsla(palette.PAIRGAP_COLOR),
                 window,
             );
         }
@@ -61,7 +61,7 @@ pub fn render_alignment(
             } else {
                 palette.MATCH_COLOR
             };
-            fill_rect(rect, color.hsla(), window);
+            fill_rect(rect, to_hsla(color), window);
         }
     }
     for run in &scene.soft_clips {
@@ -80,10 +80,10 @@ pub fn render_alignment(
     // 2. Draw the deletions and reference skips as a line through the gap.
     for deletion in &scene.deletions {
         if let Some(rect) = span(deletion) {
-            fill_rect(rect, palette.background.hsla(), window);
+            fill_rect(rect, to_hsla(palette.background), window);
             fill_rect(
                 Rect::new(rect.x, rect.y + height / 2.0 - 0.5, rect.width, 1.0),
-                palette.DELETION_COLOR.hsla(),
+                to_hsla(palette.DELETION_COLOR),
                 window,
             );
         }
@@ -93,7 +93,7 @@ pub fn render_alignment(
     let arrow_width = ARROW_WIDTH.min(view.pixels_per_base().max(2.0));
     for arrow in &scene.arrows {
         let y = row_top(arrow.y);
-        let color = palette.MATCH_COLOR.hsla();
+        let color = to_hsla(palette.MATCH_COLOR);
         if arrow.reverse {
             let x = view.x(arrow.position, area);
             fill_polygon(
@@ -117,7 +117,7 @@ pub fn render_alignment(
         if x >= area.x && x < area.right() {
             fill_rect(
                 Rect::new(x - 1.0, row_top(insertion.y), 2.0, height),
-                palette.INSERTION_COLOR.hsla(),
+                to_hsla(palette.INSERTION_COLOR),
                 window,
             );
         }
@@ -155,9 +155,11 @@ pub fn render_alignment(
         if let Some((x, width)) = view.span(modification.position, modification.position, area) {
             fill_rect(
                 Rect::new(x, row_top(modification.y), width, height),
-                palette
-                    .modification_color(&modification.modification, modification.probability)
-                    .alpha(0.85),
+                to_hsla_with_alpha(
+                    palette
+                        .modification_color(&modification.modification, modification.probability),
+                    0.85,
+                ),
                 window,
             );
         }
@@ -213,7 +215,11 @@ fn draw_bases(
         while x < last {
             let position = view.position_at(x, area).clamp(start, end);
             let (color, alpha) = color(run.base_at(position), run.quality_at(position));
-            fill_rect(Rect::new(x, y, 1.0, height), color.alpha(alpha), window);
+            fill_rect(
+                Rect::new(x, y, 1.0, height),
+                to_hsla_with_alpha(color, alpha),
+                window,
+            );
             x += 1.0;
         }
     }
@@ -236,12 +242,16 @@ fn draw_base(
     let Some((x, width)) = view.span(position, position, area) else {
         return Ok(());
     };
-    fill_rect(Rect::new(x, y, width, height), color.alpha(alpha), window);
+    fill_rect(
+        Rect::new(x, y, width, height),
+        to_hsla_with_alpha(color, alpha),
+        window,
+    );
     if view.pixels_per_base() >= MIN_PIXELS_PER_LETTER {
         paint_letter(
             Rect::new(x, y, width, height),
             base as char,
-            Rgb::from_u32(0x111111),
+            READ_BASE_LETTER,
             window,
             cx,
         )?;

@@ -2,15 +2,12 @@ use crate::{
     layout::Rect,
     rendering::{
         LINE_HEIGHT, TextContext, TrackFocus,
-        colors::{MUTED_TEXT, Palette, Rgb, TEXT, ToHsla},
+        colors::{CURSOR_COLOR, MUTED_TEXT, Palette, TEXT, to_hsla},
         fill_rect,
     },
 };
 use gpui::{App, Window};
 use gv_viewer::register::{KeyRegisterType, Registers};
-
-/// The command line's cursor.
-const CURSOR_COLOR: Rgb = Rgb::from_u32(0xcd3131);
 
 /// Render the command line for command (`:`) and search (`/`) mode.
 pub fn render_console(
@@ -45,7 +42,7 @@ pub fn render_console(
         .max(6.0);
     fill_rect(
         Rect::new(cursor_x, y, cursor_width, LINE_HEIGHT),
-        CURSOR_COLOR.hsla(),
+        to_hsla(CURSOR_COLOR),
         window,
     );
     TextContext::default()

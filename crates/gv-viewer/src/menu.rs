@@ -5,11 +5,10 @@
 
 use crate::message::{Action, AlignmentOptionUpdate, TrackAction, UiAction, UpdateLayoutAction};
 use gv_core::{
-    alignment::{Alignment, CoverageSchema},
+    alignment::{Alignment, BaseCoverage},
     message::{AlignmentDisplayOption, AlignmentFilter, AlignmentSort},
     prelude::*,
 };
-use polars::prelude::ChunkAgg;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum MenuItem {
@@ -151,21 +150,25 @@ pub fn alignment_items(
     let filter_label = format!("Filter by base{at}");
     items.push(match position {
         Some(position) => {
-            let coverage = alignment.coverage.query(position, position)?;
+            let bases = alignment.coverage.bases(position, position)?;
             let mut counts = Vec::new();
-            for (column, label, filter) in [
-                (CoverageSchema::A, "A", AlignmentFilter::Base(position, 'A')),
-                (CoverageSchema::C, "C", AlignmentFilter::Base(position, 'C')),
-                (CoverageSchema::G, "G", AlignmentFilter::Base(position, 'G')),
-                (CoverageSchema::T, "T", AlignmentFilter::Base(position, 'T')),
-                (CoverageSchema::N, "N", AlignmentFilter::Base(position, 'N')),
+            for (count, label, filter) in [
                 (
-                    CoverageSchema::SOFTCLIP,
+                    (|base| base.a) as fn(&BaseCoverage) -> u64,
+                    "A",
+                    AlignmentFilter::Base(position, 'A'),
+                ),
+                (|base| base.c, "C", AlignmentFilter::Base(position, 'C')),
+                (|base| base.g, "G", AlignmentFilter::Base(position, 'G')),
+                (|base| base.t, "T", AlignmentFilter::Base(position, 'T')),
+                (|base| base.n, "N", AlignmentFilter::Base(position, 'N')),
+                (
+                    |base| base.softclip,
                     "Soft clip",
                     AlignmentFilter::BaseSoftclip(position),
                 ),
             ] {
-                let count = coverage.column(column)?.u64()?.sum().unwrap_or(0);
+                let count = bases.iter().map(count).sum::<u64>();
                 if count > 0 {
                     counts.push((count, label, filter));
                 }

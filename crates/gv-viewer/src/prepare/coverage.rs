@@ -1,6 +1,6 @@
 //! Coverage binned to screen units, and the scale of its y-axis.
 
-use gv_core::alignment::{CoverageSchema, CoverageTable};
+use gv_core::alignment::CoverageTable;
 
 const MAX_DISPLAY_ALLELE_FREQUENCY_RECIPROCOL: u64 = 100;
 
@@ -82,32 +82,19 @@ pub fn calculate_binned_coverage(
     n_bins: usize,
 ) -> Result<Vec<Vec<usize>>, crate::Error> {
     let linear_space = get_linear_space(left, right, n_bins)?;
-    let table = coverage.query(left, right)?;
-    let positions = table.column(CoverageSchema::POS)?.u64()?;
-    let totals = table.column(CoverageSchema::TOTAL)?.u64()?;
-    let a = table.column(CoverageSchema::A)?.u64()?;
-    let t = table.column(CoverageSchema::T)?.u64()?;
-    let c = table.column(CoverageSchema::C)?.u64()?;
-    let reference_bases = table.column(CoverageSchema::REFERENCE_BASE)?.u8()?;
     let mut output = vec![vec![0; n_bins]; 2];
     let single_base_bins = right - left + 1 == n_bins as u64;
     let mut bin = 0;
-    for (row, position) in positions.into_no_null_iter().enumerate() {
-        while position > linear_space[bin].1 {
+    for base in coverage.bases(left, right)? {
+        while base.position > linear_space[bin].1 {
             bin += 1;
         }
-        let total = totals.get(row).expect("coverage totals are non-null");
+        let total = base.total;
         let alt = if single_base_bins && total > 0 {
-            let reference = reference_bases
-                .get(row)
-                .expect("reference bases are non-null");
-            let a = a.get(row).expect("coverage counts are non-null");
-            let t = t.get(row).expect("coverage counts are non-null");
-            let c = c.get(row).expect("coverage counts are non-null");
-            let depth = match reference {
-                b'A' | b'a' | b'G' | b'g' => c.max(t),
-                b'T' | b't' => a.max(c),
-                b'C' | b'c' => a.max(t),
+            let depth = match base.reference {
+                b'A' | b'a' | b'G' | b'g' => base.c.max(base.t),
+                b'T' | b't' => base.a.max(base.c),
+                b'C' | b'c' => base.a.max(base.t),
                 _ => 0,
             };
             if depth * MAX_DISPLAY_ALLELE_FREQUENCY_RECIPROCOL > total {
@@ -123,6 +110,39 @@ pub fn calculate_binned_coverage(
     }
 
     Ok(output)
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct DepthBin {
+    pub start: u64,
+    pub end: u64,
+    pub depth: f32,
+}
+
+pub fn mean_depths(
+    coverage: &CoverageTable,
+    left: u64,
+    right: u64,
+    n_bins: usize,
+) -> Result<Vec<DepthBin>, crate::Error> {
+    let bins = get_linear_space(left, right, n_bins)?;
+    let mut sums = vec![0u64; bins.len()];
+    let mut bin = 0;
+    for base in coverage.bases(left, right)? {
+        while base.position > bins[bin].1 {
+            bin += 1;
+        }
+        sums[bin] += base.total;
+    }
+    Ok(sums
+        .iter()
+        .zip(&bins)
+        .map(|(sum, &(start, end))| DepthBin {
+            start,
+            end,
+            depth: *sum as f32 / (end - start + 1) as f32,
+        })
+        .collect())
 }
 
 #[cfg(test)]

@@ -26,7 +26,6 @@ shellexpand.workspace = true
 shlex.workspace = true
 thiserror.workspace = true
 tokio.workspace = true
-polars.workspace = true
 unicode-width.workspace = true
 
 [[bench]]
@@ -37,6 +36,7 @@ harness = false
 
 [dev-dependencies]
 insta = "1.42"
+polars.workspace = true
 rstest = "0.25.0"
 serde_json.workspace = true
 tempfile = "3"

@@ -1,7 +1,7 @@
 use crate::{
     layout::{PixelView, Rect},
     rendering::{
-        colors::{Palette, ToHsla},
+        colors::{Palette, to_hsla},
         fill_rect, paint_letter,
     },
 };
@@ -32,7 +32,7 @@ pub fn render_sequence(
                 continue;
             };
             let rect = Rect::new(x, area.y, width, area.height);
-            fill_rect(rect, palette.base_color(base).hsla(), window);
+            fill_rect(rect, to_hsla(palette.base_color(base)), window);
             if ppb >= MIN_PIXELS_PER_LETTER {
                 paint_letter(
                     rect,
@@ -49,7 +49,7 @@ pub fn render_sequence(
             if let Some(base) = state.sequence.base_at(view.position_at(x, area)) {
                 fill_rect(
                     Rect::new(x, area.y, 1.0, area.height),
-                    palette.base_color(base).hsla(),
+                    to_hsla(palette.base_color(base)),
                     window,
                 );
             }

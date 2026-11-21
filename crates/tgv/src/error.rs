@@ -1,6 +1,5 @@
 //! Errors from the terminal UI and the `tgv` command line.
 
-use polars::prelude::PolarsError;
 use std::path::PathBuf;
 
 #[derive(Debug, thiserror::Error)]
@@ -38,14 +37,6 @@ pub enum Error {
 
     #[error(transparent)]
     Core(#[from] gv_core::Error),
-}
-
-// Rendering reads DataFrame columns, and the terminal setup writes escape codes, with `?`, which
-// used to convert through `gv_core::Error`.
-impl From<PolarsError> for Error {
-    fn from(error: PolarsError) -> Self {
-        Self::Core(error.into())
-    }
 }
 
 impl From<std::string::FromUtf8Error> for Error {

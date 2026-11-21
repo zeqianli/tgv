@@ -2,7 +2,7 @@ use crate::{
     layout::{PixelView, Rect},
     rendering::{
         LINE_HEIGHT, TextContext,
-        colors::{MUTED_TEXT, TEXT, ToHsla},
+        colors::{MUTED_TEXT, TEXT, to_hsla},
         fill_rect,
     },
 };
@@ -32,7 +32,7 @@ pub fn render_coordinates(
 
     fill_rect(
         Rect::new(area.x, area.bottom() - 1.0, area.width, 1.0),
-        MUTED_TEXT.hsla(),
+        to_hsla(MUTED_TEXT),
         window,
     );
     let mut pivot = (left / intermarker_distance + 1) * intermarker_distance;
@@ -41,7 +41,7 @@ pub fn render_coordinates(
         let x = view.x(pivot, area) + view.pixels_per_base() / 2.0;
         fill_rect(
             Rect::new(x.round(), area.bottom() - TICK_HEIGHT, 1.0, TICK_HEIGHT),
-            MUTED_TEXT.hsla(),
+            to_hsla(MUTED_TEXT),
             window,
         );
         let text = get_abbreviated_coordinate_text(pivot, power);

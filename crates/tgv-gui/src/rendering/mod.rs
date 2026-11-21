@@ -32,7 +32,7 @@ use crate::{
     mouse::MouseState,
     worker::Frame,
 };
-use colors::{Palette, Rgb, ToHsla};
+use colors::{Palette, Rgb, to_hsla, to_hsla_with_alpha};
 use gpui::{
     App, Bounds, ContentMask, Font, SharedString, TextAlign, TextRun, Window, point, px, size,
 };
@@ -101,7 +101,7 @@ impl TextContext {
 
     #[must_use]
     pub fn color(mut self, color: Rgb) -> Self {
-        self.color = color.hsla();
+        self.color = to_hsla(color);
         self
     }
 
@@ -256,17 +256,8 @@ pub fn render_main(
     window: &mut Window,
     cx: &mut App,
 ) -> Result<(), crate::Error> {
-    fill_rect(layout.window, palette.background.hsla(), window);
-    sidebar::render_sidebar(
-        frame,
-        layout,
-        view,
-        mouse_state,
-        focus,
-        palette,
-        window,
-        cx,
-    )?;
+    fill_rect(layout.window, to_hsla(palette.background), window);
+    sidebar::render_sidebar(frame, layout, view, mouse_state, focus, palette, window, cx)?;
 
     let state = &frame.state;
     let zoom = view.viewport.zoom;
@@ -328,7 +319,7 @@ pub fn render_main(
                     };
                     fill_rect(
                         Rect::new(rect.x, rect.y + rect.height / 2.0 - 1.0, rect.width, 2.0),
-                        color.hsla(),
+                        to_hsla(color),
                         window,
                     );
                 }
@@ -380,7 +371,7 @@ pub fn render_main(
                     {
                         fill_rect(
                             Rect::new(x, rect.y, width, rect.height),
-                            palette.MODE_INSERT.alpha(0.55),
+                            to_hsla_with_alpha(palette.MODE_INSERT, 0.55),
                             window,
                         );
                     }
@@ -413,12 +404,12 @@ fn render_drop_gap(
     let color = palette.DROP_TARGET;
     fill_rect(
         Rect::new(layout.window.x, gap.y - 6.0, layout.window.width, 12.0),
-        color.alpha(0.18 * gap.alpha),
+        to_hsla_with_alpha(color, 0.18 * gap.alpha),
         window,
     );
     fill_rect(
         Rect::new(layout.window.x, gap.y - 1.5, layout.window.width, 3.0),
-        color.alpha(gap.alpha),
+        to_hsla_with_alpha(color, gap.alpha),
         window,
     );
     let note = TextContext::default()
@@ -431,7 +422,7 @@ fn render_drop_gap(
         width,
         LINE_HEIGHT + 4.0,
     );
-    fill_rect(note_area, color.alpha(gap.alpha), window);
+    fill_rect(note_area, to_hsla_with_alpha(color, gap.alpha), window);
     note.paint(
         note_area.x + CHAR_WIDTH,
         note_area.y + 2.0,

@@ -2,7 +2,7 @@ use crate::{
     layout::{PixelView, Rect},
     rendering::{
         LINE_HEIGHT, TextContext,
-        colors::{Palette, TEXT, ToHsla},
+        colors::{Palette, TEXT, to_hsla},
         fill_rect,
     },
 };
@@ -43,7 +43,7 @@ pub fn render_track(
         if gene_width <= MIN_GENE_ON_SCREEN_WIDTH_TO_SHOW_EXONS || !gene.has_exons {
             fill_rect(
                 Rect::new(gene_x, middle - GENE_HEIGHT / 2.0, gene_width, GENE_HEIGHT),
-                palette.GENE_BACKGROUND_COLOR.hsla(),
+                to_hsla(palette.GENE_BACKGROUND_COLOR),
                 window,
             );
             labels.push((gene_x + gene_width / 2.0, gene.name.clone()));
@@ -62,7 +62,7 @@ pub fn render_track(
                         SegmentKind::Intron => {
                             fill_rect(
                                 Rect::new(x, middle - 0.5, width, 1.0),
-                                palette.INTRON_FOREGROUND_COLOR.hsla(),
+                                to_hsla(palette.INTRON_FOREGROUND_COLOR),
                                 window,
                             );
                             let mut chevron_x = x + CHEVRON_SPACING / 2.0;
@@ -88,7 +88,7 @@ pub fn render_track(
                                     width,
                                     NONCODING_EXON_HEIGHT,
                                 ),
-                                palette.NON_CDS_EXON_BACKGROUND_COLOR.hsla(),
+                                to_hsla(palette.NON_CDS_EXON_BACKGROUND_COLOR),
                                 window,
                             );
                             labels.push((x + width / 2.0, gene.name.clone()));
@@ -96,7 +96,7 @@ pub fn render_track(
                         SegmentKind::CodingExon => {
                             fill_rect(
                                 Rect::new(x, middle - EXON_HEIGHT / 2.0, width, EXON_HEIGHT),
-                                palette.EXON_BACKGROUND_COLOR.hsla(),
+                                to_hsla(palette.EXON_BACKGROUND_COLOR),
                                 window,
                             );
                             labels.push((

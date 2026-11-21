@@ -2,16 +2,13 @@ use crate::{
     layout::{PixelView, Rect},
     rendering::{
         LINE_HEIGHT, TextContext,
-        colors::{Palette, TEXT, ToHsla},
+        colors::{Palette, TEXT, to_hsla},
         fill_rect,
         intervals::render_zoom_in_notice,
     },
 };
 use gpui::{App, Window};
-use gv_core::{
-    bed::{BedSchema, BedTable},
-    prelude::*,
-};
+use gv_core::{bed::BedTable, strand::Strand};
 
 /// The space between strand chevrons in a feature.
 const CHEVRON_SPACING: f32 = 24.0;
@@ -30,29 +27,24 @@ pub fn render_bed(
         render_zoom_in_notice(area, "BED features", window, cx)?;
         return Ok(());
     }
-    let rows = bed.query(region.contig_index(), region.start(), region.end())?;
-    let starts = rows.column(BedSchema::START)?.u64()?;
-    let ends = rows.column(BedSchema::END)?.u64()?;
-    let names = rows.column(BedSchema::NAME)?.str()?;
-    let strands = rows.column(BedSchema::STRAND)?.str()?;
     let colors = [palette.BED1, palette.BED2];
     let text_y = area.y + (area.height - LINE_HEIGHT) / 2.0;
-    for row in 0..rows.height() {
-        let Some((x, width)) = view.span(
-            starts.get(row).expect("BED starts are non-null"),
-            ends.get(row).expect("BED ends are non-null"),
-            area,
-        ) else {
+    for (row, feature) in bed
+        .features(region.contig_index(), region.start(), region.end())?
+        .iter()
+        .enumerate()
+    {
+        let Some((x, width)) = view.span(feature.start, feature.end, area) else {
             continue;
         };
         // Colors alternate by on-screen order, because row IDs of indexed files change between
         // loads.
         fill_rect(
             Rect::new(x, area.y + 2.0, width, area.height - 4.0),
-            colors[row % 2].hsla(),
+            to_hsla(colors[row % 2]),
             window,
         );
-        let name = names.get(row).filter(|name| !name.is_empty());
+        let name = feature.name.as_deref();
         let name_width = name.map_or(0.0, |name| TextContext::default().text(name).width(window));
         if let Some(name) = name
             && name_width + 8.0 <= width
@@ -64,10 +56,10 @@ pub fn render_bed(
                 window,
                 cx,
             )?;
-        } else if let Some(chevron) = match strands.get(row) {
-            Some("+") => Some("›"),
-            Some("-") => Some("‹"),
-            _ => None,
+        } else if let Some(chevron) = match feature.strand {
+            Some(Strand::Forward) => Some("›"),
+            Some(Strand::Reverse) => Some("‹"),
+            None => None,
         } {
             let mut chevron_x = x + CHEVRON_SPACING / 2.0;
             while chevron_x + 4.0 < x + width {

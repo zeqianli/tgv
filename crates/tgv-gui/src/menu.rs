@@ -24,7 +24,6 @@ impl ContextMenu {
         }
     }
 
-    /// Translates pointer motion while the menu is open.
     pub fn handle_mouse_move(&mut self, x: f32, y: f32) -> Vec<Action> {
         if !self.menu.hover(self.hit(x, y)) {
             return Vec::new();
@@ -49,7 +48,6 @@ impl ContextMenu {
         vec![UiAction::ContextMenuChanged.into()]
     }
 
-    /// Translates a click while the menu is open.
     pub fn handle_mouse_down(&mut self, x: f32, y: f32) -> Vec<Action> {
         self.menu.click(self.hit(x, y))
     }
@@ -70,12 +68,10 @@ impl ContextMenu {
     }
 }
 
-/// Places the panel's top-left corner at `(x, y)`, shifted to fit within `bounds`.
 fn place(items: &[MenuItem], x: f32, y: f32, bounds: Rect) -> Rect {
-    // Padding on each side, plus room for the submenu marker.
     let width = (items
         .iter()
-        .map(|item| item.label().chars().count() + 4)
+        .map(|item| item.label().chars().count() + 4) // Padding on each side, plus room for the submenu marker.
         .max()
         .unwrap_or(0) as f32
         * CHAR_WIDTH)

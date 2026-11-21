@@ -2,17 +2,13 @@ use crate::{
     layout::{PixelView, Rect},
     rendering::{
         LINE_HEIGHT, TextContext,
-        colors::{Palette, TEXT, ToHsla},
+        colors::{Palette, TEXT, to_hsla},
         fill_rect,
     },
 };
 use gpui::{App, Window};
-use gv_core::{
-    cytoband::{CytobandSchema, Stain},
-    prelude::*,
-};
+use gv_core::{cytoband::Stain, prelude::*};
 use gv_viewer::prepare::coordinate::get_abbreviated_length_string;
-use polars::prelude::ChunkAgg;
 
 /// Pixels right of the cytoband for the contig length label.
 pub(crate) const CYTOBAND_TEXT_RIGHT_SPACING: f32 = 64.0;
@@ -52,32 +48,26 @@ pub fn render_cytobands(
             cx,
         )?;
 
-    let bands = state
-        .cytobands
-        .query(view.viewport.focus.contig_index, 1, u64::MAX)?;
-    if bands.height() > 0 {
-        let starts = bands.column(CytobandSchema::START)?.u64()?;
-        let ends = bands.column(CytobandSchema::END)?.u64()?;
-        let stains = bands.column(CytobandSchema::STAIN)?.str()?;
-        let total_length = ends.max().unwrap_or(0).max(1) as f32;
-        for ((start, end), stain) in starts
-            .into_no_null_iter()
-            .zip(ends.into_no_null_iter())
-            .zip(stains.iter().map(Option::unwrap_or_default))
-        {
-            let stain = Stain::try_from(stain)?;
-            let left = bar.x + (start - 1) as f32 / total_length * bar.width;
-            let right = bar.x + end as f32 / total_length * bar.width;
+    let bands = state.cytobands.bands(view.viewport.focus.contig_index)?;
+    if !bands.is_empty() {
+        let total_length = bands.iter().map(|band| band.end).max().unwrap_or(0).max(1) as f32;
+        for band in &bands {
+            let left = bar.x + (band.start - 1) as f32 / total_length * bar.width;
+            let right = bar.x + band.end as f32 / total_length * bar.width;
             // The centromere is drawn pinched, as ideograms show it.
-            let band = if stain == Stain::Acen {
+            let rect = if band.stain == Stain::Acen {
                 Rect::new(left, bar.y + 3.0, right - left, bar.height - 6.0)
             } else {
                 Rect::new(left, bar.y, right - left, bar.height)
             };
-            fill_rect(band, palette.cytoband_color(stain).hsla(), window);
+            fill_rect(
+                rect,
+                to_hsla(palette.cytoband_color(band.stain.clone())),
+                window,
+            );
         }
     } else {
-        fill_rect(bar, palette.OTHER_COLOR.hsla(), window);
+        fill_rect(bar, to_hsla(palette.OTHER_COLOR), window);
     }
 
     // Box the current viewing window.
@@ -87,7 +77,7 @@ pub fn render_cytobands(
         scale(left.saturating_sub(1)),
         scale(right).max(scale(left) + 2.0),
     );
-    let color = palette.HIGHLIGHT_COLOR.hsla();
+    let color = to_hsla(palette.HIGHLIGHT_COLOR);
     let (top, bottom) = (bar.y - 3.0, bar.bottom() + 3.0);
     fill_rect(Rect::new(left, top, right - left, 2.0), color, window);
     fill_rect(
