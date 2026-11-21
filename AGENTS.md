@@ -12,10 +12,7 @@
 - Test comprehensively, including edge cases, race conditions, and stress tests.
 - Pay attention to what facilities already exist for testing, and aim to reuse them.
 - Getting the details right is really important!
-- Use inline comments to explain "why," not just "what".
-- Don't add narrative comments in function bodies. Only add a comment if what you're doing is non-obvious or special in some way, or if something needs a deeper "why" explanation.
-- Module-level documentation should explain purpose and responsibilities.
-- **Always** use periods at the end of code comments.
+- **Never** write comments in code. This includes `//` comments, doc comments (`///` and `//!`), and module-level documentation.
 - **Never** use title case in headings and titles. Always use sentence case.
 - Always use the Oxford comma.
 - Don't omit articles ("a", "an", "the"). Write "the file has a newer version" not "file has newer version".

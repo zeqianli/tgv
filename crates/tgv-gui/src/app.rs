@@ -13,7 +13,7 @@ use crate::{
     layout::{DropTarget, MainLayout, PixelView, Rect, ResolvedMainLayout},
     menu::ContextMenu,
     message::GuiAction,
-    mouse::{MouseButton, MouseRegister, zoom_step},
+    mouse::{MouseRegister, zoom_step},
     pinch::{Pinch, PinchMonitor},
     rendering::{
         self, DropGap, Status, TextContext, TrackFocus,
@@ -437,12 +437,7 @@ impl App {
         }
     }
 
-    fn on_mouse_down(
-        &mut self,
-        button: MouseButton,
-        event: &MouseDownEvent,
-        cx: &mut Context<Self>,
-    ) {
+    fn on_mouse_down(&mut self, event: &MouseDownEvent, cx: &mut Context<Self>) {
         let (x, y) = (f32::from(event.position.x), f32::from(event.position.y));
         if self.popup.is_some() {
             // A click closes the popup, which blocks all other input.
@@ -464,17 +459,25 @@ impl App {
         if frame.scene != Scene::Main {
             return;
         }
-        match self.mouse_register.handle_mouse_down(
-            button,
-            x,
-            y,
-            event.click_count,
-            &frame,
-            &resolved,
-            &view,
-        ) {
-            Ok(actions) => self.handle(actions, cx),
-            Err(error) => log::warn!("Error while handling a click: {error}"),
+        match event.button {
+            gpui::MouseButton::Right => {
+                let actions = self
+                    .mouse_register
+                    .handle_right_mouse_down(x, y, &resolved, &view);
+                self.handle(actions, cx);
+            }
+            gpui::MouseButton::Left => match self.mouse_register.handle_left_mouse_down(
+                x,
+                y,
+                event.click_count,
+                &frame,
+                &resolved,
+                &view,
+            ) {
+                Ok(actions) => self.handle(actions, cx),
+                Err(error) => log::warn!("Error while handling a click: {error}"),
+            },
+            _ => {}
         }
     }
 
@@ -721,15 +724,11 @@ impl Render for App {
             }))
             .on_mouse_down(
                 gpui::MouseButton::Left,
-                cx.listener(|app, event: &MouseDownEvent, _, cx| {
-                    app.on_mouse_down(MouseButton::Left, event, cx)
-                }),
+                cx.listener(|app, event: &MouseDownEvent, _, cx| app.on_mouse_down(event, cx)),
             )
             .on_mouse_down(
                 gpui::MouseButton::Right,
-                cx.listener(|app, event: &MouseDownEvent, _, cx| {
-                    app.on_mouse_down(MouseButton::Right, event, cx)
-                }),
+                cx.listener(|app, event: &MouseDownEvent, _, cx| app.on_mouse_down(event, cx)),
             )
             .on_mouse_up(
                 gpui::MouseButton::Left,
