@@ -401,7 +401,7 @@ impl BedRepositoryEnum {
             });
         }
         let object = S3Object::parse(url)?;
-        let operator = object.operator()?;
+        let operator = object.operator().await?;
         if lower.ends_with(".gz")
             && let Some(index) = read_tabix_or_csi_index(&object, &operator).await?
         {

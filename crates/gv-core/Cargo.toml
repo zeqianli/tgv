@@ -8,9 +8,12 @@ repository = "https://github.com/zeqianli/tgv"
 homepage = "https://github.com/zeqianli/tgv"
 
 [dependencies]
+anyhow.workspace = true
 async-compat.workspace = true
 async-compression.workspace = true
 async-trait.workspace = true
+aws-config.workspace = true
+aws-credential-types.workspace = true
 bigtools.workspace = true
 chrono.workspace = true
 clap.workspace = true
@@ -20,6 +23,7 @@ log.workspace = true
 noodles.workspace = true
 opendal.workspace = true
 polars = { workspace = true }
+reqsign.workspace = true
 reqwest.workspace = true
 serde.workspace = true
 serde_json.workspace = true
