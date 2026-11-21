@@ -56,6 +56,7 @@ fn main() -> Result<(), tgv_gui::Error> {
                     title: Some("TGV".into()),
                     ..Default::default()
                 }),
+                app_id: Some(option_env!("TGV_APP_ID").unwrap_or("tgv-gui").into()),
                 ..Default::default()
             },
             |window, cx| {
