@@ -1,13 +1,5 @@
-use crate::{
-    layout::Rect,
-    menu::{ContextMenu, ITEM_HEIGHT},
-    rendering::{
-        CHAR_WIDTH, LINE_HEIGHT, TextContext,
-        colors::{MUTED_TEXT, Palette, TEXT, to_hsla},
-        fill_rect,
-    },
-};
-use gpui::{App, Window};
+use super::prelude::*;
+use crate::menu::{ContextMenu, ITEM_HEIGHT};
 use gv_viewer::{
     menu::{MenuItem, MenuLevel},
     popup::TextPopup,

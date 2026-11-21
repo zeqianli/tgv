@@ -1,14 +1,10 @@
+use super::prelude::*;
 use crate::{
-    layout::{AreaType, PixelView, Rect, ResolvedMainLayout},
+    layout::{AreaType, ResolvedMainLayout},
     mouse::MouseState,
-    rendering::{
-        CHAR_WIDTH, LINE_HEIGHT, TextContext, TrackFocus,
-        colors::{MUTED_TEXT, Palette, SEPARATOR, TEXT, to_hsla},
-        fill_rect,
-    },
+    rendering::{TrackFocus, colors::SEPARATOR},
     worker::Frame,
 };
-use gpui::{App, Window};
 use gv_viewer::{
     message::FocusTarget,
     prepare::sidebar::{alignment_depth_description, describe_option},

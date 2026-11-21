@@ -1,14 +1,7 @@
-use crate::{
-    layout::Rect,
-    rendering::{
-        LINE_HEIGHT, Status, TextContext,
-        colors::{MUTED_TEXT, TEXT},
-    },
-};
-use gpui::{App, Window};
+use super::prelude::*;
+use crate::rendering::Status;
 use gv_core::prelude::*;
 
-/// Shows the data under the pointer, that the window waits for data, or the messages.
 pub fn render_status_bar(
     area: &Rect,
     state: &State,

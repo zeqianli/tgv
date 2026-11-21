@@ -17,7 +17,7 @@ use crate::{
     pinch::{Pinch, PinchMonitor},
     rendering::{
         self, DropGap, Status, TextContext, TrackFocus,
-        colors::{Palette, ToHsla},
+        colors::{Palette, to_hsla},
     },
     worker::{Frame, WorkerEvent, WorkerHandle, WorkerMessage},
 };
@@ -751,7 +751,7 @@ impl Render for App {
                     move |_, (), window, cx| {
                         let Some((frame, resolved, view, mouse_state, menu, popup, hover)) = paint
                         else {
-                            rendering::fill_rect(window_rect, palette.background.hsla(), window);
+                            rendering::fill_rect(window_rect, to_hsla(palette.background), window);
                             let text = match failure {
                                 Some(failure) => {
                                     format!("TGV couldn't open the dataset: {failure}")

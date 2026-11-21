@@ -1,12 +1,4 @@
-use crate::{
-    layout::{PixelView, Rect},
-    rendering::{
-        LINE_HEIGHT, TextContext,
-        colors::{MUTED_TEXT, Palette, to_hsla, to_hsla_with_alpha},
-        fill_rect,
-    },
-};
-use gpui::{App, Window};
+use super::prelude::*;
 use gv_core::alignment::CoverageTable;
 use gv_viewer::prepare::coverage::{mean_depths, round_up_max_coverage};
 

@@ -1,5 +1,3 @@
-//! Decodes window keystrokes into the keys of the shared vim grammar in `gv_viewer::keys`.
-
 use gv_viewer::keys::{Key, KeyCode, KeyModifiers};
 
 pub fn key_from_keystroke(keystroke: &gpui::Keystroke) -> Option<Key> {

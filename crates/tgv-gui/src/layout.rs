@@ -69,7 +69,6 @@ impl PixelView {
         self.viewport.zoom.pixels_per_base() as f32
     }
 
-    /// The x position of the left edge of a base. The focused base is centered in the area.
     pub fn x(&self, position: u64, area: &Rect) -> f32 {
         let center = area.x + area.width / 2.0 + self.offset;
         center
@@ -89,7 +88,6 @@ impl PixelView {
         (right > left).then_some((left, right - left))
     }
 
-    /// The base under an x position.
     pub fn position_at(&self, x: f32, area: &Rect) -> u64 {
         let center = area.x + area.width / 2.0 + self.offset;
         let position = (x - center) as f64 * self.viewport.zoom.bases_per_pixel

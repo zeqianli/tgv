@@ -1,10 +1,4 @@
-use crate::{
-    layout::{PixelView, Rect},
-    rendering::{
-        LINE_HEIGHT, TextContext, colors::MUTED_TEXT, colors::Rgb, colors::to_hsla, fill_rect,
-    },
-};
-use gpui::{App, Window};
+use super::prelude::*;
 use gv_core::variant::Variant;
 
 /// Simple rendering of intervals, with alternating colors.

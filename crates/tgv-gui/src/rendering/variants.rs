@@ -1,11 +1,5 @@
-use crate::{
-    layout::{PixelView, Rect},
-    rendering::{
-        colors::Palette,
-        intervals::{render_simple_intervals, render_zoom_in_notice},
-    },
-};
-use gpui::{App, Window};
+use super::prelude::*;
+use crate::rendering::intervals::{render_simple_intervals, render_zoom_in_notice};
 use gv_core::variant::VariantTable;
 
 pub fn render_variants(

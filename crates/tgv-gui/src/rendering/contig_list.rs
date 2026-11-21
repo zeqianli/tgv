@@ -1,12 +1,4 @@
-use crate::{
-    layout::Rect,
-    rendering::{
-        CHAR_WIDTH, LINE_HEIGHT, TextContext,
-        colors::{MUTED_TEXT, Palette, TEXT, to_hsla, to_hsla_with_alpha},
-        fill_rect,
-    },
-};
-use gpui::{App, Window};
+use super::prelude::*;
 use gv_core::prelude::*;
 use gv_viewer::{prepare::coordinate::get_abbreviated_length_string, register::Registers};
 

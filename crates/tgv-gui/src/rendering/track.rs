@@ -1,12 +1,4 @@
-use crate::{
-    layout::{PixelView, Rect},
-    rendering::{
-        LINE_HEIGHT, TextContext,
-        colors::{Palette, TEXT, to_hsla},
-        fill_rect,
-    },
-};
-use gpui::{App, Window};
+use super::prelude::*;
 use gv_core::{prelude::*, strand::Strand};
 use gv_viewer::prepare::track::{Gene, SegmentKind};
 

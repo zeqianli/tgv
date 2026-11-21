@@ -26,6 +26,16 @@ pub use status_bar::render_status_bar;
 pub use track::render_track;
 pub use variants::render_variants;
 
+pub(crate) mod prelude {
+    pub(crate) use super::{
+        CHAR_WIDTH, LINE_HEIGHT, TextContext,
+        colors::{MUTED_TEXT, Palette, Rgb, TEXT, to_hsla, to_hsla_with_alpha},
+        fill_polygon, fill_rect, paint_letter,
+    };
+    pub(crate) use crate::layout::{PixelView, Rect};
+    pub(crate) use gpui::{App, Window};
+}
+
 use crate::{
     layout::{PixelView, Rect, ResolvedMainLayout},
     menu::ContextMenu,

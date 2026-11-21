@@ -1,12 +1,4 @@
-use crate::{
-    layout::{PixelView, Rect},
-    rendering::{
-        LINE_HEIGHT, TextContext,
-        colors::{MUTED_TEXT, TEXT, to_hsla},
-        fill_rect,
-    },
-};
-use gpui::{App, Window};
+use super::prelude::*;
 use gv_core::prelude::*;
 use gv_viewer::prepare::coordinate::{
     calculate_intermarker_distance, get_abbreviated_coordinate_text,

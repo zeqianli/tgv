@@ -1,11 +1,4 @@
-use crate::{
-    layout::{PixelView, Rect},
-    rendering::{
-        colors::{Palette, to_hsla},
-        fill_rect, paint_letter,
-    },
-};
-use gpui::{App, Window};
+use super::prelude::*;
 use gv_core::prelude::*;
 
 /// Bases at least this wide show their letters.

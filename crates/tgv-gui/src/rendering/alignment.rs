@@ -1,15 +1,11 @@
 //! Draws an alignment track's scene in layer order.
 //! Each layer preserves source-table order, so later records overwrite earlier ones.
 
+use super::prelude::*;
 use crate::{
-    layout::{ALIGNMENT_ROW_HEIGHT, PixelView, Rect},
-    rendering::{
-        colors::{Palette, READ_BASE_LETTER, Rgb, to_hsla, to_hsla_with_alpha},
-        fill_polygon, fill_rect, paint_letter,
-        sequence::MIN_PIXELS_PER_LETTER,
-    },
+    layout::ALIGNMENT_ROW_HEIGHT,
+    rendering::{colors::READ_BASE_LETTER, sequence::MIN_PIXELS_PER_LETTER},
 };
-use gpui::{App, Window};
 use gv_core::alignment::{Alignment, PairedAlignment};
 use gv_viewer::{
     colors,

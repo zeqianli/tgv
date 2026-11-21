@@ -1,13 +1,5 @@
-use crate::{
-    layout::{PixelView, Rect},
-    rendering::{
-        LINE_HEIGHT, TextContext,
-        colors::{Palette, TEXT, to_hsla},
-        fill_rect,
-        intervals::render_zoom_in_notice,
-    },
-};
-use gpui::{App, Window};
+use super::prelude::*;
+use crate::rendering::intervals::render_zoom_in_notice;
 use gv_core::{bed::BedTable, strand::Strand};
 
 /// The space between strand chevrons in a feature.

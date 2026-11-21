@@ -1,12 +1,5 @@
-use crate::{
-    layout::Rect,
-    rendering::{
-        LINE_HEIGHT, TextContext, TrackFocus,
-        colors::{CURSOR_COLOR, MUTED_TEXT, Palette, TEXT, to_hsla},
-        fill_rect,
-    },
-};
-use gpui::{App, Window};
+use super::prelude::*;
+use crate::rendering::{TrackFocus, colors::CURSOR_COLOR};
 use gv_viewer::register::{KeyRegisterType, Registers};
 
 /// Render the command line for command (`:`) and search (`/`) mode.
