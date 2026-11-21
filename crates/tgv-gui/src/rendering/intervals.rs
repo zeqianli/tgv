@@ -16,7 +16,7 @@ pub fn render_simple_intervals(
     view: &PixelView,
     colors: &[Rgb],
     window: &mut Window,
-) -> Result<(), gv_core::Error> {
+) -> Result<(), crate::Error> {
     let starts = intervals.column(IntervalSchema::START)?.u64()?;
     let ends = intervals.column(IntervalSchema::END)?.u64()?;
     for (index, (start, end)) in starts
@@ -41,7 +41,7 @@ pub fn render_zoom_in_notice(
     features: &str,
     window: &mut Window,
     cx: &mut App,
-) -> Result<(), gv_core::Error> {
+) -> Result<(), crate::Error> {
     TextContext::default()
         .text(&format!("Zoom in to view {features}"))
         .color(MUTED_TEXT)

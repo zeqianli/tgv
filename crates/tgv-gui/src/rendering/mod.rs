@@ -151,7 +151,7 @@ impl TextContext {
         line_height: f32,
         window: &mut Window,
         cx: &mut App,
-    ) -> Result<f32, gv_core::Error> {
+    ) -> Result<f32, crate::Error> {
         if self.text.is_empty() {
             return Ok(0.0);
         }
@@ -167,7 +167,7 @@ impl TextContext {
         width: f32,
         window: &mut Window,
         cx: &mut App,
-    ) -> Result<f32, gv_core::Error> {
+    ) -> Result<f32, crate::Error> {
         if self.text.is_empty() {
             return Ok(0.0);
         }
@@ -201,7 +201,7 @@ pub fn paint_letter(
     color: Rgb,
     window: &mut Window,
     cx: &mut App,
-) -> Result<(), gv_core::Error> {
+) -> Result<(), crate::Error> {
     let text = TextContext::default()
         .text(&letter.to_string())
         .color(color)
@@ -255,7 +255,7 @@ pub fn render_main(
     palette: &Palette,
     window: &mut Window,
     cx: &mut App,
-) -> Result<(), gv_core::Error> {
+) -> Result<(), crate::Error> {
     fill_rect(layout.window, palette.background.hsla(), window);
     sidebar::render_sidebar(
         frame,
@@ -278,7 +278,7 @@ pub fn render_main(
         let mask = ContentMask {
             bounds: bounds(rect),
         };
-        window.with_content_mask(Some(mask), |window| -> Result<(), gv_core::Error> {
+        window.with_content_mask(Some(mask), |window| -> Result<(), crate::Error> {
             match area_type {
                 AreaType::Cytoband => render_cytobands(&rect, state, view, palette, window, cx)?,
                 AreaType::Coordinate => render_coordinates(&rect, view, state, window, cx)?,
@@ -301,11 +301,9 @@ pub fn render_main(
                         let paired = state.alignment_options[index]
                             .contains(&gv_core::message::AlignmentDisplayOption::ViewAsPairs)
                             .then(|| {
-                                state.paired_alignments[index].as_ref().ok_or(
-                                    gv_core::Error::StateError(format!(
-                                        "Paired alignment {index} not yet calculated at rendering"
-                                    )),
-                                )
+                                state.paired_alignments[index]
+                                    .as_ref()
+                                    .ok_or(crate::Error::PairedAlignmentNotReady { index })
                             })
                             .transpose()?;
                         render_alignment(
@@ -411,7 +409,7 @@ fn render_drop_gap(
     palette: &Palette,
     window: &mut Window,
     cx: &mut App,
-) -> Result<(), gv_core::Error> {
+) -> Result<(), crate::Error> {
     let color = palette.DROP_TARGET;
     fill_rect(
         Rect::new(layout.window.x, gap.y - 6.0, layout.window.width, 12.0),

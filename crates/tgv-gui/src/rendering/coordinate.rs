@@ -23,7 +23,7 @@ pub fn render_coordinates(
     state: &State,
     window: &mut Window,
     cx: &mut App,
-) -> Result<(), gv_core::Error> {
+) -> Result<(), crate::Error> {
     let contig_length = state.contig_length(&view.viewport.focus)?;
     let bases = (view.viewport.zoom.bases_per_pixel * MIN_SPACING_BETWEEN_MARKERS).ceil() as u64;
     let (intermarker_distance, power) = calculate_intermarker_distance(bases.max(1));

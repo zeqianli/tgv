@@ -26,7 +26,7 @@ pub fn render_track(
     palette: &Palette,
     window: &mut Window,
     cx: &mut App,
-) -> Result<(), gv_core::Error> {
+) -> Result<(), crate::Error> {
     let middle = area.y + EXON_HEIGHT / 2.0 + 2.0;
     let label_y = area.y + EXON_HEIGHT + 4.0;
     let mut right_most_label_x = f32::MIN;

@@ -57,9 +57,6 @@ pub enum Error {
     #[error("IO Error: {0}")]
     IOError(String),
 
-    #[error("Rendering error: {0}")]
-    RenderError(#[from] anyhow::Error),
-
     #[error("State error: {0}")]
     StateError(String),
 

@@ -24,7 +24,7 @@ pub fn render_coverage(
     palette: &Palette,
     window: &mut Window,
     cx: &mut App,
-) -> Result<(), gv_core::Error> {
+) -> Result<(), crate::Error> {
     let plot = Rect::new(
         area.x,
         area.y + LINE_HEIGHT,

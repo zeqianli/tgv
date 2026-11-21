@@ -26,7 +26,7 @@ pub fn render_cytobands(
     palette: &Palette,
     window: &mut Window,
     cx: &mut App,
-) -> Result<(), gv_core::Error> {
+) -> Result<(), crate::Error> {
     if area.width <= CYTOBAND_TEXT_RIGHT_SPACING + 1.0 {
         return Ok(());
     }

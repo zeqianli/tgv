@@ -16,7 +16,7 @@ pub fn render_context_menu(
     palette: &Palette,
     window: &mut Window,
     cx: &mut App,
-) -> Result<(), gv_core::Error> {
+) -> Result<(), crate::Error> {
     render_panel(&menu.main, palette, window, cx)?;
     if let Some((_, panel)) = &menu.submenu {
         render_panel(panel, palette, window, cx)?;
@@ -29,7 +29,7 @@ fn render_panel(
     palette: &Palette,
     window: &mut Window,
     cx: &mut App,
-) -> Result<(), gv_core::Error> {
+) -> Result<(), crate::Error> {
     fill_rect(panel.area, palette.MENU_BACKGROUND.hsla(), window);
     for (index, item) in panel.items.iter().enumerate() {
         let row = Rect::new(
@@ -75,7 +75,7 @@ pub fn render_text_popup(
     palette: &Palette,
     window: &mut Window,
     cx: &mut App,
-) -> Result<(), gv_core::Error> {
+) -> Result<(), crate::Error> {
     let label_width = popup
         .rows
         .iter()

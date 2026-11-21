@@ -32,7 +32,7 @@ pub fn render_alignment(
     palette: &Palette,
     window: &mut Window,
     cx: &mut App,
-) -> Result<(), gv_core::Error> {
+) -> Result<(), crate::Error> {
     let region = view.region(area);
     let rows = (area.height / ALIGNMENT_ROW_HEIGHT).ceil() as usize;
     let scene = AlignmentScene::new(alignment, paired, &region, top, rows)?;
@@ -186,7 +186,7 @@ fn draw_bases(
     color: impl Fn(u8, Option<u8>) -> (Rgb, f32),
     window: &mut Window,
     cx: &mut App,
-) -> Result<(), gv_core::Error> {
+) -> Result<(), crate::Error> {
     let (left, right) = view.visible(area);
     let (start, end) = (run.span.start.max(left), run.span.end.min(right));
     if start > end {
@@ -232,7 +232,7 @@ fn draw_base(
     (color, alpha): (Rgb, f32),
     window: &mut Window,
     cx: &mut App,
-) -> Result<(), gv_core::Error> {
+) -> Result<(), crate::Error> {
     let Some((x, width)) = view.span(position, position, area) else {
         return Ok(());
     };

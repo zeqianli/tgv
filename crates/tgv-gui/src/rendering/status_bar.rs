@@ -15,7 +15,7 @@ pub fn render_status_bar(
     status: &Status,
     window: &mut Window,
     cx: &mut App,
-) -> Result<(), gv_core::Error> {
+) -> Result<(), crate::Error> {
     let y = area.y + (area.height - LINE_HEIGHT) / 2.0;
     let x = area.x + 4.0;
     if let Some(hover) = status.hover {

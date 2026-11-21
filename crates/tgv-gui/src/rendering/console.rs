@@ -18,7 +18,7 @@ pub fn render_console(
     registers: &Registers,
     window: &mut Window,
     cx: &mut App,
-) -> Result<(), gv_core::Error> {
+) -> Result<(), crate::Error> {
     let y = area.y + (area.height - LINE_HEIGHT) / 2.0;
     let prompt = if matches!(registers.current, KeyRegisterType::Search(_)) {
         '/'
@@ -66,7 +66,7 @@ pub fn render_mode_line(
     palette: &Palette,
     window: &mut Window,
     cx: &mut App,
-) -> Result<(), gv_core::Error> {
+) -> Result<(), crate::Error> {
     let y = area.y + (area.height - LINE_HEIGHT) / 2.0;
     let name = if focus.modified {
         format!("{} [+]", focus.name)

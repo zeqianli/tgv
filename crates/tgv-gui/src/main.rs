@@ -11,7 +11,7 @@ use tgv_gui::{
     worker::WorkerHandle,
 };
 
-fn main() -> Result<(), gv_core::Error> {
+fn main() -> Result<(), tgv_gui::Error> {
     let cli = Cli::parse();
     let log_path = default_log_file_path();
     let log_level = if cli.viewer.debug {
@@ -27,11 +27,9 @@ fn main() -> Result<(), gv_core::Error> {
         Some(path) => {
             let mut settings = SessionFile::from_path(&path)
                 .and_then(Settings::try_from)
-                .map_err(|e| {
-                    gv_core::Error::CliError(format!(
-                        "Failed to resume session {}: {e}",
-                        path.display()
-                    ))
+                .map_err(|source| tgv_gui::Error::ResumeSession {
+                    path: path.clone(),
+                    source,
                 })?;
             log::info!("Resumed session from {}", path.display());
             cli.viewer.apply_overrides(&mut settings)?;

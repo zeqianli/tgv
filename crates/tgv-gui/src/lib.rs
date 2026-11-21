@@ -6,6 +6,7 @@
 //! loading data never blocks the window.
 
 pub mod app;
+pub mod error;
 pub mod keys;
 pub mod layout;
 pub mod menu;
@@ -15,3 +16,5 @@ pub mod pinch;
 pub mod rendering;
 pub mod settings;
 pub mod worker;
+
+pub use error::Error;

@@ -24,7 +24,7 @@ pub fn render_bed(
     palette: &Palette,
     window: &mut Window,
     cx: &mut App,
-) -> Result<(), gv_core::Error> {
+) -> Result<(), crate::Error> {
     let region = view.region(area);
     if !bed.has_complete_data(&region) {
         render_zoom_in_notice(area, "BED features", window, cx)?;

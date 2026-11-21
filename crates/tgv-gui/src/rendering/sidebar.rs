@@ -38,7 +38,7 @@ pub fn render_sidebar(
     palette: &Palette,
     window: &mut Window,
     cx: &mut App,
-) -> Result<(), gv_core::Error> {
+) -> Result<(), crate::Error> {
     if layout.sidebar_width == 0.0 {
         return Ok(());
     }

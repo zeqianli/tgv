@@ -22,7 +22,7 @@ pub fn render_contig_list(
     palette: &Palette,
     window: &mut Window,
     cx: &mut App,
-) -> Result<(), gv_core::Error> {
+) -> Result<(), crate::Error> {
     fill_rect(*area, palette.background.hsla(), window);
     TextContext::default()
         .text(&state.reference.to_string())
