@@ -95,8 +95,8 @@ impl Default for TextContext {
 
 impl TextContext {
     #[must_use]
-    pub fn text(mut self, text: impl Into<SharedString>) -> Self {
-        self.text = text.into();
+    pub fn text(mut self, text: &str) -> Self {
+        self.text = text.to_string().into();
         self
     }
 
@@ -204,7 +204,7 @@ pub fn paint_letter(
     cx: &mut App,
 ) -> Result<(), TGVError> {
     let text = TextContext::default()
-        .text(letter.to_string())
+        .text(&letter.to_string())
         .color(color)
         .size((rect.height - 1.0).clamp(6.0, FONT_SIZE));
     let width = text.width(window);
@@ -320,7 +320,7 @@ pub fn render_main(
                             cx,
                         )?;
                     } else {
-                        intervals::render_zoom_in_notice(&rect, "alignments", window, cx);
+                        intervals::render_zoom_in_notice(&rect, "alignments", window, cx)?;
                     }
                 }
                 AreaType::AlignmentDivider { .. } => {
@@ -346,7 +346,7 @@ pub fn render_main(
                         frame.registers.current,
                         KeyRegisterType::Command(_) | KeyRegisterType::Search(_)
                     ) {
-                        render_console(&rect, &frame.registers, window, cx);
+                        render_console(&rect, &frame.registers, window, cx)?;
                     } else {
                         render_mode_line(
                             &rect,
@@ -356,10 +356,10 @@ pub fn render_main(
                             palette,
                             window,
                             cx,
-                        );
+                        )?;
                     }
                 }
-                AreaType::Error => render_status_bar(&rect, state, status, window, cx),
+                AreaType::Error => render_status_bar(&rect, state, status, window, cx)?,
                 AreaType::Variant(id) => {
                     let index = layout.track_registry.variant_index(*id)?;
                     render_variants(&rect, &state.variants[index], view, palette, window, cx)?;
@@ -398,10 +398,10 @@ pub fn render_main(
     }
 
     if let Some(menu) = context_menu {
-        menu::render_context_menu(menu, palette, window, cx);
+        menu::render_context_menu(menu, palette, window, cx)?;
     }
     if let Some(popup) = popup {
-        menu::render_text_popup(layout.window, popup, palette, window, cx);
+        menu::render_text_popup(layout.window, popup, palette, window, cx)?;
     }
     Ok(())
 }

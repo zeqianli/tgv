@@ -1,10 +1,12 @@
 use crate::{
     layout::Rect,
     rendering::{
-        CHAR_WIDTH, LINE_HEIGHT, Painter,
+        CHAR_WIDTH, LINE_HEIGHT, TextContext,
         colors::{MUTED_TEXT, Palette, TEXT, ToHsla},
+        fill_rect,
     },
 };
+use gpui::{App, Window};
 use gv_core::prelude::*;
 use gv_viewer::{prepare::coordinate::get_abbreviated_length_string, register::Registers};
 
@@ -14,19 +16,18 @@ const PADDING: f32 = 12.0;
 
 /// Lists the contigs, with the selected one in the middle, as in the terminal UI.
 pub fn render_contig_list(
-    painter: &mut Painter,
     area: &Rect,
     state: &State,
     registers: &Registers,
     palette: &Palette,
+    window: &mut Window,
+    cx: &mut App,
 ) -> Result<(), TGVError> {
-    painter.fill(*area, palette.background.hsla());
-    painter.text(
-        area.x + PADDING,
-        area.y + 4.0,
-        &state.reference.to_string(),
-        TEXT,
-    );
+    fill_rect(*area, palette.background.hsla(), window);
+    TextContext::default()
+        .text(&state.reference.to_string())
+        .color(TEXT)
+        .paint(area.x + PADDING, area.y + 4.0, LINE_HEIGHT, window, cx)?;
     let contigs = &state.contig_header.contigs;
     if contigs.is_empty() {
         return Ok(());
@@ -44,9 +45,10 @@ pub fn render_contig_list(
 
     let selected = registers.contig_list_cursor;
     let middle = area.y + (area.height / 2.0 / ROW_HEIGHT).floor() * ROW_HEIGHT;
-    painter.fill(
+    fill_rect(
         Rect::new(area.x, middle, area.width, ROW_HEIGHT),
         palette.HIGHLIGHT_COLOR.alpha(0.6),
+        window,
     );
     let first_row = area.y + ROW_HEIGHT;
     for (index, contig) in contigs.iter().enumerate() {
@@ -55,10 +57,13 @@ pub fn render_contig_list(
             continue;
         }
         let text_y = y + (ROW_HEIGHT - LINE_HEIGHT) / 2.0;
-        painter.text(area.x + PADDING, text_y, &contig.name, TEXT);
+        TextContext::default()
+            .text(&contig.name)
+            .color(TEXT)
+            .paint(area.x + PADDING, text_y, LINE_HEIGHT, window, cx)?;
         if let (Some(length), Some(max_length)) = (contig.length, max_length) {
             let width = (bar_width * length as f32 / max_length.max(1) as f32).max(1.0);
-            painter.fill(
+            fill_rect(
                 Rect::new(
                     bar_x,
                     y + (ROW_HEIGHT - BAR_HEIGHT) / 2.0,
@@ -66,13 +71,12 @@ pub fn render_contig_list(
                     BAR_HEIGHT,
                 ),
                 palette.GENE_BACKGROUND_COLOR.hsla(),
+                window,
             );
-            painter.text(
-                bar_x + width + PADDING,
-                text_y,
-                &get_abbreviated_length_string(length),
-                MUTED_TEXT,
-            );
+            TextContext::default()
+                .text(&get_abbreviated_length_string(length))
+                .color(MUTED_TEXT)
+                .paint(bar_x + width + PADDING, text_y, LINE_HEIGHT, window, cx)?;
         }
     }
     Ok(())

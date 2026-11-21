@@ -1,10 +1,12 @@
 use crate::{
     layout::{PixelView, Rect},
     rendering::{
-        LINE_HEIGHT, Painter,
+        LINE_HEIGHT, TextContext,
         colors::{MUTED_TEXT, Palette, ToHsla},
+        fill_rect,
     },
 };
+use gpui::{App, Window};
 use gv_core::{
     alignment::{CoverageSchema, CoverageTable},
     prelude::*,
@@ -19,11 +21,12 @@ const ALLELE_FREQUENCY_THRESHOLD: f64 = 0.2;
 /// Draws the coverage: one bar per base when bases are at least a pixel wide, or the mean
 /// depth of each pixel's bases otherwise. The y-axis fits the visible maximum.
 pub fn render_coverage(
-    painter: &mut Painter,
     area: &Rect,
     coverage: &CoverageTable,
     view: &PixelView,
     palette: &Palette,
+    window: &mut Window,
+    cx: &mut App,
 ) -> Result<(), TGVError> {
     let plot = Rect::new(
         area.x,
@@ -71,18 +74,26 @@ pub fn render_coverage(
                 for (counts, _, color) in &counts {
                     let count = counts.get(row).expect("coverage counts are non-null");
                     let height = count as f32 / y_max * plot.height;
-                    painter.fill(Rect::new(x, bottom - height, width, height), color.hsla());
+                    fill_rect(
+                        Rect::new(x, bottom - height, width, height),
+                        color.hsla(),
+                        window,
+                    );
                     bottom -= height;
                 }
             } else {
                 let height = total as f32 / y_max * plot.height;
-                painter.fill(
+                fill_rect(
                     Rect::new(x, plot.bottom() - height, width, height),
                     palette.COVERAGE_TOTAL.alpha(0.7),
+                    window,
                 );
             }
         }
-        painter.text(area.x + 2.0, area.y, &format!("[0-{y_max}]"), MUTED_TEXT);
+        TextContext::default()
+            .text(&format!("[0-{y_max}]"))
+            .color(MUTED_TEXT)
+            .paint(area.x + 2.0, area.y, LINE_HEIGHT, window, cx)?;
     } else {
         let bins = get_linear_space(
             left,
@@ -112,12 +123,16 @@ pub fn render_coverage(
                 continue;
             };
             let height = depth / y_max * plot.height;
-            painter.fill(
+            fill_rect(
                 Rect::new(x, plot.bottom() - height, width, height),
                 palette.COVERAGE_TOTAL.alpha(0.7),
+                window,
             );
         }
-        painter.text(area.x + 2.0, area.y, &format!("[0-{y_max}]"), MUTED_TEXT);
+        TextContext::default()
+            .text(&format!("[0-{y_max}]"))
+            .color(MUTED_TEXT)
+            .paint(area.x + 2.0, area.y, LINE_HEIGHT, window, cx)?;
     }
     Ok(())
 }

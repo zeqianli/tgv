@@ -2,11 +2,13 @@ use crate::{
     layout::{AreaType, PixelView, Rect, ResolvedMainLayout},
     mouse::MouseRegister,
     rendering::{
-        CHAR_WIDTH, LINE_HEIGHT, Painter, TrackFocus,
+        CHAR_WIDTH, LINE_HEIGHT, TextContext, TrackFocus,
         colors::{MUTED_TEXT, Palette, SEPARATOR, TEXT, ToHsla},
+        fill_rect,
     },
     worker::Frame,
 };
+use gpui::{App, Window};
 use gv_core::prelude::*;
 use gv_viewer::{
     message::FocusTarget,
@@ -29,13 +31,14 @@ fn fit(text: &str, width: f32) -> String {
 
 /// Draws the track labels, the focus, the locus, and each alignment's depth and options.
 pub fn render_sidebar(
-    painter: &mut Painter,
     frame: &Frame,
     layout: &ResolvedMainLayout,
     view: &PixelView,
     mouse_register: &MouseRegister,
     focus: &TrackFocus,
     palette: &Palette,
+    window: &mut Window,
+    cx: &mut App,
 ) -> Result<(), TGVError> {
     if layout.sidebar_width == 0.0 {
         return Ok(());
@@ -58,15 +61,16 @@ pub fn render_sidebar(
             _ => false,
         };
         if focused {
-            painter.fill(*section, fill.hsla());
+            fill_rect(*section, fill.hsla(), window);
         }
         if matches!(
             area_type,
             AreaType::Coverage(_) | AreaType::Variant(_) | AreaType::Bed(_)
         ) {
-            painter.fill(
+            fill_rect(
                 Rect::new(section.x, section.bottom() - 1.0, section.width, 1.0),
                 SEPARATOR.hsla(),
+                window,
             );
         }
     }
@@ -86,40 +90,62 @@ pub fn render_sidebar(
             let index = layout.track_registry.alignment_index(id)?;
             let mut y = area.y + PADDING;
             if focused {
-                painter.bold_text(area.x + PADDING, y, &name, TEXT);
+                TextContext::default()
+                    .text(&name)
+                    .color(TEXT)
+                    .bold()
+                    .paint(area.x + PADDING, y, LINE_HEIGHT, window, cx)?;
             } else {
-                painter.text(area.x + PADDING, y, &name, TEXT);
+                TextContext::default().text(&name).color(TEXT).paint(
+                    area.x + PADDING,
+                    y,
+                    LINE_HEIGHT,
+                    window,
+                    cx,
+                )?;
             }
             y += LINE_HEIGHT;
             for option in &state.alignment_options[index] {
                 if y + 2.0 * LINE_HEIGHT > area.bottom() {
                     break;
                 }
-                painter.text(
-                    area.x + PADDING,
-                    y,
-                    &fit(&describe_option(option), width),
-                    palette.SIDEBAR_OPTION_COLOR,
-                );
+                TextContext::default()
+                    .text(&fit(&describe_option(option), width))
+                    .color(palette.SIDEBAR_OPTION_COLOR)
+                    .paint(area.x + PADDING, y, LINE_HEIGHT, window, cx)?;
                 y += LINE_HEIGHT;
             }
             if area.height >= 2.0 * LINE_HEIGHT + PADDING {
-                painter.text(
-                    area.x + PADDING,
-                    area.bottom() - LINE_HEIGHT - PADDING,
-                    &fit(
+                TextContext::default()
+                    .text(&fit(
                         &alignment_depth_description(state, &view.viewport, index)?,
                         width,
-                    ),
-                    MUTED_TEXT,
-                );
+                    ))
+                    .color(MUTED_TEXT)
+                    .paint(
+                        area.x + PADDING,
+                        area.bottom() - LINE_HEIGHT - PADDING,
+                        LINE_HEIGHT,
+                        window,
+                        cx,
+                    )?;
             }
         } else {
             let y = area.y + (area.height - LINE_HEIGHT) / 2.0;
             if focused {
-                painter.bold_text(area.x + PADDING, y, &name, TEXT);
+                TextContext::default()
+                    .text(&name)
+                    .color(TEXT)
+                    .bold()
+                    .paint(area.x + PADDING, y, LINE_HEIGHT, window, cx)?;
             } else {
-                painter.text(area.x + PADDING, y, &name, TEXT);
+                TextContext::default().text(&name).color(TEXT).paint(
+                    area.x + PADDING,
+                    y,
+                    LINE_HEIGHT,
+                    window,
+                    cx,
+                )?;
             }
         }
     }
@@ -132,21 +158,35 @@ pub fn render_sidebar(
                     state.contig_name(&view.viewport.focus)?,
                     view.viewport.focus.position
                 );
-                painter.text(
-                    section.x + PADDING,
-                    section.y + (section.height - LINE_HEIGHT) / 2.0,
-                    &fit(&locus, width),
-                    TEXT,
-                );
+                TextContext::default()
+                    .text(&fit(&locus, width))
+                    .color(TEXT)
+                    .paint(
+                        section.x + PADDING,
+                        section.y + (section.height - LINE_HEIGHT) / 2.0,
+                        LINE_HEIGHT,
+                        window,
+                        cx,
+                    )?;
             }
             // The reference's section names the genome beside the sequence and the genes.
             AreaType::Sequence | AreaType::GeneTrack => {
                 let y = section.y + (section.height - LINE_HEIGHT) / 2.0;
                 let name = fit(&state.reference.to_string(), width);
                 if focus.target == FocusTarget::Reference {
-                    painter.bold_text(section.x + PADDING, y, &name, TEXT);
+                    TextContext::default()
+                        .text(&name)
+                        .color(TEXT)
+                        .bold()
+                        .paint(section.x + PADDING, y, LINE_HEIGHT, window, cx)?;
                 } else {
-                    painter.text(section.x + PADDING, y, &name, TEXT);
+                    TextContext::default().text(&name).color(TEXT).paint(
+                        section.x + PADDING,
+                        y,
+                        LINE_HEIGHT,
+                        window,
+                        cx,
+                    )?;
                 }
             }
             _ => {}
@@ -158,6 +198,6 @@ pub fn render_sidebar(
     } else {
         SEPARATOR
     };
-    painter.fill(layout.sidebar_divider_area, divider.hsla());
+    fill_rect(layout.sidebar_divider_area, divider.hsla(), window);
     Ok(())
 }

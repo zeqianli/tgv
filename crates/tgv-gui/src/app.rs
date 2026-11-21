@@ -16,7 +16,7 @@ use crate::{
     mouse::{MouseButton, MouseRegister, zoom_step},
     pinch::{Pinch, PinchMonitor},
     rendering::{
-        self, DropGap, Painter, Status, TrackFocus,
+        self, DropGap, Status, TextContext, TrackFocus,
         colors::{Palette, ToHsla},
     },
     worker::{Frame, WorkerEvent, WorkerHandle, WorkerMessage},
@@ -753,11 +753,10 @@ impl Render for App {
                 canvas(
                     |_, _, _| {},
                     move |_, (), window, cx| {
-                        let mut painter = Painter::new(window, cx);
                         let Some((frame, resolved, view, mouse_register, menu, popup, hover)) =
                             paint
                         else {
-                            painter.fill(window_rect, palette.background.hsla());
+                            rendering::fill_rect(window_rect, palette.background.hsla(), window);
                             let text = match failure {
                                 Some(failure) => {
                                     format!("TGV couldn't open the dataset: {failure}")
@@ -765,25 +764,25 @@ impl Render for App {
                                 None if opening.is_empty() => "Opening…".to_string(),
                                 None => format!("Opening {opening}…"),
                             };
-                            painter.wrapped_text(
-                                16.0,
-                                16.0,
-                                window_rect.width - 32.0,
-                                &text,
-                                rendering::colors::TEXT,
-                            );
+                            if let Err(error) = TextContext::default()
+                                .text(&text)
+                                .color(rendering::colors::TEXT)
+                                .paint_wrapped(16.0, 16.0, window_rect.width - 32.0, window, cx)
+                            {
+                                log::warn!("Failed to draw the window: {error}");
+                            }
                             return;
                         };
                         let result = match frame.scene {
                             Scene::ContigList => rendering::render_contig_list(
-                                &mut painter,
                                 &resolved.window,
                                 &frame.state,
                                 &frame.registers,
                                 &palette,
+                                window,
+                                cx,
                             ),
                             Scene::Main => rendering::render_main(
-                                &mut painter,
                                 &frame,
                                 &resolved,
                                 &view,
@@ -801,6 +800,8 @@ impl Render for App {
                                 },
                                 drop_gap,
                                 &palette,
+                                window,
+                                cx,
                             ),
                         };
                         if let Err(error) = result {

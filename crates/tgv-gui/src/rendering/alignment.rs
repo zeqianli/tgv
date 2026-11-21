@@ -4,11 +4,12 @@
 use crate::{
     layout::{ALIGNMENT_ROW_HEIGHT, PixelView, Rect},
     rendering::{
-        Painter,
         colors::{Palette, Rgb, ToHsla},
+        fill_polygon, fill_rect, paint_letter,
         sequence::MIN_PIXELS_PER_LETTER,
     },
 };
+use gpui::{App, Window};
 use gv_core::{
     alignment::{Alignment, PairedAlignment},
     prelude::*,
@@ -26,13 +27,14 @@ const ARROW_WIDTH: f32 = 4.0;
 /// Render visible reads from the zero-based `top` row, followed by annotations. With `paired`,
 /// pairs are drawn together with the gap between their mates.
 pub fn render_alignment(
-    painter: &mut Painter,
     area: &Rect,
     alignment: &Alignment,
     paired: Option<&PairedAlignment>,
     view: &PixelView,
     top: usize,
     palette: &Palette,
+    window: &mut Window,
+    cx: &mut App,
 ) -> Result<(), TGVError> {
     let region = view.region(area);
     let rows = (area.height / ALIGNMENT_ROW_HEIGHT).ceil() as usize;
@@ -46,9 +48,10 @@ pub fn render_alignment(
 
     for gap in &scene.pair_gaps {
         if let Some(rect) = span(gap) {
-            painter.fill(
+            fill_rect(
                 Rect::new(rect.x, rect.y + height / 2.0 - 0.5, rect.width, 1.0),
                 palette.PAIRGAP_COLOR.hsla(),
+                window,
             );
         }
     }
@@ -61,28 +64,30 @@ pub fn render_alignment(
             } else {
                 palette.MATCH_COLOR
             };
-            painter.fill(rect, color.hsla());
+            fill_rect(rect, color.hsla(), window);
         }
     }
     for run in &scene.soft_clips {
         draw_bases(
-            painter,
             area,
             view,
             run,
             row_top(run.span.y),
             height,
             |base, _| (palette.softclip_color(base), 1.0),
-        );
+            window,
+            cx,
+        )?;
     }
 
     // 2. Draw the deletions and reference skips as a line through the gap.
     for deletion in &scene.deletions {
         if let Some(rect) = span(deletion) {
-            painter.fill(rect, palette.background.hsla());
-            painter.fill(
+            fill_rect(rect, palette.background.hsla(), window);
+            fill_rect(
                 Rect::new(rect.x, rect.y + height / 2.0 - 0.5, rect.width, 1.0),
                 palette.DELETION_COLOR.hsla(),
+                window,
             );
         }
     }
@@ -94,15 +99,17 @@ pub fn render_alignment(
         let color = palette.MATCH_COLOR.hsla();
         if arrow.reverse {
             let x = view.x(arrow.position, area);
-            painter.polygon(
+            fill_polygon(
                 &[(x, y), (x - arrow_width, y + height / 2.0), (x, y + height)],
                 color,
+                window,
             );
         } else {
             let x = view.x(arrow.position + 1, area);
-            painter.polygon(
+            fill_polygon(
                 &[(x, y), (x + arrow_width, y + height / 2.0), (x, y + height)],
                 color,
+                window,
             );
         }
     }
@@ -111,9 +118,10 @@ pub fn render_alignment(
     for insertion in &scene.insertions {
         let x = view.x(insertion.start, area);
         if x >= area.x && x < area.right() {
-            painter.fill(
+            fill_rect(
                 Rect::new(x - 1.0, row_top(insertion.y), 2.0, height),
                 palette.INSERTION_COLOR.hsla(),
+                window,
             );
         }
     }
@@ -121,18 +129,18 @@ pub fn render_alignment(
     // 4. Draw the mismatched bases.
     for run in &scene.mismatch_runs {
         draw_bases(
-            painter,
             area,
             view,
             run,
             row_top(run.span.y),
             height,
             |base, quality| mismatch_color(palette, base, quality),
-        );
+            window,
+            cx,
+        )?;
     }
     for mismatch in &scene.mismatches {
         draw_base(
-            painter,
             area,
             view,
             mismatch.position,
@@ -140,17 +148,20 @@ pub fn render_alignment(
             row_top(mismatch.y),
             height,
             mismatch_color(palette, mismatch.base, mismatch.quality),
-        );
+            window,
+            cx,
+        )?;
     }
 
     // 5. Draw the base modifications.
     for modification in &scene.modifications {
         if let Some((x, width)) = view.span(modification.position, modification.position, area) {
-            painter.fill(
+            fill_rect(
                 Rect::new(x, row_top(modification.y), width, height),
                 palette
                     .modification_color(&modification.modification, modification.probability)
                     .alpha(0.85),
+                window,
             );
         }
     }
@@ -170,24 +181,24 @@ fn mismatch_color(palette: &Palette, base: u8, quality: Option<u8>) -> (Rgb, f32
 
 /// Draws a run's bases, one box per base, or one per pixel when bases are narrower.
 fn draw_bases(
-    painter: &mut Painter,
     area: &Rect,
     view: &PixelView,
     run: &BaseRun,
     y: f32,
     height: f32,
     color: impl Fn(u8, Option<u8>) -> (Rgb, f32),
-) {
+    window: &mut Window,
+    cx: &mut App,
+) -> Result<(), TGVError> {
     let (left, right) = view.visible(area);
     let (start, end) = (run.span.start.max(left), run.span.end.min(right));
     if start > end {
-        return;
+        return Ok(());
     }
     if view.pixels_per_base() >= 1.0 {
         for position in start..=end {
             let base = run.base_at(position);
             draw_base(
-                painter,
                 area,
                 view,
                 position,
@@ -195,7 +206,9 @@ fn draw_bases(
                 y,
                 height,
                 color(base, run.quality_at(position)),
-            );
+                window,
+                cx,
+            )?;
         }
     } else {
         let mut x = view.x(start, area).max(area.x).floor();
@@ -203,16 +216,16 @@ fn draw_bases(
         while x < last {
             let position = view.position_at(x, area).clamp(start, end);
             let (color, alpha) = color(run.base_at(position), run.quality_at(position));
-            painter.fill(Rect::new(x, y, 1.0, height), color.alpha(alpha));
+            fill_rect(Rect::new(x, y, 1.0, height), color.alpha(alpha), window);
             x += 1.0;
         }
     }
+    Ok(())
 }
 
 /// Draws one base: a colored box, with its letter when the base is wide enough.
 #[allow(clippy::too_many_arguments)]
 fn draw_base(
-    painter: &mut Painter,
     area: &Rect,
     view: &PixelView,
     position: u64,
@@ -220,16 +233,21 @@ fn draw_base(
     y: f32,
     height: f32,
     (color, alpha): (Rgb, f32),
-) {
+    window: &mut Window,
+    cx: &mut App,
+) -> Result<(), TGVError> {
     let Some((x, width)) = view.span(position, position, area) else {
-        return;
+        return Ok(());
     };
-    painter.fill(Rect::new(x, y, width, height), color.alpha(alpha));
+    fill_rect(Rect::new(x, y, width, height), color.alpha(alpha), window);
     if view.pixels_per_base() >= MIN_PIXELS_PER_LETTER {
-        painter.letter(
+        paint_letter(
             Rect::new(x, y, width, height),
             base as char,
             Rgb::from_u32(0x111111),
-        );
+            window,
+            cx,
+        )?;
     }
+    Ok(())
 }

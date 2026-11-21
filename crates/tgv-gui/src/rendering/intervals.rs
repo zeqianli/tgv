@@ -1,18 +1,21 @@
 use crate::{
     layout::{PixelView, Rect},
-    rendering::{LINE_HEIGHT, Painter, colors::MUTED_TEXT, colors::Rgb, colors::ToHsla},
+    rendering::{
+        LINE_HEIGHT, TextContext, colors::MUTED_TEXT, colors::Rgb, colors::ToHsla, fill_rect,
+    },
 };
+use gpui::{App, Window};
 use gv_core::{intervals::IntervalSchema, prelude::*};
 use polars::prelude::DataFrame;
 
 /// Simple rendering of intervals, with alternating colors.
 /// The upstream code is responsible to pass only relevant intervals to this function.
 pub fn render_simple_intervals(
-    painter: &mut Painter,
     area: &Rect,
     intervals: &DataFrame,
     view: &PixelView,
     colors: &[Rgb],
+    window: &mut Window,
 ) -> Result<(), TGVError> {
     let starts = intervals.column(IntervalSchema::START)?.u64()?;
     let ends = intervals.column(IntervalSchema::END)?.u64()?;
@@ -22,9 +25,10 @@ pub fn render_simple_intervals(
         .enumerate()
     {
         if let Some((x, width)) = view.span(start, end, area) {
-            painter.fill(
+            fill_rect(
                 Rect::new(x, area.y + 2.0, width, area.height - 4.0),
                 colors[index % colors.len()].hsla(),
+                window,
             );
         }
     }
@@ -32,11 +36,21 @@ pub fn render_simple_intervals(
 }
 
 /// Says that the track isn't loaded for this view, because the view is zoomed out too far.
-pub fn render_zoom_in_notice(painter: &mut Painter, area: &Rect, features: &str) {
-    painter.text(
-        area.x + 4.0,
-        area.y + (area.height.min(LINE_HEIGHT * 2.0) - LINE_HEIGHT) / 2.0,
-        &format!("Zoom in to view {features}"),
-        MUTED_TEXT,
-    );
+pub fn render_zoom_in_notice(
+    area: &Rect,
+    features: &str,
+    window: &mut Window,
+    cx: &mut App,
+) -> Result<(), TGVError> {
+    TextContext::default()
+        .text(&format!("Zoom in to view {features}"))
+        .color(MUTED_TEXT)
+        .paint(
+            area.x + 4.0,
+            area.y + (area.height.min(LINE_HEIGHT * 2.0) - LINE_HEIGHT) / 2.0,
+            LINE_HEIGHT,
+            window,
+            cx,
+        )?;
+    Ok(())
 }
