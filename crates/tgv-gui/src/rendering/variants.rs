@@ -1,5 +1,4 @@
 use super::prelude::*;
-use crate::rendering::intervals::{render_simple_intervals, render_zoom_in_notice};
 use gv_core::variant::VariantTable;
 
 pub fn render_variants(
@@ -18,6 +17,15 @@ pub fn render_variants(
     let variants = variants.variants(region.contig_index(), region.start(), region.end())?;
     // Colors alternate by on-screen order, because row IDs of indexed files change between
     // loads.
-    render_simple_intervals(area, &variants, view, &[palette.VCF1, palette.VCF2], window);
+    let colors = [palette.VCF1, palette.VCF2];
+    for (index, variant) in variants.iter().enumerate() {
+        if let Some((x, width)) = view.span(variant.start, variant.end, area) {
+            fill_rect(
+                Rect::new(x, area.y + 2.0, width, area.height - 4.0),
+                to_hsla(colors[index % colors.len()]),
+                window,
+            );
+        }
+    }
     Ok(())
 }

@@ -1,9 +1,9 @@
 use gv_core::prelude::*;
 use gv_session::{SessionSocket, ViewerKind};
 use gv_viewer::{
+    keyboard::KeyboardState,
     keys::Key,
     message::FocusTarget,
-    register::Registers,
     settings::Settings,
     viewer::{Effect, Scene, Viewer},
     viewport::{PixelScale, Viewport},
@@ -39,7 +39,7 @@ pub struct Frame {
     /// Sidebar labels by track: the file name, with `● ` before tracks with unsaved changes.
     pub track_labels: HashMap<TrackId, String>,
     pub viewport: Viewport<PixelScale>,
-    pub registers: Registers,
+    pub keyboard_state: KeyboardState,
     pub focused: FocusTarget,
     pub focus_name: String,
     pub focus_modified: bool,
@@ -73,7 +73,7 @@ impl Frame {
             track_order: viewer.track_order.clone(),
             track_labels,
             viewport: viewer.viewport.clone(),
-            registers: viewer.registers.clone(),
+            keyboard_state: viewer.keyboard_state.clone(),
             focused: viewer.focused,
             focus_name: viewer.focus_name(),
             focus_modified: matches!(viewer.focused, FocusTarget::Track(id) if viewer.dataset.is_modified(id)),
@@ -222,7 +222,7 @@ async fn apply(
         WorkerMessage::Keys(keys) => {
             for key in keys {
                 let actions = viewer
-                    .registers
+                    .keyboard_state
                     .handle_key_event(key, &viewer.dataset.view)?;
                 viewer.handle(actions).await?;
             }
@@ -231,7 +231,7 @@ async fn apply(
             viewer.handle(actions).await?;
         }
         WorkerMessage::Paste(text) => {
-            let actions = viewer.registers.handle_paste(&text);
+            let actions = viewer.keyboard_state.handle_paste(&text);
             viewer.handle(actions).await?;
         }
         WorkerMessage::Resize(width) => {

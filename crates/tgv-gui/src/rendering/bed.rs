@@ -1,5 +1,4 @@
 use super::prelude::*;
-use crate::rendering::intervals::render_zoom_in_notice;
 use gv_core::{bed::BedTable, strand::Strand};
 
 /// The space between strand chevrons in a feature.

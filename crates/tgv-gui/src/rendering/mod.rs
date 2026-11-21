@@ -6,7 +6,6 @@ mod contig_list;
 mod coordinate;
 mod coverage;
 pub(crate) mod cytoband;
-mod intervals;
 mod menu;
 mod sequence;
 mod sidebar;
@@ -30,7 +29,7 @@ pub(crate) mod prelude {
     pub(crate) use super::{
         CHAR_WIDTH, LINE_HEIGHT, TextContext,
         colors::{MUTED_TEXT, Palette, Rgb, TEXT, to_hsla, to_hsla_with_alpha},
-        fill_polygon, fill_rect, paint_letter,
+        fill_polygon, fill_rect, paint_letter, render_zoom_in_notice,
     };
     pub(crate) use crate::layout::{PixelView, Rect};
     pub(crate) use gpui::{App, Window};
@@ -42,7 +41,7 @@ use crate::{
     mouse::MouseState,
     worker::Frame,
 };
-use colors::{Palette, Rgb, to_hsla, to_hsla_with_alpha};
+use colors::{MUTED_TEXT, Palette, Rgb, to_hsla, to_hsla_with_alpha};
 use gpui::{
     App, Bounds, ContentMask, Font, SharedString, TextAlign, TextRun, Window, point, px, size,
 };
@@ -318,7 +317,7 @@ pub fn render_main(
                             cx,
                         )?;
                     } else {
-                        intervals::render_zoom_in_notice(&rect, "alignments", window, cx)?;
+                        render_zoom_in_notice(&rect, "alignments", window, cx)?;
                     }
                 }
                 AreaType::AlignmentDivider { .. } => {
@@ -440,5 +439,25 @@ fn render_drop_gap(
         window,
         cx,
     )?;
+    Ok(())
+}
+
+/// Says that the track isn't loaded for this view, because the view is zoomed out too far.
+pub fn render_zoom_in_notice(
+    area: &Rect,
+    features: &str,
+    window: &mut Window,
+    cx: &mut App,
+) -> Result<(), crate::Error> {
+    TextContext::default()
+        .text(&format!("Zoom in to view {features}"))
+        .color(MUTED_TEXT)
+        .paint(
+            area.x + 4.0,
+            area.y + (area.height.min(LINE_HEIGHT * 2.0) - LINE_HEIGHT) / 2.0,
+            LINE_HEIGHT,
+            window,
+            cx,
+        )?;
     Ok(())
 }

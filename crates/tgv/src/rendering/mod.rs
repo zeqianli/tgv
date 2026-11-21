@@ -9,7 +9,6 @@ mod contig_list;
 mod coordinate;
 mod coverage;
 pub(crate) mod cytoband;
-mod intervals;
 mod menu;
 mod sequence;
 mod sidebar;
@@ -273,4 +272,18 @@ fn render_alignment_divider(area: &Rect, buf: &mut Buffer, palette: &Palette, hi
     for y in area.top()..area.bottom() {
         buf.set_string(area.x, y, "-".repeat(area.width as usize), style);
     }
+}
+
+/// Says that the track isn't loaded for this view, because the view is zoomed out too far.
+pub fn render_zoom_in_notice(area: &Rect, buf: &mut Buffer, features: &str) {
+    if area.width == 0 || area.height == 0 {
+        return;
+    }
+    buf.set_stringn(
+        area.x,
+        area.y,
+        format!("zoom in to view {features}"),
+        area.width as usize,
+        Style::default().fg(Color::DarkGray),
+    );
 }

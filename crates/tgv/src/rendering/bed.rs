@@ -1,8 +1,8 @@
 use crate::layout::CellView;
-use crate::rendering::colors::ToColor;
+use crate::rendering::colors::to_color;
 use crate::{
     layout::{AlignmentView, OnScreenCoordinate},
-    rendering::{colors::Palette, intervals::render_zoom_in_notice},
+    rendering::{colors::Palette, render_zoom_in_notice},
 };
 use gv_core::{bed::BedTable, strand::Strand};
 use ratatui::{
@@ -23,7 +23,7 @@ pub fn render_bed(
         render_zoom_in_notice(area, buf, "BED features");
         return Ok(());
     }
-    let colors = [palette.BED1.color(), palette.BED2.color()];
+    let colors = [to_color(palette.BED1), to_color(palette.BED2)];
     for (row, feature) in bed
         .features(region.contig_index(), region.start(), region.end())?
         .iter()
