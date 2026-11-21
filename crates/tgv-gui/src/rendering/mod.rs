@@ -341,14 +341,14 @@ pub fn render_main(
                 AreaType::GeneTrack => render_track(&rect, state, view, palette, window, cx)?,
                 AreaType::Console => {
                     if matches!(
-                        frame.registers.current,
-                        KeyRegisterType::Command(_) | KeyRegisterType::Search(_)
+                        frame.keyboard_state.mode,
+                        InputMode::Command(_) | InputMode::Search(_)
                     ) {
-                        render_console(&rect, &frame.registers, window, cx)?;
+                        render_console(&rect, &frame.keyboard_state, window, cx)?;
                     } else {
                         render_mode_line(
                             &rect,
-                            &frame.registers,
+                            &frame.keyboard_state,
                             focus,
                             layout.sidebar_width == 0.0,
                             palette,
@@ -372,7 +372,7 @@ pub fn render_main(
                         window,
                         cx,
                     )?;
-                    if frame.registers.shown_mode() == gv_viewer::keys::Mode::Insert(*id)
+                    if frame.keyboard_state.shown_mode() == gv_viewer::keys::Mode::Insert(*id)
                         && let Some((x, width)) = view.span(
                             view.viewport.focus.position,
                             view.viewport.focus.position,

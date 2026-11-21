@@ -1,5 +1,5 @@
 use crate::layout::CellView;
-use crate::rendering::colors::ToColor;
+use crate::rendering::colors::to_color;
 use gv_viewer::prepare::coverage::{calculate_binned_coverage, round_up_max_coverage};
 use std::usize;
 
@@ -50,8 +50,8 @@ pub fn render_coverage(
             .unwrap_or(0),
     );
     StackedSparkline::default()
-        .add_data(binned_coverage.remove(0), palette.COVERAGE_ALT.color())
-        .add_data(binned_coverage.remove(0), palette.COVERAGE_TOTAL.color())
+        .add_data(binned_coverage.remove(0), to_color(palette.COVERAGE_ALT))
+        .add_data(binned_coverage.remove(0), to_color(palette.COVERAGE_TOTAL))
         .max(y_max)
         .render(plot_area, buf);
 

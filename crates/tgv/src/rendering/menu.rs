@@ -1,4 +1,4 @@
-use crate::rendering::colors::ToColor;
+use crate::rendering::colors::to_color;
 use crate::{layout::wrap_sidebar_label, menu::ContextMenu, rendering::colors::Palette};
 use gv_viewer::{
     menu::{MenuItem, MenuLevel},
@@ -18,14 +18,14 @@ fn render_level(buf: &mut Buffer, rect: Rect, level: &MenuLevel, palette: &Palet
     let width = area.width as usize;
     for (index, item) in level.items.iter().enumerate().take(area.height as usize) {
         let background = if level.hovered == Some(index) && item.enabled() {
-            palette.MENU_HOVER_BACKGROUND.color()
+            to_color(palette.MENU_HOVER_BACKGROUND)
         } else {
-            palette.MENU_BACKGROUND.color()
+            to_color(palette.MENU_BACKGROUND)
         };
         let foreground = if item.enabled() {
-            palette.MENU_FOREGROUND.color()
+            to_color(palette.MENU_FOREGROUND)
         } else {
-            palette.MENU_DISABLED_FOREGROUND.color()
+            to_color(palette.MENU_DISABLED_FOREGROUND)
         };
         let marker = if matches!(item, MenuItem::Submenu { .. }) {
             "▸"
@@ -99,9 +99,9 @@ pub fn render_text_popup(buf: &mut Buffer, area: Rect, popup: &TextPopup, palett
     .intersection(buf.area);
     for (row, line) in lines.iter().enumerate().take(panel.height as usize) {
         let foreground = if row == 0 {
-            palette.MENU_DISABLED_FOREGROUND.color()
+            to_color(palette.MENU_DISABLED_FOREGROUND)
         } else {
-            palette.MENU_FOREGROUND.color()
+            to_color(palette.MENU_FOREGROUND)
         };
         buf.set_stringn(
             panel.x,
@@ -110,7 +110,7 @@ pub fn render_text_popup(buf: &mut Buffer, area: Rect, popup: &TextPopup, palett
             panel.width as usize,
             Style::default()
                 .fg(foreground)
-                .bg(palette.MENU_BACKGROUND.color()),
+                .bg(to_color(palette.MENU_BACKGROUND)),
         );
     }
 }

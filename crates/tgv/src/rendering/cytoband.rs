@@ -1,5 +1,5 @@
 use crate::layout::CellView;
-use crate::rendering::colors::ToColor;
+use crate::rendering::colors::to_color;
 use gv_core::{
     cytoband::{Cytoband, Stain},
     prelude::*,
@@ -91,7 +91,7 @@ pub fn render_cytobands(
             let cell = buf.cell_mut(Position::new(area.x + x, area.y));
             if let Some(cell) = cell {
                 cell.set_char(' ');
-                cell.set_bg(pallete.HIGHLIGHT_COLOR.color());
+                cell.set_bg(to_color(pallete.HIGHLIGHT_COLOR));
             }
         }
     }
@@ -150,7 +150,7 @@ fn get_cytoband_segment_x_string_and_style(
         return Ok(None);
     }
 
-    let style = Style::default().fg(palette.cytoband_color(stain.clone()).color());
+    let style = Style::default().fg(to_color(palette.cytoband_color(stain.clone())));
 
     match stain {
         Stain::Acen => {

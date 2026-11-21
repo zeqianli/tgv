@@ -15,6 +15,7 @@ use crate::message::{
 
 use crate::{
     jumps::{JumpList, ViewPoint},
+    keyboard::{InputMode, KeyboardState},
     keys::Mode,
     layout::{AreaType, RenderEvent},
     menu::{self, MenuItem},
@@ -23,7 +24,6 @@ use crate::{
         Direction, FocusMove, FocusTarget, Motion, Operator, UiAction,
     },
     popup::TextPopup,
-    register::{KeyRegisterType, Registers},
     session::SessionFile,
     settings::Settings,
     viewport::{Scale, Viewport},
@@ -90,7 +90,7 @@ pub struct Viewer<Z: Scale> {
     /// separate query state.
     pub dataset: Dataset,
     pub settings: Settings,
-    pub registers: Registers,
+    pub keyboard_state: KeyboardState,
 
     pub viewport: Viewport<Z>,
     /// The width of the track area, in the front end's units. Zero until the front end lays
@@ -181,7 +181,7 @@ impl<Z: Scale> Viewer<Z> {
             session,
             requests,
             settings,
-            registers: Registers::default(),
+            keyboard_state: KeyboardState::default(),
             scene: Scene::Main,
             effects: Vec::new(),
         };
@@ -619,8 +619,8 @@ impl<Z: Scale> Viewer<Z> {
                     self.viewport
                         .zoom(zoom.clone(), self.width, contig_length)?;
                     if matches!(
-                        self.registers.current,
-                        KeyRegisterType::Editing(Mode::Insert(_))
+                        self.keyboard_state.mode,
+                        InputMode::Editing(Mode::Insert(_))
                     ) {
                         self.viewport.zoom = self.viewport.zoom.for_insert_mode();
                         self.self_correct()?;
@@ -708,9 +708,9 @@ impl<Z: Scale> Viewer<Z> {
                 Action::Navigate(NavigationAction::SelectContig(index)) => {
                     if self.scene == Scene::ContigList
                         && index < self.dataset.view.contig_header.contigs.len()
-                        && index != self.registers.contig_list_cursor
+                        && index != self.keyboard_state.contig_list_cursor
                     {
-                        self.registers.contig_list_cursor = index;
+                        self.keyboard_state.contig_list_cursor = index;
                         render_events.push(RenderEvent::All);
                     }
                 }
@@ -724,16 +724,16 @@ impl<Z: Scale> Viewer<Z> {
                 Action::Input(InputAction::CommandChanged) => {
                     render_events.push(RenderEvent::Area(AreaType::Console));
                 }
-                Action::Input(InputAction::SwitchKeyRegister(register)) => {
-                    let previous_register = self.registers.current.clone();
-                    if matches!(register, KeyRegisterType::ContigList(_)) {
-                        self.registers.contig_list_cursor = self.viewport.focus.contig_index;
+                Action::Input(InputAction::SwitchInputMode(mode)) => {
+                    let previous_mode = self.keyboard_state.mode;
+                    if matches!(mode, InputMode::ContigList(_)) {
+                        self.keyboard_state.contig_list_cursor = self.viewport.focus.contig_index;
                     }
-                    self.registers.current = register;
+                    self.keyboard_state.mode = mode;
                     log::debug!(
-                        "Switching key register: from={:?} to={:?}",
-                        previous_register,
-                        self.registers.current,
+                        "Switching input mode: from={:?} to={:?}",
+                        previous_mode,
+                        self.keyboard_state.mode,
                     );
                     // The mode shows in the sidebar fill, the console, and the insert cursor.
                     render_events.push(RenderEvent::All);
@@ -786,7 +786,7 @@ impl<Z: Scale> Viewer<Z> {
                         self.apply_movement(Movement::Right(self.viewport.zoom.column_bases()))
                             .await?;
                     }
-                    self.registers.current = KeyRegisterType::Editing(Mode::Insert(id));
+                    self.keyboard_state.mode = InputMode::Editing(Mode::Insert(id));
                     if self.warn_shift_backspace {
                         self.warn_shift_backspace = false;
                         messages.push(
@@ -926,7 +926,7 @@ impl<Z: Scale> Viewer<Z> {
                 }
                 Action::Input(InputAction::ClearAllKeyRegisters) => {
                     log::debug!("Clearing all key registers");
-                    self.registers.clear();
+                    self.keyboard_state.clear();
                     render_events.push(RenderEvent::Area(AreaType::Console))
                 }
                 Action::Ui(action) => self.effects.push(Effect::Ui(action)),
@@ -1000,10 +1000,10 @@ impl<Z: Scale> Viewer<Z> {
             return Vec::new();
         }
         self.focused = target;
-        if let Mode::Insert(track) = self.registers.shown_mode()
+        if let Mode::Insert(track) = self.keyboard_state.shown_mode()
             && target != FocusTarget::Track(track)
         {
-            self.registers.leave_insert_mode(track);
+            self.keyboard_state.leave_insert_mode(track);
         }
         vec![RenderEvent::All]
     }
@@ -1395,7 +1395,7 @@ impl<Z: Scale> Viewer<Z> {
         if self.track_clipboard == Some(id) {
             self.track_clipboard = None;
         }
-        self.registers.leave_insert_mode(id);
+        self.keyboard_state.leave_insert_mode(id);
         let entry = self.dataset.remove_track(id)?;
         if let RepositoryFileIndex::Alignment(index) = entry.repository_index {
             self.viewport.y.remove(index);

@@ -11,8 +11,6 @@ use ratatui::{
     style::{Color, Style},
 };
 
-/// Draws each feature as a bar, filled with strand chevrons and labeled with its name when the
-/// name fits.
 pub fn render_bed(
     area: &Rect,
     buf: &mut Buffer,

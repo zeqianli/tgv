@@ -42,7 +42,7 @@ pub fn render_sidebar(
     let width = layout.sidebar_width - 2.0 * PADDING;
 
     // The focused target's whole section is filled, colored by mode.
-    let fill = match frame.registers.shown_mode() {
+    let fill = match frame.keyboard_state.shown_mode() {
         gv_viewer::keys::Mode::Insert(_) => palette.FOCUS_INSERT,
         _ => palette.FOCUS_NORMAL,
     };

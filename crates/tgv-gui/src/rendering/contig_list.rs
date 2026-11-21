@@ -1,6 +1,6 @@
 use super::prelude::*;
 use gv_core::prelude::*;
-use gv_viewer::{prepare::coordinate::get_abbreviated_length_string, register::Registers};
+use gv_viewer::{keyboard::KeyboardState, prepare::coordinate::get_abbreviated_length_string};
 
 const ROW_HEIGHT: f32 = 20.0;
 const BAR_HEIGHT: f32 = 8.0;
@@ -10,7 +10,7 @@ const PADDING: f32 = 12.0;
 pub fn render_contig_list(
     area: &Rect,
     state: &State,
-    registers: &Registers,
+    keyboard_state: &KeyboardState,
     palette: &Palette,
     window: &mut Window,
     cx: &mut App,
@@ -35,7 +35,7 @@ pub fn render_contig_list(
     let bar_x = area.x + PADDING + name_width;
     let bar_width = (area.width - name_width - 3.0 * PADDING - 8.0 * CHAR_WIDTH).max(0.0);
 
-    let selected = registers.contig_list_cursor;
+    let selected = keyboard_state.contig_list_cursor;
     let middle = area.y + (area.height / 2.0 / ROW_HEIGHT).floor() * ROW_HEIGHT;
     fill_rect(
         Rect::new(area.x, middle, area.width, ROW_HEIGHT),

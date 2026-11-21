@@ -1,5 +1,5 @@
 use crate::layout::CellView;
-use crate::rendering::colors::ToColor;
+use crate::rendering::colors::to_color;
 use gv_viewer::{layout::RenderEvent, message::FocusTarget, popup::TextPopup, prelude::*};
 mod alignment;
 mod bed;
@@ -56,7 +56,7 @@ pub struct TrackFocus {
 pub fn render_main(
     buf: &mut Buffer,
     state: &mut State,
-    registers: &Registers,
+    keyboard_state: &KeyboardState,
     layout: &ResolvedMainLayout,
     alignment_view: &AlignmentView,
     mouse_state: &MouseState,
@@ -118,7 +118,7 @@ pub fn render_main(
         sidebar::render_sidebar(
             buf,
             state,
-            registers,
+            keyboard_state,
             layout,
             alignment_view,
             mouse_state,
@@ -211,15 +211,15 @@ pub fn render_main(
             }
             AreaType::Console => {
                 if matches!(
-                    registers.current,
-                    KeyRegisterType::Command(_) | KeyRegisterType::Search(_)
+                    keyboard_state.mode,
+                    InputMode::Command(_) | InputMode::Search(_)
                 ) {
-                    render_console(rect, buf, registers)?;
+                    render_console(rect, buf, keyboard_state)?;
                 } else {
                     render_mode_line(
                         rect,
                         buf,
-                        registers,
+                        keyboard_state,
                         focus,
                         layout.sidebar_width == 0,
                         pallete,
@@ -241,7 +241,7 @@ pub fn render_main(
                     render_bed(rect, buf, bed_intervals, alignment_view, pallete)?;
                 }
                 // Insert mode draws the cursor as one reversed cell.
-                if registers.shown_mode() == gv_viewer::keys::Mode::Insert(*id)
+                if keyboard_state.shown_mode() == gv_viewer::keys::Mode::Insert(*id)
                     && let OnScreenCoordinate::OnScreen(x) =
                         alignment_view.onscreen_x_coordinate(alignment_view.focus.position, rect)
                 {
@@ -265,7 +265,7 @@ pub fn render_main(
 
 fn render_alignment_divider(area: &Rect, buf: &mut Buffer, palette: &Palette, highlighted: bool) {
     let style = if highlighted {
-        Style::default().bg(palette.HIGHLIGHT_COLOR.color())
+        Style::default().bg(to_color(palette.HIGHLIGHT_COLOR))
     } else {
         Style::default()
     };

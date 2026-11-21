@@ -14,8 +14,6 @@ impl ToColor for Rgb {
     }
 }
 
-/// Style for a mismatched base. Low-quality bases are dimmed, so likely sequencing errors
-/// stand out less.
 pub fn mismatch_style(palette: &Palette, base: u8, quality: Option<u8>) -> Style {
     let style = Style::default().fg(palette.mismatch_color(base).color());
     if Palette::is_mismatch_shaded(quality) {

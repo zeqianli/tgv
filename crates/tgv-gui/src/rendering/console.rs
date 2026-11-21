@@ -1,33 +1,33 @@
 use super::prelude::*;
 use crate::rendering::{TrackFocus, colors::CURSOR_COLOR};
-use gv_viewer::register::{KeyRegisterType, Registers};
+use gv_viewer::keyboard::{InputMode, KeyboardState};
 
 /// Render the command line for command (`:`) and search (`/`) mode.
 pub fn render_console(
     area: &Rect,
-    registers: &Registers,
+    keyboard_state: &KeyboardState,
     window: &mut Window,
     cx: &mut App,
 ) -> Result<(), crate::Error> {
     let y = area.y + (area.height - LINE_HEIGHT) / 2.0;
-    let prompt = if matches!(registers.current, KeyRegisterType::Search(_)) {
+    let prompt = if matches!(keyboard_state.mode, InputMode::Search(_)) {
         '/'
     } else {
         ':'
     };
-    let before_cursor: String = registers
+    let before_cursor: String = keyboard_state
         .command
         .chars()
-        .take(registers.command_cursor)
+        .take(keyboard_state.command_cursor)
         .collect();
     let x = area.x + 4.0;
     let cursor_x = x + TextContext::default()
         .text(&format!("{prompt}{before_cursor}"))
         .width(window);
-    let cursor_char = registers
+    let cursor_char = keyboard_state
         .command
         .chars()
-        .nth(registers.command_cursor)
+        .nth(keyboard_state.command_cursor)
         .unwrap_or(' ');
     let cursor_width = TextContext::default()
         .text(&cursor_char.to_string())
@@ -39,7 +39,7 @@ pub fn render_console(
         window,
     );
     TextContext::default()
-        .text(&format!("{prompt}{}", registers.command))
+        .text(&format!("{prompt}{}", keyboard_state.command))
         .color(TEXT)
         .paint(x, y, LINE_HEIGHT, window, cx)?;
     Ok(())
@@ -50,7 +50,7 @@ pub fn render_console(
 /// the focused track's name shows on the right, like vim's ruler, so the focus is never hidden.
 pub fn render_mode_line(
     area: &Rect,
-    registers: &Registers,
+    keyboard_state: &KeyboardState,
     focus: &TrackFocus,
     sidebar_hidden: bool,
     palette: &Palette,
@@ -63,8 +63,8 @@ pub fn render_mode_line(
     } else {
         focus.name.clone()
     };
-    match registers.current {
-        KeyRegisterType::Editing(gv_viewer::keys::Mode::Insert(_)) => {
+    match keyboard_state.mode {
+        InputMode::Editing(gv_viewer::keys::Mode::Insert(_)) => {
             TextContext::default()
                 .text(&format!("-- INSERT -- {name}"))
                 .color(palette.MODE_INSERT)

@@ -11,11 +11,11 @@
 //!
 //! Keys are front-end neutral: each front end decodes its own key events into a [`Key`].
 
+use crate::keyboard::InputMode;
 use crate::message::{
     Action, ColumnSpan, CursorAfter, Direction, EditAction, FocusMove, InputAction, Motion,
     NavigationAction, Operator, UpdateLayoutAction,
 };
-use crate::register::KeyRegisterType;
 use gv_core::bed::BedEditKind;
 use gv_core::message::{Scroll, WordMotion, Zoom};
 use gv_core::prelude::*;
@@ -175,8 +175,8 @@ impl PendingKeys {
             let pending = self.typed.len() > key_name(key).len();
             return Ok(Some(match mode {
                 Mode::Insert(_) if !pending => {
-                    vec![Action::Input(InputAction::SwitchKeyRegister(
-                        KeyRegisterType::Editing(Mode::Normal),
+                    vec![Action::Input(InputAction::SwitchInputMode(
+                        InputMode::Editing(Mode::Normal),
                     ))]
                 }
                 _ => Vec::new(),
@@ -312,15 +312,11 @@ impl PendingKeys {
             }
             (KeyCode::Char(':'), _) => vec![
                 Action::Input(InputAction::ClearAllKeyRegisters),
-                Action::Input(InputAction::SwitchKeyRegister(KeyRegisterType::Command(
-                    mode,
-                ))),
+                Action::Input(InputAction::SwitchInputMode(InputMode::Command(mode))),
             ],
             (KeyCode::Char('/'), _) => vec![
                 Action::Input(InputAction::ClearAllKeyRegisters),
-                Action::Input(InputAction::SwitchKeyRegister(KeyRegisterType::Search(
-                    mode,
-                ))),
+                Action::Input(InputAction::SwitchInputMode(InputMode::Search(mode))),
             ],
             (KeyCode::Char('u'), Mode::Normal) if without_count => {
                 vec![Action::Navigate(NavigationAction::JumpBack)]

@@ -157,7 +157,7 @@ impl App {
                             match key_from_event(*key_event) {
                                 Some(key) => self
                                     .viewer
-                                    .registers
+                                    .keyboard_state
                                     .handle_key_event(key, &self.viewer.dataset.view)?,
                                 None => Vec::new(),
                             }
@@ -183,7 +183,7 @@ impl App {
                     Ok(Event::Paste(text))
                         if self.popup.is_none() && self.context_menu.is_none() =>
                     {
-                        let actions = self.viewer.registers.handle_paste(text);
+                        let actions = self.viewer.keyboard_state.handle_paste(text);
                         self.handle(actions).await
                     }
 
@@ -367,7 +367,7 @@ impl App {
             Scene::Main => render_main(
                 &mut self.render_buffer,
                 &mut self.viewer.dataset.view,
-                &self.viewer.registers,
+                &self.viewer.keyboard_state,
                 &self.resolved_layout,
                 &self.viewer.viewport,
                 &self.mouse_state,
@@ -381,7 +381,7 @@ impl App {
                 &self.resolved_layout.terminal_area,
                 &mut self.render_buffer,
                 &self.viewer.dataset.view,
-                &self.viewer.registers,
+                &self.viewer.keyboard_state,
                 &self.viewer.settings.palette,
             ),
         }?;

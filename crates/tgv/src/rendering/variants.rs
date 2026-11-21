@@ -1,4 +1,4 @@
-use crate::rendering::colors::ToColor;
+use crate::rendering::colors::to_color;
 use crate::{
     layout::AlignmentView,
     rendering::{
@@ -29,7 +29,7 @@ pub fn render_variants(
         buf,
         &variants,
         alignment_view,
-        &[palette.VCF1.color(), palette.VCF2.color()],
+        &[to_color(palette.VCF1), to_color(palette.VCF2)],
         0,
     );
     Ok(())

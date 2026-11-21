@@ -2,7 +2,7 @@
 //! Each layer preserves source-table order, so later records overwrite earlier ones.
 
 use crate::layout::CellView;
-use crate::rendering::colors::{ToColor, mismatch_style};
+use crate::rendering::colors::{mismatch_style, to_color};
 use crate::{
     layout::{AlignmentView, OnScreenCoordinate},
     rendering::colors::Palette,
@@ -109,8 +109,8 @@ fn draw_scene(
         for x in left..=right {
             if let Some(cell) = buf.cell_mut(Position::new(area.x + x, y)) {
                 cell.set_symbol("-")
-                    .set_bg(palette.background.color())
-                    .set_fg(palette.PAIRGAP_COLOR.color());
+                    .set_bg(to_color(palette.background))
+                    .set_fg(to_color(palette.PAIRGAP_COLOR));
             }
         }
     }
@@ -124,11 +124,11 @@ fn draw_scene(
             if let Some(cell) = buf.cell_mut(Position::new(area.x + x, y)) {
                 cell.set_symbol("-")
                     .set_bg(if body.zero_mapq {
-                        palette.ZERO_MAPQ_COLOR.color()
+                        to_color(palette.ZERO_MAPQ_COLOR)
                     } else {
-                        palette.MATCH_COLOR.color()
+                        to_color(palette.MATCH_COLOR)
                     })
-                    .set_fg(palette.MATCH_FG_COLOR.color());
+                    .set_fg(to_color(palette.MATCH_FG_COLOR));
             }
         }
     }
@@ -141,7 +141,7 @@ fn draw_scene(
             if let Some(cell) = buf.cell_mut(Position::new(area.x + x, y)) {
                 let (base, _) = column_base(run, x, region, view);
                 cell.set_char(base as char);
-                cell.set_bg(palette.softclip_color(base).color())
+                cell.set_bg(to_color(palette.softclip_color(base)))
                     .set_fg(Color::Reset);
             }
         }
@@ -155,8 +155,8 @@ fn draw_scene(
         for x in left..=right {
             if let Some(cell) = buf.cell_mut(Position::new(area.x + x, y)) {
                 cell.set_symbol("-")
-                    .set_bg(palette.background.color())
-                    .set_fg(palette.DELETION_COLOR.color());
+                    .set_bg(to_color(palette.background))
+                    .set_fg(to_color(palette.DELETION_COLOR));
             }
         }
     }
@@ -178,7 +178,8 @@ fn draw_scene(
         };
         let y = area.y + (insertion.y as usize - top) as u16;
         if let Some(cell) = buf.cell_mut(Position::new(area.x + x, y)) {
-            cell.set_symbol("▌").set_fg(palette.INSERTION_COLOR.color());
+            cell.set_symbol("▌")
+                .set_fg(to_color(palette.INSERTION_COLOR));
         }
     }
 
@@ -212,11 +213,10 @@ fn draw_scene(
             .map(|x| Position::new(area.x + x, area.y + (modification.y as usize - top) as u16))
             && let Some(cell) = buf.cell_mut(position)
         {
-            cell.set_bg(
-                palette
-                    .modification_color(&modification.modification, modification.probability)
-                    .color(),
-            );
+            cell.set_bg(to_color(palette.modification_color(
+                &modification.modification,
+                modification.probability,
+            )));
         }
     }
 }

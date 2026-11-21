@@ -274,8 +274,8 @@ impl App {
             return;
         }
         if matches!(
-            frame.registers.current,
-            KeyRegisterType::Editing(gv_viewer::keys::Mode::Insert(_))
+            frame.keyboard_state.mode,
+            InputMode::Editing(gv_viewer::keys::Mode::Insert(_))
         ) {
             viewport.zoom = viewport.zoom.for_insert_mode();
             viewport.self_correct(width, contig_length);
@@ -772,7 +772,7 @@ impl Render for App {
                             Scene::ContigList => rendering::render_contig_list(
                                 &resolved.window,
                                 &frame.state,
-                                &frame.registers,
+                                &frame.keyboard_state,
                                 &palette,
                                 window,
                                 cx,

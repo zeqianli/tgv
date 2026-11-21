@@ -1,6 +1,6 @@
-use crate::rendering::colors::ToColor;
+use crate::rendering::colors::to_color;
 use crate::rendering::{TrackFocus, colors::Palette};
-use gv_viewer::register::{KeyRegisterType, Registers};
+use gv_viewer::keyboard::{InputMode, KeyboardState};
 use ratatui::{
     buffer::Buffer,
     layout::Rect,
@@ -13,7 +13,7 @@ const MIN_AREA_HEIGHT: u16 = 1;
 pub fn render_console(
     area: &Rect,
     buf: &mut Buffer,
-    buffer: &Registers,
+    buffer: &KeyboardState,
 ) -> Result<(), crate::Error> {
     if area.width < MIN_AREA_WIDTH || area.height < MIN_AREA_HEIGHT {
         return Ok(());
@@ -32,7 +32,7 @@ pub fn render_console(
         area.y,
         format!(
             "{}{}",
-            if matches!(buffer.current, KeyRegisterType::Search(_)) {
+            if matches!(buffer.mode, InputMode::Search(_)) {
                 '/'
             } else {
                 ':'
@@ -60,7 +60,7 @@ pub fn render_console(
 pub fn render_mode_line(
     area: &Rect,
     buf: &mut Buffer,
-    registers: &Registers,
+    keyboard_state: &KeyboardState,
     focus: &TrackFocus,
     sidebar_hidden: bool,
     palette: &Palette,
@@ -70,14 +70,14 @@ pub fn render_mode_line(
     } else {
         focus.name.clone()
     };
-    match registers.current {
-        KeyRegisterType::Editing(gv_viewer::keys::Mode::Insert(_)) => buf.set_stringn(
+    match keyboard_state.mode {
+        InputMode::Editing(gv_viewer::keys::Mode::Insert(_)) => buf.set_stringn(
             area.x,
             area.y,
             format!("-- INSERT -- {name}"),
             area.width as usize,
             Style::default()
-                .fg(palette.MODE_INSERT.color())
+                .fg(to_color(palette.MODE_INSERT))
                 .add_modifier(Modifier::BOLD),
         ),
         _ if sidebar_hidden => {

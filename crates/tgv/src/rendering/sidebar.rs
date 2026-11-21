@@ -1,11 +1,11 @@
-use crate::rendering::colors::ToColor;
+use crate::rendering::colors::to_color;
 use crate::{
     layout::{AlignmentView, AreaType, ResolvedMainLayout, wrap_sidebar_label},
     mouse::MouseState,
     rendering::{TrackFocus, colors::Palette},
 };
 use gv_viewer::prepare::sidebar::{alignment_depth_description, describe_option};
-use gv_viewer::{layout::RenderEvent, message::FocusTarget, register::Registers};
+use gv_viewer::{keyboard::KeyboardState, layout::RenderEvent, message::FocusTarget};
 
 use gv_core::prelude::*;
 use itertools::Itertools;
@@ -33,7 +33,7 @@ fn wrap_words(text: &str, width: u16) -> Vec<String> {
 pub fn render_sidebar(
     buf: &mut Buffer,
     state: &mut State,
-    registers: &Registers,
+    keyboard_state: &KeyboardState,
     layout: &ResolvedMainLayout,
     alignment_view: &AlignmentView,
     mouse_state: &MouseState,
@@ -53,7 +53,7 @@ pub fn render_sidebar(
                 separator_style,
             );
         }
-        let option_style = Style::default().fg(pallete.SIDEBAR_OPTION_COLOR.color());
+        let option_style = Style::default().fg(to_color(pallete.SIDEBAR_OPTION_COLOR));
         for label in &layout.sidebar_labels {
             let mut area = label.area;
             // An alignment's display options sit at the bottom of its label area, just above the
@@ -140,7 +140,7 @@ pub fn render_sidebar(
             );
         }
         let divider_style = if mouse_state.is_sidebar_divider_highlighted() {
-            Style::default().fg(pallete.HIGHLIGHT_COLOR.color())
+            Style::default().fg(to_color(pallete.HIGHLIGHT_COLOR))
         } else {
             sidebar_style
         };
@@ -167,9 +167,9 @@ pub fn render_sidebar(
             );
         }
         // The focused target's whole section is filled, colored by mode.
-        let fill = match registers.shown_mode() {
-            gv_viewer::keys::Mode::Insert(_) => pallete.FOCUS_INSERT.color(),
-            _ => pallete.FOCUS_NORMAL.color(),
+        let fill = match keyboard_state.shown_mode() {
+            gv_viewer::keys::Mode::Insert(_) => to_color(pallete.FOCUS_INSERT),
+            _ => to_color(pallete.FOCUS_NORMAL),
         };
         for (area_type, section) in &layout.sidebar_sections {
             let focused = match (area_type, focus.target) {

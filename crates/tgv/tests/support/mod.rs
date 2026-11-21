@@ -64,7 +64,7 @@ impl AppHarness {
             let messages = self
                 .app
                 .viewer
-                .registers
+                .keyboard_state
                 .handle_key_event(key, &self.app.viewer.dataset.view)?;
             render_events.extend(self.app.handle(messages).await?);
         }

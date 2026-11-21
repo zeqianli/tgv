@@ -1,13 +1,3 @@
-//! The dataset worker: a thread that owns the viewer, so loads never block the window.
-//!
-//! The window sends [`WorkerMessage`]s. The worker applies every message already queued, loads
-//! what the view needs, and sends back a [`Frame`]: a cheap snapshot of everything the window
-//! draws. The worker also hosts the session, so agents reach it through the session socket
-//! while the window keeps drawing.
-//!
-//! The terminal UI does the same work inline in its event loop. Repository readers aren't
-//! `Send`, so the viewer is created on this thread and never leaves it.
-
 use gv_core::prelude::*;
 use gv_session::{SessionSocket, ViewerKind};
 use gv_viewer::{
@@ -33,10 +23,8 @@ pub enum WorkerMessage {
     Resize(f64),
 }
 
-/// What the worker tells the window.
 pub enum WorkerEvent {
     Frame(Arc<Frame>),
-    /// The dataset couldn't be opened, so there is nothing to show.
     Failed(String),
 }
 

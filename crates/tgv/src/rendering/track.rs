@@ -1,5 +1,5 @@
 use crate::layout::CellView;
-use crate::rendering::colors::ToColor;
+use crate::rendering::colors::to_color;
 use crate::{
     layout::{AlignmentView, OnScreenCoordinate},
     rendering::colors::Palette,
@@ -196,7 +196,7 @@ fn get_gene_segment_string_and_style(
             .collect::<String>(),
     };
 
-    let style = Style::default().bg(pallete.GENE_BACKGROUND_COLOR.color());
+    let style = Style::default().bg(to_color(pallete.GENE_BACKGROUND_COLOR));
 
     (string, style)
 }
@@ -230,11 +230,11 @@ fn get_feature_segment_string_and_style(
 
     let style = match feature_type {
         SegmentKind::CodingExon => Style::default()
-            .fg(pallete.EXON_FOREGROUND_COLOR.color())
-            .bg(pallete.EXON_BACKGROUND_COLOR.color()),
-        SegmentKind::Intron => Style::default().fg(pallete.INTRON_FOREGROUND_COLOR.color()),
+            .fg(to_color(pallete.EXON_FOREGROUND_COLOR))
+            .bg(to_color(pallete.EXON_BACKGROUND_COLOR)),
+        SegmentKind::Intron => Style::default().fg(to_color(pallete.INTRON_FOREGROUND_COLOR)),
         SegmentKind::NoncodingExon => {
-            Style::default().fg(pallete.NON_CDS_EXON_BACKGROUND_COLOR.color())
+            Style::default().fg(to_color(pallete.NON_CDS_EXON_BACKGROUND_COLOR))
         }
     };
 

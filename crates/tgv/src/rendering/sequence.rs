@@ -1,4 +1,4 @@
-use crate::rendering::colors::ToColor;
+use crate::rendering::colors::to_color;
 use crate::{layout::AlignmentView, rendering::colors::Palette};
 use gv_core::{prelude::*, sequence::Sequence};
 use ratatui::{buffer::Buffer, layout::Rect, style::Style};
@@ -41,8 +41,8 @@ fn render_sequence_at_1x(
             area.y,
             base.to_string(),
             Style::default()
-                .fg(pallete.SEQUENCE_FOREGROUND_COLOR.color())
-                .bg(pallete.base_color(base as u8).color()),
+                .fg(to_color(pallete.SEQUENCE_FOREGROUND_COLOR))
+                .bg(to_color(pallete.base_color(base as u8))),
         );
     }
 
@@ -74,8 +74,8 @@ fn render_sequence_at_2x(
                 area.y,
                 "▌",
                 Style::default()
-                    .fg(palette.base_color(base1).color())
-                    .bg(palette.base_color(base2).color()),
+                    .fg(to_color(palette.base_color(base1)))
+                    .bg(to_color(palette.base_color(base2))),
             );
         }
     }
