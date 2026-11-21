@@ -3,7 +3,7 @@ use crate::{
         alignment::{Alignment, stack_tracks_by_sort_key},
         tables::{CigarSchema, ReadSchema},
     },
-    error::TGVError,
+    error::Error,
     message::AlignmentSort,
     table_schema::TableSchema,
 };
@@ -63,7 +63,7 @@ impl TableSchema for PairSchema {
 }
 
 impl PairedAlignment {
-    pub fn new(alignment: &Alignment) -> Result<Self, TGVError> {
+    pub fn new(alignment: &Alignment) -> Result<Self, Error> {
         let reads = alignment.tables.reads.clone().lazy();
         let eligible = col(ReadSchema::PAIRED)
             .and(col(ReadSchema::SECONDARY).not())
@@ -109,7 +109,7 @@ impl PairedAlignment {
     }
 
     /// Return the combined depth of the visible pairs and singles.
-    pub fn depth(&self) -> Result<usize, TGVError> {
+    pub fn depth(&self) -> Result<usize, Error> {
         if !self.pairs.column(PairSchema::SHOW)?.bool()?.any()
             && !self.singles.column(ReadSchema::SHOW)?.bool()?.any()
         {
@@ -120,7 +120,7 @@ impl PairedAlignment {
         Ok(pair_y.max(single_y).map_or(0, |y| y as usize + 1))
     }
 
-    fn assign_rows(&mut self) -> Result<(), TGVError> {
+    fn assign_rows(&mut self) -> Result<(), Error> {
         let items = concat(
             [
                 self.pairs.clone().lazy().select([
@@ -170,7 +170,7 @@ impl PairedAlignment {
         left: u64,
         right: u64,
         y: usize,
-    ) -> Result<Option<usize>, TGVError> {
+    ) -> Result<Option<usize>, Error> {
         if left > right {
             return Ok(None);
         }
@@ -230,7 +230,7 @@ impl PairedAlignment {
             .map(|id| id as usize))
     }
 
-    pub fn sort(&mut self, alignment: &Alignment, option: AlignmentSort) -> Result<(), TGVError> {
+    pub fn sort(&mut self, alignment: &Alignment, option: AlignmentSort) -> Result<(), Error> {
         let keys = alignment.sort_keys(&option)?;
         // When sorting by base, a pair whose mates flank the position sorts after the pairs with
         // a base there, as if the gap were another base.
@@ -358,15 +358,13 @@ mod tests {
             .map(|(kind, len)| Op::new(kind, len))
             .collect();
 
-        let record = sam::alignment::RecordBuf::builder()
+        sam::alignment::RecordBuf::builder()
             .set_name(name)
             .set_flags(Flags::from(0x1))
             .set_alignment_start(noodles::core::Position::try_from(start as usize).unwrap())
             .set_cigar(cigar)
             .set_sequence(sam::alignment::record_buf::Sequence::from(sequence))
-            .build();
-
-        record
+            .build()
     }
 
     fn alignment_from_reads(reads: Vec<RecordBuf>) -> Alignment {

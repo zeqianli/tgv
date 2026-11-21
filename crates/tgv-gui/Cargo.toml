@@ -12,14 +12,15 @@ name = "tgv-gui"
 path = "src/main.rs"
 
 [dependencies]
+anyhow.workspace = true
 clap.workspace = true
 gpui.workspace = true
 gv-core.workspace = true
 gv-session.workspace = true
 gv-viewer.workspace = true
 log.workspace = true
-polars.workspace = true
 shellexpand.workspace = true
+thiserror.workspace = true
 tokio.workspace = true
 
 # gpui 0.2.2 doesn't deliver trackpad pinches, so the window reads them from AppKit.

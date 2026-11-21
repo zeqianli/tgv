@@ -1,4 +1,4 @@
-use crate::rendering::colors::ToColor;
+use crate::rendering::colors::to_color;
 use crate::{layout::AlignmentView, rendering::colors::Palette};
 use gv_core::{prelude::*, sequence::Sequence};
 use ratatui::{buffer::Buffer, layout::Rect, style::Style};
@@ -12,7 +12,7 @@ pub fn render_sequence(
     state: &State,
     alignment_view: &AlignmentView,
     pallete: &Palette,
-) -> Result<(), TGVError> {
+) -> Result<(), crate::Error> {
     let region = alignment_view.region(f64::from(area.width));
 
     match alignment_view.zoom.0 {
@@ -28,7 +28,7 @@ fn render_sequence_at_1x(
     region: &Region,
     sequence: &Sequence,
     pallete: &Palette,
-) -> Result<(), TGVError> {
+) -> Result<(), crate::Error> {
     if area.width < MIN_AREA_WIDTH || area.height < MIN_AREA_HEIGHT {
         return Ok(());
     }
@@ -41,8 +41,8 @@ fn render_sequence_at_1x(
             area.y,
             base.to_string(),
             Style::default()
-                .fg(pallete.SEQUENCE_FOREGROUND_COLOR.color())
-                .bg(pallete.base_color(base as u8).color()),
+                .fg(to_color(pallete.SEQUENCE_FOREGROUND_COLOR))
+                .bg(to_color(pallete.base_color(base as u8))),
         );
     }
 
@@ -59,7 +59,7 @@ fn render_sequence_at_2x(
     region: &Region,
     sequence: &Sequence,
     palette: &Palette,
-) -> Result<(), TGVError> {
+) -> Result<(), crate::Error> {
     if area.width < MIN_AREA_WIDTH || area.height < MIN_AREA_HEIGHT {
         return Ok(());
     }
@@ -74,8 +74,8 @@ fn render_sequence_at_2x(
                 area.y,
                 "▌",
                 Style::default()
-                    .fg(palette.base_color(base1).color())
-                    .bg(palette.base_color(base2).color()),
+                    .fg(to_color(palette.base_color(base1)))
+                    .bg(to_color(palette.base_color(base2))),
             );
         }
     }

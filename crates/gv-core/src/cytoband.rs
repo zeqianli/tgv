@@ -1,7 +1,7 @@
 //! Cytoband stains, and the reference's cytobands for every contig, loaded once per session.
 
 use crate::{
-    error::TGVError,
+    error::Error,
     intervals::{IntervalSchema, IntervalTable},
     table_schema::TableSchema,
 };
@@ -19,9 +19,9 @@ pub enum Stain {
 }
 
 impl TryFrom<&str> for Stain {
-    type Error = TGVError;
+    type Error = Error;
 
-    fn try_from(s: &str) -> Result<Self, TGVError> {
+    fn try_from(s: &str) -> Result<Self, Error> {
         match s {
             "gneg" => Ok(Stain::Gneg),
             "acen" => Ok(Stain::Acen),
@@ -102,9 +102,9 @@ impl Default for CytobandTable {
 }
 
 impl IntervalTable for CytobandTable {
-    fn query(&self, contig_index: usize, start: u64, end: u64) -> Result<DataFrame, TGVError> {
+    fn query(&self, contig_index: usize, start: u64, end: u64) -> Result<DataFrame, Error> {
         if start == 0 {
-            return Err(TGVError::ValueError(
+            return Err(Error::ValueError(
                 "Interval queries require a positive start.".into(),
             ));
         }
@@ -127,7 +127,7 @@ impl IntervalTable for CytobandTable {
 
 impl CytobandTable {
     /// Builds the loaded table from every band of the reference.
-    pub fn from_bands(bands: Vec<CytobandBand>) -> Result<Self, TGVError> {
+    pub fn from_bands(bands: Vec<CytobandBand>) -> Result<Self, Error> {
         let column = |name: &str, values: Vec<u64>| Column::new(name.into(), values);
         let data = DataFrame::new(
             bands.len(),
@@ -183,5 +183,100 @@ impl CytobandTable {
             data: CytobandSchema::empty(),
             loaded: true,
         }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Cytoband {
+    pub start: u64,
+    pub end: u64,
+    pub stain: Stain,
+}
+
+impl CytobandTable {
+    pub fn bands(&self, contig_index: usize) -> Result<Vec<Cytoband>, Error> {
+        let bands = self.query(contig_index, 1, u64::MAX)?;
+        let starts = bands.column(CytobandSchema::START)?.u64()?;
+        let ends = bands.column(CytobandSchema::END)?.u64()?;
+        let stains = bands.column(CytobandSchema::STAIN)?.str()?;
+        (0..bands.height())
+            .map(|row| {
+                Ok(Cytoband {
+                    start: starts.get(row).ok_or(Error::NullValue {
+                        column: CytobandSchema::START,
+                    })?,
+                    end: ends.get(row).ok_or(Error::NullValue {
+                        column: CytobandSchema::END,
+                    })?,
+                    stain: Stain::try_from(stains.get(row).unwrap_or_default())?,
+                })
+            })
+            .collect()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use rstest::rstest;
+
+    fn band(contig_index: usize, start: u64, end: u64, stain: &str) -> CytobandBand {
+        CytobandBand {
+            contig_index,
+            start,
+            end,
+            name: format!("band{start}"),
+            stain: stain.to_string(),
+        }
+    }
+
+    fn table() -> CytobandTable {
+        CytobandTable::from_bands(vec![
+            band(0, 101, 200, "gpos50"),
+            band(0, 1, 100, "gneg"),
+            band(0, 201, 300, "acen"),
+            band(1, 1, 500, "stalk"),
+        ])
+        .unwrap()
+    }
+
+    fn cytoband(start: u64, end: u64, stain: Stain) -> Cytoband {
+        Cytoband { start, end, stain }
+    }
+
+    #[rstest]
+    #[case::sorted_by_start(0, vec![
+        cytoband(1, 100, Stain::Gneg),
+        cytoband(101, 200, Stain::Gpos(50)),
+        cytoband(201, 300, Stain::Acen),
+    ])]
+    #[case::other_contig(1, vec![cytoband(1, 500, Stain::Stalk)])]
+    #[case::contig_without_bands(2, vec![])]
+    fn bands(#[case] contig_index: usize, #[case] expected: Vec<Cytoband>) {
+        assert_eq!(table().bands(contig_index).unwrap(), expected);
+    }
+
+    #[test]
+    fn bands_of_an_empty_table() {
+        assert_eq!(CytobandTable::loaded_empty().bands(0).unwrap(), vec![]);
+    }
+
+    #[test]
+    fn a_missing_stain_is_unknown() {
+        let data = DataFrame::new(
+            1,
+            vec![
+                Column::new(CytobandSchema::CONTIG_INDEX.into(), vec![0u64]),
+                Column::new(CytobandSchema::START.into(), vec![1u64]),
+                Column::new(CytobandSchema::END.into(), vec![100u64]),
+                Column::new(CytobandSchema::STAIN.into(), vec![None::<&str>]),
+            ],
+        )
+        .unwrap();
+        let table = CytobandTable { data, loaded: true };
+        assert_eq!(
+            table.bands(0).unwrap(),
+            vec![cytoband(1, 100, Stain::Other("unknown".to_string()))]
+        );
     }
 }

@@ -1,6 +1,6 @@
 use crate::{
     contig_header::{Contig, ContigHeader},
-    error::TGVError,
+    error::Error,
     intervals::Region,
     sequence::Sequence,
 };
@@ -19,7 +19,7 @@ pub struct IndexedFastaSequenceRepository {
 }
 
 impl IndexedFastaSequenceRepository {
-    pub fn new(path: String) -> Result<Self, TGVError> {
+    pub fn new(path: String) -> Result<Self, Error> {
         let reader = Builder::default().build_from_path(path)?;
         let index = reader.index().clone();
         Ok(Self { index, reader })
@@ -31,7 +31,7 @@ impl IndexedFastaSequenceRepository {
         &mut self,
         region: &Region,
         contig_header: &ContigHeader,
-    ) -> Result<Sequence, TGVError> {
+    ) -> Result<Sequence, Error> {
         let name = contig_header
             .try_get(region.contig_index())?
             .get_sequence_name();
@@ -54,11 +54,11 @@ impl IndexedFastaSequenceRepository {
         })
     }
 
-    pub async fn close(&mut self) -> Result<(), TGVError> {
+    pub async fn close(&mut self) -> Result<(), Error> {
         Ok(())
     }
 
-    pub async fn get_all_contigs(&mut self) -> Result<Vec<Contig>, TGVError> {
+    pub async fn get_all_contigs(&mut self) -> Result<Vec<Contig>, Error> {
         Ok(self
             .index
             .as_ref()

@@ -1,11 +1,10 @@
 use crate::layout::CellView;
-use crate::rendering::colors::ToColor;
+use crate::rendering::colors::to_color;
 use gv_core::{
-    cytoband::{CytobandSchema, Stain},
+    cytoband::{Cytoband, Stain},
     prelude::*,
 };
 use gv_viewer::prepare::coordinate::get_abbreviated_length_string;
-use polars::prelude::{ChunkAgg, DataFrame};
 
 use crate::{
     layout::{AlignmentView, linear_scale},
@@ -27,7 +26,7 @@ pub fn render_cytobands(
     state: &State,
     alignment_view: &AlignmentView,
     pallete: &Palette,
-) -> Result<(), TGVError> {
+) -> Result<(), crate::Error> {
     if area.width <= CYTOBAND_TEXT_RIGHT_SPACING + 1 {
         return Ok(());
     }
@@ -54,10 +53,8 @@ pub fn render_cytobands(
     }
 
     // Cytoband
-    let bands = state
-        .cytobands
-        .query(alignment_view.focus.contig_index, 1, u64::MAX)?;
-    if bands.height() > 0 {
+    let bands = state.cytobands.bands(alignment_view.focus.contig_index)?;
+    if !bands.is_empty() {
         for (x, string, style) in get_cytoband_xs_strings_and_styles(
             &bands,
             cytoband_left_spacing,
@@ -94,7 +91,7 @@ pub fn render_cytobands(
             let cell = buf.cell_mut(Position::new(area.x + x, area.y));
             if let Some(cell) = cell {
                 cell.set_char(' ');
-                cell.set_bg(pallete.HIGHLIGHT_COLOR.color());
+                cell.set_bg(to_color(pallete.HIGHLIGHT_COLOR));
             }
         }
     }
@@ -104,28 +101,20 @@ pub fn render_cytobands(
 
 /// Lays out one contig's bands, scaled to the end of its last band.
 fn get_cytoband_xs_strings_and_styles(
-    bands: &DataFrame,
+    bands: &[Cytoband],
     area_start: u16,
     area_end: u16,
     palette: &Palette,
-) -> Result<Vec<(u16, String, Style)>, TGVError> {
-    let starts = bands.column(CytobandSchema::START)?.u64()?;
-    let ends = bands.column(CytobandSchema::END)?.u64()?;
-    let stains = bands.column(CytobandSchema::STAIN)?.str()?;
-    let total_length = ends.max().unwrap_or(0);
+) -> Result<Vec<(u16, String, Style)>, crate::Error> {
+    let total_length = bands.iter().map(|band| band.end).max().unwrap_or(0);
 
     let mut second_centromere = false;
     let mut output = Vec::new();
-    for ((start, end), stain) in starts
-        .into_no_null_iter()
-        .zip(ends.into_no_null_iter())
-        .zip(stains.iter().map(Option::unwrap_or_default))
-    {
-        let stain = Stain::try_from(stain)?;
+    for band in bands {
         if let Some((x, string, style)) = get_cytoband_segment_x_string_and_style(
-            start,
-            end,
-            &stain,
+            band.start,
+            band.end,
+            &band.stain,
             total_length,
             area_start,
             area_end,
@@ -135,7 +124,7 @@ fn get_cytoband_xs_strings_and_styles(
             output.push((x, string, style));
         }
 
-        if stain == Stain::Acen {
+        if band.stain == Stain::Acen {
             second_centromere = true;
         }
     }
@@ -153,7 +142,7 @@ fn get_cytoband_segment_x_string_and_style(
     area_end: u16,
     second_centromere: bool,
     palette: &Palette,
-) -> Result<Option<(u16, String, Style)>, TGVError> {
+) -> Result<Option<(u16, String, Style)>, crate::Error> {
     let onscreen_x_start = linear_scale(start - 1, total_length, area_start, area_end)?; // 0-based, inclusive
     let onscreen_x_end = linear_scale(end, total_length, area_start, area_end)?; // 0-based, exclusive
 
@@ -161,7 +150,7 @@ fn get_cytoband_segment_x_string_and_style(
         return Ok(None);
     }
 
-    let style = Style::default().fg(palette.cytoband_color(stain.clone()).color());
+    let style = Style::default().fg(to_color(palette.cytoband_color(stain.clone())));
 
     match stain {
         Stain::Acen => {

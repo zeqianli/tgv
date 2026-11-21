@@ -1,9 +1,6 @@
 //! Coverage binned to screen units, and the scale of its y-axis.
 
-use gv_core::{
-    alignment::{CoverageSchema, CoverageTable},
-    prelude::*,
-};
+use gv_core::alignment::CoverageTable;
 
 const MAX_DISPLAY_ALLELE_FREQUENCY_RECIPROCOL: u64 = 100;
 
@@ -34,23 +31,36 @@ pub fn round_up_max_coverage(x: usize) -> usize {
 /// Get a linear space of n_bins between left and right.
 /// 1-based, inclusive.
 /// Returns a vector of n_bins elements.
-pub fn get_linear_space(left: u64, right: u64, n_bins: usize) -> Result<Vec<(u64, u64)>, TGVError> {
+pub fn get_linear_space(
+    left: u64,
+    right: u64,
+    n_bins: usize,
+) -> Result<Vec<(u64, u64)>, crate::Error> {
     if n_bins == 0 {
-        return Err(TGVError::ValueError("n_bins is 0".to_string()));
+        return Err(crate::Error::InvalidBins {
+            left,
+            right,
+            n_bins,
+        });
     }
 
     if right < left {
-        return Err(TGVError::ValueError("Right is less than left".to_string()));
+        return Err(crate::Error::InvalidBins {
+            left,
+            right,
+            n_bins,
+        });
     }
 
     let length = right - left + 1;
     if n_bins as u64 > length {
         // FIXME: make this permissive? Don't wanna crash the app because of a rendering problem.
         // Could happen if the region is weird.
-        return Err(TGVError::ValueError(format!(
-            "n_bins = {} is greater than the number of bases in the region [{}, {}]",
-            n_bins, left, right
-        )));
+        return Err(crate::Error::InvalidBins {
+            left,
+            right,
+            n_bins,
+        });
     }
 
     Ok((0..n_bins)
@@ -70,34 +80,21 @@ pub fn calculate_binned_coverage(
     left: u64,
     right: u64,
     n_bins: usize,
-) -> Result<Vec<Vec<usize>>, TGVError> {
+) -> Result<Vec<Vec<usize>>, crate::Error> {
     let linear_space = get_linear_space(left, right, n_bins)?;
-    let table = coverage.query(left, right)?;
-    let positions = table.column(CoverageSchema::POS)?.u64()?;
-    let totals = table.column(CoverageSchema::TOTAL)?.u64()?;
-    let a = table.column(CoverageSchema::A)?.u64()?;
-    let t = table.column(CoverageSchema::T)?.u64()?;
-    let c = table.column(CoverageSchema::C)?.u64()?;
-    let reference_bases = table.column(CoverageSchema::REFERENCE_BASE)?.u8()?;
     let mut output = vec![vec![0; n_bins]; 2];
     let single_base_bins = right - left + 1 == n_bins as u64;
     let mut bin = 0;
-    for (row, position) in positions.into_no_null_iter().enumerate() {
-        while position > linear_space[bin].1 {
+    for base in coverage.bases(left, right)? {
+        while base.position > linear_space[bin].1 {
             bin += 1;
         }
-        let total = totals.get(row).expect("coverage totals are non-null");
+        let total = base.total;
         let alt = if single_base_bins && total > 0 {
-            let reference = reference_bases
-                .get(row)
-                .expect("reference bases are non-null");
-            let a = a.get(row).expect("coverage counts are non-null");
-            let t = t.get(row).expect("coverage counts are non-null");
-            let c = c.get(row).expect("coverage counts are non-null");
-            let depth = match reference {
-                b'A' | b'a' | b'G' | b'g' => c.max(t),
-                b'T' | b't' => a.max(c),
-                b'C' | b'c' => a.max(t),
+            let depth = match base.reference {
+                b'A' | b'a' | b'G' | b'g' => base.c.max(base.t),
+                b'T' | b't' => base.a.max(base.c),
+                b'C' | b'c' => base.a.max(base.t),
                 _ => 0,
             };
             if depth * MAX_DISPLAY_ALLELE_FREQUENCY_RECIPROCOL > total {
@@ -113,6 +110,39 @@ pub fn calculate_binned_coverage(
     }
 
     Ok(output)
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct DepthBin {
+    pub start: u64,
+    pub end: u64,
+    pub depth: f32,
+}
+
+pub fn mean_depths(
+    coverage: &CoverageTable,
+    left: u64,
+    right: u64,
+    n_bins: usize,
+) -> Result<Vec<DepthBin>, crate::Error> {
+    let bins = get_linear_space(left, right, n_bins)?;
+    let mut sums = vec![0u64; bins.len()];
+    let mut bin = 0;
+    for base in coverage.bases(left, right)? {
+        while base.position > bins[bin].1 {
+            bin += 1;
+        }
+        sums[bin] += base.total;
+    }
+    Ok(sums
+        .iter()
+        .zip(&bins)
+        .map(|(sum, &(start, end))| DepthBin {
+            start,
+            end,
+            depth: *sum as f32 / (end - start + 1) as f32,
+        })
+        .collect())
 }
 
 #[cfg(test)]
@@ -136,10 +166,10 @@ mod tests {
     }
 
     #[rstest]
-    #[case(1, 5, 0, Err(TGVError::ValueError("n_bins is 0".to_string())))]
+    #[case(1, 5, 0, Err(crate::Error::InvalidBins { left: 1, right: 5, n_bins: 0 }))]
     #[case(1, 5, 5, Ok(vec![(1,1), (2,2), (3,3), (4,4), (5,5)]))]
     #[case(5,5, 1, Ok(vec![(5,5)]))]
-    #[case(5, 4, 1, Err(TGVError::ValueError("Right is less than left".to_string())))]
+    #[case(5, 4, 1, Err(crate::Error::InvalidBins { left: 5, right: 4, n_bins: 1 }))]
     #[case(25398019, 25398025, 3, Ok(vec![(25398019, 25398020), (25398021, 25398022), (25398023, 25398025)]))]
     #[case(5,10, 1, Ok(vec![(5,10)]))]
     #[case(5, 10, 2, Ok(vec![(5,7), (8,10)]))]
@@ -147,7 +177,7 @@ mod tests {
         #[case] left: u64,
         #[case] right: u64,
         #[case] n_bins: usize,
-        #[case] expected: Result<Vec<(u64, u64)>, TGVError>,
+        #[case] expected: Result<Vec<(u64, u64)>, crate::Error>,
     ) {
         let result = get_linear_space(left, right, n_bins);
         match (result, expected) {

@@ -1,9 +1,8 @@
 use crate::{
     contig_header::{Contig, ContigHeader},
     cytoband::{CytobandBand, CytobandTable},
-    error::TGVError,
+    error::Error,
     gene::{GeneSchema, GeneTable},
-    reference::Reference,
     strand::Strand,
 };
 use polars::prelude::*;
@@ -86,7 +85,7 @@ where
 
 #[allow(non_snake_case)]
 impl UcscGeneRow {
-    fn parse_blob_to_coords(blob: &[u8]) -> Result<Vec<u64>, TGVError> {
+    fn parse_blob_to_coords(blob: &[u8]) -> Result<Vec<u64>, Error> {
         let coords = std::str::from_utf8(blob)?.trim_end_matches(',');
         if coords.is_empty() {
             return Ok(Vec::new());
@@ -102,7 +101,7 @@ impl GeneTable {
         contig_index: usize,
         contig_header: &ContigHeader,
         loaded_bounds: Option<(u64, u64)>,
-    ) -> Result<Self, TGVError> {
+    ) -> Result<Self, Error> {
         let mut ids = Vec::with_capacity(gene_rows.len());
         let mut names = Vec::with_capacity(gene_rows.len());
         let mut strands = Vec::with_capacity(gene_rows.len());
@@ -146,7 +145,7 @@ impl GeneTable {
             let raw_starts = UcscGeneRow::parse_blob_to_coords(&row.exonStarts)?;
             let raw_ends = UcscGeneRow::parse_blob_to_coords(&row.exonEnds)?;
             if raw_starts.len() != raw_ends.len() {
-                return Err(TGVError::ValueError(format!(
+                return Err(Error::ValueError(format!(
                     "Gene {} has mismatched exon starts and ends.",
                     row.name,
                 )));
@@ -154,7 +153,7 @@ impl GeneTable {
             let mut previous_end = row.txStart;
             for (&start, &end) in raw_starts.iter().zip(&raw_ends) {
                 if start < previous_end || start >= end || end > row.txEnd {
-                    return Err(TGVError::ValueError(format!(
+                    return Err(Error::ValueError(format!(
                         "Invalid UCSC exon [{start}, {end}) for gene {}.",
                         row.name,
                     )));
@@ -251,7 +250,7 @@ impl CytobandSegmentRow {
     pub fn into_table(
         rows: impl IntoIterator<Item = Self>,
         contig_header: &ContigHeader,
-    ) -> Result<CytobandTable, TGVError> {
+    ) -> Result<CytobandTable, Error> {
         CytobandTable::from_bands(
             rows.into_iter()
                 .filter_map(|row| {
@@ -298,7 +297,7 @@ impl FromRow<'_, MySqlRow> for ContigRow {
 }
 
 impl ContigRow {
-    pub fn to_contig(self) -> Result<Contig, TGVError> {
+    pub fn to_contig(self) -> Result<Contig, Error> {
         let mut contig = Contig::new(&self.chrom, Some(self.size));
         for alias in self.aliases.split(',') {
             contig.add_alias(alias);
@@ -442,7 +441,7 @@ pub struct UcscApiHubUrlResponse {
 }
 
 impl UcscApiHubUrlResponse {
-    pub fn get_hub_url(&self, accession: &str) -> Result<String, TGVError> {
+    pub fn get_hub_url(&self, accession: &str) -> Result<String, Error> {
         Ok(format!(
             "https://hgdownload.soe.ucsc.edu/hubs/{}",
             self.genarkGenomes[accession].hubUrl
@@ -467,7 +466,6 @@ pub struct GenarkGenome {
 ///     ...
 ///    }
 /// }
-
 #[allow(non_snake_case)]
 #[derive(Debug, Clone, Deserialize)]
 pub struct UcscListChromosomeResponse {
@@ -498,7 +496,7 @@ enum UcscApiCytobands {
 }
 
 impl UcscApiCytobandResponse {
-    pub fn into_table(self, contig_header: &ContigHeader) -> Result<CytobandTable, TGVError> {
+    pub fn into_table(self, contig_header: &ContigHeader) -> Result<CytobandTable, Error> {
         let rows: Vec<CytobandSegmentRow> = match self.cytoBandIdeo {
             Some(UcscApiCytobands::ByContig(by_contig)) => {
                 by_contig.into_values().flatten().collect()

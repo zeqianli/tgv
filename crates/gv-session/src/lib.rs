@@ -12,7 +12,7 @@ mod session;
 mod socket;
 mod tables;
 
-pub use error::SessionError;
+pub use error::Error;
 pub use functions::{CatalogFunction, OpFunction};
 pub use schema::*;
 pub use session::{

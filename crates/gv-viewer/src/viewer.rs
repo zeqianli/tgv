@@ -15,6 +15,7 @@ use crate::message::{
 
 use crate::{
     jumps::{JumpList, ViewPoint},
+    keyboard::{InputMode, KeyboardState},
     keys::Mode,
     layout::{AreaType, RenderEvent},
     menu::{self, MenuItem},
@@ -23,7 +24,6 @@ use crate::{
         Direction, FocusMove, FocusTarget, Motion, Operator, UiAction,
     },
     popup::TextPopup,
-    register::{KeyRegisterType, Registers},
     session::SessionFile,
     settings::Settings,
     viewport::{Scale, Viewport},
@@ -35,8 +35,8 @@ use gv_core::{
     settings::file_name,
 };
 use gv_session::{
-    BedWrite, Dataset, InspectInterval, NavigateRequest, Request, Requests, Session, SessionError,
-    SessionHandle, ViewRequest, ViewState, ViewerInfo, ViewerKind,
+    BedWrite, Dataset, InspectInterval, NavigateRequest, Request, Requests, Session, SessionHandle,
+    ViewRequest, ViewState, ViewerInfo, ViewerKind,
 };
 use itertools::Itertools;
 use std::{
@@ -90,7 +90,7 @@ pub struct Viewer<Z: Scale> {
     /// separate query state.
     pub dataset: Dataset,
     pub settings: Settings,
-    pub registers: Registers,
+    pub keyboard_state: KeyboardState,
 
     pub viewport: Viewport<Z>,
     /// The width of the track area, in the front end's units. Zero until the front end lays
@@ -127,7 +127,7 @@ pub struct Viewer<Z: Scale> {
 }
 
 impl<Z: Scale> Viewer<Z> {
-    pub async fn new(settings: Settings, kind: ViewerKind) -> Result<Self, TGVError> {
+    pub async fn new(settings: Settings, kind: ViewerKind) -> Result<Self, crate::Error> {
         let viewer_init_started = Instant::now();
 
         // Gather resources before initializing the state.
@@ -181,7 +181,7 @@ impl<Z: Scale> Viewer<Z> {
             session,
             requests,
             settings,
-            registers: Registers::default(),
+            keyboard_state: KeyboardState::default(),
             scene: Scene::Main,
             effects: Vec::new(),
         };
@@ -191,7 +191,7 @@ impl<Z: Scale> Viewer<Z> {
 
     /// Applies the startup actions once the front end has set the track width. The startup
     /// locus is where history begins, not a jump to return from.
-    pub async fn start(&mut self) -> Result<Vec<RenderEvent>, TGVError> {
+    pub async fn start(&mut self) -> Result<Vec<RenderEvent>, crate::Error> {
         let render_events = self.handle(self.settings.initial_actions.clone()).await?;
         self.jumps = JumpList::default();
         self.self_correct()?;
@@ -204,7 +204,7 @@ impl<Z: Scale> Viewer<Z> {
     }
 
     /// Keeps the viewport within the focused contig.
-    pub fn self_correct(&mut self) -> Result<(), TGVError> {
+    pub fn self_correct(&mut self) -> Result<(), crate::Error> {
         let contig_length = self.dataset.view.contig_length(&self.viewport.focus)?;
         self.viewport.self_correct(self.width, contig_length);
         Ok(())
@@ -212,7 +212,7 @@ impl<Z: Scale> Viewer<Z> {
 
     /// Sets the track area's width after the front end's layout changed, and loads the region
     /// that is now shown.
-    pub async fn resize(&mut self, width: f64) -> Result<(), TGVError> {
+    pub async fn resize(&mut self, width: f64) -> Result<(), crate::Error> {
         if width == self.width {
             return Ok(());
         }
@@ -247,7 +247,7 @@ impl<Z: Scale> Viewer<Z> {
                 Vec::new()
             }
             Request::LoadDataset(_, reply) => {
-                reply.respond(Err(SessionError::DatasetFixed));
+                reply.respond(Err(gv_session::Error::DatasetFixed));
                 Vec::new()
             }
             Request::View(request) => self.serve_view(request).await,
@@ -282,7 +282,7 @@ impl<Z: Scale> Viewer<Z> {
     }
 
     /// Describes the viewer for agents choosing between viewers.
-    fn viewer_info(&self) -> Result<ViewerInfo, SessionError> {
+    fn viewer_info(&self) -> Result<ViewerInfo, gv_session::Error> {
         Ok(ViewerInfo {
             pid: std::process::id(),
             kind: self.kind,
@@ -307,7 +307,7 @@ impl<Z: Scale> Viewer<Z> {
     async fn apply_for_agent(
         &mut self,
         actions: Vec<Action>,
-    ) -> (Vec<RenderEvent>, Result<(), SessionError>) {
+    ) -> (Vec<RenderEvent>, Result<(), gv_session::Error>) {
         match self.handle(actions).await {
             Ok(render_events) => (render_events, Ok(())),
             Err(error) => {
@@ -318,7 +318,7 @@ impl<Z: Scale> Viewer<Z> {
     }
 
     /// Resolves an interval against the dataset's contigs, without a width limit.
-    fn resolve_interval(&self, interval: &InspectInterval) -> Result<Region, SessionError> {
+    fn resolve_interval(&self, interval: &InspectInterval) -> Result<Region, gv_session::Error> {
         Region::try_from_contig_names_and_bounds(
             &interval.contig,
             interval.start,
@@ -326,14 +326,17 @@ impl<Z: Scale> Viewer<Z> {
             &self.dataset.view.contig_header,
             None,
         )
-        .map_err(|error| SessionError::InvalidInput {
+        .map_err(|error| gv_session::Error::InvalidInput {
             field: "region",
             message: error.to_string(),
         })
     }
 
     /// Centers the region, fits it to the track area, and tells the user how to return.
-    fn navigate_actions(&self, request: &NavigateRequest) -> Result<Vec<Action>, SessionError> {
+    fn navigate_actions(
+        &self,
+        request: &NavigateRequest,
+    ) -> Result<Vec<Action>, gv_session::Error> {
         let region = self.resolve_interval(&request.region)?;
         let contigs = &self.dataset.view.contig_header;
         let previous = self.viewport.focus.to_locus_str(contigs)?;
@@ -354,7 +357,7 @@ impl<Z: Scale> Viewer<Z> {
     }
 
     /// Reports the displayed interval and zoom.
-    fn view_state(&self) -> Result<ViewState, SessionError> {
+    fn view_state(&self) -> Result<ViewState, gv_session::Error> {
         let region = self.region();
         Ok(ViewState {
             region: InspectInterval {
@@ -367,18 +370,18 @@ impl<Z: Scale> Viewer<Z> {
     }
 
     /// close connections
-    pub async fn close(mut self) -> Result<(), TGVError> {
-        self.dataset.repository.close().await
+    pub async fn close(mut self) -> Result<(), crate::Error> {
+        Ok(self.dataset.repository.close().await?)
     }
 
-    fn save_session_to_path(&mut self, path: PathBuf) -> Result<(), TGVError> {
+    fn save_session_to_path(&mut self, path: PathBuf) -> Result<(), crate::Error> {
         SessionFile::try_from(&*self).and_then(|s| s.write_to_path(&path))?;
         self.settings.session_path = Some(path);
         Ok(())
     }
 
     /// Moves the view, records jumps in the history, and loads the new region.
-    async fn apply_movement(&mut self, movement: Movement) -> Result<(), TGVError> {
+    async fn apply_movement(&mut self, movement: Movement) -> Result<(), crate::Error> {
         let previous_focus = self.viewport.focus.clone();
         log::debug!(
             "Handling movement: movement={:?} previous_focus={:?} zoom={:?}",
@@ -424,7 +427,7 @@ impl<Z: Scale> Viewer<Z> {
 
     /// Applies actions and returns the areas that need redrawing. Actions that only the front
     /// end can apply become effects; see [`Viewer::take_effects`].
-    pub async fn handle(&mut self, actions: Vec<Action>) -> Result<Vec<RenderEvent>, TGVError> {
+    pub async fn handle(&mut self, actions: Vec<Action>) -> Result<Vec<RenderEvent>, crate::Error> {
         let mut render_events = Vec::new();
         // Messages from this batch replace the displayed ones. Batches without messages, such
         // as repeated motion within a cell, keep the current messages on screen.
@@ -616,8 +619,8 @@ impl<Z: Scale> Viewer<Z> {
                     self.viewport
                         .zoom(zoom.clone(), self.width, contig_length)?;
                     if matches!(
-                        self.registers.current,
-                        KeyRegisterType::Editing(Mode::Insert(_))
+                        self.keyboard_state.mode,
+                        InputMode::Editing(Mode::Insert(_))
                     ) {
                         self.viewport.zoom = self.viewport.zoom.for_insert_mode();
                         self.self_correct()?;
@@ -705,9 +708,9 @@ impl<Z: Scale> Viewer<Z> {
                 Action::Navigate(NavigationAction::SelectContig(index)) => {
                     if self.scene == Scene::ContigList
                         && index < self.dataset.view.contig_header.contigs.len()
-                        && index != self.registers.contig_list_cursor
+                        && index != self.keyboard_state.contig_list_cursor
                     {
-                        self.registers.contig_list_cursor = index;
+                        self.keyboard_state.contig_list_cursor = index;
                         render_events.push(RenderEvent::All);
                     }
                 }
@@ -721,16 +724,16 @@ impl<Z: Scale> Viewer<Z> {
                 Action::Input(InputAction::CommandChanged) => {
                     render_events.push(RenderEvent::Area(AreaType::Console));
                 }
-                Action::Input(InputAction::SwitchKeyRegister(register)) => {
-                    let previous_register = self.registers.current.clone();
-                    if matches!(register, KeyRegisterType::ContigList(_)) {
-                        self.registers.contig_list_cursor = self.viewport.focus.contig_index;
+                Action::Input(InputAction::SwitchInputMode(mode)) => {
+                    let previous_mode = self.keyboard_state.mode;
+                    if matches!(mode, InputMode::ContigList(_)) {
+                        self.keyboard_state.contig_list_cursor = self.viewport.focus.contig_index;
                     }
-                    self.registers.current = register;
+                    self.keyboard_state.mode = mode;
                     log::debug!(
-                        "Switching key register: from={:?} to={:?}",
-                        previous_register,
-                        self.registers.current,
+                        "Switching input mode: from={:?} to={:?}",
+                        previous_mode,
+                        self.keyboard_state.mode,
                     );
                     // The mode shows in the sidebar fill, the console, and the insert cursor.
                     render_events.push(RenderEvent::All);
@@ -783,7 +786,7 @@ impl<Z: Scale> Viewer<Z> {
                         self.apply_movement(Movement::Right(self.viewport.zoom.column_bases()))
                             .await?;
                     }
-                    self.registers.current = KeyRegisterType::Editing(Mode::Insert(id));
+                    self.keyboard_state.mode = InputMode::Editing(Mode::Insert(id));
                     if self.warn_shift_backspace {
                         self.warn_shift_backspace = false;
                         messages.push(
@@ -800,7 +803,7 @@ impl<Z: Scale> Viewer<Z> {
                             render_events.push(RenderEvent::AllTracks);
                             render_events.push(RenderEvent::Sidebar);
                         }
-                        Err(error @ TGVError::NoMoreFeatures { .. }) => {
+                        Err(crate::Error::Core(error @ gv_core::Error::NoMoreFeatures { .. })) => {
                             messages.push(error.to_string())
                         }
                         Err(error) => return Err(error),
@@ -923,7 +926,7 @@ impl<Z: Scale> Viewer<Z> {
                 }
                 Action::Input(InputAction::ClearAllKeyRegisters) => {
                     log::debug!("Clearing all key registers");
-                    self.registers.clear();
+                    self.keyboard_state.clear();
                     render_events.push(RenderEvent::Area(AreaType::Console))
                 }
                 Action::Ui(action) => self.effects.push(Effect::Ui(action)),
@@ -939,7 +942,7 @@ impl<Z: Scale> Viewer<Z> {
     }
 
     /// The items of the context menu for a clicked target.
-    pub fn menu_items(&self, target: ContextMenuTarget) -> Result<Vec<MenuItem>, TGVError> {
+    pub fn menu_items(&self, target: ContextMenuTarget) -> Result<Vec<MenuItem>, crate::Error> {
         Ok(match target {
             ContextMenuTarget::Alignment { track, position } => {
                 let index = self.dataset.tracks.alignment_index(track)?;
@@ -997,10 +1000,10 @@ impl<Z: Scale> Viewer<Z> {
             return Vec::new();
         }
         self.focused = target;
-        if let Mode::Insert(track) = self.registers.shown_mode()
+        if let Mode::Insert(track) = self.keyboard_state.shown_mode()
             && target != FocusTarget::Track(track)
         {
-            self.registers.leave_insert_mode(track);
+            self.keyboard_state.leave_insert_mode(track);
         }
         vec![RenderEvent::All]
     }
@@ -1051,7 +1054,7 @@ impl<Z: Scale> Viewer<Z> {
         edit: BedEditKind,
         span: ColumnSpan,
         cursor: CursorAfter,
-    ) -> Result<Vec<RenderEvent>, TGVError> {
+    ) -> Result<Vec<RenderEvent>, crate::Error> {
         if self.width <= 0.0 {
             return Ok(Vec::new());
         }
@@ -1098,7 +1101,7 @@ impl<Z: Scale> Viewer<Z> {
         &mut self,
         track: TrackId,
         motion: Motion,
-    ) -> Result<Result<Vec<RenderEvent>, String>, TGVError> {
+    ) -> Result<Result<Vec<RenderEvent>, String>, crate::Error> {
         let focus = self.viewport.focus.clone();
         let movement = self.resolve_motion(motion);
         let target = match self
@@ -1108,8 +1111,10 @@ impl<Z: Scale> Viewer<Z> {
             .await
         {
             Ok(target) => target,
-            Err(error @ TGVError::NoMoreFeatures { .. }) => return Ok(Err(error.to_string())),
-            Err(error) => return Err(error),
+            Err(error @ gv_core::Error::NoMoreFeatures { .. }) => {
+                return Ok(Err(error.to_string()));
+            }
+            Err(error) => return Err(error.into()),
         };
         if target.contig_index != focus.contig_index {
             return Ok(Err(
@@ -1146,7 +1151,7 @@ impl<Z: Scale> Viewer<Z> {
         edit: BedEditKind,
         start: u64,
         end: u64,
-    ) -> Result<Vec<RenderEvent>, TGVError> {
+    ) -> Result<Vec<RenderEvent>, crate::Error> {
         let focus = self.viewport.focus.clone();
         let end = match self.dataset.view.contig_length(&focus)? {
             Some(length) => end.min(length),
@@ -1176,7 +1181,7 @@ impl<Z: Scale> Viewer<Z> {
 
     /// Creates an untitled BED track at a position in the display order, focuses it, and
     /// returns the message to show.
-    async fn new_track_at(&mut self, position: usize) -> Result<String, TGVError> {
+    async fn new_track_at(&mut self, position: usize) -> Result<String, crate::Error> {
         let id = self.dataset.new_bed_track().await?;
         self.track_order.insert(position, id);
         log::info!("Created track: id={id} position={position}");
@@ -1342,11 +1347,11 @@ impl<Z: Scale> Viewer<Z> {
     }
 
     /// The number of rows of an alignment track, as it is shown: by pairs or by reads.
-    pub fn alignment_depth(&self, index: usize) -> Result<usize, TGVError> {
-        match &self.dataset.view.paired_alignments[index] {
+    pub fn alignment_depth(&self, index: usize) -> Result<usize, crate::Error> {
+        Ok(match &self.dataset.view.paired_alignments[index] {
             Some(paired) => paired.depth(),
             None => self.dataset.view.alignments[index].depth(),
-        }
+        }?)
     }
 
     /// Scrolls an alignment track and returns the areas to redraw.
@@ -1354,7 +1359,7 @@ impl<Z: Scale> Viewer<Z> {
         &mut self,
         id: TrackId,
         scroll: gv_core::message::Scroll,
-    ) -> Result<Vec<RenderEvent>, TGVError> {
+    ) -> Result<Vec<RenderEvent>, crate::Error> {
         let index = self.dataset.tracks.alignment_index(id)?;
         let depth = self.alignment_depth(index)?;
         let previous_y = self.viewport.y[index];
@@ -1372,7 +1377,7 @@ impl<Z: Scale> Viewer<Z> {
     /// Removes a track and returns the message to show. Without `force`, a track with unsaved
     /// changes stays. The focus moves to the next track in display order, or else the previous
     /// one, or else the reference.
-    async fn remove_track(&mut self, id: TrackId, force: bool) -> Result<String, TGVError> {
+    async fn remove_track(&mut self, id: TrackId, force: bool) -> Result<String, crate::Error> {
         let name = self.track_name(id);
         if !force && self.dataset.is_modified(id) {
             return Ok(format!(
@@ -1390,7 +1395,7 @@ impl<Z: Scale> Viewer<Z> {
         if self.track_clipboard == Some(id) {
             self.track_clipboard = None;
         }
-        self.registers.leave_insert_mode(id);
+        self.keyboard_state.leave_insert_mode(id);
         let entry = self.dataset.remove_track(id)?;
         if let RepositoryFileIndex::Alignment(index) = entry.repository_index {
             self.viewport.y.remove(index);
@@ -1402,7 +1407,7 @@ impl<Z: Scale> Viewer<Z> {
 
     /// Opens the files in `pending_open` and returns the areas to redraw. An error opening them
     /// becomes the status message, and the tracks stay as they were.
-    pub async fn open_pending(&mut self) -> Result<Vec<RenderEvent>, TGVError> {
+    pub async fn open_pending(&mut self) -> Result<Vec<RenderEvent>, crate::Error> {
         let Some(PendingOpen { paths, position }) = self.pending_open.take() else {
             return Ok(Vec::new());
         };
@@ -1433,7 +1438,7 @@ impl<Z: Scale> Viewer<Z> {
 
     /// Updates the display order after tracks were added or removed, and loads the visible
     /// region. Tracks that remain keep their order, and new ones go after the others.
-    async fn apply_track_change(&mut self) -> Result<(), TGVError> {
+    async fn apply_track_change(&mut self) -> Result<(), crate::Error> {
         let registry = &self.dataset.tracks;
         self.track_order.retain(|&id| registry.contains(id));
         for entry in &registry.entries {
@@ -1448,7 +1453,7 @@ impl<Z: Scale> Viewer<Z> {
     }
 
     /// Loads what the viewport shows, unless it is already loaded.
-    pub async fn load_data(&mut self) -> Result<(), TGVError> {
+    pub async fn load_data(&mut self) -> Result<(), crate::Error> {
         if self.width <= 0.0 {
             return Ok(());
         }

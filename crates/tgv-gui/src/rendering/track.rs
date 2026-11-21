@@ -1,10 +1,4 @@
-use crate::{
-    layout::{PixelView, Rect},
-    rendering::{
-        LINE_HEIGHT, Painter,
-        colors::{Palette, TEXT, ToHsla},
-    },
-};
+use super::prelude::*;
 use gv_core::{prelude::*, strand::Strand};
 use gv_viewer::prepare::track::{Gene, SegmentKind};
 
@@ -18,12 +12,13 @@ const GENE_HEIGHT: f32 = 10.0;
 
 /// Render the genome features: genes with their exons and introns, and labels below.
 pub fn render_track(
-    painter: &mut Painter,
     area: &Rect,
     state: &State,
     view: &PixelView,
     palette: &Palette,
-) -> Result<(), TGVError> {
+    window: &mut Window,
+    cx: &mut App,
+) -> Result<(), crate::Error> {
     let middle = area.y + EXON_HEIGHT / 2.0 + 2.0;
     let label_y = area.y + EXON_HEIGHT + 4.0;
     let mut right_most_label_x = f32::MIN;
@@ -38,9 +33,10 @@ pub fn render_track(
         };
         let mut labels = Vec::new();
         if gene_width <= MIN_GENE_ON_SCREEN_WIDTH_TO_SHOW_EXONS || !gene.has_exons {
-            painter.fill(
+            fill_rect(
                 Rect::new(gene_x, middle - GENE_HEIGHT / 2.0, gene_width, GENE_HEIGHT),
-                palette.GENE_BACKGROUND_COLOR.hsla(),
+                to_hsla(palette.GENE_BACKGROUND_COLOR),
+                window,
             );
             labels.push((gene_x + gene_width / 2.0, gene.name.clone()));
         } else {
@@ -56,37 +52,44 @@ pub fn render_track(
                     };
                     match kind {
                         SegmentKind::Intron => {
-                            painter.fill(
+                            fill_rect(
                                 Rect::new(x, middle - 0.5, width, 1.0),
-                                palette.INTRON_FOREGROUND_COLOR.hsla(),
+                                to_hsla(palette.INTRON_FOREGROUND_COLOR),
+                                window,
                             );
                             let mut chevron_x = x + CHEVRON_SPACING / 2.0;
                             while chevron_x + 4.0 < x + width {
-                                painter.text(
-                                    chevron_x - 2.0,
-                                    middle - LINE_HEIGHT / 2.0,
-                                    chevron,
-                                    palette.INTRON_FOREGROUND_COLOR,
-                                );
+                                TextContext::default()
+                                    .text(chevron)
+                                    .color(palette.INTRON_FOREGROUND_COLOR)
+                                    .paint(
+                                        chevron_x - 2.0,
+                                        middle - LINE_HEIGHT / 2.0,
+                                        LINE_HEIGHT,
+                                        window,
+                                        cx,
+                                    )?;
                                 chevron_x += CHEVRON_SPACING;
                             }
                         }
                         SegmentKind::NoncodingExon => {
-                            painter.fill(
+                            fill_rect(
                                 Rect::new(
                                     x,
                                     middle - NONCODING_EXON_HEIGHT / 2.0,
                                     width,
                                     NONCODING_EXON_HEIGHT,
                                 ),
-                                palette.NON_CDS_EXON_BACKGROUND_COLOR.hsla(),
+                                to_hsla(palette.NON_CDS_EXON_BACKGROUND_COLOR),
+                                window,
                             );
                             labels.push((x + width / 2.0, gene.name.clone()));
                         }
                         SegmentKind::CodingExon => {
-                            painter.fill(
+                            fill_rect(
                                 Rect::new(x, middle - EXON_HEIGHT / 2.0, width, EXON_HEIGHT),
-                                palette.EXON_BACKGROUND_COLOR.hsla(),
+                                to_hsla(palette.EXON_BACKGROUND_COLOR),
+                                window,
                             );
                             labels.push((
                                 x + width / 2.0,
@@ -100,10 +103,16 @@ pub fn render_track(
         // Labels go left to right, and a label that would overlap the previous one is left out.
         labels.sort_by(|(a, _), (b, _)| a.total_cmp(b));
         for (center, label) in labels {
-            let width = painter.text_width(&label);
+            let width = TextContext::default().text(&label).width(window);
             let x = (center - width / 2.0).max(area.x);
             if x > right_most_label_x + 6.0 && area.height >= label_y - area.y + LINE_HEIGHT {
-                painter.text(x, label_y, &label, TEXT);
+                TextContext::default().text(&label).color(TEXT).paint(
+                    x,
+                    label_y,
+                    LINE_HEIGHT,
+                    window,
+                    cx,
+                )?;
                 right_most_label_x = x + width;
             }
         }

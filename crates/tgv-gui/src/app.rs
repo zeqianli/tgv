@@ -13,11 +13,11 @@ use crate::{
     layout::{DropTarget, MainLayout, PixelView, Rect, ResolvedMainLayout},
     menu::ContextMenu,
     message::GuiAction,
-    mouse::{MouseButton, MouseRegister, zoom_step},
+    mouse::{MouseState, zoom_step},
     pinch::{Pinch, PinchMonitor},
     rendering::{
-        self, DropGap, Painter, Status, TrackFocus,
-        colors::{Palette, ToHsla},
+        self, DropGap, Status, TextContext, TrackFocus,
+        colors::{Palette, to_hsla},
     },
     worker::{Frame, WorkerEvent, WorkerHandle, WorkerMessage},
 };
@@ -39,10 +39,7 @@ use std::{
 };
 use tokio::sync::mpsc::{UnboundedReceiver, unbounded_channel};
 
-/// How long the window waits for the worker before it says that it is loading.
 const LOADING_NOTICE_DELAY: Duration = Duration::from_millis(150);
-
-/// How long the drop indicator takes to fade in.
 const DROP_FADE_IN: Duration = Duration::from_millis(120);
 
 /// The gap where dragged files will go, drawn while files are dragged over the window. It
@@ -67,7 +64,7 @@ pub struct App {
 
     pub layout: Option<MainLayout>,
     pub resolved_layout: Option<ResolvedMainLayout>,
-    pub mouse_register: MouseRegister,
+    pub mouse_state: MouseState,
     /// The open right-click menu. While it is open, it takes all mouse input.
     pub context_menu: Option<ContextMenu>,
     /// The open text popup. While it is open, it blocks all other input.
@@ -121,7 +118,7 @@ impl App {
             offset: 0.0,
             layout: None,
             resolved_layout: None,
-            mouse_register: MouseRegister::default(),
+            mouse_state: MouseState::default(),
             context_menu: None,
             popup: None,
             hover: None,
@@ -277,8 +274,8 @@ impl App {
             return;
         }
         if matches!(
-            frame.registers.current,
-            KeyRegisterType::Editing(gv_viewer::keys::Mode::Insert(_))
+            frame.keyboard_state.mode,
+            InputMode::Editing(gv_viewer::keys::Mode::Insert(_))
         ) {
             viewport.zoom = viewport.zoom.for_insert_mode();
             viewport.self_correct(width, contig_length);
@@ -340,7 +337,7 @@ impl App {
                 Effect::Ui(UiAction::CloseContextMenu) => self.context_menu = None,
                 Effect::Ui(UiAction::ClosePopup) => {
                     if self.popup.take().is_some() {
-                        self.mouse_register = MouseRegister::default();
+                        self.mouse_state = MouseState::default();
                     }
                 }
                 Effect::ShowContextMenu { items, anchor } => {
@@ -352,7 +349,7 @@ impl App {
                 Effect::ShowPopup(popup) => self.popup = Some(popup),
                 Effect::TracksChanged => {
                     // Divider state names tracks, which may no longer be adjacent or present.
-                    self.mouse_register = MouseRegister::default();
+                    self.mouse_state = MouseState::default();
                     if let (Some(layout), Some(frame)) = (self.layout.as_mut(), &self.frame) {
                         layout.set_tracks(
                             &self.settings,
@@ -361,7 +358,7 @@ impl App {
                         );
                     }
                 }
-                Effect::SceneChanged => self.mouse_register = MouseRegister::default(),
+                Effect::SceneChanged => self.mouse_state = MouseState::default(),
             }
         }
     }
@@ -437,12 +434,7 @@ impl App {
         }
     }
 
-    fn on_mouse_down(
-        &mut self,
-        button: MouseButton,
-        event: &MouseDownEvent,
-        cx: &mut Context<Self>,
-    ) {
+    fn on_mouse_down(&mut self, event: &MouseDownEvent, cx: &mut Context<Self>) {
         let (x, y) = (f32::from(event.position.x), f32::from(event.position.y));
         if self.popup.is_some() {
             // A click closes the popup, which blocks all other input.
@@ -464,17 +456,25 @@ impl App {
         if frame.scene != Scene::Main {
             return;
         }
-        match self.mouse_register.handle_mouse_down(
-            button,
-            x,
-            y,
-            event.click_count,
-            &frame,
-            &resolved,
-            &view,
-        ) {
-            Ok(actions) => self.handle(actions, cx),
-            Err(error) => log::warn!("Error while handling a click: {error}"),
+        match event.button {
+            gpui::MouseButton::Right => {
+                let actions = self
+                    .mouse_state
+                    .handle_right_mouse_down(x, y, &resolved, &view);
+                self.handle(actions, cx);
+            }
+            gpui::MouseButton::Left => match self.mouse_state.handle_left_mouse_down(
+                x,
+                y,
+                event.click_count,
+                &frame,
+                &resolved,
+                &view,
+            ) {
+                Ok(actions) => self.handle(actions, cx),
+                Err(error) => log::warn!("Error while handling a click: {error}"),
+            },
+            _ => {}
         }
     }
 
@@ -491,7 +491,7 @@ impl App {
         }
         let (x, y) = (f32::from(event.position.x), f32::from(event.position.y));
         match self
-            .mouse_register
+            .mouse_state
             .handle_mouse_up(x, y, &frame, &resolved, &view)
         {
             Ok(actions) => self.handle(actions, cx),
@@ -524,7 +524,7 @@ impl App {
         }
         let left_pressed = event.pressed_button == Some(gpui::MouseButton::Left);
         match self
-            .mouse_register
+            .mouse_state
             .handle_mouse_move(x, y, left_pressed, &frame, &resolved, &view)
         {
             Ok(actions) => self.handle(actions, cx),
@@ -548,7 +548,7 @@ impl App {
         }
         let delta = event.delta.pixel_delta(px(rendering::LINE_HEIGHT));
         let modifiers = event.modifiers;
-        let actions = self.mouse_register.handle_scroll(
+        let actions = self.mouse_state.handle_scroll(
             f32::from(delta.x),
             f32::from(delta.y),
             f32::from(event.position.x),
@@ -697,7 +697,7 @@ impl Render for App {
                 Arc::clone(frame),
                 resolved.clone(),
                 view,
-                self.mouse_register.clone(),
+                self.mouse_state.clone(),
                 self.context_menu.clone(),
                 self.popup.clone(),
                 self.hover.clone(),
@@ -721,15 +721,11 @@ impl Render for App {
             }))
             .on_mouse_down(
                 gpui::MouseButton::Left,
-                cx.listener(|app, event: &MouseDownEvent, _, cx| {
-                    app.on_mouse_down(MouseButton::Left, event, cx)
-                }),
+                cx.listener(|app, event: &MouseDownEvent, _, cx| app.on_mouse_down(event, cx)),
             )
             .on_mouse_down(
                 gpui::MouseButton::Right,
-                cx.listener(|app, event: &MouseDownEvent, _, cx| {
-                    app.on_mouse_down(MouseButton::Right, event, cx)
-                }),
+                cx.listener(|app, event: &MouseDownEvent, _, cx| app.on_mouse_down(event, cx)),
             )
             .on_mouse_up(
                 gpui::MouseButton::Left,
@@ -753,11 +749,9 @@ impl Render for App {
                 canvas(
                     |_, _, _| {},
                     move |_, (), window, cx| {
-                        let mut painter = Painter::new(window, cx);
-                        let Some((frame, resolved, view, mouse_register, menu, popup, hover)) =
-                            paint
+                        let Some((frame, resolved, view, mouse_state, menu, popup, hover)) = paint
                         else {
-                            painter.fill(window_rect, palette.background.hsla());
+                            rendering::fill_rect(window_rect, to_hsla(palette.background), window);
                             let text = match failure {
                                 Some(failure) => {
                                     format!("TGV couldn't open the dataset: {failure}")
@@ -765,23 +759,29 @@ impl Render for App {
                                 None if opening.is_empty() => "Opening…".to_string(),
                                 None => format!("Opening {opening}…"),
                             };
-                            painter.text(16.0, 16.0, &text, rendering::colors::TEXT);
+                            if let Err(error) = TextContext::default()
+                                .text(&text)
+                                .color(rendering::colors::TEXT)
+                                .paint_wrapped(16.0, 16.0, window_rect.width - 32.0, window, cx)
+                            {
+                                log::warn!("Failed to draw the window: {error}");
+                            }
                             return;
                         };
                         let result = match frame.scene {
                             Scene::ContigList => rendering::render_contig_list(
-                                &mut painter,
                                 &resolved.window,
                                 &frame.state,
-                                &frame.registers,
+                                &frame.keyboard_state,
                                 &palette,
+                                window,
+                                cx,
                             ),
                             Scene::Main => rendering::render_main(
-                                &mut painter,
                                 &frame,
                                 &resolved,
                                 &view,
-                                &mouse_register,
+                                &mouse_state,
                                 &TrackFocus {
                                     target: frame.focused,
                                     name: frame.focus_name.clone(),
@@ -795,6 +795,8 @@ impl Render for App {
                                 },
                                 drop_gap,
                                 &palette,
+                                window,
+                                cx,
                             ),
                         };
                         if let Err(error) = result {

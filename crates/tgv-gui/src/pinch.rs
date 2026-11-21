@@ -1,9 +1,3 @@
-//! Trackpad pinches, read from AppKit.
-//!
-//! gpui 0.2.2 doesn't deliver macOS magnify events: its window ignores them. A local event
-//! monitor sees every event before gpui dispatches it, so it reads each step of a pinch, passes
-//! the event on unchanged, and forwards the step to the window.
-
 use tokio::sync::mpsc::UnboundedSender;
 
 /// One step of a pinch.
@@ -21,6 +15,7 @@ pub struct PinchMonitor {
     monitor: *mut objc::runtime::Object,
 }
 
+// gpui 0.2.2 doesn't support masOS magnify events. This is a thin wrapper to support it.
 #[cfg(target_os = "macos")]
 impl PinchMonitor {
     /// `NSEventMaskMagnify`: `1 << NSEventTypeMagnify`, which is 30.

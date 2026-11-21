@@ -1,6 +1,6 @@
 use strum::Display;
 
-use crate::error::TGVError;
+use crate::error::Error;
 
 #[derive(Debug, Clone, PartialEq, Eq, Display)]
 pub enum Strand {
@@ -11,11 +11,11 @@ pub enum Strand {
 }
 
 impl Strand {
-    pub fn from_str(s: String) -> Result<Self, TGVError> {
+    pub fn from_str(s: String) -> Result<Self, Error> {
         match s.as_str() {
             "+" => Ok(Strand::Forward),
             "-" => Ok(Strand::Reverse),
-            _ => Err(TGVError::ValueError(format!("Invalid strand: {}", s))),
+            _ => Err(Error::ValueError(format!("Invalid strand: {}", s))),
         }
     }
 

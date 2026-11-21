@@ -6,7 +6,6 @@
 //! pixel and its scale is continuous ([`PixelScale`]). The viewer reasons in bases, and each
 //! front end says how wide its track area is in its own units.
 
-use gv_core::error::TGVError;
 use gv_core::intervals::{Focus, Region};
 use gv_core::message::{Scroll, Zoom};
 use std::fmt::Debug;
@@ -17,7 +16,7 @@ pub trait Scale: Copy + Debug + Default + PartialEq + Send + 'static {
     fn half_width(&self, width: f64) -> u64;
 
     /// Applies a zoom to a track area `width` units wide. A factor of 0 is an error.
-    fn zoom(self, zoom: &Zoom, width: f64) -> Result<Self, TGVError>;
+    fn zoom(self, zoom: &Zoom, width: f64) -> Result<Self, crate::Error>;
 
     /// Zooms in far enough that a track area `width` units wide doesn't show more than
     /// `contig_length` bases.
@@ -74,17 +73,13 @@ impl Scale for ColumnScale {
         (width as u64 * self.0) / 2
     }
 
-    fn zoom(self, zoom: &Zoom, width: f64) -> Result<Self, TGVError> {
+    fn zoom(self, zoom: &Zoom, width: f64) -> Result<Self, crate::Error> {
         Ok(Self(match *zoom {
             Zoom::In(0) => {
-                return Err(TGVError::ValueError(
-                    "Zoom in factor cannot be 0".to_string(),
-                ));
+                return Err(crate::Error::ZeroZoomFactor { direction: "in" });
             }
             Zoom::Out(0) => {
-                return Err(TGVError::ValueError(
-                    "Zoom out factor cannot be 0".to_string(),
-                ));
+                return Err(crate::Error::ZeroZoomFactor { direction: "out" });
             }
             Zoom::In(factor) => u64::max(1, self.0 / factor),
             // Bounded later by `clamp`.
@@ -172,17 +167,13 @@ impl Scale for PixelScale {
         (width * self.bases_per_pixel / 2.0).round() as u64
     }
 
-    fn zoom(self, zoom: &Zoom, width: f64) -> Result<Self, TGVError> {
+    fn zoom(self, zoom: &Zoom, width: f64) -> Result<Self, crate::Error> {
         let bases_per_pixel = match *zoom {
             Zoom::In(0) => {
-                return Err(TGVError::ValueError(
-                    "Zoom in factor cannot be 0".to_string(),
-                ));
+                return Err(crate::Error::ZeroZoomFactor { direction: "in" });
             }
             Zoom::Out(0) => {
-                return Err(TGVError::ValueError(
-                    "Zoom out factor cannot be 0".to_string(),
-                ));
+                return Err(crate::Error::ZeroZoomFactor { direction: "out" });
             }
             Zoom::In(factor) => self.bases_per_pixel / factor as f64,
             Zoom::Out(factor) => self.bases_per_pixel * factor as f64,
@@ -284,7 +275,7 @@ impl<Z: Scale> Viewport<Z> {
         zoom: Zoom,
         width: f64,
         contig_length: Option<u64>,
-    ) -> Result<(), TGVError> {
+    ) -> Result<(), crate::Error> {
         self.zoom = self.zoom.zoom(&zoom, width)?;
         self.self_correct(width, contig_length);
         Ok(())

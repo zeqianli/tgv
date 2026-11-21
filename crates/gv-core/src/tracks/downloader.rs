@@ -1,5 +1,5 @@
 use crate::tracks::{TRACK_PREFERENCES, UcscApiTrackService, UcscDbTrackService};
-use crate::{error::TGVError, reference::Reference, tracks::UcscHost};
+use crate::{error::Error, reference::Reference, tracks::UcscHost};
 use async_compression::tokio::bufread::GzipDecoder;
 use bigtools::BigBedRead;
 use futures::TryStreamExt;
@@ -78,9 +78,9 @@ fn validate_https_column_count(
     expected_column_count: usize,
     table_name: &str,
     row_number: usize,
-) -> Result<(), TGVError> {
+) -> Result<(), Error> {
     if field_count != expected_column_count {
-        return Err(TGVError::ParsingError(format!(
+        return Err(Error::ParsingError(format!(
             "The UCSC {table_name} dump has {field_count} columns on row {row_number}; expected {expected_column_count}."
         )));
     }
@@ -93,7 +93,7 @@ fn parse_https_field(
     table_name: &str,
     column_name: &str,
     row_number: usize,
-) -> Result<UCSCFieldValue, TGVError> {
+) -> Result<UCSCFieldValue, Error> {
     let is_null = field == b"\\N";
     match column_type {
         UCSCColumnType::UnsignedInt | UCSCColumnType::Int => Ok(UCSCFieldValue::Integer(
@@ -101,13 +101,13 @@ fn parse_https_field(
                 .then(|| {
                     std::str::from_utf8(field)
                         .map_err(|error| {
-                            TGVError::ParsingError(format!(
+                            Error::ParsingError(format!(
                                 "The UCSC {table_name}.{column_name} value on row {row_number} is not UTF-8: {error}."
                             ))
                         })?
                         .parse::<i64>()
                         .map_err(|error| {
-                            TGVError::ParsingError(format!(
+                            Error::ParsingError(format!(
                                 "The UCSC {table_name}.{column_name} value on row {row_number} is not an integer: {error}."
                             ))
                         })
@@ -119,13 +119,13 @@ fn parse_https_field(
                 .then(|| {
                     std::str::from_utf8(field)
                         .map_err(|error| {
-                            TGVError::ParsingError(format!(
+                            Error::ParsingError(format!(
                                 "The UCSC {table_name}.{column_name} value on row {row_number} is not UTF-8: {error}."
                             ))
                         })?
                         .parse::<f64>()
                         .map_err(|error| {
-                            TGVError::ParsingError(format!(
+                            Error::ParsingError(format!(
                                 "The UCSC {table_name}.{column_name} value on row {row_number} is not a number: {error}."
                             ))
                         })
@@ -138,7 +138,7 @@ fn parse_https_field(
                 .then(|| {
                     std::str::from_utf8(field)
                         .map_err(|error| {
-                            TGVError::ParsingError(format!(
+                            Error::ParsingError(format!(
                                 "The UCSC {table_name}.{column_name} value on row {row_number} is not UTF-8: {error}."
                             ))
                         })
@@ -154,10 +154,10 @@ impl UCSCDownloader {
         reference: Reference,
         cache_dir: &str,
         source: UCSCDownloadSource,
-    ) -> Result<Self, TGVError> {
+    ) -> Result<Self, Error> {
         let cache_dir = reference.cache_dir(cache_dir);
         std::fs::create_dir_all(Path::new(&cache_dir))
-            .map_err(|e| TGVError::IOError(format!("Failed to create genome directory: {}", e)))?;
+            .map_err(|e| Error::IOError(format!("Failed to create genome directory: {}", e)))?;
         Ok(Self {
             reference: reference.clone(),
             cache_dir,
@@ -166,7 +166,7 @@ impl UCSCDownloader {
     }
 
     /// Download data for references. This is the main entry point for downloading data.
-    pub async fn download(&self) -> Result<(), TGVError> {
+    pub async fn download(&self) -> Result<(), Error> {
         // Create SQLite database file path: cache_dir/reference_name/tracks.sqlite
 
         let db_path = Path::new(&self.cache_dir).join("tracks.sqlite");
@@ -202,7 +202,7 @@ impl UCSCDownloader {
                     .await?
             }
             _ => {
-                return Err(TGVError::StateError(
+                return Err(Error::StateError(
                     "UcscApi cannot be used for a custom reference genome file.".to_string(),
                 ));
             }
@@ -219,7 +219,7 @@ impl UCSCDownloader {
         &self,
         reference: &Reference,
         sqlite_pool: &Pool<Sqlite>,
-    ) -> Result<(), TGVError> {
+    ) -> Result<(), Error> {
         if self.source == UCSCDownloadSource::MariaDbOnly {
             self.download_from_mysql(reference, sqlite_pool, &UcscHost::Us)
                 .await?;
@@ -246,7 +246,7 @@ impl UCSCDownloader {
         eprintln!("UCSC MariaDB is unavailable. Falling back to HTTPS downloads.");
 
         if let Err(https) = self.download_from_https(sqlite_pool).await {
-            return Err(TGVError::UcscDownloadFallbackError {
+            return Err(Error::UcscDownloadFallbackError {
                 mysql: Box::new(mysql),
                 https: Box::new(https),
             });
@@ -260,7 +260,7 @@ impl UCSCDownloader {
         reference: &Reference,
         sqlite_pool: &SqlitePool,
         host: &UcscHost,
-    ) -> Result<(), TGVError> {
+    ) -> Result<(), Error> {
         let mysql_url = UcscDbTrackService::get_mysql_url(&self.reference, host)?;
         log::info!(
             "Database connect: database=ucsc-mysql connection={} context=download reference={} host={}",
@@ -297,7 +297,7 @@ impl UCSCDownloader {
     }
 
     /// Import UCSC's compressed table dumps when direct MariaDB access is unavailable.
-    async fn download_from_https(&self, sqlite_pool: &SqlitePool) -> Result<(), TGVError> {
+    async fn download_from_https(&self, sqlite_pool: &SqlitePool) -> Result<(), Error> {
         let client = Client::builder()
             .connect_timeout(UCSC_HTTPS_CONNECT_TIMEOUT)
             .timeout(UCSC_HTTPS_REQUEST_TIMEOUT)
@@ -342,7 +342,7 @@ impl UCSCDownloader {
                     .get(&url)
                     .send()
                     .await
-                    .map_err(|source| TGVError::UcscHttpRequestError {
+                    .map_err(|source| Error::UcscHttpRequestError {
                         operation: "check for a UCSC table dump",
                         url: url.clone(),
                         source,
@@ -361,7 +361,7 @@ impl UCSCDownloader {
             let response =
                 response
                     .error_for_status()
-                    .map_err(|source| TGVError::UcscHttpRequestError {
+                    .map_err(|source| Error::UcscHttpRequestError {
                         operation: "download a UCSC table dump",
                         url: url.clone(),
                         source,
@@ -378,7 +378,7 @@ impl UCSCDownloader {
                     .get(&url)
                     .send()
                     .await
-                    .map_err(|source| TGVError::UcscHttpRequestError {
+                    .map_err(|source| Error::UcscHttpRequestError {
                         operation: "check for a UCSC gene table dump",
                         url: url.clone(),
                         source,
@@ -389,7 +389,7 @@ impl UCSCDownloader {
             let response =
                 response
                     .error_for_status()
-                    .map_err(|source| TGVError::UcscHttpRequestError {
+                    .map_err(|source| Error::UcscHttpRequestError {
                         operation: "download a UCSC gene table dump",
                         url: url.clone(),
                         source,
@@ -424,7 +424,7 @@ impl UCSCDownloader {
         }
 
         let imported_gene_track = imported_gene_track.ok_or_else(|| {
-            TGVError::IOError(format!(
+            Error::IOError(format!(
                 "No supported gene table dump is available for {}.",
                 self.reference
             ))
@@ -447,7 +447,7 @@ impl UCSCDownloader {
         url: &str,
         response: Response,
         transaction: &mut sqlx::Transaction<'_, Sqlite>,
-    ) -> Result<(), TGVError> {
+    ) -> Result<(), Error> {
         println!("Importing {table_name} over HTTPS...");
 
         Self::create_https_table(table_name, columns, transaction).await?;
@@ -473,7 +473,7 @@ impl UCSCDownloader {
             if reader
                 .read_until(b'\n', &mut line)
                 .await
-                .map_err(|source| TGVError::UcscTableReadError {
+                .map_err(|source| Error::UcscTableReadError {
                     table: table_name.to_owned(),
                     url: url.to_owned(),
                     source,
@@ -512,7 +512,7 @@ impl UCSCDownloader {
         }
 
         if row_number == 0 {
-            return Err(TGVError::IOError(format!(
+            return Err(Error::IOError(format!(
                 "The UCSC {table_name} HTTPS dump is empty."
             )));
         }
@@ -524,7 +524,7 @@ impl UCSCDownloader {
         table_name: &str,
         columns: &[(&str, UCSCColumnType)],
         transaction: &mut sqlx::Transaction<'_, Sqlite>,
-    ) -> Result<(), TGVError> {
+    ) -> Result<(), Error> {
         let column_definitions = columns
             .iter()
             .map(|(name, column_type)| format!("{name} {}", column_type.to_sqlite_type()))
@@ -548,7 +548,7 @@ impl UCSCDownloader {
         &self,
         reference: &Reference,
         sqlite_pool: &Pool<Sqlite>,
-    ) -> Result<(), TGVError> {
+    ) -> Result<(), Error> {
         // 1. Get hub url
         let mut ucsc_api_service = UcscApiTrackService::new()?;
         let hub_url = ucsc_api_service
@@ -607,7 +607,7 @@ impl UCSCDownloader {
         chrom_info_path: &PathBuf,
         twobit_file_name: Option<&String>,
         sqlite_pool: &SqlitePool,
-    ) -> Result<(), TGVError> {
+    ) -> Result<(), Error> {
         let chrom_info_content: String = std::fs::read_to_string(chrom_info_path)?;
         let chrom_info_lines = chrom_info_content.lines().collect::<Vec<_>>();
 
@@ -649,7 +649,7 @@ impl UCSCDownloader {
             let chrom = fields[0];
             let size = fields[1]
                 .parse::<i64>()
-                .map_err(|e| TGVError::IOError(format!("Failed to parse chrom size: {}", e)))?;
+                .map_err(|e| Error::IOError(format!("Failed to parse chrom size: {}", e)))?;
 
             sqlx::query(insert_sql)
                 .bind(chrom)
@@ -675,7 +675,7 @@ impl UCSCDownloader {
         mysql_pool: &MySqlPool,
         sqlite_transaction: &mut sqlx::Transaction<'_, Sqlite>,
         table_name: &str,
-    ) -> Result<&Self, TGVError> {
+    ) -> Result<&Self, Error> {
         let mut column_types: HashMap<String, UCSCColumnType> = HashMap::new();
 
         // Check if table exists and get its structure
@@ -694,7 +694,7 @@ impl UCSCDownloader {
             started.elapsed().as_millis()
         );
         if columns_info.is_empty() {
-            return Err(TGVError::IOError(format!(
+            return Err(Error::IOError(format!(
                 "{} table has no columns.",
                 table_name
             )));
@@ -740,7 +740,7 @@ impl UCSCDownloader {
                     column_types.insert(field_name.clone(), UCSCColumnType::String);
                 }
                 _ => {
-                    return Err(TGVError::IOError(format!(
+                    return Err(Error::IOError(format!(
                         "Skipping unsupported column type: {} {}",
                         field_name, mysql_type
                     )));
@@ -756,7 +756,7 @@ impl UCSCDownloader {
         }
 
         if valid_columns.is_empty() {
-            return Err(TGVError::IOError(format!(
+            return Err(Error::IOError(format!(
                 "{} table has no supported columns.",
                 table_name
             )));
@@ -881,7 +881,7 @@ impl UCSCDownloader {
         &self,
         mysql_pool: &MySqlPool,
         sqlite_transaction: &mut sqlx::Transaction<'_, Sqlite>,
-    ) -> Result<&Self, TGVError> {
+    ) -> Result<&Self, Error> {
         // Get list of available gene tracks
         let sql = "SHOW TABLES";
         log::info!(
@@ -918,7 +918,7 @@ impl UCSCDownloader {
     async fn download_genomes(
         &self,
         sqlite_transaction: &mut sqlx::Transaction<'_, Sqlite>,
-    ) -> Result<(), TGVError> {
+    ) -> Result<(), Error> {
         println!("Downloading genome files...");
 
         // Query SQLite for unique fileName values from chromInfo table
@@ -959,13 +959,13 @@ impl UCSCDownloader {
 
     /// Download a file to a directory with the same filename.
     /// Skip if file already exists. Note that no cache invalidation here. TODO.
-    async fn download_to_directory(&self, url: &str) -> Result<PathBuf, TGVError> {
+    async fn download_to_directory(&self, url: &str) -> Result<PathBuf, Error> {
         let file_name = url
             .rsplit('/')
             .next()
             .filter(|name| !name.is_empty())
             .ok_or_else(|| {
-                TGVError::ValueError(format!("The download URL has no file name: {url}"))
+                Error::ValueError(format!("The download URL has no file name: {url}"))
             })?;
         let local_path = Path::new(&self.cache_dir).join(file_name);
         if local_path.exists() {
@@ -991,7 +991,7 @@ impl UCSCDownloader {
             .send()
             .await
             .and_then(Response::error_for_status)
-            .map_err(|source| TGVError::UcscHttpRequestError {
+            .map_err(|source| Error::UcscHttpRequestError {
                 operation: "download a UCSC file",
                 url: url.to_owned(),
                 source,
@@ -1005,7 +1005,7 @@ impl UCSCDownloader {
 
         let temporary_file =
             tempfile::NamedTempFile::new_in(&self.cache_dir).map_err(|source| {
-                TGVError::FileOperationError {
+                Error::FileOperationError {
                     operation: "create a temporary download in",
                     path: PathBuf::from(&self.cache_dir),
                     source,
@@ -1018,7 +1018,7 @@ impl UCSCDownloader {
             response
                 .chunk()
                 .await
-                .map_err(|source| TGVError::UcscHttpRequestError {
+                .map_err(|source| Error::UcscHttpRequestError {
                     operation: "read a UCSC file response",
                     url: url.to_owned(),
                     source,
@@ -1026,7 +1026,7 @@ impl UCSCDownloader {
         {
             file.write_all(&chunk)
                 .await
-                .map_err(|source| TGVError::FileOperationError {
+                .map_err(|source| Error::FileOperationError {
                     operation: "write the temporary download",
                     path: temporary_path.to_path_buf(),
                     source,
@@ -1035,7 +1035,7 @@ impl UCSCDownloader {
         }
         file.flush()
             .await
-            .map_err(|source| TGVError::FileOperationError {
+            .map_err(|source| Error::FileOperationError {
                 operation: "flush the temporary download",
                 path: temporary_path.to_path_buf(),
                 source,
@@ -1051,7 +1051,7 @@ impl UCSCDownloader {
                 );
             }
             Err(error) => {
-                return Err(TGVError::FileOperationError {
+                return Err(Error::FileOperationError {
                     operation: "publish the completed download as",
                     path: local_path.clone(),
                     source: error.error,
@@ -1082,19 +1082,19 @@ impl BigBedConverter {
     /// Return: (field_names, field_types)
     fn get_schema(
         bigbed_reader: &mut BigBedRead<bigtools::utils::reopen::ReopenableFile>,
-    ) -> Result<(Vec<String>, Vec<UCSCColumnType>), TGVError> {
+    ) -> Result<(Vec<String>, Vec<UCSCColumnType>), Error> {
         use bigtools::bed::autosql::parse::FieldType;
         use bigtools::bed::autosql::parse::parse_autosql;
         let autosql_string = bigbed_reader
             .autosql()?
-            .ok_or(TGVError::IOError("Failed to parse autosql".to_string()))?;
+            .ok_or(Error::IOError("Failed to parse autosql".to_string()))?;
 
         let mut field_names = Vec::new();
         let mut field_types = Vec::new();
 
         let declarations = parse_autosql(&autosql_string).unwrap();
         let declaration: &bigtools::bed::autosql::parse::Declaration = declarations.first().ok_or(
-            TGVError::IOError("Parsing autosql declaration failed".to_string()),
+            Error::IOError("Parsing autosql declaration failed".to_string()),
         )?;
 
         for field in declaration.fields.iter() {
@@ -1153,7 +1153,7 @@ impl BigBedConverter {
         bigbed_path: &str,
         track_name: &str,
         sqlite_pool: &Pool<Sqlite>,
-    ) -> Result<(), TGVError> {
+    ) -> Result<(), Error> {
         println!("Converting {} BigBed file to SQLite table...", track_name);
 
         use bigtools::BigBedRead;
@@ -1283,7 +1283,7 @@ impl BigBedConverter {
                 let fields: Vec<&str> = interval.rest.split('\t').collect();
 
                 if fields.len() != field_names.len() {
-                    return Err(TGVError::ValueError(format!(
+                    return Err(Error::ValueError(format!(
                         "Expected {} fields, got {}. expected fields: {}, got fields: {}",
                         field_names.len(),
                         fields.len(),
@@ -1392,12 +1392,12 @@ impl BigBedConverter {
         chrom_start: u32,
         block_sizes_blob: Vec<u8>,
         chrom_starts_blob: Vec<u8>,
-    ) -> Result<(Vec<u8>, Vec<u8>), TGVError> {
+    ) -> Result<(Vec<u8>, Vec<u8>), Error> {
         let block_sizes_str = String::from_utf8(block_sizes_blob).map_err(|e| {
-            TGVError::ValueError(format!("Failed to convert block sizes to string: {}", e))
+            Error::ValueError(format!("Failed to convert block sizes to string: {}", e))
         })?;
         let chrom_starts_str = String::from_utf8(chrom_starts_blob).map_err(|e| {
-            TGVError::ValueError(format!("Failed to convert block starts to string: {}", e))
+            Error::ValueError(format!("Failed to convert block starts to string: {}", e))
         })?;
 
         // Example block_sizes_str, chrom_starts_str:
@@ -1417,7 +1417,7 @@ impl BigBedConverter {
             .collect();
 
         if block_sizes.len() != chrom_starts.len() {
-            return Err(TGVError::ValueError(
+            return Err(Error::ValueError(
                 "blockSizes and chromStarts arrays have different lengths".to_string(),
             ));
         }
@@ -1469,7 +1469,7 @@ struct UcscHub {
 struct UcscHubFileParser {}
 
 impl UcscHubFileParser {
-    pub async fn parse_hub_file(hub_url: &str) -> Result<UcscHub, TGVError> {
+    pub async fn parse_hub_file(hub_url: &str) -> Result<UcscHub, Error> {
         log::info!("HTTP request: method=GET url={hub_url} context=parse UCSC hub file");
         let started = Instant::now();
         let response = reqwest::get(hub_url).await?;
@@ -1530,7 +1530,7 @@ impl UcscHubFileParser {
     }
 }
 
-fn get_preferred_track_name_from_vec(names: &Vec<String>) -> Result<Option<String>, TGVError> {
+fn get_preferred_track_name_from_vec(names: &[String]) -> Result<Option<String>, Error> {
     for pref in TRACK_PREFERENCES {
         if names.contains(&pref.to_string()) {
             return Ok(Some(pref.to_string()));

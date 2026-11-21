@@ -2,7 +2,7 @@
 
 use super::tables::CigarSchema;
 use crate::{
-    error::TGVError,
+    error::Error,
     sequence::Sequence,
     table_schema::{ColumnDoc, TableSchema},
 };
@@ -31,7 +31,7 @@ impl CoverageTable {
         runs: LazyFrame,
         contig_index: usize,
         reference_sequence: &Sequence,
-    ) -> Result<Self, TGVError> {
+    ) -> Result<Self, Error> {
         // TODO: used only once. Consolidate.
         let kind = col(CigarSchema::KIND);
         let runs = runs
@@ -135,7 +135,7 @@ impl CoverageTable {
     }
 
     /// Select sparse rows within a one-based, inclusive interval.
-    pub fn query(&self, start: u64, end: u64) -> Result<DataFrame, TGVError> {
+    pub fn query(&self, start: u64, end: u64) -> Result<DataFrame, Error> {
         Ok(self
             .data
             .clone()
@@ -221,5 +221,158 @@ impl TableSchema for CoverageSchema {
                 description: "The reference base.",
             },
         ]
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct BaseCoverage {
+    pub position: u64,
+    pub total: u64,
+    pub a: u64,
+    pub c: u64,
+    pub g: u64,
+    pub t: u64,
+    pub n: u64,
+    pub softclip: u64,
+    pub reference: u8,
+}
+
+impl CoverageTable {
+    pub fn bases(&self, left: u64, right: u64) -> Result<Vec<BaseCoverage>, Error> {
+        let table = self.query(left, right)?;
+        let positions = table.column(CoverageSchema::POS)?.u64()?;
+        let totals = table.column(CoverageSchema::TOTAL)?.u64()?;
+        let a = table.column(CoverageSchema::A)?.u64()?;
+        let c = table.column(CoverageSchema::C)?.u64()?;
+        let g = table.column(CoverageSchema::G)?.u64()?;
+        let t = table.column(CoverageSchema::T)?.u64()?;
+        let n = table.column(CoverageSchema::N)?.u64()?;
+        let softclip = table.column(CoverageSchema::SOFTCLIP)?.u64()?;
+        let references = table.column(CoverageSchema::REFERENCE_BASE)?.u8()?;
+        (0..table.height())
+            .map(|row| {
+                Ok(BaseCoverage {
+                    position: positions.get(row).ok_or(Error::NullValue {
+                        column: CoverageSchema::POS,
+                    })?,
+                    total: totals.get(row).ok_or(Error::NullValue {
+                        column: CoverageSchema::TOTAL,
+                    })?,
+                    a: a.get(row).ok_or(Error::NullValue {
+                        column: CoverageSchema::A,
+                    })?,
+                    c: c.get(row).ok_or(Error::NullValue {
+                        column: CoverageSchema::C,
+                    })?,
+                    g: g.get(row).ok_or(Error::NullValue {
+                        column: CoverageSchema::G,
+                    })?,
+                    t: t.get(row).ok_or(Error::NullValue {
+                        column: CoverageSchema::T,
+                    })?,
+                    n: n.get(row).ok_or(Error::NullValue {
+                        column: CoverageSchema::N,
+                    })?,
+                    softclip: softclip.get(row).ok_or(Error::NullValue {
+                        column: CoverageSchema::SOFTCLIP,
+                    })?,
+                    reference: references.get(row).ok_or(Error::NullValue {
+                        column: CoverageSchema::REFERENCE_BASE,
+                    })?,
+                })
+            })
+            .collect()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use rstest::rstest;
+
+    fn table(a: Vec<Option<u64>>) -> CoverageTable {
+        let height = a.len();
+        let column =
+            |name: &str, values: [u64; 3]| Column::new(name.into(), values[..height].to_vec());
+        let data = DataFrame::new(
+            height,
+            vec![
+                column(CoverageSchema::POS, [10, 11, 20]),
+                Column::new(CoverageSchema::A.into(), a),
+                column(CoverageSchema::T, [0, 1, 0]),
+                column(CoverageSchema::C, [2, 0, 0]),
+                column(CoverageSchema::G, [0, 3, 0]),
+                column(CoverageSchema::N, [0, 0, 1]),
+                column(CoverageSchema::TOTAL, [7, 4, 1]),
+                column(CoverageSchema::SOFTCLIP, [1, 0, 2]),
+                Column::new(
+                    CoverageSchema::REFERENCE_BASE.into(),
+                    b"AGN"[..height].to_vec(),
+                ),
+            ],
+        )
+        .unwrap();
+        CoverageTable { data }
+    }
+
+    fn sample() -> CoverageTable {
+        table(vec![Some(5), Some(0), Some(0)])
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn base(
+        position: u64,
+        total: u64,
+        a: u64,
+        c: u64,
+        g: u64,
+        t: u64,
+        n: u64,
+        softclip: u64,
+        reference: u8,
+    ) -> BaseCoverage {
+        BaseCoverage {
+            position,
+            total,
+            a,
+            c,
+            g,
+            t,
+            n,
+            softclip,
+            reference,
+        }
+    }
+
+    #[rstest]
+    #[case::all_positions(1, 100, vec![
+        base(10, 7, 5, 2, 0, 0, 0, 1, b'A'),
+        base(11, 4, 0, 0, 3, 1, 0, 0, b'G'),
+        base(20, 1, 0, 0, 0, 0, 1, 2, b'N'),
+    ])]
+    #[case::inclusive_bounds(11, 20, vec![
+        base(11, 4, 0, 0, 3, 1, 0, 0, b'G'),
+        base(20, 1, 0, 0, 0, 0, 1, 2, b'N'),
+    ])]
+    #[case::single_position(10, 10, vec![base(10, 7, 5, 2, 0, 0, 0, 1, b'A')])]
+    #[case::uncovered_positions(12, 19, vec![])]
+    #[case::reversed_bounds(20, 10, vec![])]
+    fn bases(#[case] left: u64, #[case] right: u64, #[case] expected: Vec<BaseCoverage>) {
+        assert_eq!(sample().bases(left, right).unwrap(), expected);
+    }
+
+    #[test]
+    fn bases_of_an_empty_table() {
+        assert_eq!(CoverageTable::default().bases(1, 100).unwrap(), vec![]);
+    }
+
+    #[test]
+    fn bases_report_a_missing_count() {
+        assert!(matches!(
+            table(vec![Some(5), None, Some(0)]).bases(1, 100),
+            Err(Error::NullValue {
+                column: CoverageSchema::A
+            })
+        ));
     }
 }

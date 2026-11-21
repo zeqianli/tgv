@@ -5,13 +5,10 @@
 
 use gv_core::prelude::*;
 use gv_core::{
-    alignment::{CoverageSchema, ReadBase},
-    bed::BedSchema,
+    alignment::{BaseCoverage, ReadBase},
     gene::{GeneSchema, GeneSegmentSchema, query_segments},
-    variant::VariantSchema,
 };
 use itertools::Itertools;
-use polars::prelude::ChunkAgg;
 
 /// The read drawn at row `y` of an alignment track over `left..=right`, by read ID.
 pub fn read_at(
@@ -20,12 +17,12 @@ pub fn read_at(
     left: u64,
     right: u64,
     y: usize,
-) -> Result<Option<usize>, TGVError> {
+) -> Result<Option<usize>, crate::Error> {
     let alignment = &state.alignments[index];
-    match &state.paired_alignments[index] {
+    Ok(match &state.paired_alignments[index] {
         Some(paired) => paired.read_overlapping(alignment, left, right, y),
         None => alignment.read_overlapping(left, right, y),
-    }
+    }?)
 }
 
 /// A read's name, the base under the pointer, its CIGAR, and its mapping quality.
@@ -36,7 +33,7 @@ pub fn describe_read(
     contig_index: usize,
     left: u64,
     right: u64,
-) -> Result<String, TGVError> {
+) -> Result<String, crate::Error> {
     let alignment = &state.alignments[index];
     let record = &alignment.records[read_id];
     let contig = &state.contig_header.contigs[contig_index].name;
@@ -80,7 +77,7 @@ pub fn describe_genes(
     contig_index: usize,
     left: u64,
     right: u64,
-) -> Result<Vec<String>, TGVError> {
+) -> Result<Vec<String>, crate::Error> {
     let genes = state.track.query(contig_index, left, right)?;
     let segments = query_segments(genes.clone(), left, right)?;
     let contig = &state.contig_header.contigs[contig_index].name;
@@ -149,19 +146,17 @@ pub fn describe_coverage(
     index: usize,
     left: u64,
     right: u64,
-) -> Result<String, TGVError> {
-    let coverage = state.alignments[index].coverage.query(left, right)?;
-    let sum = |column: &str| -> Result<u64, TGVError> {
-        Ok(coverage.column(column)?.u64()?.sum().unwrap_or(0))
-    };
+) -> Result<String, crate::Error> {
+    let bases = state.alignments[index].coverage.bases(left, right)?;
+    let sum = |count: fn(&BaseCoverage) -> u64| bases.iter().map(count).sum::<u64>();
     let counts = format!(
         "A:{}, T:{}, C:{}, G:{}, N:{}, total:{}",
-        sum(CoverageSchema::A)?,
-        sum(CoverageSchema::T)?,
-        sum(CoverageSchema::C)?,
-        sum(CoverageSchema::G)?,
-        sum(CoverageSchema::N)?,
-        sum(CoverageSchema::TOTAL)?,
+        sum(|base| base.a),
+        sum(|base| base.t),
+        sum(|base| base.c),
+        sum(|base| base.g),
+        sum(|base| base.n),
+        sum(|base| base.total),
     );
     Ok(if left == right {
         format!("{}: {}", left, counts)
@@ -177,37 +172,24 @@ pub fn describe_variants(
     contig_index: usize,
     left: u64,
     right: u64,
-) -> Result<Vec<String>, TGVError> {
-    let rows = state.variants[index].query(contig_index, left, right)?;
-    let starts = rows.column(VariantSchema::START)?.u64()?;
-    let references = rows.column(VariantSchema::REFERENCE)?.str()?;
-    let alternates = rows.column(VariantSchema::ALTERNATE)?.list()?;
-    let qualities = rows.column(VariantSchema::QUALITY_SCORE)?.f32()?;
+) -> Result<Vec<String>, crate::Error> {
     let contig = &state.contig_header.contigs[contig_index].name;
-    let mut descriptions = Vec::new();
-    for row in 0..rows.height() {
-        let alternate = match alternates.get_as_series(row) {
-            Some(alleles) => alleles
-                .str()?
-                .iter()
-                .map(|allele| allele.expect("alternate alleles are non-null"))
-                .join(","),
-            None => String::new(),
-        };
-        let quality = qualities
-            .get(row)
-            .map(|q| q.to_string())
-            .unwrap_or_else(|| "?".into());
-        descriptions.push(format!(
-            "Variant: {}:{} {}>{} QUAL={}",
-            contig,
-            starts.get(row).expect("variant starts are non-null"),
-            references.get(row).expect("reference bases are non-null"),
-            alternate,
-            quality
-        ));
-    }
-    Ok(descriptions)
+    Ok(state.variants[index]
+        .variants(contig_index, left, right)?
+        .into_iter()
+        .map(|variant| {
+            format!(
+                "Variant: {}:{} {}>{} QUAL={}",
+                contig,
+                variant.start,
+                variant.reference,
+                variant.alternates.join(","),
+                variant
+                    .quality
+                    .map_or_else(|| "?".to_string(), |quality| quality.to_string()),
+            )
+        })
+        .collect())
 }
 
 /// Each BED feature under the pointer.
@@ -217,23 +199,18 @@ pub fn describe_bed(
     contig_index: usize,
     left: u64,
     right: u64,
-) -> Result<Vec<String>, TGVError> {
-    let rows = state.bed_intervals[index].query(contig_index, left, right)?;
-    let starts = rows.column(BedSchema::START)?.u64()?;
-    let ends = rows.column(BedSchema::END)?.u64()?;
-    let names = rows.column(BedSchema::NAME)?.str()?;
+) -> Result<Vec<String>, crate::Error> {
     let contig = &state.contig_header.contigs[contig_index].name;
-    Ok((0..rows.height())
-        .map(|row| {
-            let name = names
-                .get(row)
+    Ok(state.bed_intervals[index]
+        .features(contig_index, left, right)?
+        .into_iter()
+        .map(|feature| {
+            let name = feature
+                .name
                 .map_or_else(String::new, |name| format!(" {name}"));
             format!(
                 "BED interval: {}:{}-{}{}",
-                contig,
-                starts.get(row).expect("BED starts are non-null"),
-                ends.get(row).expect("BED ends are non-null"),
-                name
+                contig, feature.start, feature.end, name
             )
         })
         .collect())

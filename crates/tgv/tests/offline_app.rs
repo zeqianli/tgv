@@ -7,7 +7,7 @@ use gv_core::{
     repository::RepositoryFileIndex,
     track_registry::TrackId,
 };
-use gv_session::{DatasetRequest, InspectInterval, NavigateRequest, QueryRequest, SessionError};
+use gv_session::{DatasetRequest, InspectInterval, NavigateRequest, QueryRequest};
 use gv_viewer::{
     message::{Action, FocusTarget, InputAction, TrackAction, UpdateLayoutAction},
     session::SessionFile,
@@ -176,7 +176,7 @@ async fn offline_sequence_updates_tracks_and_scenes() {
     };
     harness
         .app
-        .mouse_register
+        .mouse_state
         .handle_mouse_event(
             &harness.app.viewer.dataset.view,
             &harness.app.resolved_layout,
@@ -191,7 +191,7 @@ async fn offline_sequence_updates_tracks_and_scenes() {
     };
     let messages = harness
         .app
-        .mouse_register
+        .mouse_state
         .handle_mouse_event(
             &harness.app.viewer.dataset.view,
             &harness.app.resolved_layout,
@@ -563,7 +563,7 @@ async fn agent_queries_leave_the_view_and_cannot_replace_the_dataset() {
         .agent(session.load_dataset(request))
         .await
         .unwrap_err();
-    assert!(matches!(error, SessionError::DatasetFixed));
+    assert!(matches!(error, gv_session::Error::DatasetFixed));
 
     harness.close().await.unwrap();
 }

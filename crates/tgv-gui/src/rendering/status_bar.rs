@@ -1,21 +1,31 @@
-use crate::{
-    layout::Rect,
-    rendering::{
-        LINE_HEIGHT, Painter, Status,
-        colors::{MUTED_TEXT, TEXT},
-    },
-};
+use super::prelude::*;
+use crate::rendering::Status;
 use gv_core::prelude::*;
 
-/// Shows the data under the pointer, that the window waits for data, or the messages.
-pub fn render_status_bar(painter: &mut Painter, area: &Rect, state: &State, status: &Status) {
+pub fn render_status_bar(
+    area: &Rect,
+    state: &State,
+    status: &Status,
+    window: &mut Window,
+    cx: &mut App,
+) -> Result<(), crate::Error> {
     let y = area.y + (area.height - LINE_HEIGHT) / 2.0;
     let x = area.x + 4.0;
     if let Some(hover) = status.hover {
-        painter.text(x, y, hover, TEXT);
+        TextContext::default()
+            .text(hover)
+            .color(TEXT)
+            .paint(x, y, LINE_HEIGHT, window, cx)?;
     } else if status.waiting {
-        painter.text(x, y, "Loading…", MUTED_TEXT);
+        TextContext::default()
+            .text("Loading…")
+            .color(MUTED_TEXT)
+            .paint(x, y, LINE_HEIGHT, window, cx)?;
     } else if !state.messages.is_empty() {
-        painter.text(x, y, &state.messages.join("  "), TEXT);
+        TextContext::default()
+            .text(&state.messages.join("  "))
+            .color(TEXT)
+            .paint(x, y, LINE_HEIGHT, window, cx)?;
     }
+    Ok(())
 }

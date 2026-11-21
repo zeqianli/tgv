@@ -1,7 +1,7 @@
 //! Columnar BED features for a loaded region, and their table schema.
 
 use crate::{
-    error::TGVError,
+    error::Error,
     intervals::{IntervalSchema, IntervalTable, Region},
     table_schema::{ColumnDoc, TableSchema},
 };
@@ -94,9 +94,9 @@ impl Default for BedTable {
 }
 
 impl IntervalTable for BedTable {
-    fn query(&self, contig_index: usize, start: u64, end: u64) -> Result<DataFrame, TGVError> {
+    fn query(&self, contig_index: usize, start: u64, end: u64) -> Result<DataFrame, Error> {
         if start == 0 {
-            return Err(TGVError::ValueError(
+            return Err(Error::ValueError(
                 "Interval queries require a positive start.".into(),
             ));
         }
@@ -126,7 +126,7 @@ impl BedTable {
     }
 
     /// Wraps a frame holding every feature of one contig, read before contig indexes were known.
-    pub(super) fn whole_contig(data: &DataFrame, contig_index: usize) -> Result<Self, TGVError> {
+    pub(super) fn whole_contig(data: &DataFrame, contig_index: usize) -> Result<Self, Error> {
         Ok(Self {
             data: data
                 .clone()
@@ -160,7 +160,7 @@ impl BedColumns {
     ///
     /// The line is read with as many standard fields as it has, up to six. Further columns are
     /// kept as they are in `EXTRA`.
-    pub(super) fn push_line(&mut self, line: &str, contig_index: usize) -> Result<(), TGVError> {
+    pub(super) fn push_line(&mut self, line: &str, contig_index: usize) -> Result<(), Error> {
         let line = line.trim_end();
         if !is_data_line(line) {
             return Ok(());
@@ -170,11 +170,10 @@ impl BedColumns {
         let score_missing = fields.get(4) == Some(&".");
         let extra = (fields.len() > 6).then(|| fields[6..].join("\t"));
         self.standard_columns = self.standard_columns.max(fields.len().min(6));
-        let parsed = |error: io::Error| {
-            TGVError::ValueError(format!("BED line {line:?} is invalid: {error}"))
-        };
+        let parsed =
+            |error: io::Error| Error::ValueError(format!("BED line {line:?} is invalid: {error}"));
         match fields.len() {
-            0..=2 => Err(TGVError::ValueError(format!(
+            0..=2 => Err(Error::ValueError(format!(
                 "BED line {line:?} has fewer than three tab-separated fields."
             ))),
             3 => self.push_record(
@@ -215,7 +214,7 @@ impl BedColumns {
         contig_index: usize,
         score_missing: bool,
         extra: Option<String>,
-    ) -> Result<(), TGVError> {
+    ) -> Result<(), Error> {
         let start = record.feature_start()?.get() as u64;
         // noodles reads an end of 0 as missing, which the check below rejects.
         let end = record
@@ -223,7 +222,7 @@ impl BedColumns {
             .transpose()?
             .map_or(0, |end| end.get() as u64);
         if end < start {
-            return Err(TGVError::ValueError(format!(
+            return Err(Error::ValueError(format!(
                 "Invalid BED interval [{start}, {end}] at row {}.",
                 self.starts.len()
             )));
@@ -250,7 +249,7 @@ impl BedColumns {
     }
 
     /// Builds the columns into a frame in the order rows were added, numbering them from 0.
-    pub(super) fn into_frame(self) -> Result<DataFrame, TGVError> {
+    pub(super) fn into_frame(self) -> Result<DataFrame, Error> {
         Ok(DataFrame::new(
             self.starts.len(),
             vec![
@@ -273,7 +272,7 @@ impl BedColumns {
         self,
         contig_index: usize,
         loaded_bounds: (u64, u64),
-    ) -> Result<BedTable, TGVError> {
+    ) -> Result<BedTable, Error> {
         let data = self
             .into_frame()?
             .lazy()
@@ -321,4 +320,131 @@ where
         return Err(io::Error::new(io::ErrorKind::UnexpectedEof, "empty line"));
     }
     Ok(record)
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct BedFeature {
+    pub start: u64,
+    pub end: u64,
+    pub name: Option<String>,
+    pub strand: Option<crate::strand::Strand>,
+}
+
+impl BedTable {
+    pub fn features(
+        &self,
+        contig_index: usize,
+        start: u64,
+        end: u64,
+    ) -> Result<Vec<BedFeature>, Error> {
+        let rows = self.query(contig_index, start, end)?;
+        let starts = rows.column(BedSchema::START)?.u64()?;
+        let ends = rows.column(BedSchema::END)?.u64()?;
+        let names = rows.column(BedSchema::NAME)?.str()?;
+        let strands = rows.column(BedSchema::STRAND)?.str()?;
+        (0..rows.height())
+            .map(|row| {
+                Ok(BedFeature {
+                    start: starts.get(row).ok_or(Error::NullValue {
+                        column: BedSchema::START,
+                    })?,
+                    end: ends.get(row).ok_or(Error::NullValue {
+                        column: BedSchema::END,
+                    })?,
+                    name: names
+                        .get(row)
+                        .filter(|name| !name.is_empty())
+                        .map(str::to_string),
+                    strand: match strands.get(row) {
+                        Some("+") => Some(crate::strand::Strand::Forward),
+                        Some("-") => Some(crate::strand::Strand::Reverse),
+                        _ => None,
+                    },
+                })
+            })
+            .collect()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::strand::Strand as FeatureStrand;
+    use rstest::rstest;
+
+    fn table() -> BedTable {
+        let data = DataFrame::new(
+            5,
+            vec![
+                Column::new(BedSchema::CONTIG_INDEX.into(), vec![0u64, 0, 0, 0, 1]),
+                Column::new(BedSchema::START.into(), vec![10u64, 30, 50, 70, 10]),
+                Column::new(BedSchema::END.into(), vec![20u64, 40, 60, 80, 20]),
+                Column::new(
+                    BedSchema::NAME.into(),
+                    vec![Some("a"), Some(""), None, Some("d"), Some("other")],
+                ),
+                Column::new(
+                    BedSchema::STRAND.into(),
+                    vec![Some("+"), Some("-"), Some("."), None, Some("+")],
+                ),
+            ],
+        )
+        .unwrap();
+        BedTable {
+            data,
+            ..BedTable::default()
+        }
+    }
+
+    fn feature(
+        start: u64,
+        end: u64,
+        name: Option<&str>,
+        strand: Option<FeatureStrand>,
+    ) -> BedFeature {
+        BedFeature {
+            start,
+            end,
+            name: name.map(str::to_string),
+            strand,
+        }
+    }
+
+    #[rstest]
+    #[case::whole_contig(0, 1, 100, vec![
+        feature(10, 20, Some("a"), Some(FeatureStrand::Forward)),
+        feature(30, 40, None, Some(FeatureStrand::Reverse)),
+        feature(50, 60, None, None),
+        feature(70, 80, Some("d"), None),
+    ])]
+    #[case::partial_overlap(0, 15, 35, vec![
+        feature(10, 20, Some("a"), Some(FeatureStrand::Forward)),
+        feature(30, 40, None, Some(FeatureStrand::Reverse)),
+    ])]
+    #[case::inclusive_bounds(0, 20, 30, vec![
+        feature(10, 20, Some("a"), Some(FeatureStrand::Forward)),
+        feature(30, 40, None, Some(FeatureStrand::Reverse)),
+    ])]
+    #[case::between_features(0, 21, 29, vec![])]
+    #[case::other_contig(1, 1, 100, vec![
+        feature(10, 20, Some("other"), Some(FeatureStrand::Forward)),
+    ])]
+    #[case::contig_without_features(2, 1, 100, vec![])]
+    #[case::reversed_bounds(0, 60, 50, vec![])]
+    fn features(
+        #[case] contig_index: usize,
+        #[case] start: u64,
+        #[case] end: u64,
+        #[case] expected: Vec<BedFeature>,
+    ) {
+        assert_eq!(
+            table().features(contig_index, start, end).unwrap(),
+            expected
+        );
+    }
+
+    #[test]
+    fn features_reject_a_zero_start() {
+        assert!(table().features(0, 0, 100).is_err());
+    }
 }

@@ -11,11 +11,10 @@ use crate::{
     keys::key_from_event,
     layout::{AreaType, MainLayout, ResolvedMainLayout},
     menu::ContextMenu,
-    mouse::MouseRegister,
+    mouse::MouseState,
     rendering::TrackFocus,
     settings::Settings,
 };
-use gv_core::prelude::*;
 use gv_session::ViewerKind;
 use gv_viewer::{
     layout::RenderEvent,
@@ -31,7 +30,7 @@ pub struct App {
 
     pub layout: MainLayout,
     pub resolved_layout: ResolvedMainLayout,
-    pub mouse_register: MouseRegister,
+    pub mouse_state: MouseState,
     /// The open right-click menu. While it is open, it takes all mouse input.
     pub context_menu: Option<ContextMenu>,
     /// The open text popup. While it is open, it blocks all other input.
@@ -41,7 +40,7 @@ pub struct App {
 }
 
 impl App {
-    pub async fn new(settings: Settings) -> Result<Self, TGVError> {
+    pub async fn new(settings: Settings) -> Result<Self, crate::Error> {
         let viewer = Viewer::new(settings, ViewerKind::Tui).await?;
         let layout = MainLayout::new(
             &viewer.settings,
@@ -52,7 +51,7 @@ impl App {
             viewer,
             layout,
             resolved_layout: ResolvedMainLayout::default(),
-            mouse_register: MouseRegister::default(),
+            mouse_state: MouseState::default(),
             context_menu: None,
             popup: None,
             render_buffer: Buffer::empty(Rect::default()),
@@ -62,11 +61,14 @@ impl App {
 
 impl App {
     /// Main loop
-    pub async fn run<B: Backend>(&mut self, terminal: &mut Terminal<B>) -> Result<(), TGVError> {
+    pub async fn run<B: Backend>(
+        &mut self,
+        terminal: &mut Terminal<B>,
+    ) -> Result<(), crate::Error> {
         log::info!("Starting the app event loop");
         terminal
             .draw(|frame| self.resolve_layout(frame.area()))
-            .map_err(|e| TGVError::IOError(format!("Failed to draw the terminal: {e}")))?;
+            .map_err(crate::Error::DrawTerminal)?;
 
         self.start().await?;
 
@@ -82,7 +84,7 @@ impl App {
                         let buffer = frame.buffer_mut();
                         render_result = self.render(buffer, &render_events);
                     })
-                    .map_err(|e| TGVError::IOError(format!("Failed to draw the terminal: {e}")))?;
+                    .map_err(crate::Error::DrawTerminal)?;
                 render_result?;
             }
             render_events.clear();
@@ -137,7 +139,7 @@ impl App {
 
                 let events = match event {
                     Ok(Event::Key(key_event)) if key_event.kind == KeyEventKind::Press => {
-                        self.mouse_register.last_hover = None;
+                        self.mouse_state.last_hover = None;
                         let actions = if self.popup.is_some() {
                             if key_event.code == event::KeyCode::Esc {
                                 vec![UiAction::ClosePopup.into()]
@@ -155,7 +157,7 @@ impl App {
                             match key_from_event(*key_event) {
                                 Some(key) => self
                                     .viewer
-                                    .registers
+                                    .keyboard_state
                                     .handle_key_event(key, &self.viewer.dataset.view)?,
                                 None => Vec::new(),
                             }
@@ -167,7 +169,7 @@ impl App {
                         let actions = match &mut self.context_menu {
                             _ if self.popup.is_some() => Vec::new(),
                             Some(menu) => menu.handle_mouse_event(*mouse_event),
-                            None => self.mouse_register.handle_mouse_event(
+                            None => self.mouse_state.handle_mouse_event(
                                 &self.viewer.dataset.view,
                                 &self.resolved_layout,
                                 &self.viewer.viewport,
@@ -181,13 +183,13 @@ impl App {
                     Ok(Event::Paste(text))
                         if self.popup.is_none() && self.context_menu.is_none() =>
                     {
-                        let actions = self.viewer.registers.handle_paste(text);
+                        let actions = self.viewer.keyboard_state.handle_paste(text);
                         self.handle(actions).await
                     }
 
                     Ok(Event::Resize(width, height)) => {
                         log::debug!("Terminal resized to {width}x{height}");
-                        self.mouse_register.last_hover = None;
+                        self.mouse_state.last_hover = None;
                         self.resolve_layout(Rect::new(0, 0, *width, *height));
                         self.viewer.self_correct()?;
                         self.viewer.load_data().await?;
@@ -215,7 +217,7 @@ impl App {
     }
 
     /// Applies the startup actions after the first layout.
-    pub async fn start(&mut self) -> Result<Vec<RenderEvent>, TGVError> {
+    pub async fn start(&mut self) -> Result<Vec<RenderEvent>, crate::Error> {
         let mut render_events = self.viewer.start().await?;
         render_events.extend(self.apply_effects().await?);
         Ok(render_events)
@@ -251,26 +253,26 @@ impl App {
     }
 
     /// close connections
-    pub async fn close(self) -> Result<(), TGVError> {
-        self.viewer.close().await
+    pub async fn close(self) -> Result<(), crate::Error> {
+        Ok(self.viewer.close().await?)
     }
 
     /// Applies actions after initialization and returns the areas that need redrawing.
-    pub async fn handle(&mut self, actions: Vec<Action>) -> Result<Vec<RenderEvent>, TGVError> {
+    pub async fn handle(&mut self, actions: Vec<Action>) -> Result<Vec<RenderEvent>, crate::Error> {
         let mut render_events = self.viewer.handle(actions).await?;
         render_events.extend(self.apply_effects().await?);
         Ok(render_events)
     }
 
     /// Opens the files that `:e` requested, and returns the areas to redraw.
-    pub async fn open_pending(&mut self) -> Result<Vec<RenderEvent>, TGVError> {
+    pub async fn open_pending(&mut self) -> Result<Vec<RenderEvent>, crate::Error> {
         let mut render_events = self.viewer.open_pending().await?;
         render_events.extend(self.apply_effects().await?);
         Ok(render_events)
     }
 
     /// Applies what the viewer left for the terminal: layout changes, menus, and popups.
-    async fn apply_effects(&mut self) -> Result<Vec<RenderEvent>, TGVError> {
+    async fn apply_effects(&mut self) -> Result<Vec<RenderEvent>, crate::Error> {
         let mut render_events = Vec::new();
         for effect in self.viewer.take_effects() {
             match effect {
@@ -304,13 +306,13 @@ impl App {
                 Effect::Ui(UiAction::CloseContextMenu) => {
                     if self.context_menu.take().is_some() {
                         // The cell under the cursor may show something new after the menu closes.
-                        self.mouse_register.last_hover = None;
+                        self.mouse_state.last_hover = None;
                         render_events.push(RenderEvent::All);
                     }
                 }
                 Effect::Ui(UiAction::ClosePopup) => {
                     if self.popup.take().is_some() {
-                        self.mouse_register = MouseRegister::default();
+                        self.mouse_state = MouseState::default();
                         render_events.push(RenderEvent::All);
                     }
                 }
@@ -325,7 +327,7 @@ impl App {
                 Effect::ShowPopup(popup) => self.popup = Some(popup),
                 Effect::TracksChanged => {
                     // Divider state names tracks, which may no longer be adjacent or present.
-                    self.mouse_register = MouseRegister::default();
+                    self.mouse_state = MouseState::default();
                     self.layout.set_tracks(
                         &self.viewer.settings,
                         Arc::clone(&self.viewer.dataset.tracks),
@@ -333,7 +335,7 @@ impl App {
                     );
                     self.resolve_layout(self.resolved_layout.terminal_area);
                 }
-                Effect::SceneChanged => self.mouse_register = MouseRegister::default(),
+                Effect::SceneChanged => self.mouse_state = MouseState::default(),
             }
         }
         Ok(render_events)
@@ -343,7 +345,7 @@ impl App {
         &mut self,
         buf: &mut Buffer,
         render_events: &Vec<RenderEvent>,
-    ) -> Result<(), TGVError> {
+    ) -> Result<(), crate::Error> {
         use crate::rendering::{render_contig_list, render_main};
         let full_render = vec![RenderEvent::All];
         let render_events = if self.render_buffer.area != buf.area {
@@ -365,10 +367,10 @@ impl App {
             Scene::Main => render_main(
                 &mut self.render_buffer,
                 &mut self.viewer.dataset.view,
-                &self.viewer.registers,
+                &self.viewer.keyboard_state,
                 &self.resolved_layout,
                 &self.viewer.viewport,
-                &self.mouse_register,
+                &self.mouse_state,
                 &focus,
                 self.context_menu.as_ref(),
                 self.popup.as_ref(),
@@ -379,7 +381,7 @@ impl App {
                 &self.resolved_layout.terminal_area,
                 &mut self.render_buffer,
                 &self.viewer.dataset.view,
-                &self.viewer.registers,
+                &self.viewer.keyboard_state,
                 &self.viewer.settings.palette,
             ),
         }?;

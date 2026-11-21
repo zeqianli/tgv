@@ -11,11 +11,11 @@
 //!
 //! Keys are front-end neutral: each front end decodes its own key events into a [`Key`].
 
+use crate::keyboard::InputMode;
 use crate::message::{
     Action, ColumnSpan, CursorAfter, Direction, EditAction, FocusMove, InputAction, Motion,
     NavigationAction, Operator, UpdateLayoutAction,
 };
-use crate::register::KeyRegisterType;
 use gv_core::bed::BedEditKind;
 use gv_core::message::{Scroll, WordMotion, Zoom};
 use gv_core::prelude::*;
@@ -134,7 +134,7 @@ impl PendingKeys {
 
     /// Adds a key. Returns the actions of a completed command, or nothing while the command is
     /// still being typed. A completed or invalid command clears the pending keys.
-    pub fn push(&mut self, key: Key, mode: Mode) -> Result<Vec<Action>, TGVError> {
+    pub fn push(&mut self, key: Key, mode: Mode) -> Result<Vec<Action>, crate::Error> {
         self.typed.push_str(&key_name(key));
         let result = self.interpret(key, mode);
         if !matches!(result, Ok(None)) {
@@ -149,15 +149,18 @@ impl PendingKeys {
         operator_count.unwrap_or(1) * self.count.unwrap_or(1)
     }
 
-    fn invalid(&self, mode: Mode) -> TGVError {
+    fn invalid(&self, mode: Mode) -> crate::Error {
         let mode = match mode {
             Mode::Normal => "normal",
             Mode::Insert(_) => "insert",
         };
-        TGVError::RegisterError(format!("Invalid {mode} mode input: {}", self.typed))
+        crate::Error::InvalidKeys {
+            mode,
+            typed: self.typed.clone(),
+        }
     }
 
-    fn interpret(&mut self, key: Key, mode: Mode) -> Result<Option<Vec<Action>>, TGVError> {
+    fn interpret(&mut self, key: Key, mode: Mode) -> Result<Option<Vec<Action>>, crate::Error> {
         let control = key.modifiers.control;
         let code = match key.code {
             KeyCode::Left => KeyCode::Char('h'),
@@ -172,8 +175,8 @@ impl PendingKeys {
             let pending = self.typed.len() > key_name(key).len();
             return Ok(Some(match mode {
                 Mode::Insert(_) if !pending => {
-                    vec![Action::Input(InputAction::SwitchKeyRegister(
-                        KeyRegisterType::Editing(Mode::Normal),
+                    vec![Action::Input(InputAction::SwitchInputMode(
+                        InputMode::Editing(Mode::Normal),
                     ))]
                 }
                 _ => Vec::new(),
@@ -309,15 +312,11 @@ impl PendingKeys {
             }
             (KeyCode::Char(':'), _) => vec![
                 Action::Input(InputAction::ClearAllKeyRegisters),
-                Action::Input(InputAction::SwitchKeyRegister(KeyRegisterType::Command(
-                    mode,
-                ))),
+                Action::Input(InputAction::SwitchInputMode(InputMode::Command(mode))),
             ],
             (KeyCode::Char('/'), _) => vec![
                 Action::Input(InputAction::ClearAllKeyRegisters),
-                Action::Input(InputAction::SwitchKeyRegister(KeyRegisterType::Search(
-                    mode,
-                ))),
+                Action::Input(InputAction::SwitchInputMode(InputMode::Search(mode))),
             ],
             (KeyCode::Char('u'), Mode::Normal) if without_count => {
                 vec![Action::Navigate(NavigationAction::JumpBack)]
@@ -383,7 +382,7 @@ impl PendingKeys {
     }
 
     /// A motion moves the cursor, or completes the pending operator.
-    fn motion(&mut self, mode: Mode, motion: Motion) -> Result<Option<Vec<Action>>, TGVError> {
+    fn motion(&mut self, mode: Mode, motion: Motion) -> Result<Option<Vec<Action>>, crate::Error> {
         match (self.operator, mode) {
             (Some((operator, _)), Mode::Insert(track)) => {
                 Ok(Some(vec![Action::Edit(EditAction::Operate {
@@ -459,9 +458,7 @@ mod tests {
     }
 
     fn invalid(mode: &str, typed: &str) -> Result<Vec<Action>, String> {
-        Err(format!(
-            "Register error: Invalid {mode} mode input: {typed}"
-        ))
+        Err(format!("Invalid {mode} mode input: {typed}"))
     }
 
     #[rstest]

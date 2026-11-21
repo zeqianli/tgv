@@ -1,5 +1,5 @@
 use crate::contig_header::{Contig, ContigHeader};
-use crate::error::TGVError;
+use crate::error::Error;
 use crate::intervals::Region;
 use crate::reference::Reference;
 use crate::sequence::Sequence;
@@ -20,7 +20,7 @@ pub struct UCSCApiSequenceRepository {
 }
 
 impl UCSCApiSequenceRepository {
-    pub fn new(reference: &Reference, _host: &UcscHost) -> Result<Self, TGVError> {
+    pub fn new(reference: &Reference, _host: &UcscHost) -> Result<Self, Error> {
         // FIXME: decide API url based on host
         Ok(Self {
             client: Client::new(),
@@ -35,7 +35,7 @@ impl UCSCApiSequenceRepository {
         contig_name: &str,
         start: u64,
         end: u64,
-    ) -> Result<String, TGVError> {
+    ) -> Result<String, Error> {
         match &self.reference {
             Reference::Hg19 | Reference::Hg38 | Reference::UcscGenome(_) => Ok(format!(
                 "https://api.genome.ucsc.edu/getData/sequence?genome={};chrom={};start={};end={}",
@@ -59,16 +59,13 @@ impl UCSCApiSequenceRepository {
                     end
                 ))
             }
-            _ => Err(TGVError::StateError(
+            _ => Err(Error::StateError(
                 "UcscApi can only be used for UCSC reference genomes.".to_string(),
             )),
         }
     }
 
-    pub async fn get_hub_url_for_genark_accession(
-        &self,
-        accession: &str,
-    ) -> Result<String, TGVError> {
+    pub async fn get_hub_url_for_genark_accession(&self, accession: &str) -> Result<String, Error> {
         let url = format!(
             "https://api.genome.ucsc.edu/list/genarkGenomes?genome={}",
             accession
@@ -98,7 +95,7 @@ impl UCSCApiSequenceRepository {
         &mut self,
         region: &Region,
         contig_header: &ContigHeader,
-    ) -> Result<Sequence, TGVError> {
+    ) -> Result<Sequence, Error> {
         let contig_name = match contig_header
             .try_get(region.contig_index())?
             .get_sequence_name()
@@ -146,11 +143,11 @@ impl UCSCApiSequenceRepository {
         })
     }
 
-    pub async fn close(&mut self) -> Result<(), TGVError> {
+    pub async fn close(&mut self) -> Result<(), Error> {
         Ok(())
     }
 
-    pub async fn get_all_contigs(&mut self) -> Result<Vec<Contig>, TGVError> {
+    pub async fn get_all_contigs(&mut self) -> Result<Vec<Contig>, Error> {
         let query_url = match &self.reference {
             Reference::Hg19 | Reference::Hg38 | Reference::UcscGenome(_) => {
                 format!(
@@ -171,7 +168,7 @@ impl UCSCApiSequenceRepository {
                 )
             }
             _ => {
-                return Err(TGVError::StateError(
+                return Err(Error::StateError(
                     "UcscApi sequence can only be used for UCSC reference genomes.".to_string(),
                 ));
             }

@@ -6,7 +6,7 @@ use crate::{
     bed::{BedRepositoryEnum, BedTable},
     contig_header::ContigHeader,
     cytoband::CytobandTable,
-    error::TGVError,
+    error::Error,
     gene::{GeneSchema, GeneTable},
     intervals::{Focus, IntervalSchema, Region},
     message::{
@@ -118,7 +118,7 @@ impl State {
         reference: Reference,
         contigs: ContigHeader,
         //repository_file_indexes: &[RepositoryFileIndex],
-    ) -> Result<Self, TGVError> {
+    ) -> Result<Self, Error> {
         Ok(Self {
             reference,
 
@@ -138,14 +138,14 @@ impl State {
         })
     }
 
-    pub fn contig_name(&self, focus: &Focus) -> Result<&String, TGVError> {
+    pub fn contig_name(&self, focus: &Focus) -> Result<&String, Error> {
         self.contig_header
             .try_get(focus.contig_index)
             .map(|contig| &contig.name)
     }
 
     /// Maximum length of the contig.
-    pub fn contig_length(&self, focus: &Focus) -> Result<Option<u64>, TGVError> {
+    pub fn contig_length(&self, focus: &Focus) -> Result<Option<u64>, Error> {
         self.contig_header
             .try_get(focus.contig_index)
             .map(|contig| contig.length)
@@ -158,7 +158,7 @@ impl State {
         focus: Focus,
         repository: &mut Repository,
         movement: Movement,
-    ) -> Result<Focus, TGVError> {
+    ) -> Result<Focus, Error> {
         match movement {
             Movement::Left(bases) => Ok(focus.move_left(bases)),
             Movement::Right(bases) => Ok(focus.move_right(bases)),
@@ -194,20 +194,26 @@ impl State {
                         self.previous_genes_end(focus, repository, count).await
                     }
                 },
-                FeatureSource::Bed(index) => self.file_feature_boundary(
-                    focus,
-                    repository,
-                    RepositoryFileIndex::Bed(index),
-                    motion,
-                    count,
-                ),
-                FeatureSource::Variants(index) => self.file_feature_boundary(
-                    focus,
-                    repository,
-                    RepositoryFileIndex::Variant(index),
-                    motion,
-                    count,
-                ),
+                FeatureSource::Bed(index) => {
+                    self.file_feature_boundary(
+                        focus,
+                        repository,
+                        RepositoryFileIndex::Bed(index),
+                        motion,
+                        count,
+                    )
+                    .await
+                }
+                FeatureSource::Variants(index) => {
+                    self.file_feature_boundary(
+                        focus,
+                        repository,
+                        RepositoryFileIndex::Variant(index),
+                        motion,
+                        count,
+                    )
+                    .await
+                }
             },
 
             Movement::NextContig(n) => Ok(self.next_contig(focus, n)),
@@ -262,7 +268,7 @@ impl State {
         index: usize,
         region: &Region,
         alignment_repository: &mut AlignmentRepository,
-    ) -> Result<&mut Self, TGVError> {
+    ) -> Result<&mut Self, Error> {
         // if !self.alignment.has_complete_data(&region) {
         //     Ok(false)
         // } else {
@@ -328,7 +334,7 @@ impl State {
         &mut self,
         region: &Region,
         track_service: &mut TrackServiceEnum,
-    ) -> Result<&mut Self, TGVError> {
+    ) -> Result<&mut Self, Error> {
         let started = Instant::now();
         log::debug!("Loading reference track data: region={:?}", region);
         let track = match track_service
@@ -361,7 +367,7 @@ impl State {
         &mut self,
         region: &Region,
         sequence_repository: &mut SequenceRepositoryEnum,
-    ) -> Result<&mut Self, TGVError> {
+    ) -> Result<&mut Self, Error> {
         let started = Instant::now();
         log::debug!("Loading sequence data: region={:?}", region);
         let sequence = match sequence_repository
@@ -414,14 +420,14 @@ impl State {
         index: usize,
         region: &Region,
         variant_repository: &mut VariantRepositoryEnum,
-    ) -> Result<&mut Self, TGVError> {
+    ) -> Result<&mut Self, Error> {
         let started = Instant::now();
         log::debug!("Loading variant data: track={} region={:?}", index, region);
         let name = self
             .contig_header
             .try_get(region.contig_index())?
             .file_name(RepositoryFileIndex::Variant(index));
-        let variants = match variant_repository.read_variants(region, name) {
+        let variants = match variant_repository.read_variants(region, name).await {
             Ok(variants) => variants,
             Err(e) => {
                 log::warn!(
@@ -453,14 +459,14 @@ impl State {
         index: usize,
         region: &Region,
         bed_repository: &mut BedRepositoryEnum,
-    ) -> Result<&mut Self, TGVError> {
+    ) -> Result<&mut Self, Error> {
         let started = Instant::now();
         log::debug!("Loading BED data: track={} region={:?}", index, region);
         let name = self
             .contig_header
             .try_get(region.contig_index())?
             .file_name(RepositoryFileIndex::Bed(index));
-        let bed_intervals = match bed_repository.read_bed(region, name) {
+        let bed_intervals = match bed_repository.read_bed(region, name).await {
             Ok(bed_intervals) => bed_intervals,
             Err(e) => {
                 log::warn!(
@@ -491,7 +497,7 @@ impl State {
         region: &Region,
         request: &LoadRequest<'_>,
         repository: &mut Repository,
-    ) -> Result<(), TGVError> {
+    ) -> Result<(), Error> {
         let alignment_requested = request
             .files
             .iter()
@@ -620,7 +626,7 @@ impl State {
         index: usize,
         focus: &Focus,
         options: Vec<AlignmentDisplayOption>,
-    ) -> Result<(), TGVError> {
+    ) -> Result<(), Error> {
         let options = options
             .into_iter()
             .map(|option| match option {
@@ -670,7 +676,7 @@ impl State {
                 AlignmentDisplayOption::Sort(sort) => {
                     match self.alignments[index].sort(sort.clone()) {
                         Ok(()) => applied_sorts.push(sort),
-                        Err(TGVError::AlignmentSortPositionNotLoaded { .. }) => {}
+                        Err(Error::AlignmentSortPositionNotLoaded { .. }) => {}
                         Err(error) => return Err(error),
                     }
                     Ok(())
@@ -684,7 +690,7 @@ impl State {
             for sort in applied_sorts {
                 match paired_alignment.sort(&self.alignments[index], sort) {
                     Ok(()) => {}
-                    Err(TGVError::AlignmentSortPositionNotLoaded { .. }) => {}
+                    Err(Error::AlignmentSortPositionNotLoaded { .. }) => {}
                     Err(error) => return Err(error),
                 }
             }
@@ -720,7 +726,7 @@ impl State {
         focus: Focus,
         repository: &mut Repository,
         n: usize,
-    ) -> Result<Focus, TGVError> {
+    ) -> Result<Focus, Error> {
         if n == 0 {
             return Ok(focus);
         }
@@ -758,7 +764,7 @@ impl State {
         focus: Focus,
         repository: &mut Repository,
         n: usize,
-    ) -> Result<Focus, TGVError> {
+    ) -> Result<Focus, Error> {
         if n == 0 {
             return Ok(focus);
         }
@@ -797,7 +803,7 @@ impl State {
         focus: Focus,
         repository: &mut Repository,
         n: usize,
-    ) -> Result<Focus, TGVError> {
+    ) -> Result<Focus, Error> {
         if n == 0 {
             return Ok(focus);
         }
@@ -836,7 +842,7 @@ impl State {
         focus: Focus,
         repository: &mut Repository,
         n: usize,
-    ) -> Result<Focus, TGVError> {
+    ) -> Result<Focus, Error> {
         if n == 0 {
             return Ok(focus);
         }
@@ -875,7 +881,7 @@ impl State {
         focus: Focus,
         repository: &mut Repository,
         n: usize,
-    ) -> Result<Focus, TGVError> {
+    ) -> Result<Focus, Error> {
         if n == 0 {
             return Ok(focus);
         }
@@ -914,7 +920,7 @@ impl State {
         focus: Focus,
         repository: &mut Repository,
         n: usize,
-    ) -> Result<Focus, TGVError> {
+    ) -> Result<Focus, Error> {
         if n == 0 {
             return Ok(focus);
         }
@@ -953,7 +959,7 @@ impl State {
         focus: Focus,
         repository: &mut Repository,
         n: usize,
-    ) -> Result<Focus, TGVError> {
+    ) -> Result<Focus, Error> {
         if n == 0 {
             return Ok(focus);
         }
@@ -992,7 +998,7 @@ impl State {
         focus: Focus,
         repository: &mut Repository,
         n: usize,
-    ) -> Result<Focus, TGVError> {
+    ) -> Result<Focus, Error> {
         if n == 0 {
             return Ok(focus);
         }
@@ -1032,14 +1038,14 @@ impl State {
     ///
     /// Plain files read a whole contig at once. Indexed files read windows that double in size
     /// until they hold enough boundaries or reach the end of the contig.
-    fn file_feature_boundary(
+    async fn file_feature_boundary(
         &self,
         focus: Focus,
         repository: &mut Repository,
         file: RepositoryFileIndex,
         motion: WordMotion,
         count: usize,
-    ) -> Result<Focus, TGVError> {
+    ) -> Result<Focus, Error> {
         /// The first window an indexed file reads.
         const INITIAL_WINDOW: u64 = 1 << 16;
         /// BED and VCF positions fit in 32 bits, so this bounds contigs of unknown length.
@@ -1060,7 +1066,7 @@ impl State {
                 repository.variant_repositories[index].is_indexed()
             }
             RepositoryFileIndex::Alignment(_) => {
-                return Err(TGVError::StateError(
+                return Err(Error::StateError(
                     "Alignment tracks have no feature boundaries.".to_string(),
                 ));
             }
@@ -1104,12 +1110,14 @@ impl State {
                 let frame = match file {
                     RepositoryFileIndex::Bed(index) => {
                         repository.bed_repositories[index]
-                            .read_bed(&region, Some(name))?
+                            .read_bed(&region, Some(name))
+                            .await?
                             .data
                     }
                     RepositoryFileIndex::Variant(index) => {
                         repository.variant_repositories[index]
-                            .read_variants(&region, Some(name))?
+                            .read_variants(&region, Some(name))
+                            .await?
                             .data
                     }
                     RepositoryFileIndex::Alignment(_) => unreachable!("checked above"),
@@ -1141,16 +1149,12 @@ impl State {
             }
             remaining -= boundaries.len();
         }
-        Err(TGVError::NoMoreFeatures {
+        Err(Error::NoMoreFeatures {
             name: file_name(repository.file_path(file)).to_owned(),
         })
     }
 
-    pub async fn gene(
-        &self,
-        repository: &mut Repository,
-        gene_name: &str,
-    ) -> Result<Focus, TGVError> {
+    pub async fn gene(&self, repository: &mut Repository, gene_name: &str) -> Result<Focus, Error> {
         repository
             .track_service_checked()?
             .query_gene_name(&self.reference, gene_name, &self.contig_header)
@@ -1188,7 +1192,7 @@ impl State {
         }
     }
 
-    pub async fn default_focus(&self, repository: &mut Repository) -> Result<Focus, TGVError> {
+    pub async fn default_focus(&self, repository: &mut Repository) -> Result<Focus, Error> {
         match self.reference {
             Reference::Hg38 | Reference::Hg19 => {
                 return self.gene(repository, "TP53").await;
@@ -1201,29 +1205,26 @@ impl State {
 
                 // Try to get the first gene in the first contig.
                 // We use query_k_genes_after starting from coordinate 0 with k=1.
-                match repository
+                if let Ok(gene) = repository
                     .track_service_checked()?
                     .query_k_genes_after(&self.reference, first_contig, 0, 1, &self.contig_header)
                     .await
                 {
-                    Ok(gene) => {
-                        // Found a gene, go to its start (using 1-based coordinates for Goto)
-                        return Ok(Focus {
-                            contig_index: gene
-                                .column(GeneSchema::CONTIG_INDEX)?
-                                .u64()?
-                                .get(0)
-                                .expect("selected contigs are non-null")
-                                as usize,
-                            position: gene
-                                .column(GeneSchema::START)?
-                                .u64()?
-                                .get(0)
-                                .expect("selected starts are non-null")
-                                + 1,
-                        });
-                    }
-                    Err(_) => {} // Gene not found. Handle later.
+                    // Found a gene, go to its start (using 1-based coordinates for Goto)
+                    return Ok(Focus {
+                        contig_index: gene
+                            .column(GeneSchema::CONTIG_INDEX)?
+                            .u64()?
+                            .get(0)
+                            .expect("selected contigs are non-null")
+                            as usize,
+                        position: gene
+                            .column(GeneSchema::START)?
+                            .u64()?
+                            .get(0)
+                            .expect("selected starts are non-null")
+                            + 1,
+                    });
                 }
             }
 
@@ -1238,7 +1239,7 @@ impl State {
                 position: 1,
             })
             .map_err(|_| {
-                TGVError::StateError(
+                Error::StateError(
             "Failed to find a default initial region. Please provide a starting region with -r."
                 .to_string() )
             })
@@ -1271,15 +1272,13 @@ mod tests {
             .map(|(kind, len)| Op::new(kind, len))
             .collect();
 
-        let record = sam::alignment::RecordBuf::builder()
+        sam::alignment::RecordBuf::builder()
             .set_name(name)
             .set_flags(Flags::default())
             .set_alignment_start(noodles::core::Position::try_from(start as usize).unwrap())
             .set_cigar(cigar)
             .set_sequence(sam::alignment::record_buf::Sequence::from(sequence))
-            .build();
-
-        record
+            .build()
     }
 
     fn test_sequence() -> Sequence {
@@ -1429,6 +1428,6 @@ mod tests {
             )
             .unwrap_err();
 
-        assert!(matches!(error, TGVError::ValueError(_)));
+        assert!(matches!(error, Error::ValueError(_)));
     }
 }

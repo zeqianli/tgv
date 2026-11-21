@@ -3,7 +3,7 @@
 //! Track IDs are never reused, so front ends and agents can keep referring to a track after
 //! others are removed. Entries stay in dataset order, which is also ascending ID order.
 
-use crate::{error::TGVError, repository::RepositoryFileIndex, settings::FilePath};
+use crate::{error::Error, repository::RepositoryFileIndex, settings::FilePath};
 
 pub type TrackId = usize;
 
@@ -79,30 +79,28 @@ impl TrackRegistry {
             .expect("an alignment index has a TUI track")
     }
 
-    pub fn alignment_index(&self, id: TrackId) -> Result<usize, TGVError> {
+    pub fn alignment_index(&self, id: TrackId) -> Result<usize, Error> {
         match self.get(id).repository_index {
             RepositoryFileIndex::Alignment(index) => Ok(index),
-            _ => Err(TGVError::StateError(format!(
+            _ => Err(Error::StateError(format!(
                 "Track {id} is not an alignment track."
             ))),
         }
     }
 
-    pub fn variant_index(&self, id: TrackId) -> Result<usize, TGVError> {
+    pub fn variant_index(&self, id: TrackId) -> Result<usize, Error> {
         match self.get(id).repository_index {
             RepositoryFileIndex::Variant(index) => Ok(index),
-            _ => Err(TGVError::StateError(format!(
+            _ => Err(Error::StateError(format!(
                 "Track {id} is not a variant track."
             ))),
         }
     }
 
-    pub fn bed_index(&self, id: TrackId) -> Result<usize, TGVError> {
+    pub fn bed_index(&self, id: TrackId) -> Result<usize, Error> {
         match self.get(id).repository_index {
             RepositoryFileIndex::Bed(index) => Ok(index),
-            _ => Err(TGVError::StateError(format!(
-                "Track {id} is not a BED track."
-            ))),
+            _ => Err(Error::StateError(format!("Track {id} is not a BED track."))),
         }
     }
 }

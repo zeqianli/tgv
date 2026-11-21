@@ -1,8 +1,5 @@
 use gv_core::prelude::*;
-use itertools::Itertools;
 use ratatui::{buffer::Buffer, layout::Rect, style::Style};
-
-use crate::layout::AlignmentView;
 
 pub fn render_status_bar(area: &Rect, buf: &mut Buffer, state: &State) {
     if area.width == 0 || area.height == 0 {

@@ -1,5 +1,5 @@
 use crate::layout::CellView;
-use crate::rendering::colors::ToColor;
+use crate::rendering::colors::to_color;
 use gv_viewer::{layout::RenderEvent, message::FocusTarget, popup::TextPopup, prelude::*};
 mod alignment;
 mod bed;
@@ -9,14 +9,12 @@ mod contig_list;
 mod coordinate;
 mod coverage;
 pub(crate) mod cytoband;
-mod intervals;
 mod menu;
 mod sequence;
 mod sidebar;
 mod status_bar;
 mod track;
 mod variants;
-use std::collections::BTreeSet;
 
 pub use alignment::{render_alignment, render_paired_alignment};
 pub use bed::render_bed;
@@ -32,9 +30,9 @@ pub use track::render_track;
 pub use variants::render_variants;
 
 use crate::{
-    layout::{AlignmentView, AreaType, OnScreenCoordinate, ResolvedMainLayout, wrap_sidebar_label},
+    layout::{AlignmentView, AreaType, OnScreenCoordinate, ResolvedMainLayout},
     menu::ContextMenu,
-    mouse::MouseRegister,
+    mouse::MouseState,
 };
 
 use gv_core::{message::AlignmentDisplayOption, prelude::*};
@@ -56,16 +54,16 @@ pub struct TrackFocus {
 pub fn render_main(
     buf: &mut Buffer,
     state: &mut State,
-    registers: &Registers,
+    keyboard_state: &KeyboardState,
     layout: &ResolvedMainLayout,
     alignment_view: &AlignmentView,
-    mouse_register: &MouseRegister,
+    mouse_state: &MouseState,
     focus: &TrackFocus,
     context_menu: Option<&ContextMenu>,
     popup: Option<&TextPopup>,
     pallete: &Palette,
     render_events: &Vec<RenderEvent>,
-) -> Result<(), TGVError> {
+) -> Result<(), crate::Error> {
     // Expand render events
     let mut render_areas = Vec::new();
     let mut render_side_bar = false;
@@ -77,7 +75,7 @@ pub fn render_main(
                 render_side_bar = true;
                 for (area_type, _rect) in layout.areas.iter() {
                     if !render_areas.contains(area_type) {
-                        render_areas.push(area_type.clone());
+                        render_areas.push(*area_type);
                     }
                 }
             }
@@ -85,7 +83,7 @@ pub fn render_main(
             RenderEvent::AllTracks => {
                 for (area_type, _rect) in layout.areas.iter() {
                     if !render_areas.contains(area_type) {
-                        render_areas.push(area_type.clone());
+                        render_areas.push(*area_type);
                     }
                 }
             }
@@ -96,7 +94,7 @@ pub fn render_main(
 
             RenderEvent::Area(area_type) => {
                 if !render_areas.contains(area_type) {
-                    render_areas.push(area_type.clone());
+                    render_areas.push(*area_type);
                 }
             }
         }
@@ -118,10 +116,10 @@ pub fn render_main(
         sidebar::render_sidebar(
             buf,
             state,
-            registers,
+            keyboard_state,
             layout,
             alignment_view,
-            mouse_register,
+            mouse_state,
             focus,
             pallete,
             render_events,
@@ -170,15 +168,9 @@ pub fn render_main(
                     let top = alignment_view.top(index);
                     if state.alignment_options[index].contains(&AlignmentDisplayOption::ViewAsPairs)
                     {
-                        let paired_alignment =
-                            state.paired_alignments[index]
-                                .as_mut()
-                                .ok_or(TGVError::StateError(
-                                    format!(
-                                        "Paired alignment {index} not yet calculated at rendering"
-                                    )
-                                    .to_string(),
-                                ))?;
+                        let paired_alignment = state.paired_alignments[index]
+                            .as_mut()
+                            .ok_or(crate::Error::PairedAlignmentNotReady { index })?;
 
                         render_paired_alignment(
                             top,
@@ -205,7 +197,7 @@ pub fn render_main(
                 rect,
                 buf,
                 pallete,
-                mouse_register.is_divider_highlighted(area_type),
+                mouse_state.is_divider_highlighted(area_type),
             ),
             AreaType::Sequence => {
                 if alignment_view.zoom.0 <= ColumnScale::MAX_TO_DISPLAY_SEQUENCES {
@@ -217,15 +209,15 @@ pub fn render_main(
             }
             AreaType::Console => {
                 if matches!(
-                    registers.current,
-                    KeyRegisterType::Command(_) | KeyRegisterType::Search(_)
+                    keyboard_state.mode,
+                    InputMode::Command(_) | InputMode::Search(_)
                 ) {
-                    render_console(rect, buf, registers)?;
+                    render_console(rect, buf, keyboard_state)?;
                 } else {
                     render_mode_line(
                         rect,
                         buf,
-                        registers,
+                        keyboard_state,
                         focus,
                         layout.sidebar_width == 0,
                         pallete,
@@ -247,7 +239,7 @@ pub fn render_main(
                     render_bed(rect, buf, bed_intervals, alignment_view, pallete)?;
                 }
                 // Insert mode draws the cursor as one reversed cell.
-                if registers.shown_mode() == gv_viewer::keys::Mode::Insert(*id)
+                if keyboard_state.shown_mode() == gv_viewer::keys::Mode::Insert(*id)
                     && let OnScreenCoordinate::OnScreen(x) =
                         alignment_view.onscreen_x_coordinate(alignment_view.focus.position, rect)
                 {
@@ -271,7 +263,7 @@ pub fn render_main(
 
 fn render_alignment_divider(area: &Rect, buf: &mut Buffer, palette: &Palette, highlighted: bool) {
     let style = if highlighted {
-        Style::default().bg(palette.HIGHLIGHT_COLOR.color())
+        Style::default().bg(to_color(palette.HIGHLIGHT_COLOR))
     } else {
         Style::default()
     };
@@ -279,4 +271,18 @@ fn render_alignment_divider(area: &Rect, buf: &mut Buffer, palette: &Palette, hi
     for y in area.top()..area.bottom() {
         buf.set_string(area.x, y, "-".repeat(area.width as usize), style);
     }
+}
+
+/// Says that the track isn't loaded for this view, because the view is zoomed out too far.
+pub fn render_zoom_in_notice(area: &Rect, buf: &mut Buffer, features: &str) {
+    if area.width == 0 || area.height == 0 {
+        return;
+    }
+    buf.set_stringn(
+        area.x,
+        area.y,
+        format!("zoom in to view {features}"),
+        area.width as usize,
+        Style::default().fg(Color::DarkGray),
+    );
 }

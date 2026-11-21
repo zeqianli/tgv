@@ -5,7 +5,7 @@
 //! user sees. Otherwise they go to a headless session in this process. When several viewers
 //! are open, such as a terminal and a window, the agent chooses one with `attach`.
 
-use gv_core::{error::TGVError, settings::Settings};
+use gv_core::settings::Settings;
 use gv_session::*;
 use rmcp::{
     ServerHandler, ServiceExt,
@@ -19,12 +19,11 @@ use schemars::JsonSchema;
 use serde::Deserialize;
 use serde_json::{Value, json};
 use std::sync::Arc;
-use thiserror::Error;
 use tokio::sync::Mutex;
 
 /// A failure to run the MCP service.
-#[derive(Debug, Error)]
-pub enum McpError {
+#[derive(Debug, thiserror::Error)]
+pub enum Error {
     #[error("The MCP service fails to initialize: {0}")]
     Initialize(String),
 
@@ -38,16 +37,7 @@ pub enum McpError {
     Worker(String),
 
     #[error(transparent)]
-    Core(#[from] TGVError),
-}
-
-impl From<McpError> for TGVError {
-    fn from(error: McpError) -> Self {
-        match error {
-            McpError::Core(error) => error,
-            other => TGVError::StateError(other.to_string()),
-        }
-    }
+    Core(#[from] gv_core::Error),
 }
 
 /// Where tool calls go.
@@ -72,7 +62,7 @@ impl McpHandler {
     /// Until the agent loads a dataset headlessly, each call looks for a viewer, so TGV can be
     /// opened after the agent starts. With one viewer open, the call goes to it. With several,
     /// the call fails with `viewer_ambiguous` until the agent attaches to one.
-    async fn call(&self, call: Call) -> Result<Value, SessionError> {
+    async fn call(&self, call: Call) -> Result<Value, gv_session::Error> {
         let mut target = self.target.lock().await;
         if target.viewer.is_none() && !target.headless_loaded {
             let mut viewers = SessionConnection::list_viewers().await;
@@ -84,7 +74,7 @@ impl McpHandler {
                     target.viewer = Some((connection, info.pid));
                 }
                 _ => {
-                    return Err(SessionError::ViewerAmbiguous(
+                    return Err(gv_session::Error::ViewerAmbiguous(
                         viewers.into_iter().map(|(_, info)| info).collect(),
                     ));
                 }
@@ -92,7 +82,7 @@ impl McpHandler {
         }
         if let Some((viewer, _)) = target.viewer.as_mut() {
             let result = viewer.call(&call).await;
-            if matches!(result, Err(SessionError::Connection(_))) {
+            if matches!(result, Err(gv_session::Error::Connection(_))) {
                 log::warn!("Detached from the viewer at {}", viewer.path.display());
                 target.viewer = None;
             }
@@ -146,9 +136,9 @@ impl McpHandler {
                     target.headless_loaded = false;
                     Ok(info)
                 }
-                Err(_) => Err(SessionError::ViewerNotFound(request.pid)),
+                Err(_) => Err(gv_session::Error::ViewerNotFound(request.pid)),
             },
-            Err(_) => Err(SessionError::ViewerNotFound(request.pid)),
+            Err(_) => Err(gv_session::Error::ViewerNotFound(request.pid)),
         };
         tool_result(result)
     }
@@ -188,7 +178,7 @@ impl McpHandler {
     )]
     async fn describe_tables(&self) -> CallToolResult {
         tool_result(TablesResponse::new().and_then(|tables| {
-            serde_json::to_value(tables).map_err(|error| SessionError::Core(error.into()))
+            serde_json::to_value(tables).map_err(|error| gv_session::Error::Core(error.into()))
         }))
     }
 
@@ -224,7 +214,7 @@ impl ServerHandler for McpHandler {}
 ///
 /// `settings` provides the reference, backend, cache, and host defaults; datasets are loaded
 /// only through the `load_dataset` tool.
-pub async fn serve(settings: Settings) -> Result<(), McpError> {
+pub async fn serve(settings: Settings) -> Result<(), Error> {
     let (session, worker) = Session::spawn(settings);
     let service = McpHandler {
         headless: session.clone(),
@@ -238,24 +228,24 @@ pub async fn serve(settings: Settings) -> Result<(), McpError> {
     let service_result = match service {
         Ok(running) => match running.waiting().await {
             Ok(QuitReason::Closed | QuitReason::Cancelled) => Ok(()),
-            Ok(QuitReason::JoinError(error)) => Err(McpError::Service(error.to_string())),
-            Err(error) => Err(McpError::Service(error.to_string())),
-            Ok(other) => Err(McpError::UnexpectedStop(format!("{other:?}"))),
+            Ok(QuitReason::JoinError(error)) => Err(Error::Service(error.to_string())),
+            Err(error) => Err(Error::Service(error.to_string())),
+            Ok(other) => Err(Error::UnexpectedStop(format!("{other:?}"))),
         },
-        Err(error) => Err(McpError::Initialize(error.to_string())),
+        Err(error) => Err(Error::Initialize(error.to_string())),
     };
 
     session.shutdown().await;
     let worker_result = worker
         .await
-        .map_err(|error| McpError::Worker(error.to_string()))?;
+        .map_err(|error| Error::Worker(error.to_string()))?;
     service_result?;
     Ok(worker_result?)
 }
 
 /// Converts a session result to a tool result with structured content. Calls without a
 /// result report an empty object.
-fn tool_result(result: Result<Value, SessionError>) -> CallToolResult {
+fn tool_result(result: Result<Value, gv_session::Error>) -> CallToolResult {
     let error = match result {
         Ok(Value::Null) => return CallToolResult::structured(json!({})),
         Ok(value) => return CallToolResult::structured(value),

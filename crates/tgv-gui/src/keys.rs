@@ -1,9 +1,5 @@
-//! Decodes window keystrokes into the keys of the shared vim grammar in `gv_viewer::keys`.
-
 use gv_viewer::keys::{Key, KeyCode, KeyModifiers};
 
-/// The key a keystroke stands for, or `None` for keys the grammar doesn't read, such as
-/// function keys and Command shortcuts, which the window handles itself.
 pub fn key_from_keystroke(keystroke: &gpui::Keystroke) -> Option<Key> {
     let modifiers = keystroke.modifiers;
     if modifiers.platform {

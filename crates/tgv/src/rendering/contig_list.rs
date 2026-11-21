@@ -1,7 +1,7 @@
-use crate::rendering::colors::ToColor;
+use crate::rendering::colors::to_color;
 use gv_core::{contig_header::Contig, prelude::*};
+use gv_viewer::keyboard::KeyboardState;
 use gv_viewer::prepare::coordinate::get_abbreviated_length_string;
-use gv_viewer::register::Registers;
 use ratatui::{
     buffer::Buffer,
     layout::{Position, Rect},
@@ -16,9 +16,9 @@ pub fn render_contig_list(
     area: &Rect,
     buf: &mut Buffer,
     state: &State,
-    registers: &Registers,
+    keyboard_state: &KeyboardState,
     pallete: &Palette,
-) -> Result<(), TGVError> {
+) -> Result<(), crate::Error> {
     if area.height <= 1 {
         return Ok(());
     }
@@ -40,7 +40,7 @@ pub fn render_contig_list(
         let cell = buf.cell_mut(Position::new(x, area.y + selection_row));
         if let Some(cell) = cell {
             cell.set_char(' ');
-            cell.set_bg(pallete.HIGHLIGHT_COLOR.color());
+            cell.set_bg(to_color(pallete.HIGHLIGHT_COLOR));
         }
     }
 
@@ -76,7 +76,7 @@ pub fn render_contig_list(
     }
 
     // Middle: contig bars
-    let selected_index = registers.contig_list_cursor;
+    let selected_index = keyboard_state.contig_list_cursor;
 
     for (y, contig_index) in get_indexes(
         area.height,
@@ -126,7 +126,7 @@ fn render_contig_at_y(
     max_contig_length: Option<u64>,
     y: u16,
     _pallete: &Palette,
-) -> Result<(), TGVError> {
+) -> Result<(), crate::Error> {
     let contig_name = contig.name.clone();
     let contig_length = contig.length;
 

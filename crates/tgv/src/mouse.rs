@@ -22,7 +22,7 @@ fn read_at(
     area: &Rect,
     column: u16,
     row: u16,
-) -> Result<Option<(usize, usize)>, TGVError> {
+) -> Result<Option<(usize, usize)>, crate::Error> {
     let index = layout.track_registry.alignment_index(track)?;
     let (Some((left, right)), Some(y)) = (
         alignment_view.coordinates_of_onscreen_x(column, area),
@@ -42,7 +42,7 @@ enum DragTarget {
 
 /// Mouse interaction state for the currently displayed layout.
 #[derive(Default)]
-pub struct MouseRegister {
+pub struct MouseState {
     drag_target: Option<DragTarget>,
     last_x: u16,
     last_y: u16,
@@ -57,7 +57,7 @@ pub struct MouseRegister {
     pub last_hover: Option<(u16, u16)>,
 }
 
-impl MouseRegister {
+impl MouseState {
     pub fn is_divider_highlighted(&self, area_type: &AreaType) -> bool {
         match area_type {
             AreaType::AlignmentDivider { upper, lower } => {
@@ -80,7 +80,7 @@ impl MouseRegister {
         layout: &ResolvedMainLayout,
         alignment_view: &AlignmentView,
         event: MouseEvent,
-    ) -> Result<Vec<Action>, TGVError> {
+    ) -> Result<Vec<Action>, crate::Error> {
         let cell = (event.column, event.row);
         if event.kind == MouseEventKind::Moved {
             if self.last_hover == Some(cell) {

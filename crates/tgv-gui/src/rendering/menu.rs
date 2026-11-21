@@ -1,35 +1,43 @@
-use crate::{
-    layout::Rect,
-    menu::{ContextMenu, ITEM_HEIGHT, MenuPanel},
-    rendering::{
-        CHAR_WIDTH, LINE_HEIGHT, Painter,
-        colors::{MUTED_TEXT, Palette, TEXT, ToHsla},
-    },
+use super::prelude::*;
+use crate::menu::{ContextMenu, ITEM_HEIGHT};
+use gv_viewer::{
+    menu::{MenuItem, MenuLevel},
+    popup::TextPopup,
 };
-use gv_viewer::{menu::MenuItem, popup::TextPopup};
 
 /// Draw the context menu over everything else.
-pub fn render_context_menu(painter: &mut Painter, menu: &ContextMenu, palette: &Palette) {
-    render_panel(painter, &menu.main, palette);
-    if let Some((_, panel)) = &menu.submenu {
-        render_panel(painter, panel, palette);
+pub fn render_context_menu(
+    menu: &ContextMenu,
+    palette: &Palette,
+    window: &mut Window,
+    cx: &mut App,
+) -> Result<(), crate::Error> {
+    for (level, rect) in menu.menu.levels.iter().zip(&menu.rects) {
+        render_level(*rect, level, palette, window, cx)?;
     }
+    Ok(())
 }
 
-fn render_panel(painter: &mut Painter, panel: &MenuPanel, palette: &Palette) {
-    painter.fill(panel.area, palette.MENU_BACKGROUND.hsla());
-    for (index, item) in panel.items.iter().enumerate() {
+fn render_level(
+    rect: Rect,
+    level: &MenuLevel,
+    palette: &Palette,
+    window: &mut Window,
+    cx: &mut App,
+) -> Result<(), crate::Error> {
+    fill_rect(rect, to_hsla(palette.MENU_BACKGROUND), window);
+    for (index, item) in level.items.iter().enumerate() {
         let row = Rect::new(
-            panel.area.x,
-            panel.area.y + index as f32 * ITEM_HEIGHT,
-            panel.area.width,
+            rect.x,
+            rect.y + index as f32 * ITEM_HEIGHT,
+            rect.width,
             ITEM_HEIGHT,
         );
-        if row.y >= panel.area.bottom() {
+        if row.y >= rect.bottom() {
             break;
         }
-        if panel.hovered == Some(index) && item.enabled() {
-            painter.fill(row, palette.MENU_HOVER_BACKGROUND.hsla());
+        if level.hovered == Some(index) && item.enabled() {
+            fill_rect(row, to_hsla(palette.MENU_HOVER_BACKGROUND), window);
         }
         let foreground = if item.enabled() {
             palette.MENU_FOREGROUND
@@ -37,16 +45,32 @@ fn render_panel(painter: &mut Painter, panel: &MenuPanel, palette: &Palette) {
             palette.MENU_DISABLED_FOREGROUND
         };
         let y = row.y + (ITEM_HEIGHT - LINE_HEIGHT) / 2.0;
-        painter.text(row.x + CHAR_WIDTH, y, item.label(), foreground);
+        TextContext::default()
+            .text(item.label())
+            .color(foreground)
+            .paint(row.x + CHAR_WIDTH, y, LINE_HEIGHT, window, cx)?;
         if matches!(item, MenuItem::Submenu { .. }) {
-            painter.text(row.right() - 2.0 * CHAR_WIDTH, y, "▸", foreground);
+            TextContext::default().text("▸").color(foreground).paint(
+                row.right() - 2.0 * CHAR_WIDTH,
+                y,
+                LINE_HEIGHT,
+                window,
+                cx,
+            )?;
         }
     }
+    Ok(())
 }
 
 /// Draw a text popup centered in `area`. Long values wrap within the value column. Rows that
 /// don't fit are cut, and the last shown line says so.
-pub fn render_text_popup(painter: &mut Painter, area: Rect, popup: &TextPopup, palette: &Palette) {
+pub fn render_text_popup(
+    area: Rect,
+    popup: &TextPopup,
+    palette: &Palette,
+    window: &mut Window,
+    cx: &mut App,
+) -> Result<(), crate::Error> {
     let label_width = popup
         .rows
         .iter()
@@ -82,20 +106,38 @@ pub fn render_text_popup(painter: &mut Painter, area: Rect, popup: &TextPopup, p
         width,
         height,
     );
-    painter.fill(rect, palette.MENU_BACKGROUND.hsla());
+    fill_rect(rect, to_hsla(palette.MENU_BACKGROUND), window);
     let x = rect.x + CHAR_WIDTH;
-    painter.bold_text(x, rect.y + LINE_HEIGHT / 2.0, &popup.title, TEXT);
+    TextContext::default()
+        .text(&popup.title)
+        .color(TEXT)
+        .bold()
+        .paint(x, rect.y + LINE_HEIGHT / 2.0, LINE_HEIGHT, window, cx)?;
     for (index, (label, value)) in lines.iter().enumerate() {
         let y = rect.y + (index as f32 + 1.5) * LINE_HEIGHT;
-        painter.text(x, y, label, MUTED_TEXT);
-        painter.text(x + value_x, y, value, palette.MENU_FOREGROUND);
+        TextContext::default().text(label).color(MUTED_TEXT).paint(
+            x,
+            y,
+            LINE_HEIGHT,
+            window,
+            cx,
+        )?;
+        TextContext::default()
+            .text(value)
+            .color(palette.MENU_FOREGROUND)
+            .paint(x + value_x, y, LINE_HEIGHT, window, cx)?;
     }
     if cut {
-        painter.text(
-            x,
-            rect.y + (lines.len() as f32 + 1.5) * LINE_HEIGHT,
-            "… more rows don't fit",
-            MUTED_TEXT,
-        );
+        TextContext::default()
+            .text("… more rows don't fit")
+            .color(MUTED_TEXT)
+            .paint(
+                x,
+                rect.y + (lines.len() as f32 + 1.5) * LINE_HEIGHT,
+                LINE_HEIGHT,
+                window,
+                cx,
+            )?;
     }
+    Ok(())
 }

@@ -18,6 +18,12 @@ For example, `tgv -g hg38 -r chr20:88108 /data/simple.bam /data/simple.vcf /data
 - Feature files: BED (`.bed` and `.bed.gz`) and bigBed (`.bb` and `.bigbed`).
   - A bgzipped BED with a `.tbi` or `.csi` index, and any bigBed file, load by region. Other BED files load whole the first time they're shown.
   - BED tracks show each feature's name when it fits, and its strand as `›` or `‹` chevrons.
+- Files in S3: BAM, VCF, BCF, and BED files can be passed as `s3://<bucket>/<key>` URLs. Configure S3 credentials and the region in the environment.
+  - Indexes are found next to the file, at `<url>.bai` for BAM and `<url>.tbi` or `<url>.csi` for bgzipped VCF and BED. A BCF needs `<url>.csi`.
+  - Indexed files load by region. Other files download whole when they open.
+  - A BED track from S3 without an index can be edited, and `:w <path>` writes it to a local file. tgv doesn't write to S3.
+  - bigBed files in S3 aren't supported yet.
+  - When a file can't be opened, the error names the URL that failed (the data file or its index) and gives S3's reason, such as a missing object or denied access.
 - Indexed variant and BED tracks show `zoom in to view …` when zoomed out beyond 100 bases per column, instead of loading a large region.
 - Custom FASTA and 2bit reference genomes are passed with `-g` / `--reference`, not as positional track files. FASTA references require a `.fai` index beside the FASTA file.
 - CRAM is not supported as a CLI input format. Configure CRAM tracks in a [session file](./session.md).

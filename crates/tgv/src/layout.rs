@@ -741,11 +741,9 @@ pub fn linear_scale(
     original_length: u64,
     new_start: u16,
     new_end: u16,
-) -> Result<u16, TGVError> {
+) -> Result<u16, crate::Error> {
     if original_length == 0 {
-        return Err(TGVError::ValueError(
-            "Trying to linear scale with original_length = 0 when rendering cytoband".to_string(),
-        ));
+        return Err(crate::Error::EmptyScale);
     }
     Ok(new_start
         + (original_x as f64 / (original_length) as f64 * (new_end - new_start) as f64) as u16)
@@ -911,7 +909,7 @@ mod tests {
 
     #[test]
     fn alignment_view_scrolls_only_the_requested_alignment() {
-        let alignments = vec![alignment_with_depth(10), alignment_with_depth(10)];
+        let alignments = [alignment_with_depth(10), alignment_with_depth(10)];
         let mut alignment_view =
             AlignmentView::new(Focus::default(), ColumnScale::default(), alignments.len());
 

@@ -6,134 +6,87 @@
 
 use crossterm::event::{MouseEvent, MouseEventKind};
 use gv_viewer::{
-    menu::MenuItem,
+    menu::{Menu, MenuHit, MenuItem},
     message::{Action, UiAction},
 };
 use ratatui::layout::{Position, Rect};
 
-/// One column of menu items.
-#[derive(Debug, Clone)]
-pub struct MenuPanel {
-    pub area: Rect,
-    pub items: Vec<MenuItem>,
-    pub hovered: Option<usize>,
-}
-
-impl MenuPanel {
-    /// Places the panel's top-left corner at `(x, y)`, shifted to fit within `bounds`.
-    fn new(items: Vec<MenuItem>, x: u16, y: u16, bounds: Rect) -> Self {
-        // One cell of padding on each side, plus room for the submenu marker.
-        let width = items
-            .iter()
-            .map(|item| item.label().chars().count() + 4)
-            .max()
-            .unwrap_or(0)
-            .min(bounds.width as usize) as u16;
-        let height = (items.len() as u16).min(bounds.height);
-        let x = x.min(bounds.right().saturating_sub(width)).max(bounds.x);
-        let y = y.min(bounds.bottom().saturating_sub(height)).max(bounds.y);
-        Self {
-            area: Rect::new(x, y, width, height),
-            items,
-            hovered: None,
-        }
-    }
-
-    fn item_at(&self, position: Position) -> Option<usize> {
-        self.area
-            .contains(position)
-            .then(|| (position.y - self.area.y) as usize)
-    }
-}
-
 #[derive(Debug, Clone)]
 pub struct ContextMenu {
-    pub main: MenuPanel,
-    /// The open submenu and the index of its parent item in `main`.
-    pub submenu: Option<(usize, MenuPanel)>,
+    pub menu: Menu,
+    pub rects: Vec<Rect>,
     bounds: Rect,
 }
 
 impl ContextMenu {
     pub fn new(items: Vec<MenuItem>, column: u16, row: u16, bounds: Rect) -> Self {
+        let rect = place(&items, column, row, bounds);
         Self {
-            main: MenuPanel::new(items, column, row, bounds),
-            submenu: None,
+            menu: Menu::new(items),
+            rects: vec![rect],
             bounds,
         }
     }
 
     /// Translates a mouse event while the menu is open.
     pub fn handle_mouse_event(&mut self, event: MouseEvent) -> Vec<Action> {
-        let position = Position::new(event.column, event.row);
-        let in_submenu = self
-            .submenu
-            .as_ref()
-            .and_then(|(_, panel)| panel.item_at(position));
-        let in_main = self.main.item_at(position);
+        let hit = self.hit(Position::new(event.column, event.row));
         match event.kind {
             MouseEventKind::Moved | MouseEventKind::Drag(_) => {
-                let before = self.hover_state();
-                if let Some((_, panel)) = &mut self.submenu
-                    && in_submenu.is_some()
-                {
-                    panel.hovered = in_submenu;
-                } else if let Some(index) = in_main {
-                    self.main.hovered = Some(index);
-                    let opened = self.submenu.as_ref().map(|(parent, _)| *parent);
-                    if opened != Some(index) {
-                        self.submenu = match &self.main.items[index] {
-                            MenuItem::Submenu { items, .. } => {
-                                Some((index, self.submenu_panel(items.clone(), index)))
-                            }
-                            MenuItem::Entry { .. } => None,
-                        };
+                if !self.menu.hover(hit) {
+                    return Vec::new();
+                }
+                self.rects.truncate(1);
+                for level in 1..self.menu.levels.len() {
+                    let parent = self.rects[level - 1];
+                    let parent_index = self.menu.levels[level - 1]
+                        .hovered
+                        .expect("an open submenu's parent is hovered");
+                    let mut rect = place(
+                        &self.menu.levels[level].items,
+                        parent.right(),
+                        parent.y + parent_index as u16,
+                        self.bounds,
+                    );
+                    if rect.x < parent.right() {
+                        rect.x = parent.x.saturating_sub(rect.width).max(self.bounds.x);
                     }
-                } else if let Some((_, panel)) = &mut self.submenu {
-                    panel.hovered = None;
+                    self.rects.push(rect);
                 }
-                if self.hover_state() == before {
-                    Vec::new()
-                } else {
-                    vec![UiAction::ContextMenuChanged.into()]
-                }
+                vec![UiAction::ContextMenuChanged.into()]
             }
-            MouseEventKind::Down(_) => {
-                let item = match (in_submenu, in_main) {
-                    (Some(index), _) => {
-                        &self.submenu.as_ref().expect("submenu is open").1.items[index]
-                    }
-                    (None, Some(index)) => &self.main.items[index],
-                    (None, None) => return vec![UiAction::CloseContextMenu.into()],
-                };
-                match item {
-                    MenuItem::Entry {
-                        action: Some(action),
-                        ..
-                    } => vec![action.clone(), UiAction::CloseContextMenu.into()],
-                    _ => Vec::new(),
-                }
-            }
+            MouseEventKind::Down(_) => self.menu.click(hit),
             _ => Vec::new(),
         }
     }
 
-    fn hover_state(&self) -> (Option<usize>, Option<(usize, Option<usize>)>) {
-        (
-            self.main.hovered,
-            self.submenu
-                .as_ref()
-                .map(|(parent, panel)| (*parent, panel.hovered)),
-        )
+    fn hit(&self, position: Position) -> MenuHit {
+        self.rects
+            .iter()
+            .zip(&self.menu.levels)
+            .enumerate()
+            .rev()
+            .find_map(|(level, (rect, menu_level))| {
+                rect.contains(position)
+                    .then(|| (position.y - rect.y) as usize)
+                    .filter(|&index| index < menu_level.items.len())
+                    .map(|index| MenuHit::Item { level, index })
+            })
+            .unwrap_or(MenuHit::Outside)
     }
+}
 
-    /// Places a submenu beside its parent item, on the left if the right has no room.
-    fn submenu_panel(&self, items: Vec<MenuItem>, parent: usize) -> MenuPanel {
-        let main = self.main.area;
-        let mut panel = MenuPanel::new(items, main.right(), main.y + parent as u16, self.bounds);
-        if panel.area.x < main.right() {
-            panel.area.x = main.x.saturating_sub(panel.area.width).max(self.bounds.x);
-        }
-        panel
-    }
+/// Places the panel's top-left corner at `(x, y)`, shifted to fit within `bounds`.
+fn place(items: &[MenuItem], x: u16, y: u16, bounds: Rect) -> Rect {
+    // One cell of padding on each side, plus room for the submenu marker.
+    let width = items
+        .iter()
+        .map(|item| item.label().chars().count() + 4)
+        .max()
+        .unwrap_or(0)
+        .min(bounds.width as usize) as u16;
+    let height = (items.len() as u16).min(bounds.height);
+    let x = x.min(bounds.right().saturating_sub(width)).max(bounds.x);
+    let y = y.min(bounds.bottom().saturating_sub(height)).max(bounds.y);
+    Rect::new(x, y, width, height)
 }

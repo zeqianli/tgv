@@ -1,14 +1,8 @@
-//! The window layout: where each area goes, in pixels, and the viewport as drawn.
-//!
-//! The areas and their order come from `gv_viewer::layout::AreaType::for_tracks`, as in the
-//! terminal UI. This module only decides their heights and positions.
-
 use gv_core::prelude::*;
 pub use gv_viewer::layout::AreaType;
 use gv_viewer::{prelude::*, settings::Settings};
 use std::{collections::HashMap, sync::Arc};
 
-/// A rectangle in window pixels.
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
 pub struct Rect {
     pub x: f32,
@@ -44,10 +38,8 @@ impl Rect {
     }
 }
 
-/// The height of one stacking row of an alignment track.
 pub const ALIGNMENT_ROW_HEIGHT: f32 = 12.0;
 
-/// The height an area asks for, in pixels. Alignments and the fill take what is left.
 fn desired_height(area: &AreaType) -> Option<f32> {
     match area {
         AreaType::Cytoband => Some(26.0),
@@ -65,8 +57,6 @@ fn desired_height(area: &AreaType) -> Option<f32> {
     }
 }
 
-/// The viewport as drawn: the shared viewport, plus a pixel offset for a pan that hasn't added
-/// up to a whole base yet.
 #[derive(Clone, Debug, PartialEq)]
 pub struct PixelView {
     pub viewport: Viewport<PixelScale>,
@@ -79,7 +69,6 @@ impl PixelView {
         self.viewport.zoom.pixels_per_base() as f32
     }
 
-    /// The x position of the left edge of a base. The focused base is centered in the area.
     pub fn x(&self, position: u64, area: &Rect) -> f32 {
         let center = area.x + area.width / 2.0 + self.offset;
         center
@@ -99,7 +88,6 @@ impl PixelView {
         (right > left).then_some((left, right - left))
     }
 
-    /// The base under an x position.
     pub fn position_at(&self, x: f32, area: &Rect) -> u64 {
         let center = area.x + area.width / 2.0 + self.offset;
         let position = (x - center) as f64 * self.viewport.zoom.bases_per_pixel

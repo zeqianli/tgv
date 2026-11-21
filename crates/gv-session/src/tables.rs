@@ -215,7 +215,7 @@ impl SqlTable {
     }
 
     /// Lists the table columns with their types before decoding.
-    fn raw_columns(&self) -> Result<Vec<(&'static str, DataType)>, TGVError> {
+    fn raw_columns(&self) -> Result<Vec<(&'static str, DataType)>, gv_core::Error> {
         let core = (self.core_empty)();
         let added = |columns: &'static [AddedColumn]| {
             columns
@@ -233,7 +233,7 @@ impl SqlTable {
     }
 
     /// Builds an empty table with the added and core column types, before decoding.
-    fn empty(&self) -> Result<LazyFrame, TGVError> {
+    fn empty(&self) -> Result<LazyFrame, gv_core::Error> {
         let columns: Vec<Column> = self
             .raw_columns()?
             .into_iter()
@@ -243,7 +243,7 @@ impl SqlTable {
     }
 
     /// Concatenates per-track frames, selects the table columns, and decodes byte codes.
-    fn finish(&self, frames: Vec<LazyFrame>) -> Result<LazyFrame, TGVError> {
+    fn finish(&self, frames: Vec<LazyFrame>) -> Result<LazyFrame, gv_core::Error> {
         let names: Vec<Expr> = self.column_names().map(col).collect();
         let frames = if frames.is_empty() {
             vec![self.empty()?]
@@ -318,7 +318,7 @@ impl SqlTable {
     }
 
     /// Describes the table's columns with their SQL types.
-    pub fn catalog(&self) -> Result<CatalogTable, TGVError> {
+    pub fn catalog(&self) -> Result<CatalogTable, gv_core::Error> {
         let schema = self.finish(Vec::new())?.collect_schema()?;
         let added = |columns: &'static [AddedColumn]| {
             columns
@@ -349,7 +349,7 @@ impl SqlTable {
                     description,
                 })
             })
-            .collect::<Result<_, TGVError>>()?;
+            .collect::<Result<_, gv_core::Error>>()?;
         Ok(CatalogTable {
             name: self.name,
             scope: self.scope,
@@ -638,7 +638,7 @@ impl TableSources<'_> {
     pub fn build(
         &self,
         region: Option<&QueryRegion>,
-    ) -> Result<Vec<(&'static str, LazyFrame)>, TGVError> {
+    ) -> Result<Vec<(&'static str, LazyFrame)>, gv_core::Error> {
         let mut tables = vec![(TRACKS.name, self.tracks_table()?)];
         if let Some(region) = region {
             let reference = self.loaded_reference(region)?;
@@ -676,7 +676,7 @@ impl TableSources<'_> {
     /// Bases are uppercase so that they compare equal to read bases, and soft masking moves to
     /// its own column. This copies the loaded sequence, which covers at most the regions the
     /// server loads.
-    fn loaded_reference(&self, region: &QueryRegion) -> Result<LazyFrame, TGVError> {
+    fn loaded_reference(&self, region: &QueryRegion) -> Result<LazyFrame, gv_core::Error> {
         let sequence: &Sequence = &self.state.sequence;
         let (positions, bases, soft_masked): (Vec<u64>, Vec<u8>, Vec<bool>) =
             if sequence.contig_index == region.contig_index {
@@ -707,7 +707,7 @@ impl TableSources<'_> {
         .lazy())
     }
 
-    fn tracks_table(&self) -> Result<LazyFrame, TGVError> {
+    fn tracks_table(&self) -> Result<LazyFrame, gv_core::Error> {
         let entries = &self.tracks.entries;
         let ids: Vec<u64> = entries.iter().map(|entry| entry.id as u64).collect();
         let types: Vec<&str> = entries
@@ -729,7 +729,7 @@ impl TableSources<'_> {
         TRACKS.finish(vec![frame.lazy()])
     }
 
-    fn variants_table(&self, region: &QueryRegion) -> Result<LazyFrame, TGVError> {
+    fn variants_table(&self, region: &QueryRegion) -> Result<LazyFrame, gv_core::Error> {
         let mut frames = Vec::new();
         for entry in &self.tracks.entries {
             let RepositoryFileIndex::Variant(index) = entry.repository_index else {
@@ -748,7 +748,7 @@ impl TableSources<'_> {
         VARIANTS.finish(frames)
     }
 
-    fn bed_table(&self, region: &QueryRegion) -> Result<LazyFrame, TGVError> {
+    fn bed_table(&self, region: &QueryRegion) -> Result<LazyFrame, gv_core::Error> {
         let mut frames = Vec::new();
         for entry in &self.tracks.entries {
             let RepositoryFileIndex::Bed(index) = entry.repository_index else {
@@ -771,7 +771,7 @@ impl TableSources<'_> {
         &self,
         region: &QueryRegion,
         reference: &LazyFrame,
-    ) -> Result<ReadFrames, TGVError> {
+    ) -> Result<ReadFrames, gv_core::Error> {
         let mut frames = ReadFrames::default();
         for (id, alignment) in self.alignments() {
             if alignment.contig_index != region.contig_index {
@@ -870,7 +870,7 @@ impl TableSources<'_> {
         &self,
         region: &QueryRegion,
         reference: &LazyFrame,
-    ) -> Result<LazyFrame, TGVError> {
+    ) -> Result<LazyFrame, gv_core::Error> {
         let positions: Vec<u64> = (region.start..=region.end).collect();
         let dense = DataFrame::new(
             positions.len(),
@@ -929,7 +929,7 @@ impl TableSources<'_> {
         &self,
         region: &QueryRegion,
         reference: LazyFrame,
-    ) -> Result<LazyFrame, TGVError> {
+    ) -> Result<LazyFrame, gv_core::Error> {
         REFERENCE.finish(vec![
             reference
                 .filter(
@@ -945,13 +945,13 @@ impl TableSources<'_> {
         ])
     }
 
-    fn region_genes(&self, region: &QueryRegion) -> Result<DataFrame, TGVError> {
+    fn region_genes(&self, region: &QueryRegion) -> Result<DataFrame, gv_core::Error> {
         self.state
             .track
             .query(region.contig_index, region.start, region.end)
     }
 
-    fn genes_table(&self, region: &QueryRegion) -> Result<LazyFrame, TGVError> {
+    fn genes_table(&self, region: &QueryRegion) -> Result<LazyFrame, gv_core::Error> {
         GENES.finish(vec![
             self.region_genes(region)?
                 .lazy()
@@ -959,7 +959,7 @@ impl TableSources<'_> {
         ])
     }
 
-    fn gene_features_table(&self, region: &QueryRegion) -> Result<LazyFrame, TGVError> {
+    fn gene_features_table(&self, region: &QueryRegion) -> Result<LazyFrame, gv_core::Error> {
         let segments = query_segments(self.region_genes(region)?, region.start, region.end)?;
         GENE_FEATURES.finish(vec![segments.lazy()])
     }

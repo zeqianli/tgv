@@ -1,5 +1,5 @@
 use crate::contig_header::{Contig, ContigHeader};
-use crate::error::TGVError;
+use crate::error::Error;
 use crate::intervals::Region;
 use crate::reference::Reference;
 use crate::sequence::Sequence;
@@ -8,7 +8,6 @@ use std::collections::HashMap;
 use twobit::TwoBitFile;
 
 /// Repository for reading sequences from 2bit files
-
 pub struct TwoBitSequenceRepository {
     /// Reference genome.
     reference: Reference,
@@ -28,9 +27,9 @@ impl TwoBitSequenceRepository {
         }
     }
 
-    pub fn add_2bit_file(&mut self, path: &str) -> Result<(), TGVError> {
+    pub fn add_2bit_file(&mut self, path: &str) -> Result<(), Error> {
         let tb: TwoBitFile<std::io::BufReader<std::fs::File>> = twobit::TwoBitFile::open(path)
-            .map_err(|e| TGVError::IOError(format!("Failed to open 2bit file {}: {}", &path, e)))?;
+            .map_err(|e| Error::IOError(format!("Failed to open 2bit file {}: {}", path, e)))?;
 
         let buffer_index = self.buffers.len();
         tb.chrom_names().into_iter().for_each(|chrom_name| {
@@ -49,7 +48,7 @@ impl TwoBitSequenceRepository {
         region: &Region,
 
         contig_header: &ContigHeader,
-    ) -> Result<Sequence, TGVError> {
+    ) -> Result<Sequence, Error> {
         let contig_name = contig_header
             .try_get(region.contig_index())?
             .get_sequence_name();
@@ -78,11 +77,11 @@ impl TwoBitSequenceRepository {
         }
     }
 
-    pub async fn close(&mut self) -> Result<(), TGVError> {
+    pub async fn close(&mut self) -> Result<(), Error> {
         Ok(())
     }
 
-    pub async fn get_all_contigs(&mut self) -> Result<Vec<Contig>, TGVError> {
+    pub async fn get_all_contigs(&mut self) -> Result<Vec<Contig>, Error> {
         Ok(self
             .buffers
             .iter()

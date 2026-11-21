@@ -1,7 +1,6 @@
 use crate::layout::CellView;
-use crate::rendering::colors::ToColor;
+use crate::rendering::colors::to_color;
 use gv_viewer::prepare::coverage::{calculate_binned_coverage, round_up_max_coverage};
-use std::usize;
 
 use ratatui::{
     buffer::Buffer,
@@ -12,7 +11,7 @@ use ratatui::{
 
 use ratatui::symbols::bar::{NINE_LEVELS, Set};
 
-use gv_core::{alignment::CoverageTable, prelude::*};
+use gv_core::alignment::CoverageTable;
 
 use crate::{layout::AlignmentView, rendering::Palette};
 const MIN_AREA_WIDTH: u16 = 2;
@@ -25,7 +24,7 @@ pub fn render_coverage(
     coverage: &CoverageTable,
     alignment_view: &AlignmentView,
     palette: &Palette,
-) -> Result<(), TGVError> {
+) -> Result<(), crate::Error> {
     if area.width < MIN_AREA_WIDTH || area.height < MIN_AREA_HEIGHT {
         return Ok(());
     }
@@ -50,8 +49,8 @@ pub fn render_coverage(
             .unwrap_or(0),
     );
     StackedSparkline::default()
-        .add_data(binned_coverage.remove(0), palette.COVERAGE_ALT.color())
-        .add_data(binned_coverage.remove(0), palette.COVERAGE_TOTAL.color())
+        .add_data(binned_coverage.remove(0), to_color(palette.COVERAGE_ALT))
+        .add_data(binned_coverage.remove(0), to_color(palette.COVERAGE_TOTAL))
         .max(y_max)
         .render(plot_area, buf);
 

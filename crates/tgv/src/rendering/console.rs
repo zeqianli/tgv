@@ -1,7 +1,6 @@
-use crate::rendering::colors::ToColor;
+use crate::rendering::colors::to_color;
 use crate::rendering::{TrackFocus, colors::Palette};
-use gv_core::prelude::*;
-use gv_viewer::register::{KeyRegisterType, Registers};
+use gv_viewer::keyboard::{InputMode, KeyboardState};
 use ratatui::{
     buffer::Buffer,
     layout::Rect,
@@ -11,7 +10,11 @@ use ratatui::{
 /// Render the command line for command (`:`) and search (`/`) mode.
 const MIN_AREA_WIDTH: u16 = 2;
 const MIN_AREA_HEIGHT: u16 = 1;
-pub fn render_console(area: &Rect, buf: &mut Buffer, buffer: &Registers) -> Result<(), TGVError> {
+pub fn render_console(
+    area: &Rect,
+    buf: &mut Buffer,
+    buffer: &KeyboardState,
+) -> Result<(), crate::Error> {
     if area.width < MIN_AREA_WIDTH || area.height < MIN_AREA_HEIGHT {
         return Ok(());
     }
@@ -29,7 +32,7 @@ pub fn render_console(area: &Rect, buf: &mut Buffer, buffer: &Registers) -> Resu
         area.y,
         format!(
             "{}{}",
-            if matches!(buffer.current, KeyRegisterType::Search(_)) {
+            if matches!(buffer.mode, InputMode::Search(_)) {
                 '/'
             } else {
                 ':'
@@ -57,7 +60,7 @@ pub fn render_console(area: &Rect, buf: &mut Buffer, buffer: &Registers) -> Resu
 pub fn render_mode_line(
     area: &Rect,
     buf: &mut Buffer,
-    registers: &Registers,
+    keyboard_state: &KeyboardState,
     focus: &TrackFocus,
     sidebar_hidden: bool,
     palette: &Palette,
@@ -67,16 +70,18 @@ pub fn render_mode_line(
     } else {
         focus.name.clone()
     };
-    match registers.current {
-        KeyRegisterType::Editing(gv_viewer::keys::Mode::Insert(_)) => buf.set_stringn(
-            area.x,
-            area.y,
-            format!("-- INSERT -- {name}"),
-            area.width as usize,
-            Style::default()
-                .fg(palette.MODE_INSERT.color())
-                .add_modifier(Modifier::BOLD),
-        ),
+    match keyboard_state.mode {
+        InputMode::Editing(gv_viewer::keys::Mode::Insert(_)) => {
+            buf.set_stringn(
+                area.x,
+                area.y,
+                format!("-- INSERT -- {name}"),
+                area.width as usize,
+                Style::default()
+                    .fg(to_color(palette.MODE_INSERT))
+                    .add_modifier(Modifier::BOLD),
+            );
+        }
         _ if sidebar_hidden => {
             let width = name.chars().count().min(area.width as usize);
             buf.set_stringn(
@@ -85,8 +90,8 @@ pub fn render_mode_line(
                 name,
                 width,
                 Style::default().fg(Color::Gray),
-            )
+            );
         }
-        _ => return,
-    };
+        _ => {}
+    }
 }

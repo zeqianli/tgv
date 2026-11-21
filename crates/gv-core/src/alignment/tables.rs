@@ -6,7 +6,7 @@
 
 use crate::{
     alignment::QualityEncoding,
-    error::TGVError,
+    error::Error,
     sequence::Sequence,
     table_schema::{ColumnDoc, TableSchema},
 };
@@ -88,7 +88,7 @@ impl AlignmentTables {
         quality_encoding: QualityEncoding,
         reference_sequence: &Sequence,
         contig_index: usize,
-    ) -> Result<Self, TGVError> {
+    ) -> Result<Self, Error> {
         if records.is_empty() {
             return Ok(self);
         }
@@ -141,7 +141,7 @@ fn build_batch(
     reference_sequence: &Sequence,
     contig_index: usize,
     read_id_offset: u64,
-) -> Result<AlignmentTables, TGVError> {
+) -> Result<AlignmentTables, Error> {
     let mut read_id: Vec<u64> = Vec::with_capacity(records.len());
     let mut qname: Vec<Option<String>> = Vec::with_capacity(records.len());
     let mut ref_id: Vec<Option<u32>> = Vec::with_capacity(records.len());
@@ -184,7 +184,7 @@ fn build_batch(
         let id = read_id_offset + index as u64;
         let sequence = std::str::from_utf8(record.sequence().as_ref())?;
         if !sequence.is_ascii() {
-            return Err(TGVError::AlignmentParseError(format!(
+            return Err(Error::AlignmentParseError(format!(
                 "SEQ is not ASCII for read {id}"
             )));
         }
@@ -339,7 +339,7 @@ fn append_read(
     qc_failed: &mut Vec<bool>,
     duplicate: &mut Vec<bool>,
     supplementary: &mut Vec<bool>,
-) -> Result<(), TGVError> {
+) -> Result<(), Error> {
     read_id.push(id);
     qname.push(
         record
@@ -406,7 +406,7 @@ fn append_runs(
     run_display_start: &mut Vec<Option<u64>>,
     run_display_end: &mut Vec<Option<u64>>,
     run_offset: &mut Vec<u32>,
-) -> Result<(), TGVError> {
+) -> Result<(), Error> {
     let quality = record.quality_scores().as_ref();
     let reference_id = record.reference_sequence_id().map(|id| id as u32);
     let mut query_cursor = 0usize;
@@ -460,7 +460,7 @@ fn append_runs(
         if kind.consumes_read() {
             let end = query_cursor + len;
             if end > record.sequence().len() && !record.sequence().is_empty() {
-                return Err(TGVError::AlignmentParseError(format!(
+                return Err(Error::AlignmentParseError(format!(
                     "CIGAR exceeds sequence length for read {id}"
                 )));
             }
@@ -475,7 +475,7 @@ fn append_runs(
                 Some(phred_scores(
                     quality_encoding,
                     quality.get(query_cursor..end).ok_or_else(|| {
-                        TGVError::AlignmentParseError(format!(
+                        Error::AlignmentParseError(format!(
                             "CIGAR exceeds quality length for read {id}"
                         ))
                     })?,
@@ -904,7 +904,7 @@ pub(crate) fn reference_mismatches(
     runs: &DataFrame,
     reference: &Sequence,
     contig_index: usize,
-) -> Result<DataFrame, TGVError> {
+) -> Result<DataFrame, Error> {
     if reference.contig_index != contig_index || reference.sequence.is_empty() {
         return Ok(ReferenceMismatchSchema::empty());
     }
@@ -1020,13 +1020,13 @@ pub(super) fn extract_base_modifications(
     cigars: &[Op],
     alignment_start: u64,
     read_id: u64,
-) -> Result<Vec<(u32, u32, u64, Modification, Option<u8>)>, TGVError> {
+) -> Result<Vec<(u32, u32, u64, Modification, Option<u8>)>, Error> {
     let groups = BaseModifications::parse(
         mm_string.as_bytes(),
         flags.is_reverse_complemented(),
         sequence,
     )
-    .map_err(|error| TGVError::AlignmentBaseModifications {
+    .map_err(|error| Error::AlignmentBaseModifications {
         read_id,
         message: error.to_string(),
     })?;
@@ -1050,7 +1050,7 @@ pub(super) fn extract_base_modifications(
 pub(super) fn base_modifications(
     records: &[RecordBuf],
     read_id_offset: u64,
-) -> Result<DataFrame, TGVError> {
+) -> Result<DataFrame, Error> {
     let mut read_id = Vec::new();
     let mut op_index = Vec::new();
     let mut run_offset = Vec::new();
@@ -1075,7 +1075,7 @@ pub(super) fn base_modifications(
             continue;
         };
         let mm = std::str::from_utf8(mm.as_ref()).map_err(|error| {
-            TGVError::AlignmentBaseModifications {
+            Error::AlignmentBaseModifications {
                 read_id: id,
                 message: error.to_string(),
             }
@@ -1133,17 +1133,17 @@ fn matches_base(base1: u8, base2: u8) -> bool {
         return true;
     }
 
-    match (base1, base2) {
+    matches!(
+        (base1, base2),
         (b'A', b'a')
-        | (b'a', b'A')
-        | (b'C', b'c')
-        | (b'c', b'C')
-        | (b'G', b'g')
-        | (b'g', b'G')
-        | (b'T', b't')
-        | (b't', b'T') => true,
-        _ => false,
-    }
+            | (b'a', b'A')
+            | (b'C', b'c')
+            | (b'c', b'C')
+            | (b'G', b'g')
+            | (b'g', b'G')
+            | (b'T', b't')
+            | (b't', b'T')
+    )
 }
 
 #[cfg(test)]
@@ -1180,7 +1180,7 @@ mod tests {
             noodles::sam::record::data::field::value::base_modifications::group::Modification,
             Option<u8>,
         )>,
-        TGVError,
+        Error,
     > {
         Ok(tables::extract_base_modifications(
             &mm,
@@ -1216,13 +1216,11 @@ mod tests {
             .map(|(kind, len)| Op::new(kind, len))
             .collect();
 
-        let record = sam::alignment::RecordBuf::builder()
+        sam::alignment::RecordBuf::builder()
             .set_alignment_start(noodles::core::Position::try_from(start as usize).unwrap())
             .set_cigar(cigar)
             .set_sequence(sam::alignment::record_buf::Sequence::from(sequence))
-            .build();
-
-        record
+            .build()
     }
 
     #[test]

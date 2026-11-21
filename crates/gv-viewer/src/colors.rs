@@ -31,6 +31,20 @@ impl Rgb {
     }
 }
 
+/// Text that is less important than the data, such as sidebar notes.
+pub const MUTED_TEXT: Rgb = Rgb::from_u32(0x9ca3af);
+
+/// The window's main text color.
+pub const TEXT: Rgb = Rgb::from_u32(0xe5e5e5);
+
+/// Lines between sidebar sections.
+pub const SEPARATOR: Rgb = Rgb::from_u32(0x3f3f46);
+
+/// The command line's cursor.
+pub const CURSOR_COLOR: Rgb = Rgb::from_u32(0xcd3131);
+
+pub const READ_BASE_LETTER: Rgb = Rgb::from_u32(0x111111);
+
 /// Tailwind and terminal colors that the dark theme uses, by name.
 mod named {
     use super::Rgb;

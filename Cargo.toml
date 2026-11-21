@@ -5,6 +5,8 @@ resolver = "3"
 [workspace.dependencies]
 # Non-local crates
 
+# The error type gpui returns from painting, so `tgv_gui::Error` can wrap it.
+anyhow = "1"
 async-compat = "0"
 async-compression = { version = "0.4", features = ["gzip", "tokio"] }
 async-trait = "0"

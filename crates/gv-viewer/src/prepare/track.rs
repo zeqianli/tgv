@@ -37,7 +37,7 @@ pub struct Gene {
 
 impl Gene {
     /// The genes overlapping a region, in table order, with their segments within the region.
-    pub fn in_region(state: &State, region: &Region) -> Result<Vec<Gene>, TGVError> {
+    pub fn in_region(state: &State, region: &Region) -> Result<Vec<Gene>, crate::Error> {
         let rows = state
             .track
             .query(region.contig_index(), region.start(), region.end())?;
@@ -54,9 +54,7 @@ impl Gene {
                 "noncoding_exon" => SegmentKind::NoncodingExon,
                 "intron" => SegmentKind::Intron,
                 kind => {
-                    return Err(TGVError::ValueError(format!(
-                        "Unknown gene segment kind: {kind}."
-                    )));
+                    return Err(crate::Error::UnknownSegmentKind(kind.to_string()));
                 }
             };
             gene_segments

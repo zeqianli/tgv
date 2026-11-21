@@ -1,7 +1,4 @@
-//! The `tgv-gui` command line: the options every viewer accepts.
-
 use clap::Parser;
-use gv_core::prelude::*;
 pub use gv_viewer::settings::{Settings, ViewerArgs};
 
 #[derive(Parser, Clone)]
@@ -11,10 +8,9 @@ pub struct Cli {
     pub viewer: ViewerArgs,
 }
 
-/// Build [`Settings`] directly from CLI args, without loading any session file.
 impl TryFrom<Cli> for Settings {
-    type Error = TGVError;
-    fn try_from(cli: Cli) -> Result<Self, TGVError> {
+    type Error = gv_viewer::Error;
+    fn try_from(cli: Cli) -> Result<Self, gv_viewer::Error> {
         Settings::try_from(&cli.viewer)
     }
 }

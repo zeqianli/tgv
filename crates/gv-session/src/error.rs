@@ -1,13 +1,11 @@
 //! Errors returned by session commands.
 
 use crate::schema::{ViewerInfo, ViewerKind};
-use gv_core::error::TGVError;
 use polars::prelude::PolarsError;
-use thiserror::Error;
 
 /// A failed session command.
-#[derive(Debug, Error)]
-pub enum SessionError {
+#[derive(Debug, thiserror::Error)]
+pub enum Error {
     /// A request field is invalid for the current dataset.
     #[error("{message}")]
     InvalidInput {
@@ -58,18 +56,22 @@ pub enum SessionError {
     #[error("The session worker stops before replying.")]
     Stopped,
 
+    /// The viewer fails to apply an agent's actions, such as an invalid search.
+    #[error("{message}")]
+    Viewer { message: String },
+
     /// Reading or computing data fails.
     #[error(transparent)]
-    Core(#[from] TGVError),
+    Core(#[from] gv_core::Error),
 }
 
-impl From<PolarsError> for SessionError {
+impl From<PolarsError> for Error {
     fn from(error: PolarsError) -> Self {
         Self::Core(error.into())
     }
 }
 
-impl SessionError {
+impl Error {
     /// A stable code for clients, such as MCP tool errors and socket replies.
     pub fn code(&self) -> &str {
         match self {
@@ -81,7 +83,9 @@ impl SessionError {
             Self::ViewerNotFound(_) => "viewer_not_found",
             Self::Connection(_) => "viewer_disconnected",
             Self::Remote { code, .. } => code,
-            Self::Unavailable | Self::Stopped | Self::Core(_) => "internal_error",
+            Self::Unavailable | Self::Stopped | Self::Viewer { .. } | Self::Core(_) => {
+                "internal_error"
+            }
         }
     }
 

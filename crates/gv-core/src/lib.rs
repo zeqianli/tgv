@@ -3,14 +3,15 @@ pub mod bed;
 pub mod contig_header;
 pub mod cytoband;
 pub mod error;
+pub use error::Error;
 pub mod intervals;
 pub mod logging;
 pub mod message;
+pub mod object_storage;
 /// Common core types shared by the TUI and server.
 pub mod prelude {
     pub use crate::{
         contig_header::ContigHeader,
-        error::TGVError,
         intervals::{Focus, IntervalTable, Region},
         reference::Reference,
         repository::{Repository, RepositoryFileIndex},

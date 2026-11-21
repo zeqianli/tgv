@@ -1,7 +1,7 @@
 use crate::{
     contig_header::{Contig, ContigHeader},
     cytoband::CytobandTable,
-    error::TGVError,
+    error::Error,
     gene::GeneTable,
     intervals::Region,
     reference::Reference,
@@ -27,7 +27,7 @@ use crate::tracks::{TRACK_PREFERENCES, TrackCache, TrackService};
 
 impl UcscDbTrackService {
     // Initialize the database connections. Reference is needed to find the corresponding schema.
-    pub async fn new(reference: &Reference, ucsc_host: &UcscHost) -> Result<Self, TGVError> {
+    pub async fn new(reference: &Reference, ucsc_host: &UcscHost) -> Result<Self, Error> {
         let mysql_url = UcscDbTrackService::get_mysql_url(reference, ucsc_host)?;
         log::info!(
             "Database connect: database=ucsc-mysql connection={} context=reference={} host={}",
@@ -53,19 +53,19 @@ impl UcscDbTrackService {
         })
     }
 
-    pub fn get_mysql_url(reference: &Reference, ucsc_host: &UcscHost) -> Result<String, TGVError> {
+    pub fn get_mysql_url(reference: &Reference, ucsc_host: &UcscHost) -> Result<String, Error> {
         match reference {
             Reference::Hg19 | Reference::Hg38 | Reference::UcscGenome(_) => {
                 Ok(format!("mysql://genome@{}/{}", ucsc_host.url(), reference))
             }
-            _ => Err(TGVError::ValueError(format!(
+            _ => Err(Error::ValueError(format!(
                 "Unsupported reference: {}",
                 reference
             ))),
         }
     }
 
-    pub async fn list_assemblies(n: Option<usize>) -> Result<Vec<(String, String)>, TGVError> {
+    pub async fn list_assemblies(n: Option<usize>) -> Result<Vec<(String, String)>, Error> {
         log::info!(
             "Database connect: database=ucsc-mysql connection={} context=list assemblies",
             UCSC_HGCENTRAL_URL
@@ -124,10 +124,7 @@ impl UcscDbTrackService {
         Ok(assemblies)
     }
 
-    pub async fn list_accessions(
-        n: usize,
-        offset: usize,
-    ) -> Result<Vec<(String, String)>, TGVError> {
+    pub async fn list_accessions(n: usize, offset: usize) -> Result<Vec<(String, String)>, Error> {
         log::info!(
             "Database connect: database=ucsc-mysql connection={} context=list accessions",
             UCSC_HGCENTRAL_URL
@@ -171,7 +168,7 @@ impl UcscDbTrackService {
     }
 
     /// The columns of a table.
-    async fn gene_columns(&self, track_name: &str) -> Result<Vec<String>, TGVError> {
+    async fn gene_columns(&self, track_name: &str) -> Result<Vec<String>, Error> {
         let rows = sqlx::query(&format!("SHOW COLUMNS FROM {track_name}"))
             .fetch_all(&*self.pool)
             .await?;
@@ -183,7 +180,7 @@ impl UcscDbTrackService {
     async fn get_preferred_track_name_with_cache(
         &mut self,
         reference: &Reference,
-    ) -> Result<String, TGVError> {
+    ) -> Result<String, Error> {
         match self.cache.preferred_track_name.as_ref() {
             None => {
                 let preferred_track = self.get_preferred_track_name(reference).await?;
@@ -192,7 +189,7 @@ impl UcscDbTrackService {
             }
             Some(track) => track.clone(),
         }
-        .ok_or(TGVError::IOError("No preferred track found".to_string()))
+        .ok_or(Error::IOError("No preferred track found".to_string()))
     }
 
     /// chrom name -> 2bit file name.
@@ -201,7 +198,7 @@ impl UcscDbTrackService {
         &self,
         _reference: &Reference,
         contig_header: &ContigHeader,
-    ) -> Result<HashMap<usize, Option<String>>, TGVError> {
+    ) -> Result<HashMap<usize, Option<String>>, Error> {
         let sql =
             "SELECT chrom, fileName FROM chromInfo WHERE chrom NOT LIKE 'chr%\\_%' ESCAPE '\\'";
         log::info!(
@@ -228,7 +225,7 @@ impl UcscDbTrackService {
                     file_name
                         .split("/")
                         .last()
-                        .ok_or(TGVError::IOError(
+                        .ok_or(Error::IOError(
                             "Failed to get basename from file name".to_string(),
                         ))?
                         .to_string(),
@@ -243,12 +240,12 @@ impl UcscDbTrackService {
 
 #[async_trait]
 impl TrackService for UcscDbTrackService {
-    async fn close(&mut self) -> Result<(), TGVError> {
+    async fn close(&mut self) -> Result<(), Error> {
         self.pool.close().await;
         Ok(())
     }
 
-    async fn get_all_contigs(&mut self, _reference: &Reference) -> Result<Vec<Contig>, TGVError> {
+    async fn get_all_contigs(&mut self, _reference: &Reference) -> Result<Vec<Contig>, Error> {
         // Some references have chromAlias table, some don't.
         let sql = "SELECT
                 chromInfo.chrom as chrom,
@@ -304,7 +301,7 @@ impl TrackService for UcscDbTrackService {
         let mut contigs = contigs
             .into_iter()
             .map(|row| row.to_contig())
-            .collect::<Result<Vec<Contig>, TGVError>>()?;
+            .collect::<Result<Vec<Contig>, Error>>()?;
 
         contigs.sort_by(|a, b| {
             if a.name.starts_with("chr") || b.name.starts_with("chr") {
@@ -321,7 +318,7 @@ impl TrackService for UcscDbTrackService {
         &mut self,
         reference: &Reference,
         contig_header: &ContigHeader,
-    ) -> Result<CytobandTable, TGVError> {
+    ) -> Result<CytobandTable, Error> {
         let sql = "SELECT chrom, chromStart, chromEnd, name, gieStain FROM cytoBandIdeo";
         log::info!(
             "Database query: database=ucsc-mysql sql=\"{}\" context=get cytobands reference={}",
@@ -341,7 +338,7 @@ impl TrackService for UcscDbTrackService {
     async fn get_preferred_track_name(
         &mut self,
         reference: &Reference,
-    ) -> Result<Option<String>, TGVError> {
+    ) -> Result<Option<String>, Error> {
         match reference {
             // Speed up for human genomes
             Reference::Hg19 | Reference::Hg38 => return Ok(Some("ncbiRefSeqSelect".to_string())),
@@ -381,7 +378,7 @@ impl TrackService for UcscDbTrackService {
         region: &Region,
 
         contig_header: &ContigHeader,
-    ) -> Result<DataFrame, TGVError> {
+    ) -> Result<DataFrame, Error> {
         let contig_name = match contig_header
             .try_get(region.contig_index())?
             .get_gene_track_name()
@@ -408,8 +405,8 @@ impl TrackService for UcscDbTrackService {
         let started = Instant::now();
         let gene_rows: Vec<UcscGeneRow> = sqlx::query_as(sql.as_str())
             .bind(contig_name)
-            .bind(u64::try_from(region.end()).unwrap()) // A UCSC start must be strictly below the inclusive tgv end.
-            .bind(u64::try_from(region.start()).unwrap()) // UCSC ends are exclusive, while tgv starts are inclusive.
+            .bind(region.end()) // A UCSC start must be strictly below the inclusive tgv end.
+            .bind(region.start()) // UCSC ends are exclusive, while tgv starts are inclusive.
             .fetch_all(&*self.pool)
             .await?;
         log::info!(
@@ -433,7 +430,7 @@ impl TrackService for UcscDbTrackService {
         gene_name: &str,
 
         contig_header: &ContigHeader,
-    ) -> Result<DataFrame, TGVError> {
+    ) -> Result<DataFrame, Error> {
         let track_name = self.get_preferred_track_name_with_cache(reference).await?;
         // Gene symbols are in `name2`. Basic gene tables have no `name2`, so their genes are
         // found by `name`.
@@ -470,16 +467,12 @@ impl TrackService for UcscDbTrackService {
             started.elapsed().as_millis()
         );
 
-        let row = gene_row.ok_or(TGVError::IOError(format!(
-            "Failed to query gene: {gene_name}"
-        )))?;
+        let row = gene_row.ok_or(Error::IOError(format!("Failed to query gene: {gene_name}")))?;
         let contig_index = contig_header.try_get_index_by_str(&row.chrom)?;
         let genes = GeneTable::from_gene_rows(vec![row], contig_index, contig_header, None)?.data;
         // An invalid row is left out of the table.
         if genes.height() == 0 {
-            return Err(TGVError::IOError(format!(
-                "Failed to query gene: {gene_name}"
-            )));
+            return Err(Error::IOError(format!("Failed to query gene: {gene_name}")));
         }
         Ok(genes)
     }
@@ -492,11 +485,11 @@ impl TrackService for UcscDbTrackService {
         k: usize,
 
         contig_header: &ContigHeader,
-    ) -> Result<DataFrame, TGVError> {
+    ) -> Result<DataFrame, Error> {
         let contig_name = match contig_header.try_get(contig_index)?.get_gene_track_name() {
             Some(contig_name) => contig_name,
             None => {
-                return Err(TGVError::StateError(format!(
+                return Err(Error::StateError(format!(
                     "Contig {} (index = {}, aliases = {}) does not have track data.",
                     contig_header.contigs[contig_index].name,
                     contig_index,
@@ -506,7 +499,7 @@ impl TrackService for UcscDbTrackService {
         };
 
         if k == 0 {
-            return Err(TGVError::ValueError("k cannot be 0".to_string()));
+            return Err(Error::ValueError("k cannot be 0".to_string()));
         }
 
         let track_name = self.get_preferred_track_name_with_cache(reference).await?;
@@ -543,7 +536,7 @@ impl TrackService for UcscDbTrackService {
         let rows = GeneTable::from_gene_rows(gene_rows, contig_index, contig_header, None)?
             .get_saturating_k_genes_after(coord, k)?;
         if rows.height() == 0 {
-            Err(TGVError::IOError("No genes found".to_string()))
+            Err(Error::IOError("No genes found".to_string()))
         } else {
             Ok(rows)
         }
@@ -556,11 +549,11 @@ impl TrackService for UcscDbTrackService {
         coord: u64,
         k: usize,
         contig_header: &ContigHeader,
-    ) -> Result<DataFrame, TGVError> {
+    ) -> Result<DataFrame, Error> {
         let contig_name = match contig_header.try_get(contig_index)?.get_gene_track_name() {
             Some(contig_name) => contig_name,
             None => {
-                return Err(TGVError::StateError(format!(
+                return Err(Error::StateError(format!(
                     "Contig {} (index = {}, aliases = {}) does not have track data.",
                     contig_header.contigs[contig_index].name,
                     contig_index,
@@ -569,7 +562,7 @@ impl TrackService for UcscDbTrackService {
             }
         };
         if k == 0 {
-            return Err(TGVError::ValueError("k cannot be 0".to_string()));
+            return Err(Error::ValueError("k cannot be 0".to_string()));
         }
 
         let track_name = self.get_preferred_track_name_with_cache(reference).await?;
@@ -606,7 +599,7 @@ impl TrackService for UcscDbTrackService {
         let rows = GeneTable::from_gene_rows(gene_rows, contig_index, contig_header, None)?
             .get_saturating_k_genes_before(coord, k)?;
         if rows.height() == 0 {
-            Err(TGVError::IOError("No genes found".to_string()))
+            Err(Error::IOError("No genes found".to_string()))
         } else {
             Ok(rows)
         }
@@ -620,11 +613,11 @@ impl TrackService for UcscDbTrackService {
         k: usize,
 
         contig_header: &ContigHeader,
-    ) -> Result<DataFrame, TGVError> {
+    ) -> Result<DataFrame, Error> {
         let contig_name = match contig_header.try_get(contig_index)?.get_gene_track_name() {
             Some(contig_name) => contig_name,
             None => {
-                return Err(TGVError::StateError(format!(
+                return Err(Error::StateError(format!(
                     "Contig {} (index = {}, aliases = {}) does not have track data.",
                     contig_header.contigs[contig_index].name,
                     contig_index,
@@ -633,7 +626,7 @@ impl TrackService for UcscDbTrackService {
             }
         };
         if k == 0 {
-            return Err(TGVError::ValueError("k cannot be 0".to_string()));
+            return Err(Error::ValueError("k cannot be 0".to_string()));
         }
 
         let track_name = self.get_preferred_track_name_with_cache(reference).await?;
@@ -670,7 +663,7 @@ impl TrackService for UcscDbTrackService {
         let rows = GeneTable::from_gene_rows(gene_rows, contig_index, contig_header, None)?
             .get_saturating_k_exons_after(coord, k)?;
         if rows.height() == 0 {
-            Err(TGVError::IOError("No exons found".to_string()))
+            Err(Error::IOError("No exons found".to_string()))
         } else {
             Ok(rows)
         }
@@ -683,11 +676,11 @@ impl TrackService for UcscDbTrackService {
         coord: u64,
         k: usize,
         contig_header: &ContigHeader,
-    ) -> Result<DataFrame, TGVError> {
+    ) -> Result<DataFrame, Error> {
         let contig_name = match contig_header.try_get(contig_index)?.get_gene_track_name() {
             Some(contig_name) => contig_name,
             None => {
-                return Err(TGVError::StateError(format!(
+                return Err(Error::StateError(format!(
                     "Contig {} (index = {}, aliases = {}) does not have track data.",
                     contig_header.contigs[contig_index].name,
                     contig_index,
@@ -696,7 +689,7 @@ impl TrackService for UcscDbTrackService {
             }
         };
         if k == 0 {
-            return Err(TGVError::ValueError("k cannot be 0".to_string()));
+            return Err(Error::ValueError("k cannot be 0".to_string()));
         }
 
         let track_name = self.get_preferred_track_name_with_cache(reference).await?;
@@ -733,7 +726,7 @@ impl TrackService for UcscDbTrackService {
         let rows = GeneTable::from_gene_rows(gene_rows, contig_index, contig_header, None)?
             .get_saturating_k_exons_before(coord, k)?;
         if rows.height() == 0 {
-            Err(TGVError::IOError("No exons found".to_string()))
+            Err(Error::IOError("No exons found".to_string()))
         } else {
             Ok(rows)
         }

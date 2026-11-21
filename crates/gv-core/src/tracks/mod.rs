@@ -7,7 +7,7 @@ mod ucsc_db;
 use crate::{
     contig_header::{Contig, ContigHeader},
     cytoband::CytobandTable,
-    error::TGVError,
+    error::Error,
     gene::GeneTable,
     intervals::Region,
     reference::Reference,
@@ -55,7 +55,7 @@ impl TrackCache {
         self.contig_queried.contains(contig_index)
     }
 
-    pub fn get_gene(&self, gene_name: &str) -> Result<DataFrame, TGVError> {
+    pub fn get_gene(&self, gene_name: &str) -> Result<DataFrame, Error> {
         let mut contigs = self.tracks.keys().copied().collect::<Vec<_>>();
         contigs.sort_unstable();
         for contig in contigs {
@@ -78,17 +78,17 @@ pub trait TrackService {
     // Basics
 
     /// Close the track service.
-    async fn close(&mut self) -> Result<(), TGVError>;
+    async fn close(&mut self) -> Result<(), Error>;
 
     // Query contigs data given a reference.
-    async fn get_all_contigs(&mut self, reference: &Reference) -> Result<Vec<Contig>, TGVError>;
+    async fn get_all_contigs(&mut self, reference: &Reference) -> Result<Vec<Contig>, Error>;
 
     /// Returns the reference's cytobands for every contig in the header.
     async fn query_cytobands(
         &mut self,
         reference: &Reference,
         contig_header: &ContigHeader,
-    ) -> Result<CytobandTable, TGVError>;
+    ) -> Result<CytobandTable, Error>;
 
     /// Return a GeneTable that covers a region.
     async fn query_gene_track(
@@ -96,7 +96,7 @@ pub trait TrackService {
         reference: &Reference,
         region: &Region,
         contig_header: &ContigHeader,
-    ) -> Result<GeneTable, TGVError> {
+    ) -> Result<GeneTable, Error> {
         let genes = self
             .query_genes_overlapping(reference, region, contig_header)
             .await?;
@@ -107,7 +107,7 @@ pub trait TrackService {
     async fn get_preferred_track_name(
         &mut self,
         reference: &Reference,
-    ) -> Result<Option<String>, TGVError>;
+    ) -> Result<Option<String>, Error>;
 
     /// Return gene rows that overlap with a region.
     async fn query_genes_overlapping(
@@ -115,14 +115,14 @@ pub trait TrackService {
         reference: &Reference,
         region: &Region,
         contig_header: &ContigHeader,
-    ) -> Result<DataFrame, TGVError>;
+    ) -> Result<DataFrame, Error>;
 
     async fn query_gene_name(
         &mut self,
         reference: &Reference,
         gene_name: &str,
         contig_header: &ContigHeader,
-    ) -> Result<DataFrame, TGVError>;
+    ) -> Result<DataFrame, Error>;
 
     /// Return the k-th gene after a contig:coordinate.
     async fn query_k_genes_after(
@@ -132,7 +132,7 @@ pub trait TrackService {
         coord: u64,
         k: usize,
         contig_header: &ContigHeader,
-    ) -> Result<DataFrame, TGVError>;
+    ) -> Result<DataFrame, Error>;
 
     /// Return the k-th gene before a contig:coordinate.
     async fn query_k_genes_before(
@@ -142,7 +142,7 @@ pub trait TrackService {
         coord: u64,
         k: usize,
         contig_header: &ContigHeader,
-    ) -> Result<DataFrame, TGVError>;
+    ) -> Result<DataFrame, Error>;
 
     /// Return the k-th exon after a contig:coordinate.
     async fn query_k_exons_after(
@@ -152,7 +152,7 @@ pub trait TrackService {
         coord: u64,
         k: usize,
         contig_header: &ContigHeader,
-    ) -> Result<DataFrame, TGVError>;
+    ) -> Result<DataFrame, Error>;
 
     /// Return the k-th exon before a contig:coordinate.
     async fn query_k_exons_before(
@@ -162,7 +162,7 @@ pub trait TrackService {
         coord: u64,
         k: usize,
         contig_header: &ContigHeader,
-    ) -> Result<DataFrame, TGVError>;
+    ) -> Result<DataFrame, Error>;
 }
 
 // --- Enum Wrapper ---
@@ -176,7 +176,7 @@ pub enum TrackServiceEnum {
 }
 
 impl TrackServiceEnum {
-    pub async fn new(settings: &Settings) -> Result<Option<Self>, TGVError> {
+    pub async fn new(settings: &Settings) -> Result<Option<Self>, Error> {
         match (&settings.backend, &settings.reference) {
             (_, Reference::NoReference)
             | (_, Reference::BYOIndexedFasta(_))
@@ -195,7 +195,7 @@ impl TrackServiceEnum {
                 // Otherwise, use the UCSC DB / API.
                 match LocalDbTrackService::new(&settings.reference, &settings.cache_dir).await {
                     Ok(ts) => Ok(Some(TrackServiceEnum::LocalDb(ts))),
-                    Err(TGVError::IOError(_e)) => match reference {
+                    Err(Error::IOError(_e)) => match reference {
                         Reference::UcscAccession(_) => {
                             Ok(Some(TrackServiceEnum::Api(UcscApiTrackService::new()?)))
                         }
@@ -216,9 +216,9 @@ impl TrackServiceEnum {
         &self,
         reference: &Reference,
         contig_header: &ContigHeader,
-    ) -> Result<HashMap<usize, Option<String>>, TGVError> {
+    ) -> Result<HashMap<usize, Option<String>>, Error> {
         match self {
-            TrackServiceEnum::Api(_) => Err(TGVError::IOError(
+            TrackServiceEnum::Api(_) => Err(Error::IOError(
                 "get_contig_2bit_file_lookup is not supported for UcscApiTrackService".to_string(),
             )),
             TrackServiceEnum::Db(service) => {
@@ -238,7 +238,7 @@ impl TrackServiceEnum {
 // Implement TrackService for the enum, dispatching calls
 #[async_trait]
 impl TrackService for TrackServiceEnum {
-    async fn close(&mut self) -> Result<(), TGVError> {
+    async fn close(&mut self) -> Result<(), Error> {
         match self {
             TrackServiceEnum::Api(service) => service.close().await,
             TrackServiceEnum::Db(service) => service.close().await,
@@ -246,7 +246,7 @@ impl TrackService for TrackServiceEnum {
         }
     }
 
-    async fn get_all_contigs(&mut self, reference: &Reference) -> Result<Vec<Contig>, TGVError> {
+    async fn get_all_contigs(&mut self, reference: &Reference) -> Result<Vec<Contig>, Error> {
         match self {
             TrackServiceEnum::Api(service) => service.get_all_contigs(reference).await,
             TrackServiceEnum::Db(service) => service.get_all_contigs(reference).await,
@@ -258,7 +258,7 @@ impl TrackService for TrackServiceEnum {
         &mut self,
         reference: &Reference,
         contig_header: &ContigHeader,
-    ) -> Result<CytobandTable, TGVError> {
+    ) -> Result<CytobandTable, Error> {
         match self {
             TrackServiceEnum::Api(service) => {
                 service.query_cytobands(reference, contig_header).await
@@ -275,7 +275,7 @@ impl TrackService for TrackServiceEnum {
     async fn get_preferred_track_name(
         &mut self,
         reference: &Reference,
-    ) -> Result<Option<String>, TGVError> {
+    ) -> Result<Option<String>, Error> {
         match self {
             TrackServiceEnum::Api(service) => service.get_preferred_track_name(reference).await,
             TrackServiceEnum::Db(service) => service.get_preferred_track_name(reference).await,
@@ -288,7 +288,7 @@ impl TrackService for TrackServiceEnum {
         reference: &Reference,
         region: &Region,
         contig_header: &ContigHeader,
-    ) -> Result<DataFrame, TGVError> {
+    ) -> Result<DataFrame, Error> {
         match self {
             TrackServiceEnum::Api(service) => {
                 service
@@ -313,7 +313,7 @@ impl TrackService for TrackServiceEnum {
         reference: &Reference,
         gene_name: &str,
         contig_header: &ContigHeader,
-    ) -> Result<DataFrame, TGVError> {
+    ) -> Result<DataFrame, Error> {
         match self {
             TrackServiceEnum::Api(service) => {
                 service
@@ -340,7 +340,7 @@ impl TrackService for TrackServiceEnum {
         coord: u64,
         k: usize,
         contig_header: &ContigHeader,
-    ) -> Result<DataFrame, TGVError> {
+    ) -> Result<DataFrame, Error> {
         match self {
             TrackServiceEnum::Api(service) => {
                 service
@@ -367,7 +367,7 @@ impl TrackService for TrackServiceEnum {
         coord: u64,
         k: usize,
         contig_header: &ContigHeader,
-    ) -> Result<DataFrame, TGVError> {
+    ) -> Result<DataFrame, Error> {
         match self {
             TrackServiceEnum::Api(service) => {
                 service
@@ -394,7 +394,7 @@ impl TrackService for TrackServiceEnum {
         coord: u64,
         k: usize,
         contig_header: &ContigHeader,
-    ) -> Result<DataFrame, TGVError> {
+    ) -> Result<DataFrame, Error> {
         match self {
             TrackServiceEnum::Api(service) => {
                 service
@@ -421,7 +421,7 @@ impl TrackService for TrackServiceEnum {
         coord: u64,
         k: usize,
         contig_header: &ContigHeader,
-    ) -> Result<DataFrame, TGVError> {
+    ) -> Result<DataFrame, Error> {
         match self {
             TrackServiceEnum::Api(service) => {
                 service
@@ -446,7 +446,7 @@ impl TrackService for TrackServiceEnum {
         reference: &Reference,
         region: &Region,
         contig_header: &ContigHeader,
-    ) -> Result<GeneTable, TGVError> {
+    ) -> Result<GeneTable, Error> {
         match self {
             TrackServiceEnum::Api(service) => {
                 service
@@ -483,22 +483,22 @@ impl From<UcscHost> for String {
 }
 
 impl TryFrom<String> for UcscHost {
-    type Error = TGVError;
-    fn try_from(s: String) -> Result<Self, TGVError> {
+    type Error = Error;
+    fn try_from(s: String) -> Result<Self, Error> {
         s.parse()
     }
 }
 
 impl std::str::FromStr for UcscHost {
-    type Err = TGVError;
+    type Err = Error;
 
     /// Parse `"us"`, `"eu"`, or `"auto"` (resolved via timezone detection).
-    fn from_str(s: &str) -> Result<Self, TGVError> {
+    fn from_str(s: &str) -> Result<Self, Error> {
         match s {
             "us" => Ok(Self::Us),
             "eu" => Ok(Self::Eu),
             "auto" => Ok(Self::auto()),
-            _ => Err(TGVError::ParsingError(format!(
+            _ => Err(Error::ParsingError(format!(
                 "Invalid ucsc_host `{s}`. Expected \"us\", \"eu\", or \"auto\"."
             ))),
         }

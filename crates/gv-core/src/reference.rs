@@ -1,4 +1,4 @@
-use crate::error::TGVError;
+use crate::error::Error;
 use std::path::Path;
 // Added: Embed the CSV content as static bytes
 const DEFAULT_DB_CSV: &[u8] = include_bytes!("resources/defaultDb.csv");
@@ -20,10 +20,10 @@ impl Reference {
     pub const HG38: &str = "hg38";
     pub const NO_REFERENCE: &str = "no_reference";
 
-    pub fn get_common_genome_names() -> Result<Vec<(String, String)>, TGVError> {
+    pub fn get_common_genome_names() -> Result<Vec<(String, String)>, Error> {
         let mut common_genome_names = Vec::new();
         let csv_content = std::str::from_utf8(DEFAULT_DB_CSV)
-            .map_err(|e| TGVError::ParsingError(format!("Failed to read embedded CSV: {}", e)))?;
+            .map_err(|e| Error::ParsingError(format!("Failed to read embedded CSV: {}", e)))?;
         for line in csv_content.lines().skip(1) {
             if let Some((genome, name)) = line.split_once(',') {
                 common_genome_names.push((genome.to_string(), name.to_string()));
@@ -75,8 +75,8 @@ impl std::fmt::Display for Reference {
 }
 
 impl std::str::FromStr for Reference {
-    type Err = TGVError;
-    fn from_str(s: &str) -> Result<Self, TGVError> {
+    type Err = Error;
+    fn from_str(s: &str) -> Result<Self, Error> {
         if s == Self::HG19 {
             return Ok(Self::Hg19);
         }
@@ -99,13 +99,13 @@ impl std::str::FromStr for Reference {
         {
             let s = absolute_path(s)?;
             if !std::path::Path::new(&s).exists() {
-                return Err(TGVError::IOError(format!(
+                return Err(Error::IOError(format!(
                     "Reference genome file {} does not exist",
                     s
                 )));
             }
             if !std::path::Path::new(&format!("{}.fai", s)).exists() {
-                return Err(TGVError::IOError(format!(
+                return Err(Error::IOError(format!(
                     ".fai index file is required for custom reference genome. \nYou can create index by\n   samtools faidx {}.\n(see https://www.htslib.org/doc/samtools-faidx.html)",
                     s
                 )));
@@ -118,7 +118,7 @@ impl std::str::FromStr for Reference {
         if s.ends_with(".2bit") {
             let s = absolute_path(s)?;
             if !std::path::Path::new(&s).exists() {
-                return Err(TGVError::IOError(format!(
+                return Err(Error::IOError(format!(
                     "2bit reference genome file {} does not exist",
                     s
                 )));
@@ -150,10 +150,10 @@ impl std::str::FromStr for Reference {
 }
 /// Expands `~` and makes a custom reference path absolute, so it stays valid when a session is
 /// resumed from another working directory.
-fn absolute_path(path: &str) -> Result<String, TGVError> {
+fn absolute_path(path: &str) -> Result<String, Error> {
     let absolute = std::path::absolute(shellexpand::tilde(path).as_ref())?;
     absolute.to_str().map(str::to_owned).ok_or_else(|| {
-        TGVError::IOError(format!(
+        Error::IOError(format!(
             "The reference path {} is not valid UTF-8.",
             absolute.display()
         ))
@@ -161,7 +161,7 @@ fn absolute_path(path: &str) -> Result<String, TGVError> {
 }
 
 // to lowercase; remove ."-_
-fn standardize_common_genome_name(s: &str) -> Result<String, TGVError> {
+fn standardize_common_genome_name(s: &str) -> Result<String, Error> {
     let lower_s = s
         .to_lowercase()
         .replace(".", "")

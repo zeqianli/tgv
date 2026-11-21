@@ -1,19 +1,9 @@
-//! The dataset worker: a thread that owns the viewer, so loads never block the window.
-//!
-//! The window sends [`WorkerMessage`]s. The worker applies every message already queued, loads
-//! what the view needs, and sends back a [`Frame`]: a cheap snapshot of everything the window
-//! draws. The worker also hosts the session, so agents reach it through the session socket
-//! while the window keeps drawing.
-//!
-//! The terminal UI does the same work inline in its event loop. Repository readers aren't
-//! `Send`, so the viewer is created on this thread and never leaves it.
-
 use gv_core::prelude::*;
 use gv_session::{SessionSocket, ViewerKind};
 use gv_viewer::{
+    keyboard::KeyboardState,
     keys::Key,
     message::FocusTarget,
-    register::Registers,
     settings::Settings,
     viewer::{Effect, Scene, Viewer},
     viewport::{PixelScale, Viewport},
@@ -33,10 +23,8 @@ pub enum WorkerMessage {
     Resize(f64),
 }
 
-/// What the worker tells the window.
 pub enum WorkerEvent {
     Frame(Arc<Frame>),
-    /// The dataset couldn't be opened, so there is nothing to show.
     Failed(String),
 }
 
@@ -51,7 +39,7 @@ pub struct Frame {
     /// Sidebar labels by track: the file name, with `● ` before tracks with unsaved changes.
     pub track_labels: HashMap<TrackId, String>,
     pub viewport: Viewport<PixelScale>,
-    pub registers: Registers,
+    pub keyboard_state: KeyboardState,
     pub focused: FocusTarget,
     pub focus_name: String,
     pub focus_modified: bool,
@@ -85,7 +73,7 @@ impl Frame {
             track_order: viewer.track_order.clone(),
             track_labels,
             viewport: viewer.viewport.clone(),
-            registers: viewer.registers.clone(),
+            keyboard_state: viewer.keyboard_state.clone(),
             focused: viewer.focused,
             focus_name: viewer.focus_name(),
             focus_modified: matches!(viewer.focused, FocusTarget::Track(id) if viewer.dataset.is_modified(id)),
@@ -229,12 +217,12 @@ async fn apply(
     viewer: &mut Viewer<PixelScale>,
     started: &mut bool,
     message: WorkerMessage,
-) -> Result<(), TGVError> {
+) -> Result<(), crate::Error> {
     match message {
         WorkerMessage::Keys(keys) => {
             for key in keys {
                 let actions = viewer
-                    .registers
+                    .keyboard_state
                     .handle_key_event(key, &viewer.dataset.view)?;
                 viewer.handle(actions).await?;
             }
@@ -243,7 +231,7 @@ async fn apply(
             viewer.handle(actions).await?;
         }
         WorkerMessage::Paste(text) => {
-            let actions = viewer.registers.handle_paste(&text);
+            let actions = viewer.keyboard_state.handle_paste(&text);
             viewer.handle(actions).await?;
         }
         WorkerMessage::Resize(width) => {

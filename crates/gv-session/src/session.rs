@@ -5,7 +5,7 @@
 //! [`Session::spawn`] is one host; a viewer that displays the dataset is another.
 
 use crate::{
-    error::SessionError,
+    error::Error,
     schema::*,
     tables::{QueryRegion, TableSources},
 };
@@ -33,11 +33,11 @@ fn is_same_file(a: &str, b: &str) -> bool {
 }
 
 /// Sends one command's result back to the caller.
-pub struct Responder<T>(oneshot::Sender<Result<T, SessionError>>);
+pub struct Responder<T>(oneshot::Sender<Result<T, Error>>);
 
 impl<T> Responder<T> {
     /// Sends the result. A caller that stopped waiting drops it harmlessly.
-    pub fn respond(self, result: Result<T, SessionError>) {
+    pub fn respond(self, result: Result<T, Error>) {
         let _ = self.0.send(result);
     }
 
@@ -60,10 +60,10 @@ impl DataRequest {
     pub fn respond_without_dataset(self) {
         match self.0 {
             DataCommand::Describe(reply) => reply.respond(Ok(None)),
-            DataCommand::Inspect(_, reply) => reply.respond(Err(SessionError::NoDataset {
+            DataCommand::Inspect(_, reply) => reply.respond(Err(Error::NoDataset {
                 operation: "inspecting",
             })),
-            DataCommand::Query(_, reply) => reply.respond(Err(SessionError::NoDataset {
+            DataCommand::Query(_, reply) => reply.respond(Err(Error::NoDataset {
                 operation: "querying",
             })),
         }
@@ -82,7 +82,7 @@ pub enum ViewRequest {
 
 impl ViewRequest {
     /// Rejects the request, for example because no viewer displays the dataset.
-    pub fn reject(self, error: SessionError) {
+    pub fn reject(self, error: Error) {
         match self {
             Self::Navigate(_, reply) | Self::Current(reply) => reply.respond(Err(error)),
             Self::Info(reply) => reply.respond(Err(error)),
@@ -139,45 +139,42 @@ pub struct SessionHandle {
 
 impl SessionHandle {
     /// Describes the loaded dataset, or returns `None` before the first load.
-    pub async fn describe(&self) -> Result<Option<DatasetDescription>, SessionError> {
+    pub async fn describe(&self) -> Result<Option<DatasetDescription>, Error> {
         self.request(|reply| Request::Data(DataRequest(DataCommand::Describe(reply))))
             .await
     }
 
     /// Loads or replaces the dataset. A failed load leaves the previous dataset in place.
-    pub async fn load_dataset(
-        &self,
-        request: DatasetRequest,
-    ) -> Result<DatasetDescription, SessionError> {
+    pub async fn load_dataset(&self, request: DatasetRequest) -> Result<DatasetDescription, Error> {
         self.request(|reply| Request::LoadDataset(request, reply))
             .await
     }
 
     /// Summarizes an interval.
-    pub async fn inspect(&self, request: InspectRequest) -> Result<InspectResponse, SessionError> {
+    pub async fn inspect(&self, request: InspectRequest) -> Result<InspectResponse, Error> {
         self.request(|reply| Request::Data(DataRequest(DataCommand::Inspect(request, reply))))
             .await
     }
 
     /// Runs a read-only SQL query.
-    pub async fn query(&self, request: QueryRequest) -> Result<QueryResponse, SessionError> {
+    pub async fn query(&self, request: QueryRequest) -> Result<QueryResponse, Error> {
         self.request(|reply| Request::Data(DataRequest(DataCommand::Query(request, reply))))
             .await
     }
 
     /// Shows a region in the viewer.
-    pub async fn navigate(&self, request: NavigateRequest) -> Result<ViewState, SessionError> {
+    pub async fn navigate(&self, request: NavigateRequest) -> Result<ViewState, Error> {
         self.request(|reply| Request::View(ViewRequest::Navigate(request, reply)))
             .await
     }
 
     /// Reports what the viewer shows.
-    pub async fn view_state(&self) -> Result<ViewState, SessionError> {
+    pub async fn view_state(&self) -> Result<ViewState, Error> {
         self.request(|reply| Request::View(ViewRequest::Current(reply)))
             .await
     }
 
-    pub async fn viewer_info(&self) -> Result<ViewerInfo, SessionError> {
+    pub async fn viewer_info(&self) -> Result<ViewerInfo, Error> {
         self.request(|reply| Request::View(ViewRequest::Info(reply)))
             .await
     }
@@ -188,16 +185,13 @@ impl SessionHandle {
         let _ = self.sender.send(Request::Shutdown).await;
     }
 
-    async fn request<T>(
-        &self,
-        request: impl FnOnce(Responder<T>) -> Request,
-    ) -> Result<T, SessionError> {
+    async fn request<T>(&self, request: impl FnOnce(Responder<T>) -> Request) -> Result<T, Error> {
         let (reply, response) = oneshot::channel();
         self.sender
             .send(request(Responder(reply)))
             .await
-            .map_err(|_| SessionError::Unavailable)?;
-        response.await.map_err(|_| SessionError::Stopped)?
+            .map_err(|_| Error::Unavailable)?;
+        response.await.map_err(|_| Error::Stopped)?
     }
 }
 
@@ -214,10 +208,10 @@ impl Session {
     }
 
     /// Starts a headless worker on the current Tokio runtime and returns its handle and join
-    /// handle. The worker rejects view requests with [`SessionError::NoViewer`].
+    /// handle. The worker rejects view requests with [`Error::NoViewer`].
     ///
     /// `defaults` provides the backend, cache, and host settings for loaded datasets.
-    pub fn spawn(defaults: Settings) -> (SessionHandle, JoinHandle<Result<(), TGVError>>) {
+    pub fn spawn(defaults: Settings) -> (SessionHandle, JoinHandle<Result<(), gv_core::Error>>) {
         let (handle, requests) = Self::channel();
         // Synchronous readers and coverage work must not block the caller's runtime threads.
         // Construct the dataset inside this thread because repository types need not be Send.
@@ -254,7 +248,7 @@ pub enum BedWrite {
 
 impl Dataset {
     /// Serves requests headlessly, in order, and closes the dataset when the worker exits.
-    async fn run(defaults: Settings, mut requests: Requests) -> Result<(), TGVError> {
+    async fn run(defaults: Settings, mut requests: Requests) -> Result<(), gv_core::Error> {
         let mut dataset: Option<Self> = None;
         while let Some(request) = requests.recv().await {
             match request {
@@ -266,7 +260,7 @@ impl Dataset {
                 Request::LoadDataset(request, reply) => {
                     reply.respond(Self::replace(&mut dataset, &defaults, request).await);
                 }
-                Request::View(request) => request.reject(SessionError::NoViewer),
+                Request::View(request) => request.reject(Error::NoViewer),
             }
         }
 
@@ -308,7 +302,7 @@ impl Dataset {
         current: &mut Option<Self>,
         defaults: &Settings,
         request: DatasetRequest,
-    ) -> Result<DatasetDescription, SessionError> {
+    ) -> Result<DatasetDescription, Error> {
         let prior_settings = current
             .as_ref()
             .map_or(defaults, |dataset| &dataset.settings);
@@ -316,21 +310,21 @@ impl Dataset {
         let replacement =
             Self::new(new_settings, files)
                 .await
-                .map_err(|error| SessionError::InvalidInput {
+                .map_err(|error| Error::InvalidInput {
                     field: "files",
                     message: error.to_string(),
                 })?;
         let description = replacement.description();
-        if let Some(mut old) = current.replace(replacement) {
-            if let Err(error) = old.repository.close().await {
-                log::warn!("Failed to close the replaced dataset: {error}");
-            }
+        if let Some(mut old) = current.replace(replacement)
+            && let Err(error) = old.repository.close().await
+        {
+            log::warn!("Failed to close the replaced dataset: {error}");
         }
         Ok(description)
     }
 
     /// Opens the reference and the files, and creates empty view and query states.
-    pub async fn new(settings: Settings, files: Vec<FilePath>) -> Result<Self, TGVError> {
+    pub async fn new(settings: Settings, files: Vec<FilePath>) -> Result<Self, gv_core::Error> {
         let (repository, contigs) = Repository::new(&settings).await?;
         let mut dataset = Self {
             view: State::new(settings.reference.clone(), contigs.clone())?,
@@ -345,7 +339,7 @@ impl Dataset {
     }
 
     /// Classifies paths by file type, then adds them like [`Dataset::add_file_paths`].
-    pub async fn add_files(&mut self, files: &[String]) -> Result<Vec<TrackId>, TGVError> {
+    pub async fn add_files(&mut self, files: &[String]) -> Result<Vec<TrackId>, gv_core::Error> {
         self.add_file_paths(classify_and_build_tracks(files)?).await
     }
 
@@ -357,13 +351,13 @@ impl Dataset {
     pub async fn add_file_paths(
         &mut self,
         file_paths: Vec<FilePath>,
-    ) -> Result<Vec<TrackId>, TGVError> {
+    ) -> Result<Vec<TrackId>, gv_core::Error> {
         if let Some(missing) = file_paths
             .iter()
             .filter_map(FilePath::path)
             .find(|path| !is_url(path) && !Path::new(path).is_file())
         {
-            return Err(TGVError::NotAFile(missing.to_owned()));
+            return Err(gv_core::Error::NotAFile(missing.to_owned()));
         }
 
         let mut opened = Vec::with_capacity(file_paths.len());
@@ -404,7 +398,7 @@ impl Dataset {
         opened: &mut Vec<RepositoryFileIndex>,
         view_contigs: &mut ContigHeader,
         query_contigs: &mut ContigHeader,
-    ) -> Result<(), TGVError> {
+    ) -> Result<(), gv_core::Error> {
         for file_path in file_paths {
             let index = self
                 .repository
@@ -419,10 +413,10 @@ impl Dataset {
 
     /// Removes a track and returns its entry. Later tracks of the same kind shift down by one
     /// in the per-kind state, and front ends apply the same shift to theirs.
-    pub fn remove_track(&mut self, id: TrackId) -> Result<TrackEntry, TGVError> {
+    pub fn remove_track(&mut self, id: TrackId) -> Result<TrackEntry, gv_core::Error> {
         let entry = Arc::make_mut(&mut self.tracks)
             .remove(id)
-            .ok_or_else(|| TGVError::StateError(format!("Track {id} does not exist.")))?;
+            .ok_or_else(|| gv_core::Error::StateError(format!("Track {id} does not exist.")))?;
         self.repository.remove(entry.repository_index);
         self.view.remove_track(entry.repository_index);
         self.query.remove_track(entry.repository_index);
@@ -430,7 +424,7 @@ impl Dataset {
     }
 
     /// Adds an empty BED track without a file, named `untitled-1`, `untitled-2`, and so on.
-    pub async fn new_bed_track(&mut self) -> Result<TrackId, TGVError> {
+    pub async fn new_bed_track(&mut self) -> Result<TrackId, gv_core::Error> {
         self.untitled_count += 1;
         let ids = self
             .add_file_paths(vec![FilePath::UntitledBed(self.untitled_count)])
@@ -440,7 +434,7 @@ impl Dataset {
 
     /// Adds an untitled BED track with a copy of another BED track's features as they are now,
     /// including unsaved edits. The copy shows as modified until it is written.
-    pub async fn duplicate_bed(&mut self, source: TrackId) -> Result<TrackId, TGVError> {
+    pub async fn duplicate_bed(&mut self, source: TrackId) -> Result<TrackId, gv_core::Error> {
         let id = self.new_bed_track().await?;
         let RepositoryFileIndex::Bed(index) = self.tracks.get(id).repository_index else {
             unreachable!("new tracks are BED tracks");
@@ -469,10 +463,10 @@ impl Dataset {
 
     /// The BED index and the editable file of a track, or an error naming the track when it
     /// isn't a BED track or can't be edited.
-    fn editable_bed(&mut self, id: TrackId) -> Result<(usize, &mut PlainBed), TGVError> {
+    fn editable_bed(&mut self, id: TrackId) -> Result<(usize, &mut PlainBed), gv_core::Error> {
         let entry = self.tracks.get(id);
         let RepositoryFileIndex::Bed(index) = entry.repository_index else {
-            return Err(TGVError::NotBedTrack {
+            return Err(gv_core::Error::NotBedTrack {
                 name: file_name(&entry.file_path.to_string()).to_owned(),
             });
         };
@@ -493,7 +487,7 @@ impl Dataset {
         contig_index: usize,
         start: u64,
         end: u64,
-    ) -> Result<bool, TGVError> {
+    ) -> Result<bool, gv_core::Error> {
         let (index, _) = self.editable_bed(id)?;
         let file = RepositoryFileIndex::Bed(index);
         let contig = self.view.contig_header.try_get(contig_index)?;
@@ -524,13 +518,13 @@ impl Dataset {
     }
 
     /// Makes the next edit of a BED track start a new undo step.
-    pub fn begin_edit_step(&mut self, id: TrackId) -> Result<(), TGVError> {
+    pub fn begin_edit_step(&mut self, id: TrackId) -> Result<(), gv_core::Error> {
         self.editable_bed(id)?.1.history.begin_step();
         Ok(())
     }
 
     /// Undoes a BED track's last edit step and returns whether there was one.
-    pub fn undo(&mut self, id: TrackId) -> Result<bool, TGVError> {
+    pub fn undo(&mut self, id: TrackId) -> Result<bool, gv_core::Error> {
         let (index, bed) = self.editable_bed(id)?;
         let undone = bed.undo();
         if undone {
@@ -540,7 +534,7 @@ impl Dataset {
     }
 
     /// Redoes a BED track's last undone step and returns whether there was one.
-    pub fn redo(&mut self, id: TrackId) -> Result<bool, TGVError> {
+    pub fn redo(&mut self, id: TrackId) -> Result<bool, gv_core::Error> {
         let (index, bed) = self.editable_bed(id)?;
         let redone = bed.redo();
         if redone {
@@ -553,12 +547,16 @@ impl Dataset {
     ///
     /// An untitled track written to a path takes that path as its file. A track with a file
     /// written to another path leaves a copy there, as in vim.
-    pub fn write_bed(&mut self, id: TrackId, path: Option<&str>) -> Result<BedWrite, TGVError> {
+    pub fn write_bed(
+        &mut self,
+        id: TrackId,
+        path: Option<&str>,
+    ) -> Result<BedWrite, gv_core::Error> {
         let file_path = self.tracks.get(id).file_path.clone();
         let (_, bed) = self.editable_bed(id)?;
         let target = match (path, file_path.path()) {
             (None, None) => {
-                return Err(TGVError::UntitledTrack {
+                return Err(gv_core::Error::UntitledTrack {
                     name: file_path.to_string(),
                 });
             }
@@ -596,7 +594,7 @@ impl Dataset {
         &mut self,
         region: &Region,
         track_ids: &[TrackId],
-    ) -> Result<(), TGVError> {
+    ) -> Result<(), gv_core::Error> {
         let files: Vec<RepositoryFileIndex> = track_ids
             .iter()
             .map(|&id| self.tracks.get(id).repository_index)
@@ -617,19 +615,18 @@ impl Dataset {
     }
 
     /// Validates requested track IDs and returns them in dataset order.
-    fn selected_tracks(&self, tracks: Option<&[TrackId]>) -> Result<Vec<TrackId>, SessionError> {
-        if let Some(tracks) = tracks {
-            if tracks.is_empty()
+    fn selected_tracks(&self, tracks: Option<&[TrackId]>) -> Result<Vec<TrackId>, Error> {
+        if let Some(tracks) = tracks
+            && (tracks.is_empty()
                 || tracks
                     .iter()
                     .enumerate()
-                    .any(|(i, id)| tracks[..i].contains(id) || !self.tracks.contains(*id))
-            {
-                return Err(SessionError::InvalidInput {
-                    field: "tracks",
-                    message: "Select distinct track IDs from the current dataset.".to_owned(),
-                });
-            }
+                    .any(|(i, id)| tracks[..i].contains(id) || !self.tracks.contains(*id)))
+        {
+            return Err(Error::InvalidInput {
+                field: "tracks",
+                message: "Select distinct track IDs from the current dataset.".to_owned(),
+            });
         }
 
         Ok(self
@@ -658,7 +655,7 @@ impl Dataset {
     }
 
     /// Summarizes an inclusive region, clamping its end to a known contig length.
-    async fn inspect(&mut self, request: InspectRequest) -> Result<InspectResponse, SessionError> {
+    async fn inspect(&mut self, request: InspectRequest) -> Result<InspectResponse, Error> {
         let selected = self.selected_tracks(request.tracks.as_deref())?;
         let (query, region) = request.region.resolve(&self.query.contig_header)?;
         self.load_query_region(&query, &selected).await?;
@@ -705,7 +702,7 @@ impl Dataset {
     }
 
     /// Runs a read-only SQL query over the session's tables.
-    async fn query(&mut self, request: QueryRequest) -> Result<QueryResponse, SessionError> {
+    async fn query(&mut self, request: QueryRequest) -> Result<QueryResponse, Error> {
         let limit = request.limit()?;
         let resolved = request
             .region
@@ -847,7 +844,7 @@ mod tests {
             })
             .await
             .unwrap_err();
-        assert!(matches!(error, SessionError::NoViewer));
+        assert!(matches!(error, Error::NoViewer));
         assert!(session.describe().await.unwrap().is_none());
 
         session.shutdown().await;

@@ -1,6 +1,6 @@
 //! Dataset request and response types, independent of session file serialization.
 
-use crate::error::SessionError;
+use crate::error::Error;
 use gv_core::{
     prelude::*,
     settings::{Settings, classify_and_build_tracks},
@@ -21,36 +21,33 @@ pub struct DatasetRequest {
 
 impl DatasetRequest {
     /// Applies the request to the current settings, and classifies the files to open.
-    pub fn update_settings(
-        &self,
-        settings: &Settings,
-    ) -> Result<(Settings, Vec<FilePath>), SessionError> {
+    pub fn update_settings(&self, settings: &Settings) -> Result<(Settings, Vec<FilePath>), Error> {
         let mut settings = settings.clone();
         settings.reference = match &self.reference {
             Value::Null => Reference::NoReference,
             Value::String(reference) => {
                 reference
                     .parse()
-                    .map_err(|error: TGVError| SessionError::InvalidInput {
+                    .map_err(|error: gv_core::Error| Error::InvalidInput {
                         field: "reference",
                         message: error.to_string(),
                     })?
             }
             _ => {
-                return Err(SessionError::InvalidInput {
+                return Err(Error::InvalidInput {
                     field: "reference",
                     message: "The reference must be a string or null.".to_owned(),
                 });
             }
         };
         if self.files.is_empty() && settings.reference == Reference::NoReference {
-            return Err(SessionError::InvalidInput {
+            return Err(Error::InvalidInput {
                 field: "files",
                 message: "Provide a reference or at least one file.".to_owned(),
             });
         }
         let files =
-            classify_and_build_tracks(&self.files).map_err(|error| SessionError::InvalidInput {
+            classify_and_build_tracks(&self.files).map_err(|error| Error::InvalidInput {
                 field: "files",
                 message: error.to_string(),
             })?;

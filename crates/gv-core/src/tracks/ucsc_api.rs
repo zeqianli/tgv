@@ -2,7 +2,7 @@ use crate::tracks::{TRACK_PREFERENCES, TrackCache, TrackService};
 use crate::{
     contig_header::{Contig, ContigHeader},
     cytoband::CytobandTable,
-    error::TGVError,
+    error::Error,
     gene::GeneTable,
     intervals::IntervalTable,
     intervals::Region,
@@ -31,7 +31,7 @@ pub struct UcscApiTrackService {
 }
 
 impl UcscApiTrackService {
-    pub fn new() -> Result<Self, TGVError> {
+    pub fn new() -> Result<Self, Error> {
         Ok(Self {
             client: Client::new(),
             cache: TrackCache::default(),
@@ -46,7 +46,7 @@ impl UcscApiTrackService {
         contig_name: &str,
         contig_index: usize,
         contig_header: &ContigHeader,
-    ) -> Result<(), TGVError> {
+    ) -> Result<(), Error> {
         if self.cache.contig_quried(&contig_index) {
             return Ok(());
         }
@@ -54,19 +54,20 @@ impl UcscApiTrackService {
         let preferred_track = match &self.cache.preferred_track_name {
             None => {
                 {
-                    let preferred_track = self.get_preferred_track_name(reference).await?.ok_or(
-                        TGVError::IOError(format!(
-                            "Failed to get prefered track for {} from UCSC API",
-                            contig_name
-                        )),
-                    )?; // TODO: proper handling
+                    let preferred_track =
+                        self.get_preferred_track_name(reference)
+                            .await?
+                            .ok_or(Error::IOError(format!(
+                                "Failed to get prefered track for {} from UCSC API",
+                                contig_name
+                            )))?; // TODO: proper handling
 
                     self.cache.preferred_track_name = Some(Some(preferred_track.clone()));
                     preferred_track
                 }
             }
 
-            Some(preferred_track) => preferred_track.clone().ok_or(TGVError::IOError(format!(
+            Some(preferred_track) => preferred_track.clone().ok_or(Error::IOError(format!(
                 "Failed to get prefered track for {} from UCSC API",
                 contig_name
             )))?,
@@ -89,7 +90,7 @@ impl UcscApiTrackService {
                 )
             }
             _ => {
-                return Err(TGVError::StateError(
+                return Err(Error::StateError(
                     "UcscApi can only be used for UCSC reference genomes.".to_string(),
                 ));
             }
@@ -142,7 +143,7 @@ impl UcscApiTrackService {
     pub async fn get_hub_url_for_genark_accession(
         &mut self,
         accession: &str,
-    ) -> Result<String, TGVError> {
+    ) -> Result<String, Error> {
         let url = format!(
             "https://api.genome.ucsc.edu/list/genarkGenomes?genome={}",
             accession
@@ -164,12 +165,12 @@ impl UcscApiTrackService {
 
 #[async_trait]
 impl TrackService for UcscApiTrackService {
-    async fn close(&mut self) -> Result<(), TGVError> {
+    async fn close(&mut self) -> Result<(), Error> {
         // reqwest client dones't need closing
         Ok(())
     }
 
-    async fn get_all_contigs(&mut self, reference: &Reference) -> Result<Vec<Contig>, TGVError> {
+    async fn get_all_contigs(&mut self, reference: &Reference) -> Result<Vec<Contig>, Error> {
         let query_url = match reference {
             Reference::Hg19 | Reference::Hg38 | Reference::UcscGenome(_) => {
                 format!(
@@ -190,7 +191,7 @@ impl TrackService for UcscApiTrackService {
                 )
             }
             _ => {
-                return Err(TGVError::StateError(
+                return Err(Error::StateError(
                     "UcscApi tracks can only be used for UCSC reference genomes.".to_string(),
                 ));
             }
@@ -236,7 +237,7 @@ impl TrackService for UcscApiTrackService {
         &mut self,
         reference: &Reference,
         contig_header: &ContigHeader,
-    ) -> Result<CytobandTable, TGVError> {
+    ) -> Result<CytobandTable, Error> {
         // Without a `chrom` parameter, the API returns the bands of every contig.
         let query_url = match reference {
             Reference::Hg19 | Reference::Hg38 | Reference::UcscGenome(_) => format!(
@@ -255,7 +256,7 @@ impl TrackService for UcscApiTrackService {
                 )
             }
             _ => {
-                return Err(TGVError::StateError(
+                return Err(Error::StateError(
                     "UcscApi tracks can only be used for UCSC reference genomes.".to_string(),
                 ));
             }
@@ -282,7 +283,7 @@ impl TrackService for UcscApiTrackService {
     async fn get_preferred_track_name(
         &mut self,
         reference: &Reference,
-    ) -> Result<Option<String>, TGVError> {
+    ) -> Result<Option<String>, Error> {
         let query_url = match reference {
             Reference::Hg19 | Reference::Hg38 | Reference::UcscGenome(_) => format!(
                 "https://api.genome.ucsc.edu/list/tracks?trackLeavesOnly=1;genome={}",
@@ -300,7 +301,7 @@ impl TrackService for UcscApiTrackService {
                 )
             }
             _ => {
-                return Err(TGVError::StateError(
+                return Err(Error::StateError(
                     "UcscApi tracks can only be used for UCSC reference genomes.".to_string(),
                 ));
             }
@@ -325,11 +326,11 @@ impl TrackService for UcscApiTrackService {
 
                 let track_names = response
                     .get(reference.to_string())
-                    .ok_or(TGVError::IOError(
+                    .ok_or(Error::IOError(
                         "Failed to get genome from UCSC API".to_string(),
                     ))?
                     .as_object()
-                    .ok_or(TGVError::IOError(
+                    .ok_or(Error::IOError(
                         "Failed to get genome from UCSC API".to_string(),
                     ))?
                     .keys()
@@ -352,7 +353,7 @@ impl TrackService for UcscApiTrackService {
         reference: &Reference,
         region: &Region,
         contig_header: &ContigHeader,
-    ) -> Result<DataFrame, TGVError> {
+    ) -> Result<DataFrame, Error> {
         let contig_name = match contig_header
             .try_get(region.contig_index())?
             .get_gene_track_name()
@@ -375,7 +376,7 @@ impl TrackService for UcscApiTrackService {
             .tracks
             .get(&region.contig_index())
             .ok_or_else(|| {
-                TGVError::IOError(format!(
+                Error::IOError(format!(
                     "Track not found for contig index {}",
                     region.contig_index()
                 ))
@@ -388,7 +389,7 @@ impl TrackService for UcscApiTrackService {
         reference: &Reference,
         gene_name: &str,
         contig_header: &ContigHeader,
-    ) -> Result<DataFrame, TGVError> {
+    ) -> Result<DataFrame, Error> {
         // query all possible tracks until the gene is found
         for (contig_index, contig) in contig_header.contigs.iter().enumerate() {
             if let Some(contig_name) = contig.get_gene_track_name() {
@@ -402,7 +403,7 @@ impl TrackService for UcscApiTrackService {
             }
         }
 
-        Err(TGVError::IOError(format!("Gene {} not found", gene_name)))
+        Err(Error::IOError(format!("Gene {} not found", gene_name)))
     }
 
     async fn query_k_genes_after(
@@ -412,11 +413,11 @@ impl TrackService for UcscApiTrackService {
         coord: u64,
         k: usize,
         contig_header: &ContigHeader,
-    ) -> Result<DataFrame, TGVError> {
+    ) -> Result<DataFrame, Error> {
         let contig_name = match contig_header.try_get(contig_index)?.get_gene_track_name() {
             Some(contig_name) => contig_name,
             None => {
-                return Err(TGVError::StateError(format!(
+                return Err(Error::StateError(format!(
                     "Contig {} (index = {}, aliases = {}) does not have track data.",
                     contig_header.contigs[contig_index].name,
                     contig_index,
@@ -431,13 +432,13 @@ impl TrackService for UcscApiTrackService {
             .cache
             .tracks
             .get(&contig_index)
-            .ok_or(TGVError::IOError(format!(
+            .ok_or(Error::IOError(format!(
                 "Track not found for contig {}",
                 contig_index
             )))?
             .get_saturating_k_genes_after(coord, k)?;
         if rows.height() == 0 {
-            Err(TGVError::IOError("No genes found".to_string()))
+            Err(Error::IOError("No genes found".to_string()))
         } else {
             Ok(rows)
         }
@@ -450,11 +451,11 @@ impl TrackService for UcscApiTrackService {
         coord: u64,
         k: usize,
         contig_header: &ContigHeader,
-    ) -> Result<DataFrame, TGVError> {
+    ) -> Result<DataFrame, Error> {
         let contig_name = match contig_header.try_get(contig_index)?.get_gene_track_name() {
             Some(contig_name) => contig_name,
             None => {
-                return Err(TGVError::StateError(format!(
+                return Err(Error::StateError(format!(
                     "Contig {} (index = {}, aliases = {}) does not have track data.",
                     contig_header.contigs[contig_index].name,
                     contig_index,
@@ -469,13 +470,13 @@ impl TrackService for UcscApiTrackService {
             .cache
             .tracks
             .get(&contig_index)
-            .ok_or(TGVError::IOError(format!(
+            .ok_or(Error::IOError(format!(
                 "Track not found for contig {}",
                 contig_index
             )))?
             .get_saturating_k_genes_before(coord, k)?;
         if rows.height() == 0 {
-            Err(TGVError::IOError("No genes found".to_string()))
+            Err(Error::IOError("No genes found".to_string()))
         } else {
             Ok(rows)
         }
@@ -489,11 +490,11 @@ impl TrackService for UcscApiTrackService {
         k: usize,
 
         contig_header: &ContigHeader,
-    ) -> Result<DataFrame, TGVError> {
+    ) -> Result<DataFrame, Error> {
         let contig_name = match contig_header.try_get(contig_index)?.get_gene_track_name() {
             Some(contig_name) => contig_name,
             None => {
-                return Err(TGVError::StateError(format!(
+                return Err(Error::StateError(format!(
                     "Contig {} (index = {}, aliases = {}) does not have track data.",
                     contig_header.contigs[contig_index].name,
                     contig_index,
@@ -508,13 +509,13 @@ impl TrackService for UcscApiTrackService {
             .cache
             .tracks
             .get(&contig_index)
-            .ok_or(TGVError::IOError(format!(
+            .ok_or(Error::IOError(format!(
                 "Track not found for contig {}",
                 contig_index
             )))?
             .get_saturating_k_exons_after(coord, k)?;
         if rows.height() == 0 {
-            Err(TGVError::IOError("No exons found".to_string()))
+            Err(Error::IOError("No exons found".to_string()))
         } else {
             Ok(rows)
         }
@@ -527,11 +528,11 @@ impl TrackService for UcscApiTrackService {
         coord: u64,
         k: usize,
         contig_header: &ContigHeader,
-    ) -> Result<DataFrame, TGVError> {
+    ) -> Result<DataFrame, Error> {
         let contig_name = match contig_header.try_get(contig_index)?.get_gene_track_name() {
             Some(contig_name) => contig_name,
             None => {
-                return Err(TGVError::StateError(format!(
+                return Err(Error::StateError(format!(
                     "Contig {} (index = {}, aliases = {}) does not have track data.",
                     contig_header.contigs[contig_index].name,
                     contig_index,
@@ -546,13 +547,13 @@ impl TrackService for UcscApiTrackService {
             .cache
             .tracks
             .get(&contig_index)
-            .ok_or(TGVError::IOError(format!(
+            .ok_or(Error::IOError(format!(
                 "Track not found for contig {}",
                 contig_index
             )))?
             .get_saturating_k_exons_before(coord, k)?;
         if rows.height() == 0 {
-            Err(TGVError::IOError("No exons found".to_string()))
+            Err(Error::IOError("No exons found".to_string()))
         } else {
             Ok(rows)
         }

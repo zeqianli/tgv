@@ -12,10 +12,7 @@
 - Test comprehensively, including edge cases, race conditions, and stress tests.
 - Pay attention to what facilities already exist for testing, and aim to reuse them.
 - Getting the details right is really important!
-- Use inline comments to explain "why," not just "what".
-- Don't add narrative comments in function bodies. Only add a comment if what you're doing is non-obvious or special in some way, or if something needs a deeper "why" explanation.
-- Module-level documentation should explain purpose and responsibilities.
-- **Always** use periods at the end of code comments.
+- **Never** write comments in code. This includes `//` comments, doc comments (`///` and `//!`), and module-level documentation.
 - **Never** use title case in headings and titles. Always use sentence case.
 - Always use the Oxford comma.
 - Don't omit articles ("a", "an", "the"). Write "the file has a newer version" not "file has newer version".
@@ -43,9 +40,9 @@
 ## Crate layout
 
 - `gv-core`: the data model, repositories, `State`, data loading, `TrackRegistry`, and file classification. It knows nothing about front ends or MCP.
-- `gv-session`: the session worker that owns a loaded dataset and serves typed commands through `SessionHandle`, plus the SQL tables and the local socket (`SessionSocket` and `SessionConnection`) that lets agents drive a viewer. Requests, responses, `Call`, and `SessionError` with its stable error codes live here.
-- `gv-mcp`: the MCP tools, which translate MCP calls into session calls and send them to a running viewer or a headless session. It owns the MCP tool results and `McpError`.
-- `gv-viewer`: the viewer logic both front ends share: `Viewer` (which owns the `Dataset` and applies actions), `Action`, the vim key grammar over a neutral `Key`, `Registers`, `JumpList`, `Viewport<Z>` with its `Scale`, menu items, popups, session files, settings, the RGB `Palette`, and the screen-independent data preparation in `prepare`. It knows nothing about terminals or windows.
+- `gv-session`: the session worker that owns a loaded dataset and serves typed commands through `SessionHandle`, plus the SQL tables and the local socket (`SessionSocket` and `SessionConnection`) that lets agents drive a viewer. Requests, responses, `Call`, and `gv_session::Error` with its stable error codes live here.
+- `gv-mcp`: the MCP tools, which translate MCP calls into session calls and send them to a running viewer or a headless session. It owns the MCP tool results and `gv_mcp::Error`.
+- `gv-viewer`: the viewer logic both front ends share: `Viewer` (which owns the `Dataset` and applies actions), `Action`, the vim key grammar over a neutral `Key`, `KeyboardState` with its `InputMode`, `JumpList`, `Viewport<Z>` with its `Scale`, menu items, popups, session files, settings, the RGB `Palette`, and the screen-independent data preparation in `prepare`. It knows nothing about terminals or windows.
 - `tgv`: the TUI and the `tgv` binary, including the `tgv mcp` subcommand.
 - `tgv-gui`: the window and the `tgv-gui` binary, built with gpui. Its modules mirror `tgv`'s, plus `worker`, which runs the `Viewer` on its own thread.
 

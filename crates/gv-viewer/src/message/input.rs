@@ -1,6 +1,6 @@
 //! The active scene, focus, and input state.
 
-use crate::{register::KeyRegisterType, viewer::Scene};
+use crate::{keyboard::InputMode, viewer::Scene};
 use gv_core::track_registry::TrackId;
 use strum::Display;
 
@@ -11,7 +11,7 @@ pub enum InputAction {
 
     CommandChanged,
 
-    SwitchKeyRegister(KeyRegisterType),
+    SwitchInputMode(InputMode),
 
     /// Focuses the reference or a file track: what word motions, insert mode, and `:w` act on.
     Focus(FocusTarget),

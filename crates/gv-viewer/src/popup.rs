@@ -2,7 +2,6 @@
 //!
 //! While a popup is open, it blocks all other input. `Esc` closes it.
 
-use gv_core::prelude::*;
 use noodles::sam::{self, alignment::RecordBuf, alignment::io::Write as _};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -21,7 +20,7 @@ impl TextPopup {
 
     /// Shows a record as its SAM text, one mandatory field per line followed by the optional
     /// fields.
-    pub fn read_details(header: &sam::Header, record: &RecordBuf) -> Result<Self, TGVError> {
+    pub fn read_details(header: &sam::Header, record: &RecordBuf) -> Result<Self, crate::Error> {
         let mut writer = sam::io::Writer::new(Vec::new());
         writer.write_alignment_record(header, record)?;
         let text = String::from_utf8(writer.into_inner())?;

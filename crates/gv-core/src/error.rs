@@ -1,10 +1,9 @@
 use bigtools::{BBIReadError, BigBedReadOpenError};
 use std::path::PathBuf;
-use thiserror::Error;
 
-#[derive(Debug, Error)]
+#[derive(Debug, thiserror::Error)]
 #[allow(clippy::enum_variant_names)]
-pub enum TGVError {
+pub enum Error {
     #[error("CLI error: {0}")]
     CliError(String),
 
@@ -18,8 +17,8 @@ pub enum TGVError {
         "The UCSC MariaDB download and HTTPS fallback failed. MariaDB: {mysql}. HTTPS: {https}."
     )]
     UcscDownloadFallbackError {
-        mysql: Box<TGVError>,
-        https: Box<TGVError>,
+        mysql: Box<Error>,
+        https: Box<Error>,
     },
 
     #[error("Failed to {operation} from {url}: {source}")]
@@ -67,9 +66,6 @@ pub enum TGVError {
     #[error("Value error: {0}")]
     ValueError(String),
 
-    #[error("Register error: {0}")]
-    RegisterError(String),
-
     #[error("2bit file parsing error: {0}")]
     TwoBitFileParsingError(#[from] twobit::Error),
 
@@ -91,14 +87,42 @@ pub enum TGVError {
     #[error("an Interval must have a Range with a positive width")]
     InvalidRange,
 
+    #[error("The {column} column has a missing value")]
+    NullValue { column: &'static str },
+
     #[error("Invalid noodles position: {0}")]
     NoodlesPositionError(#[from] noodles::core::position::TryFromIntError),
 
     #[error("Noodles parse error")]
     NoodlesParseError(#[from] noodles::core::region::ParseError),
 
-    #[error("OpenDAL error")]
-    OpenDALError(#[from] opendal::Error),
+    #[error("Failed to {operation} {url}: {source}")]
+    ObjectStorage {
+        operation: &'static str,
+        url: String,
+        // Boxed because `opendal::Error` would make every `Error` large.
+        #[source]
+        source: Box<opendal::Error>,
+    },
+
+    #[error("Failed to {operation} {url}: {source}")]
+    ObjectStorageRead {
+        operation: &'static str,
+        url: String,
+        #[source]
+        source: std::io::Error,
+    },
+
+    #[error("{url} is not a valid S3 URL: {reason}. Use s3://<bucket>/<key>.")]
+    InvalidObjectUrl { url: String, reason: &'static str },
+
+    #[error(
+        "{url}: remote {format} files are not supported yet. Download the file and open it locally."
+    )]
+    UnsupportedRemoteFormat { url: String, format: &'static str },
+
+    #[error("Cannot write {url}: tgv writes BED files to local paths. Use :w <path>.")]
+    RemoteBedWrite { url: String },
 
     #[error("Not a file: {0}")]
     NotAFile(String),

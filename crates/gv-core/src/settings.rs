@@ -1,7 +1,7 @@
 use crate::tracks::UcscHost;
 use crate::{
     alignment::{QualityEncodingSetting, is_url},
-    error::TGVError,
+    error::Error,
     reference::Reference,
 };
 use clap::ValueEnum;
@@ -133,7 +133,7 @@ pub const BED_EXTENSIONS: [&str; 4] = [".bed", ".bed.gz", ".bb", ".bigbed"];
 /// Classify input files and build the track paths.
 ///
 /// Returns file paths in the same order as the input paths.
-pub fn classify_and_build_tracks(files: &[String]) -> Result<Vec<FilePath>, TGVError> {
+pub fn classify_and_build_tracks(files: &[String]) -> Result<Vec<FilePath>, Error> {
     for file in files {
         let lower = file.to_lowercase();
         if lower.ends_with(".fa")
@@ -141,11 +141,11 @@ pub fn classify_and_build_tracks(files: &[String]) -> Result<Vec<FilePath>, TGVE
             || lower.ends_with(".fa.gz")
             || lower.ends_with(".fasta.gz")
         {
-            return Err(TGVError::CliError(
+            return Err(Error::CliError(
                 "FASTA reference files must be passed with -g/--reference, not as positional input files.".to_string(),
             ));
         } else if lower.ends_with(".cram") {
-            return Err(TGVError::CliError(
+            return Err(Error::CliError(
                 "CRAM format is not yet supported as a CLI input format.".to_string(),
             ));
         } else if !(lower.ends_with(".bam")
@@ -156,7 +156,7 @@ pub fn classify_and_build_tracks(files: &[String]) -> Result<Vec<FilePath>, TGVE
                 .iter()
                 .any(|extension| lower.ends_with(extension)))
         {
-            return Err(TGVError::CliError(format!(
+            return Err(Error::CliError(format!(
                 "Unrecognized file format: {}. Supported track formats: .bam, {}, {}. Use -g for custom FASTA or 2bit reference genomes.",
                 file,
                 VARIANT_EXTENSIONS.join(", "),

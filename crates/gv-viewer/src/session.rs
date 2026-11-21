@@ -57,9 +57,9 @@ pub struct TrackEntry {
 // ─── AlignmentPath → TrackEntry ─────────────────────────────────────────────
 
 impl TryFrom<&AlignmentPath> for TrackEntry {
-    type Error = TGVError;
+    type Error = crate::Error;
 
-    fn try_from(ap: &AlignmentPath) -> Result<Self, TGVError> {
+    fn try_from(ap: &AlignmentPath) -> Result<Self, crate::Error> {
         match ap {
             AlignmentPath::Bam { path, index, .. } => Ok(TrackEntry {
                 path: path.clone(),
@@ -99,30 +99,30 @@ impl SessionFile {
     }
 
     /// Read and parse a session file from `path`.
-    pub fn from_path(path: &Path) -> Result<Self, TGVError> {
+    pub fn from_path(path: &Path) -> Result<Self, crate::Error> {
         Self::parse(&std::fs::read_to_string(path)?)
     }
 
     /// Parse a session file from a TOML string.
-    pub fn parse(content: &str) -> Result<Self, TGVError> {
-        let session: Self = toml::from_str(content)
-            .map_err(|e| TGVError::ParsingError(format!("Failed to parse session file: {e}")))?;
+    pub fn parse(content: &str) -> Result<Self, crate::Error> {
+        let session: Self = toml::from_str(content).map_err(crate::Error::ParseSession)?;
         if !(MIN_SUPPORTED_VERSION..=CURRENT_VERSION).contains(&session.version) {
-            return Err(TGVError::ParsingError(format!(
-                "Unsupported session file version {}. Expected a version between {} and {}.",
-                session.version, MIN_SUPPORTED_VERSION, CURRENT_VERSION
-            )));
+            return Err(crate::Error::UnsupportedSessionVersion {
+                version: session.version,
+                min: MIN_SUPPORTED_VERSION,
+                max: CURRENT_VERSION,
+            });
         }
         Ok(session)
     }
 
     /// Serialize `self` to TOML and write it to `path`, creating parent directories as needed.
-    pub fn write_to_path(&self, path: &Path) -> Result<(), TGVError> {
+    pub fn write_to_path(&self, path: &Path) -> Result<(), crate::Error> {
         if let Some(parent) = path.parent() {
             std::fs::create_dir_all(parent)?;
         }
-        let content = toml::to_string_pretty(self)
-            .map_err(|e| TGVError::ParsingError(format!("Failed to serialize session: {e}")))?;
+        let content =
+            toml::to_string_pretty(self).map_err(crate::Error::SerializeSession)?;
         std::fs::write(path, content)?;
         Ok(())
     }
@@ -131,7 +131,7 @@ impl SessionFile {
 // ─── Locus string parsing ────────────────────────────────────────────────────
 
 /// Parse a locus string (`"chr1:100"` or a gene name) into initial movement messages.
-pub fn parse_locus(locus: &str) -> Result<Vec<Action>, TGVError> {
+pub fn parse_locus(locus: &str) -> Result<Vec<Action>, crate::Error> {
     let parts: Vec<&str> = locus.split(':').collect();
     match parts.len() {
         1 => Ok(vec![Action::Navigate(NavigationAction::Move(
@@ -144,19 +144,17 @@ pub fn parse_locus(locus: &str) -> Result<Vec<Action>, TGVError> {
                     Movement::ContigNamePosition(parts[0].to_string(), n),
                 ))]
             })
-            .map_err(|_| TGVError::ParsingError(format!("Invalid position in locus \"{locus}\""))),
-        _ => Err(TGVError::ParsingError(format!(
-            "Invalid locus format \"{locus}\": expected \"contig:position\" or a gene name"
-        ))),
+            .map_err(|_| crate::Error::InvalidLocus(locus.to_string())),
+        _ => Err(crate::Error::InvalidLocus(locus.to_string())),
     }
 }
 
 // ─── SessionFile → Settings ──────────────────────────────────────────────────
 
 impl TryFrom<SessionFile> for Settings {
-    type Error = TGVError;
+    type Error = crate::Error;
 
-    fn try_from(session: SessionFile) -> Result<Self, TGVError> {
+    fn try_from(session: SessionFile) -> Result<Self, crate::Error> {
         let initial_actions = parse_locus(&session.locus)?;
 
         let mut file_paths = Vec::new();
@@ -178,12 +176,11 @@ impl TryFrom<SessionFile> for Settings {
                 let crai = track
                     .index
                     .unwrap_or_else(|| format!("{}.crai", track.path));
-                let fasta = track.reference.ok_or_else(|| {
-                    TGVError::ParsingError(format!(
-                        "CRAM track \"{}\" requires a `reference` field in the session file",
-                        track.path
-                    ))
-                })?;
+                let fasta = track
+                    .reference
+                    .ok_or_else(|| crate::Error::CramWithoutReference {
+                        path: track.path.clone(),
+                    })?;
                 let fai = track
                     .reference_index
                     .unwrap_or_else(|| format!("{fasta}.fai"));
@@ -202,12 +199,13 @@ impl TryFrom<SessionFile> for Settings {
 
         Ok(Settings {
             core: gv_core::settings::Settings {
-                reference: session.genome.parse().map_err(|e| {
-                    TGVError::ParsingError(format!(
-                        "Invalid genome \"{}\" in the session file: {e}",
-                        session.genome
-                    ))
-                })?,
+                reference: session
+                    .genome
+                    .parse()
+                    .map_err(|e| crate::Error::InvalidGenome {
+                        genome: session.genome.clone(),
+                        source: e,
+                    })?,
                 backend: BackendType::Default,
                 ucsc_host: session.ucsc_host,
                 cache_dir: gv_core::settings::Settings::default().cache_dir,
@@ -231,9 +229,9 @@ impl TryFrom<SessionFile> for Settings {
 /// The locus is taken from `viewer.viewport.focus` (the live viewport position),
 /// not from `viewer.settings.initial_actions`.
 impl<Z: Scale> TryFrom<&Viewer<Z>> for SessionFile {
-    type Error = TGVError;
+    type Error = crate::Error;
 
-    fn try_from(app: &Viewer<Z>) -> Result<Self, TGVError> {
+    fn try_from(app: &Viewer<Z>) -> Result<Self, crate::Error> {
         let locus = app
             .viewport
             .focus

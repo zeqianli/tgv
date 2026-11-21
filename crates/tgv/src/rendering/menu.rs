@@ -1,33 +1,31 @@
-use crate::rendering::colors::ToColor;
-use crate::{
-    layout::wrap_sidebar_label,
-    menu::{ContextMenu, MenuPanel},
-    rendering::colors::Palette,
+use crate::rendering::colors::to_color;
+use crate::{layout::wrap_sidebar_label, menu::ContextMenu, rendering::colors::Palette};
+use gv_viewer::{
+    menu::{MenuItem, MenuLevel},
+    popup::TextPopup,
 };
-use gv_viewer::{menu::MenuItem, popup::TextPopup};
 use ratatui::{buffer::Buffer, layout::Rect, style::Style};
 
 /// Draw the context menu over everything else.
 pub fn render_context_menu(buf: &mut Buffer, menu: &ContextMenu, palette: &Palette) {
-    render_panel(buf, &menu.main, palette);
-    if let Some((_, panel)) = &menu.submenu {
-        render_panel(buf, panel, palette);
+    for (level, rect) in menu.menu.levels.iter().zip(&menu.rects) {
+        render_level(buf, *rect, level, palette);
     }
 }
 
-fn render_panel(buf: &mut Buffer, panel: &MenuPanel, palette: &Palette) {
-    let area = panel.area.intersection(buf.area);
+fn render_level(buf: &mut Buffer, rect: Rect, level: &MenuLevel, palette: &Palette) {
+    let area = rect.intersection(buf.area);
     let width = area.width as usize;
-    for (index, item) in panel.items.iter().enumerate().take(area.height as usize) {
-        let background = if panel.hovered == Some(index) && item.enabled() {
-            palette.MENU_HOVER_BACKGROUND.color()
+    for (index, item) in level.items.iter().enumerate().take(area.height as usize) {
+        let background = if level.hovered == Some(index) && item.enabled() {
+            to_color(palette.MENU_HOVER_BACKGROUND)
         } else {
-            palette.MENU_BACKGROUND.color()
+            to_color(palette.MENU_BACKGROUND)
         };
         let foreground = if item.enabled() {
-            palette.MENU_FOREGROUND.color()
+            to_color(palette.MENU_FOREGROUND)
         } else {
-            palette.MENU_DISABLED_FOREGROUND.color()
+            to_color(palette.MENU_DISABLED_FOREGROUND)
         };
         let marker = if matches!(item, MenuItem::Submenu { .. }) {
             "▸"
@@ -101,9 +99,9 @@ pub fn render_text_popup(buf: &mut Buffer, area: Rect, popup: &TextPopup, palett
     .intersection(buf.area);
     for (row, line) in lines.iter().enumerate().take(panel.height as usize) {
         let foreground = if row == 0 {
-            palette.MENU_DISABLED_FOREGROUND.color()
+            to_color(palette.MENU_DISABLED_FOREGROUND)
         } else {
-            palette.MENU_FOREGROUND.color()
+            to_color(palette.MENU_FOREGROUND)
         };
         buf.set_stringn(
             panel.x,
@@ -112,7 +110,7 @@ pub fn render_text_popup(buf: &mut Buffer, area: Rect, popup: &TextPopup, palett
             panel.width as usize,
             Style::default()
                 .fg(foreground)
-                .bg(palette.MENU_BACKGROUND.color()),
+                .bg(to_color(palette.MENU_BACKGROUND)),
         );
     }
 }
