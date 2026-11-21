@@ -421,7 +421,7 @@ impl VariantRepositoryEnum {
 
     async fn new_remote(url: &str) -> Result<Self, Error> {
         let object = S3Object::parse(url)?;
-        let operator = object.operator()?;
+        let operator = object.operator().await?;
         if url.to_lowercase().ends_with(".bcf") {
             return Ok(Self::RemoteBcf(RemoteBcf::open(object, operator).await?));
         }

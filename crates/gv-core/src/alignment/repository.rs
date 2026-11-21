@@ -141,12 +141,12 @@ impl RemoteBamRepository {
     pub async fn new(s3_bam_path: &str, s3_bai_path: &str) -> Result<Self, Error> {
         let object = S3Object::parse(s3_bam_path)?;
         let index_object = S3Object::parse(s3_bai_path)?;
-        let operator = object.operator()?;
+        let operator = object.operator().await?;
         // The index can live in another bucket.
         let index_operator = if index_object.bucket == object.bucket {
             operator.clone()
         } else {
-            index_object.operator()?
+            index_object.operator().await?
         };
 
         const READ_INDEX: &str = "read the BAM index";
