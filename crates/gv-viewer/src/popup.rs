@@ -20,7 +20,7 @@ impl TextPopup {
 
     /// Shows a record as its SAM text, one mandatory field per line followed by the optional
     /// fields.
-    pub fn read_details(header: &sam::Header, record: &RecordBuf) -> Result<Self, gv_core::Error> {
+    pub fn read_details(header: &sam::Header, record: &RecordBuf) -> Result<Self, crate::Error> {
         let mut writer = sam::io::Writer::new(Vec::new());
         writer.write_alignment_record(header, record)?;
         let text = String::from_utf8(writer.into_inner())?;

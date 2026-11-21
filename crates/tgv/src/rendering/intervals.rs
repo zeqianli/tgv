@@ -14,7 +14,7 @@ pub fn render_simple_intervals(
     alignment_view: &AlignmentView,
     colors: &[Color],
     first_color_index: usize,
-) -> Result<(), gv_core::Error> {
+) -> Result<(), crate::Error> {
     // TODO:
     // A better solution for overlapping intervals.
 

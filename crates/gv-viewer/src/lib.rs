@@ -11,6 +11,7 @@
 
 pub mod colors;
 pub mod command;
+pub mod error;
 pub mod jumps;
 pub mod keys;
 pub mod layout;
@@ -23,6 +24,8 @@ pub mod session;
 pub mod settings;
 pub mod viewer;
 pub mod viewport;
+
+pub use error::Error;
 
 /// Common types for front ends that use the shared viewer.
 pub mod prelude {

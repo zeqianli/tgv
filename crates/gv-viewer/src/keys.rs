@@ -134,7 +134,7 @@ impl PendingKeys {
 
     /// Adds a key. Returns the actions of a completed command, or nothing while the command is
     /// still being typed. A completed or invalid command clears the pending keys.
-    pub fn push(&mut self, key: Key, mode: Mode) -> Result<Vec<Action>, gv_core::Error> {
+    pub fn push(&mut self, key: Key, mode: Mode) -> Result<Vec<Action>, crate::Error> {
         self.typed.push_str(&key_name(key));
         let result = self.interpret(key, mode);
         if !matches!(result, Ok(None)) {
@@ -149,15 +149,18 @@ impl PendingKeys {
         operator_count.unwrap_or(1) * self.count.unwrap_or(1)
     }
 
-    fn invalid(&self, mode: Mode) -> gv_core::Error {
+    fn invalid(&self, mode: Mode) -> crate::Error {
         let mode = match mode {
             Mode::Normal => "normal",
             Mode::Insert(_) => "insert",
         };
-        gv_core::Error::RegisterError(format!("Invalid {mode} mode input: {}", self.typed))
+        crate::Error::InvalidKeys {
+            mode,
+            typed: self.typed.clone(),
+        }
     }
 
-    fn interpret(&mut self, key: Key, mode: Mode) -> Result<Option<Vec<Action>>, gv_core::Error> {
+    fn interpret(&mut self, key: Key, mode: Mode) -> Result<Option<Vec<Action>>, crate::Error> {
         let control = key.modifiers.control;
         let code = match key.code {
             KeyCode::Left => KeyCode::Char('h'),
@@ -383,11 +386,7 @@ impl PendingKeys {
     }
 
     /// A motion moves the cursor, or completes the pending operator.
-    fn motion(
-        &mut self,
-        mode: Mode,
-        motion: Motion,
-    ) -> Result<Option<Vec<Action>>, gv_core::Error> {
+    fn motion(&mut self, mode: Mode, motion: Motion) -> Result<Option<Vec<Action>>, crate::Error> {
         match (self.operator, mode) {
             (Some((operator, _)), Mode::Insert(track)) => {
                 Ok(Some(vec![Action::Edit(EditAction::Operate {
@@ -463,9 +462,7 @@ mod tests {
     }
 
     fn invalid(mode: &str, typed: &str) -> Result<Vec<Action>, String> {
-        Err(format!(
-            "Register error: Invalid {mode} mode input: {typed}"
-        ))
+        Err(format!("Invalid {mode} mode input: {typed}"))
     }
 
     #[rstest]

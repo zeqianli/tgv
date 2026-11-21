@@ -79,11 +79,9 @@ impl Cli {
     ///
     /// The MCP server loads files only through its `load_dataset` tool, so positional files
     /// and resumed sessions are rejected.
-    pub fn mcp_settings(&self) -> Result<CoreSettings, gv_core::Error> {
+    pub fn mcp_settings(&self) -> Result<CoreSettings, crate::Error> {
         if !self.viewer.files.is_empty() || self.viewer.resume.is_some() {
-            return Err(gv_core::Error::CliError(
-                "Use the load_dataset MCP tool to load files when serving.".into(),
-            ));
+            return Err(crate::Error::McpWithFiles);
         }
         let mut settings = Settings::default();
         self.viewer.apply_overrides(&mut settings)?;
@@ -95,8 +93,8 @@ impl Cli {
     }
 
     /// Apply CLI overrides on top of an existing [`Settings`] loaded from a resumed session.
-    pub fn apply_overrides(&self, settings: &mut Settings) -> Result<(), gv_core::Error> {
-        self.viewer.apply_overrides(settings)
+    pub fn apply_overrides(&self, settings: &mut Settings) -> Result<(), crate::Error> {
+        Ok(self.viewer.apply_overrides(settings)?)
     }
 }
 
@@ -104,14 +102,12 @@ impl Cli {
 ///
 /// Used when no session is resumed.
 impl TryFrom<Cli> for Settings {
-    type Error = gv_core::Error;
-    fn try_from(cli: Cli) -> Result<Self, gv_core::Error> {
+    type Error = crate::Error;
+    fn try_from(cli: Cli) -> Result<Self, crate::Error> {
         if cli.command.is_some() {
-            return Err(gv_core::Error::CliError(
-                "Download command should be handled separately".to_string(),
-            ));
+            return Err(crate::Error::UnexpectedSubcommand);
         }
-        Settings::try_from(&cli.viewer)
+        Ok(Settings::try_from(&cli.viewer)?)
     }
 }
 
@@ -182,8 +178,8 @@ mod tests {
         files: vec![FilePath::AlignmentPath(bam("input.bam"))],
         ..Settings::default()
     }))]
-    #[case("tgv input.bam -r chr1:invalid", Err(gv_core::Error::CliError("".to_string())))]
-    #[case("tgv input.bam -r chr1:12:12345", Err(gv_core::Error::CliError("".to_string())))]
+    #[case("tgv input.bam -r chr1:invalid", Err(()))]
+    #[case("tgv input.bam -r chr1:12:12345", Err(()))]
     #[case("tgv input.bam -r TP53", Ok(Settings {
         initial_actions: vec![Movement::Gene("TP53".to_string()).into()],
         files: vec![FilePath::AlignmentPath(bam("input.bam"))],
@@ -216,8 +212,8 @@ mod tests {
         files: vec![FilePath::AlignmentPath(bam("input.bam"))],
         ..Settings::default()
     }))]
-    #[case("tgv input.bam -r TP53 -g hg19 --no-reference", Err(gv_core::Error::CliError("".to_string())))]
-    #[case("tgv --no-reference", Err(gv_core::Error::CliError("".to_string())))]
+    #[case("tgv input.bam -r TP53 -g hg19 --no-reference", Err(()))]
+    #[case("tgv --no-reference", Err(()))]
     #[case("tgv input.bam input2.bam", Ok(Settings {
         files: vec![
             FilePath::AlignmentPath(bam("input.bam")),
@@ -225,10 +221,10 @@ mod tests {
         ],
         ..Settings::default()
     }))]
-    #[case("tgv input.txt", Err(gv_core::Error::CliError("".to_string())))]
+    #[case("tgv input.txt", Err(()))]
     fn test_cli_parsing(
         #[case] command_line: &str,
-        #[case] expected_settings: Result<Settings, gv_core::Error>,
+        #[case] expected_settings: Result<Settings, ()>,
     ) {
         let cli = Cli::parse_from(shlex::split(command_line).unwrap());
 

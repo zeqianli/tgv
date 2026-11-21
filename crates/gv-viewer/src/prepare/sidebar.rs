@@ -11,7 +11,7 @@ pub fn alignment_depth_description<Z: Scale>(
     state: &State,
     alignment_view: &Viewport<Z>,
     index: usize,
-) -> Result<String, gv_core::Error> {
+) -> Result<String, crate::Error> {
     let depth = match &state.paired_alignments[index] {
         Some(paired) => paired.depth()?,
         None => state.alignments[index].depth()?,

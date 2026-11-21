@@ -35,25 +35,32 @@ pub fn get_linear_space(
     left: u64,
     right: u64,
     n_bins: usize,
-) -> Result<Vec<(u64, u64)>, gv_core::Error> {
+) -> Result<Vec<(u64, u64)>, crate::Error> {
     if n_bins == 0 {
-        return Err(gv_core::Error::ValueError("n_bins is 0".to_string()));
+        return Err(crate::Error::InvalidBins {
+            left,
+            right,
+            n_bins,
+        });
     }
 
     if right < left {
-        return Err(gv_core::Error::ValueError(
-            "Right is less than left".to_string(),
-        ));
+        return Err(crate::Error::InvalidBins {
+            left,
+            right,
+            n_bins,
+        });
     }
 
     let length = right - left + 1;
     if n_bins as u64 > length {
         // FIXME: make this permissive? Don't wanna crash the app because of a rendering problem.
         // Could happen if the region is weird.
-        return Err(gv_core::Error::ValueError(format!(
-            "n_bins = {} is greater than the number of bases in the region [{}, {}]",
-            n_bins, left, right
-        )));
+        return Err(crate::Error::InvalidBins {
+            left,
+            right,
+            n_bins,
+        });
     }
 
     Ok((0..n_bins)
@@ -73,7 +80,7 @@ pub fn calculate_binned_coverage(
     left: u64,
     right: u64,
     n_bins: usize,
-) -> Result<Vec<Vec<usize>>, gv_core::Error> {
+) -> Result<Vec<Vec<usize>>, crate::Error> {
     let linear_space = get_linear_space(left, right, n_bins)?;
     let table = coverage.query(left, right)?;
     let positions = table.column(CoverageSchema::POS)?.u64()?;
@@ -139,10 +146,10 @@ mod tests {
     }
 
     #[rstest]
-    #[case(1, 5, 0, Err(gv_core::Error::ValueError("n_bins is 0".to_string())))]
+    #[case(1, 5, 0, Err(crate::Error::InvalidBins { left: 1, right: 5, n_bins: 0 }))]
     #[case(1, 5, 5, Ok(vec![(1,1), (2,2), (3,3), (4,4), (5,5)]))]
     #[case(5,5, 1, Ok(vec![(5,5)]))]
-    #[case(5, 4, 1, Err(gv_core::Error::ValueError("Right is less than left".to_string())))]
+    #[case(5, 4, 1, Err(crate::Error::InvalidBins { left: 5, right: 4, n_bins: 1 }))]
     #[case(25398019, 25398025, 3, Ok(vec![(25398019, 25398020), (25398021, 25398022), (25398023, 25398025)]))]
     #[case(5,10, 1, Ok(vec![(5,10)]))]
     #[case(5, 10, 2, Ok(vec![(5,7), (8,10)]))]
@@ -150,7 +157,7 @@ mod tests {
         #[case] left: u64,
         #[case] right: u64,
         #[case] n_bins: usize,
-        #[case] expected: Result<Vec<(u64, u64)>, gv_core::Error>,
+        #[case] expected: Result<Vec<(u64, u64)>, crate::Error>,
     ) {
         let result = get_linear_space(left, right, n_bins);
         match (result, expected) {

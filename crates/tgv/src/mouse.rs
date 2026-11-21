@@ -22,7 +22,7 @@ fn read_at(
     area: &Rect,
     column: u16,
     row: u16,
-) -> Result<Option<(usize, usize)>, gv_core::Error> {
+) -> Result<Option<(usize, usize)>, crate::Error> {
     let index = layout.track_registry.alignment_index(track)?;
     let (Some((left, right)), Some(y)) = (
         alignment_view.coordinates_of_onscreen_x(column, area),
@@ -80,7 +80,7 @@ impl MouseRegister {
         layout: &ResolvedMainLayout,
         alignment_view: &AlignmentView,
         event: MouseEvent,
-    ) -> Result<Vec<Action>, gv_core::Error> {
+    ) -> Result<Vec<Action>, crate::Error> {
         let cell = (event.column, event.row);
         if event.kind == MouseEventKind::Moved {
             if self.last_hover == Some(cell) {

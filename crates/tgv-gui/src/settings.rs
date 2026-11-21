@@ -9,8 +9,8 @@ pub struct Cli {
 }
 
 impl TryFrom<Cli> for Settings {
-    type Error = gv_core::Error;
-    fn try_from(cli: Cli) -> Result<Self, gv_core::Error> {
+    type Error = gv_viewer::Error;
+    fn try_from(cli: Cli) -> Result<Self, gv_viewer::Error> {
         Settings::try_from(&cli.viewer)
     }
 }

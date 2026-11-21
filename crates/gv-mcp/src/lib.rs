@@ -40,15 +40,6 @@ pub enum Error {
     Core(#[from] gv_core::Error),
 }
 
-impl From<Error> for gv_core::Error {
-    fn from(error: Error) -> Self {
-        match error {
-            Error::Core(error) => error,
-            other => gv_core::Error::StateError(other.to_string()),
-        }
-    }
-}
-
 /// Where tool calls go.
 struct Target {
     /// The viewer's session and process ID, once attached.

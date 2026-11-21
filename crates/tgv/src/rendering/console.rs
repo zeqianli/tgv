@@ -14,7 +14,7 @@ pub fn render_console(
     area: &Rect,
     buf: &mut Buffer,
     buffer: &Registers,
-) -> Result<(), gv_core::Error> {
+) -> Result<(), crate::Error> {
     if area.width < MIN_AREA_WIDTH || area.height < MIN_AREA_HEIGHT {
         return Ok(());
     }

@@ -40,7 +40,7 @@ pub struct App {
 }
 
 impl App {
-    pub async fn new(settings: Settings) -> Result<Self, gv_core::Error> {
+    pub async fn new(settings: Settings) -> Result<Self, crate::Error> {
         let viewer = Viewer::new(settings, ViewerKind::Tui).await?;
         let layout = MainLayout::new(
             &viewer.settings,
@@ -64,11 +64,11 @@ impl App {
     pub async fn run<B: Backend>(
         &mut self,
         terminal: &mut Terminal<B>,
-    ) -> Result<(), gv_core::Error> {
+    ) -> Result<(), crate::Error> {
         log::info!("Starting the app event loop");
         terminal
             .draw(|frame| self.resolve_layout(frame.area()))
-            .map_err(|e| gv_core::Error::IOError(format!("Failed to draw the terminal: {e}")))?;
+            .map_err(crate::Error::DrawTerminal)?;
 
         self.start().await?;
 
@@ -84,9 +84,7 @@ impl App {
                         let buffer = frame.buffer_mut();
                         render_result = self.render(buffer, &render_events);
                     })
-                    .map_err(|e| {
-                        gv_core::Error::IOError(format!("Failed to draw the terminal: {e}"))
-                    })?;
+                    .map_err(crate::Error::DrawTerminal)?;
                 render_result?;
             }
             render_events.clear();
@@ -219,7 +217,7 @@ impl App {
     }
 
     /// Applies the startup actions after the first layout.
-    pub async fn start(&mut self) -> Result<Vec<RenderEvent>, gv_core::Error> {
+    pub async fn start(&mut self) -> Result<Vec<RenderEvent>, crate::Error> {
         let mut render_events = self.viewer.start().await?;
         render_events.extend(self.apply_effects().await?);
         Ok(render_events)
@@ -255,29 +253,26 @@ impl App {
     }
 
     /// close connections
-    pub async fn close(self) -> Result<(), gv_core::Error> {
-        self.viewer.close().await
+    pub async fn close(self) -> Result<(), crate::Error> {
+        Ok(self.viewer.close().await?)
     }
 
     /// Applies actions after initialization and returns the areas that need redrawing.
-    pub async fn handle(
-        &mut self,
-        actions: Vec<Action>,
-    ) -> Result<Vec<RenderEvent>, gv_core::Error> {
+    pub async fn handle(&mut self, actions: Vec<Action>) -> Result<Vec<RenderEvent>, crate::Error> {
         let mut render_events = self.viewer.handle(actions).await?;
         render_events.extend(self.apply_effects().await?);
         Ok(render_events)
     }
 
     /// Opens the files that `:e` requested, and returns the areas to redraw.
-    pub async fn open_pending(&mut self) -> Result<Vec<RenderEvent>, gv_core::Error> {
+    pub async fn open_pending(&mut self) -> Result<Vec<RenderEvent>, crate::Error> {
         let mut render_events = self.viewer.open_pending().await?;
         render_events.extend(self.apply_effects().await?);
         Ok(render_events)
     }
 
     /// Applies what the viewer left for the terminal: layout changes, menus, and popups.
-    async fn apply_effects(&mut self) -> Result<Vec<RenderEvent>, gv_core::Error> {
+    async fn apply_effects(&mut self) -> Result<Vec<RenderEvent>, crate::Error> {
         let mut render_events = Vec::new();
         for effect in self.viewer.take_effects() {
             match effect {
@@ -350,7 +345,7 @@ impl App {
         &mut self,
         buf: &mut Buffer,
         render_events: &Vec<RenderEvent>,
-    ) -> Result<(), gv_core::Error> {
+    ) -> Result<(), crate::Error> {
         use crate::rendering::{render_contig_list, render_main};
         let full_render = vec![RenderEvent::All];
         let render_events = if self.render_buffer.area != buf.area {

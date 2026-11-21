@@ -741,11 +741,9 @@ pub fn linear_scale(
     original_length: u64,
     new_start: u16,
     new_end: u16,
-) -> Result<u16, gv_core::Error> {
+) -> Result<u16, crate::Error> {
     if original_length == 0 {
-        return Err(gv_core::Error::ValueError(
-            "Trying to linear scale with original_length = 0 when rendering cytoband".to_string(),
-        ));
+        return Err(crate::Error::EmptyScale);
     }
     Ok(new_start
         + (original_x as f64 / (original_length) as f64 * (new_end - new_start) as f64) as u16)

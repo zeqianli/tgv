@@ -48,7 +48,7 @@ pub fn render_coverage(
         ]
         .into_iter()
         .map(|(column, base, color)| Ok((table.column(column)?.u64()?.clone(), base, color)))
-        .collect::<Result<Vec<_>, gv_core::Error>>()?;
+        .collect::<Result<Vec<_>, crate::Error>>()?;
         let references = table.column(CoverageSchema::REFERENCE_BASE)?.u8()?;
         for (row, position) in positions.into_no_null_iter().enumerate() {
             let total = totals.get(row).expect("coverage totals are non-null");

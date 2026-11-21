@@ -35,7 +35,6 @@
 - Do not add lazy `ensure_*` helpers, `get(...).unwrap_or_default()`, or similar defaulting around every indexed access when the correct invariant is that the index is valid.
 - Use explicit optional lookups only when a missing value is a real domain case, not as a substitute for maintaining indexed state invariants.
 - Use `thiserror` for error types with `#[derive(Error)]`.
-- Each crate names its error enum `Error`, derived with `#[derive(Debug, thiserror::Error)]`. Refer to other crates' errors by path, such as `gv_core::Error`, and wrap them with `#[from]`. Conversions only go from a dependency's error to the dependent crate's error.
 - Provide rich error context using structured error types.
 - Use `Arc` or borrows for shared immutable data.
 - Use direct typed column reductions for simple DataFrame statistics, such as sums, maxima, and visibility checks. Keep lazy expressions for row selection, transformations, joins, and grouped aggregations.

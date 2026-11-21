@@ -25,7 +25,7 @@ pub fn render_coverage(
     coverage: &CoverageTable,
     alignment_view: &AlignmentView,
     palette: &Palette,
-) -> Result<(), gv_core::Error> {
+) -> Result<(), crate::Error> {
     if area.width < MIN_AREA_WIDTH || area.height < MIN_AREA_HEIGHT {
         return Ok(());
     }

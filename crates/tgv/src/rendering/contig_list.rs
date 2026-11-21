@@ -18,7 +18,7 @@ pub fn render_contig_list(
     state: &State,
     registers: &Registers,
     pallete: &Palette,
-) -> Result<(), gv_core::Error> {
+) -> Result<(), crate::Error> {
     if area.height <= 1 {
         return Ok(());
     }
@@ -126,7 +126,7 @@ fn render_contig_at_y(
     max_contig_length: Option<u64>,
     y: u16,
     _pallete: &Palette,
-) -> Result<(), gv_core::Error> {
+) -> Result<(), crate::Error> {
     let contig_name = contig.name.clone();
     let contig_length = contig.length;
 

@@ -56,6 +56,10 @@ pub enum Error {
     #[error("The session worker stops before replying.")]
     Stopped,
 
+    /// The viewer fails to apply an agent's actions, such as an invalid search.
+    #[error("{message}")]
+    Viewer { message: String },
+
     /// Reading or computing data fails.
     #[error(transparent)]
     Core(#[from] gv_core::Error),
@@ -79,7 +83,9 @@ impl Error {
             Self::ViewerNotFound(_) => "viewer_not_found",
             Self::Connection(_) => "viewer_disconnected",
             Self::Remote { code, .. } => code,
-            Self::Unavailable | Self::Stopped | Self::Core(_) => "internal_error",
+            Self::Unavailable | Self::Stopped | Self::Viewer { .. } | Self::Core(_) => {
+                "internal_error"
+            }
         }
     }
 

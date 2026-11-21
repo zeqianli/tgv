@@ -27,7 +27,7 @@ pub fn render_cytobands(
     state: &State,
     alignment_view: &AlignmentView,
     pallete: &Palette,
-) -> Result<(), gv_core::Error> {
+) -> Result<(), crate::Error> {
     if area.width <= CYTOBAND_TEXT_RIGHT_SPACING + 1 {
         return Ok(());
     }
@@ -108,7 +108,7 @@ fn get_cytoband_xs_strings_and_styles(
     area_start: u16,
     area_end: u16,
     palette: &Palette,
-) -> Result<Vec<(u16, String, Style)>, gv_core::Error> {
+) -> Result<Vec<(u16, String, Style)>, crate::Error> {
     let starts = bands.column(CytobandSchema::START)?.u64()?;
     let ends = bands.column(CytobandSchema::END)?.u64()?;
     let stains = bands.column(CytobandSchema::STAIN)?.str()?;
@@ -153,7 +153,7 @@ fn get_cytoband_segment_x_string_and_style(
     area_end: u16,
     second_centromere: bool,
     palette: &Palette,
-) -> Result<Option<(u16, String, Style)>, gv_core::Error> {
+) -> Result<Option<(u16, String, Style)>, crate::Error> {
     let onscreen_x_start = linear_scale(start - 1, total_length, area_start, area_end)?; // 0-based, inclusive
     let onscreen_x_end = linear_scale(end, total_length, area_start, area_end)?; // 0-based, exclusive
 

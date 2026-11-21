@@ -90,7 +90,7 @@ impl MouseRegister {
         frame: &Frame,
         layout: &ResolvedMainLayout,
         view: &PixelView,
-    ) -> Result<Vec<GuiAction>, gv_core::Error> {
+    ) -> Result<Vec<GuiAction>, crate::Error> {
         let mut actions = Vec::new();
         let hovered = layout.get_area_type_at_position(x, y);
         match button {
@@ -198,7 +198,7 @@ impl MouseRegister {
         frame: &Frame,
         layout: &ResolvedMainLayout,
         view: &PixelView,
-    ) -> Result<Vec<GuiAction>, gv_core::Error> {
+    ) -> Result<Vec<GuiAction>, crate::Error> {
         let mut actions = Vec::new();
         let hovered = layout.get_area_type_at_position(x, y);
         self.hovered_divider = match hovered {
@@ -265,7 +265,7 @@ impl MouseRegister {
         frame: &Frame,
         layout: &ResolvedMainLayout,
         view: &PixelView,
-    ) -> Result<Vec<GuiAction>, gv_core::Error> {
+    ) -> Result<Vec<GuiAction>, crate::Error> {
         let mut actions = Vec::new();
         // A click on a read, without dragging, shows its details.
         if !self.dragged
@@ -344,7 +344,7 @@ impl MouseRegister {
         frame: &Frame,
         layout: &ResolvedMainLayout,
         view: &PixelView,
-    ) -> Result<Option<String>, gv_core::Error> {
+    ) -> Result<Option<String>, crate::Error> {
         let HoveringAreaType::Track(track_index) = layout.get_area_type_at_position(x, y) else {
             return Ok(None);
         };
@@ -393,7 +393,7 @@ fn read_at(
     area: &Rect,
     x: f32,
     y: f32,
-) -> Result<Option<(usize, usize)>, gv_core::Error> {
+) -> Result<Option<(usize, usize)>, crate::Error> {
     let index = layout.track_registry.alignment_index(track)?;
     if !area.contains(x, y) {
         return Ok(None);

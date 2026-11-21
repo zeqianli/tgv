@@ -40,7 +40,7 @@ pub fn render_sidebar(
     focus: &TrackFocus,
     pallete: &Palette,
     render_events: &Vec<RenderEvent>,
-) -> Result<(), gv_core::Error> {
+) -> Result<(), crate::Error> {
     let sidebar_style = Style::default().fg(Color::Gray);
     if layout.sidebar_width > 0 {
         let separator_style = Style::default().fg(Color::DarkGray);
