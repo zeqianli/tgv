@@ -275,6 +275,11 @@ jobs:
           echo "GUI Darwin SHA: $GUI_DARWIN_SHA"
           echo "GUI Linux SHA: $GUI_LINUX_SHA"
 
+      - name: Checkout formula template
+        uses: actions/checkout@v4
+        with:
+          sparse-checkout: .github/workflows
+
       - name: Checkout Homebrew Tap Repo
         uses: actions/checkout@v4
         with:
