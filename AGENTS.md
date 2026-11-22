@@ -4,7 +4,6 @@
 - Use the type system to encode correctness constraints.
 - Prefer compile-time guarantees over runtime checks where possible.
 - User experienced: make progress reporting responsive and informative.
-- Write user-facing messages in clear, present tense: "Nextest now supports..." not "Nextest now supported..."
 - "Not overly generic"—prefer specific, composable logic over abstract frameworks.
 - Evolve the design incrementally rather than attempting perfect upfront architecture.
 - Use type system extensively: newtypes, builder patterns, type states, lifetimes.
@@ -12,26 +11,22 @@
 - Test comprehensively, including edge cases, race conditions, and stress tests.
 - Pay attention to what facilities already exist for testing, and aim to reuse them.
 - Getting the details right is really important!
-- **Never** write comments in code. This includes `//` comments, doc comments (`///` and `//!`), and module-level documentation.
 - **Never** use title case in headings and titles. Always use sentence case.
 - Always use the Oxford comma.
-- Don't omit articles ("a", "an", "the"). Write "the file has a newer version" not "file has newer version".
 
 ## Code preference
 
 - Use Rust 2024 edition.
-- **Builder patterns** for complex construction (e.g., `TestRunnerBuilder`)
+- **Never** write comments in code. This includes `//` comments, doc comments (`///` and `//!`), and module-level documentation.
+- **Builder patterns** for complex construction 
 - **Type states** encoded in generics when state transitions matter
-- **Non-exhaustive in stable crates**: The `nextest-metadata` crate has a stable API and public types there should be `#[non_exhaustive]` for forward compatibility. Internal crates like `nextest-runner` do not have stable APIs, so `#[non_exhaustive]` is not required (though error types may still use it).
 - Prefer keeping simple one-off logic at the call site instead of creating small helper functions that only wrap a single operation.
-- Do not write simple getters that only return a field, such as `reads(&self)`. Expose the field as `pub` and access it directly. Keep methods for operations that compute, select, or validate data.
-- DataFrame schemas: Define column names as associated constants on the owning schema type, and use those constants in schema declarations, builders, queries, rendering, and tests. Do not use string literals for DataFrame column references, including temporary query columns.
-- Coordinates:Keep all internal genomic coordinates one-based, with inclusive interval endpoints. This includes alignment tables, annotations, viewport queries, and rendering.
+- Never write simple getters that only return a field, such as `reads(&self)`. Expose the field as `pub` and access it directly. Keep methods for operations that compute, select, or validate data.
+
+## tgv
+- Coordinates: Keep **all** internal genomic coordinates one-based, with inclusive interval endpoints. 
 - Row IDs, operation indexes, and offsets into sequences remain zero-based indexes.
-- When parallel vectors or indexed state are expected to have matching shapes, initialize them to the correct length at construction or update boundaries, then access valid indexes directly with `[index]`.
-- Do not add lazy `ensure_*` helpers, `get(...).unwrap_or_default()`, or similar defaulting around every indexed access when the correct invariant is that the index is valid.
-- Use explicit optional lookups only when a missing value is a real domain case, not as a substitute for maintaining indexed state invariants.
-- Use `thiserror` for error types with `#[derive(Error)]`.
+- When parallel vectors or indexed state are expected to have matching shapes, initialize them to the correct length at construction or update boundaries, then access valid indexes directly with `[index]`. Do not add lazy `ensure_*` helpers, `get(...).unwrap_or_default()`, or similar defaulting around every indexed access when the correct invariant is that the index is valid.
 - Provide rich error context using structured error types.
 - Use `Arc` or borrows for shared immutable data.
 - Use direct typed column reductions for simple DataFrame statistics, such as sums, maxima, and visibility checks. Keep lazy expressions for row selection, transformations, joins, and grouped aggregations.
@@ -39,12 +34,12 @@
 
 ## Crate layout
 
-- `gv-core`: the data model, repositories, `State`, data loading, `TrackRegistry`, and file classification. It knows nothing about front ends or MCP.
-- `gv-session`: the session worker that owns a loaded dataset and serves typed commands through `SessionHandle`, plus the SQL tables and the local socket (`SessionSocket` and `SessionConnection`) that lets agents drive a viewer. Requests, responses, `Call`, and `gv_session::Error` with its stable error codes live here.
-- `gv-mcp`: the MCP tools, which translate MCP calls into session calls and send them to a running viewer or a headless session. It owns the MCP tool results and `gv_mcp::Error`.
-- `gv-viewer`: the viewer logic both front ends share: `Viewer` (which owns the `Dataset` and applies actions), `Action`, the vim key grammar over a neutral `Key`, `KeyboardState` with its `InputMode`, `JumpList`, `Viewport<Z>` with its `Scale`, menu items, popups, session files, settings, the RGB `Palette`, and the screen-independent data preparation in `prepare`. It knows nothing about terminals or windows.
-- `tgv`: the TUI and the `tgv` binary, including the `tgv mcp` subcommand.
-- `tgv-gui`: the window and the `tgv-gui` binary, built with gpui. Its modules mirror `tgv`'s, plus `worker`, which runs the `Viewer` on its own thread.
+- `gv-core`: the data model, repositories, `State`, data loading, `TrackRegistry`, and file classification.
+- `gv-session`: the session worker that owns a loaded dataset and serves typed commands through `SessionHandle`, plus the SQL tables and the local socket (`SessionSocket` and `SessionConnection`) that lets agents drive a viewer. 
+- `gv-mcp`: MCP tools
+- `gv-viewer`: abstraction of key components of a genome viewer: main state, message passing, keyboard and mouse actions, colors, etc.
+- `tgv`: the TUI genome viewer. Also controls launches the mcp through `tgv mcp`
+- `tgv-gui`: the GUI genome viewer.
 
 ## Documentation
 
@@ -53,10 +48,7 @@
 
 ## Testing practices
 
-
 Always use `cargo nextest run` to run unit and integration tests. For doctests, use `cargo test --doc` (doctests are not supported by nextest).
-
-
 - Do not add new tests unless the user explicitly asks for them. If tests seem especially beneficial, ask for confirmation before adding them.
 - Unit tests in the same file as the code they test.
 - Use `#[rstest]` and `#[case(...)]` parameterized tests when possible, especially for related scenarios that share the same setup and assertions.

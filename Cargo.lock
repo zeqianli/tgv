@@ -3375,7 +3375,7 @@ checksum = "12101ecc8225ea6d675bc70263074eab6169079621c2186fe0c66590b2df9681"
 
 [[package]]
 name = "gv-core"
-version = "0.4.0"
+version = "0.5.0"
 dependencies = [
  "anyhow",
  "async-compat",
@@ -3410,7 +3410,7 @@ dependencies = [
 
 [[package]]
 name = "gv-mcp"
-version = "0.4.0"
+version = "0.5.0"
 dependencies = [
  "gv-core",
  "gv-session",
@@ -3425,7 +3425,7 @@ dependencies = [
 
 [[package]]
 name = "gv-session"
-version = "0.4.0"
+version = "0.5.0"
 dependencies = [
  "gv-core",
  "log",
@@ -3440,7 +3440,7 @@ dependencies = [
 
 [[package]]
 name = "gv-viewer"
-version = "0.4.0"
+version = "0.5.0"
 dependencies = [
  "clap",
  "gv-core",
@@ -8415,7 +8415,7 @@ dependencies = [
 
 [[package]]
 name = "tgv"
-version = "0.4.0"
+version = "0.5.0"
 dependencies = [
  "clap",
  "crossterm",
@@ -8441,7 +8441,7 @@ dependencies = [
 
 [[package]]
 name = "tgv-gui"
-version = "0.4.0"
+version = "0.5.0"
 dependencies = [
  "anyhow",
  "block",

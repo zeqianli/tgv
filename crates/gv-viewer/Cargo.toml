@@ -1,6 +1,6 @@
 [package]
 name = "gv-viewer"
-version = "0.4.0"
+version = "0.5.0"
 edition = "2024"
 description = "The viewer logic that TGV's terminal and graphical front ends share."
 license = "MIT"
