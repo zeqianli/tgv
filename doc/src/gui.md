@@ -14,13 +14,16 @@ sudo apt-get install pkg-config libfontconfig1-dev libfreetype6-dev libwayland-d
     libxkbcommon-dev libxkbcommon-x11-dev libssl-dev fonts-liberation
 ```
 
-The Linux GUI also needs a Vulkan-capable graphics driver. Build it for the system's native
-GNU target; the musl release archive contains only the terminal viewer.
+The Linux GUI also needs a Vulkan-capable graphics driver. The musl release archive contains
+only the terminal viewer; `tgv-gui` ships in its own archive built for the GNU target.
 
-Build it from the repository and pass the same options and files as `tgv`:
+Install it with one of these, and pass the same options and files as `tgv`:
+
+- cargo: `cargo install tgv-gui --locked`
+- brew: `brew tap zeqianli/tgv && brew install tgv` (installs both `tgv` and `tgv-gui`)
+- Pre-built binaries: [GitHub Releases](https://github.com/zeqianli/tgv/releases/)
 
 ```sh
-cargo install --path crates/tgv-gui
 tgv-gui -g hg38 -r chr20:88108 /data/simple.bam /data/simple.vcf /data/simple.bed
 ```
 

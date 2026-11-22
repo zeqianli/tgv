@@ -75,7 +75,7 @@ jobs:
           shared-key: aarch64-apple-darwin
 
       - name: Build
-        run: cargo build --release --target aarch64-apple-darwin
+        run: cargo build -p tgv --release --target aarch64-apple-darwin
 
       - name: Prepare binary
         run: |
@@ -89,12 +89,87 @@ jobs:
           name: tgv-macos-arm
           path: dist/tgv-aarch64-apple-darwin.tar.gz
 
+  build-gui-linux-gnu:
+    name: Build Linux GUI release
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-unknown-linux-gnu
+
+      - name: Cache Rust dependencies
+        uses: Swatinem/rust-cache@v2
+        with:
+          key: x86_64-unknown-linux-gnu
+          shared-key: x86_64-unknown-linux-gnu
+
+      - name: Install Linux dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y pkg-config libfontconfig1-dev libfreetype6-dev libwayland-dev libxkbcommon-dev libxkbcommon-x11-dev libssl-dev
+
+      - name: Build
+        run: cargo build -p tgv-gui --release --target x86_64-unknown-linux-gnu
+
+      - name: Prepare binary
+        run: |
+          mkdir -p dist
+          tar czvf dist/tgv-gui-x86_64-linux-gnu.tar.gz -C target/x86_64-unknown-linux-gnu/release tgv-gui
+        shell: bash
+
+      - name: Upload build artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: tgv-gui-linux-gnu
+          path: dist/tgv-gui-x86_64-linux-gnu.tar.gz
+
+  build-gui-macos-arm:
+    name: Build macOS GUI release
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-apple-darwin
+
+      - name: Cache Rust dependencies
+        uses: Swatinem/rust-cache@v2
+        with:
+          key: gui-aarch64-apple-darwin
+          shared-key: gui-aarch64-apple-darwin
+
+      - name: Build
+        run: cargo build -p tgv-gui --release --target aarch64-apple-darwin
+
+      - name: Prepare binary
+        run: |
+          mkdir -p dist
+          tar czvf dist/tgv-gui-aarch64-apple-darwin.tar.gz -C target/aarch64-apple-darwin/release tgv-gui
+        shell: bash
+
+      - name: Upload build artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: tgv-gui-macos-arm
+          path: dist/tgv-gui-aarch64-apple-darwin.tar.gz
+
   create-release:
     name: Create GitHub Release
     runs-on: ubuntu-latest
     needs:
       - build-linux-musl
       - build-macos-arm
+      - build-gui-linux-gnu
+      - build-gui-macos-arm
     outputs:
       version: ${{ steps.release_info.outputs.VERSION }}
       tag_name: ${{ steps.release_info.outputs.TAG_NAME }}
@@ -182,14 +257,23 @@ jobs:
         run: |
           set -euo pipefail
           echo "Parsing checksums from checksums.txt"
-          DARWIN_SHA=$(grep 'aarch64-apple-darwin' checksums.txt | awk '{ print $1 }')
-          LINUX_SHA=$(grep 'x86_64-linux-musl' checksums.txt | awk '{ print $1 }')
+          sha_of() { awk -v f="$1" '$2 == f { print $1 }' checksums.txt; }
+          DARWIN_SHA=$(sha_of tgv-aarch64-apple-darwin.tar.gz)
+          LINUX_SHA=$(sha_of tgv-x86_64-linux-musl.tar.gz)
+          GUI_DARWIN_SHA=$(sha_of tgv-gui-aarch64-apple-darwin.tar.gz)
+          GUI_LINUX_SHA=$(sha_of tgv-gui-x86_64-linux-gnu.tar.gz)
           test -n "${DARWIN_SHA}"
           test -n "${LINUX_SHA}"
+          test -n "${GUI_DARWIN_SHA}"
+          test -n "${GUI_LINUX_SHA}"
           echo "DARWIN_SHA=${DARWIN_SHA}" >> $GITHUB_OUTPUT
           echo "LINUX_SHA=${LINUX_SHA}" >> $GITHUB_OUTPUT
+          echo "GUI_DARWIN_SHA=${GUI_DARWIN_SHA}" >> $GITHUB_OUTPUT
+          echo "GUI_LINUX_SHA=${GUI_LINUX_SHA}" >> $GITHUB_OUTPUT
           echo "Darwin SHA: $DARWIN_SHA"
           echo "Linux SHA: $LINUX_SHA"
+          echo "GUI Darwin SHA: $GUI_DARWIN_SHA"
+          echo "GUI Linux SHA: $GUI_LINUX_SHA"
 
       - name: Checkout Homebrew Tap Repo
         uses: actions/checkout@v4
@@ -206,12 +290,16 @@ jobs:
           VERSION="${{ needs.create-release.outputs.version }}"
           DARWIN_SHA="${{ steps.checksums.outputs.DARWIN_SHA }}"
           LINUX_SHA="${{ steps.checksums.outputs.LINUX_SHA }}"
+          GUI_DARWIN_SHA="${{ steps.checksums.outputs.GUI_DARWIN_SHA }}"
+          GUI_LINUX_SHA="${{ steps.checksums.outputs.GUI_LINUX_SHA }}"
           TEMPLATE_FILE="${{ github.workspace }}/.github/workflows/brew_template.tgv.rb"
           FORMULA_FILE="Formula/tgv.rb"
 
           test -n "${VERSION}"
           test -n "${DARWIN_SHA}"
           test -n "${LINUX_SHA}"
+          test -n "${GUI_DARWIN_SHA}"
+          test -n "${GUI_LINUX_SHA}"
           test -f "${TEMPLATE_FILE}"
 
           echo "Updating $FORMULA_FILE using template $TEMPLATE_FILE"
@@ -219,12 +307,17 @@ jobs:
           cp "$TEMPLATE_FILE" "$FORMULA_FILE"
 
           sed -i.bak "s|__VERSION__|${VERSION}|g" "$FORMULA_FILE"
+          sed -i.bak "s|__GUI_MACOS_SHA256__|${GUI_DARWIN_SHA}|g" "$FORMULA_FILE"
+          sed -i.bak "s|__GUI_LINUX_SHA256__|${GUI_LINUX_SHA}|g" "$FORMULA_FILE"
           sed -i.bak "s|__MACOS_SHA256__|${DARWIN_SHA}|g" "$FORMULA_FILE"
           sed -i.bak "s|__LINUX_SHA256__|${LINUX_SHA}|g" "$FORMULA_FILE"
 
           rm -f "${FORMULA_FILE}.bak"
 
-          ! grep -q '__VERSION__\|__MACOS_SHA256__\|__LINUX_SHA256__' "$FORMULA_FILE"
+          if grep -q '__[A-Z_]*__' "$FORMULA_FILE"; then
+            echo "Unreplaced placeholders in $FORMULA_FILE"
+            exit 1
+          fi
 
           echo "Formula file updated from template:"
           cat "$FORMULA_FILE"
@@ -247,3 +340,5 @@ jobs:
             **Checksums:**
             - macOS (ARM): `${{ steps.checksums.outputs.DARWIN_SHA }}`
             - Linux (musl): `${{ steps.checksums.outputs.LINUX_SHA }}`
+            - GUI macOS (ARM): `${{ steps.checksums.outputs.GUI_DARWIN_SHA }}`
+            - GUI Linux (GNU): `${{ steps.checksums.outputs.GUI_LINUX_SHA }}`
