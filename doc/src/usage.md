@@ -24,7 +24,7 @@ For example, `tgv -g hg38 -r chr20:88108 /data/simple.bam /data/simple.vcf /data
   - A BED track from S3 without an index can be edited, and `:w <path>` writes it to a local file. tgv doesn't write to S3.
   - bigBed files in S3 aren't supported yet.
   - When a file can't be opened, the error names the URL that failed (the data file or its index) and gives S3's reason, such as a missing object or denied access.
-- Indexed variant and BED tracks show `zoom in to view …` when zoomed out beyond 100 bases per column, instead of loading a large region.
+- Variant and BED tracks load at every zoom, so zooming far out on a large indexed file can be slow.
 - Custom FASTA and 2bit reference genomes are passed with `-g` / `--reference`, not as positional track files. FASTA references require a `.fai` index beside the FASTA file.
 - CRAM is not supported as a CLI input format. Configure CRAM tracks in a [session file](./session.md).
 
@@ -195,9 +195,11 @@ Click a track, or its section in the sidebar, to focus it. Click the sequence or
 focus the reference. Clicking another track in insert mode returns to normal mode. Hovering
 doesn't move the focus.
 
-Every track has a line below it. Drag the line to resize the track above it. An alignment
-trades height with the next alignment, and other tracks take height from the alignments.
-Dragging a collapsed track's line down expands the track.
+Every track has a line below it. Drag the line to resize the track above it, down to one
+row. A track grows into empty space first, then into the tracks below it, then into the tracks
+above it. A shrinking track gives its height to the empty space, or else to the track below it.
+A track's height is only its viewing area: a collapsed track keeps the height you give it and
+still shows one row.
 
 Scroll the mouse wheel over an alignment or an expanded track to scroll its rows, whatever has
 focus. Hold Shift while scrolling, or scroll horizontally on a trackpad, to pan left and right.
@@ -211,8 +213,9 @@ Click the cytoband to go to that part of the contig, keeping the zoom.
 Gene, BED, and variant tracks start collapsed: they show one row, and where features overlap,
 only the features of the first row. Right-click the track, or its section in the sidebar, and
 choose **Expand overlapping features** to stack overlapping features on separate rows, as
-alignment reads are stacked. An expanded track grows to fit up to eight rows, scrolls like an
-alignment, and keeps the height you drag it to. Choose the item again to collapse the track.
+alignment reads are stacked. Until you resize it, a track fits its rows: one row when
+collapsed, and up to eight rows when expanded. An expanded track scrolls like an alignment.
+Choose the item again to collapse the track.
 Session files don't save whether a track is expanded.
 
 Hover over a track for details on the message line: genes and exons, reference

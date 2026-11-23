@@ -245,7 +245,7 @@ Data requests never change the screen, so `Dataset::serve` answers them without 
 | `view_state` | None; it only reads | Returns the displayed interval and zoom. |
 | viewer info | None; it only reads | Returns the viewer's kind, files, locus, and start time, for `list_viewers` and `attach`. |
 
-**Data loading for the view** goes through `Viewer::load_data`. It works out the displayed region from the viewport and the track width that the front end set. The scale decides what to load: reads, the sequence, and indexed features each have a zoom limit, `ColumnScale`'s in bases per column and `PixelScale`'s in bases per pixel. Then it calls `dataset.view.ensure_loaded` with `CachePolicy::VIEWER`, which reads files only when the region isn't already loaded, and pads each load so that nearby panning reuses the data.
+**Data loading for the view** goes through `Viewer::load_data`. It works out the displayed region from the viewport and the track width that the front end set. The scale decides what to load: reads and the sequence each have a zoom limit, and variant and BED files load at every zoom, `ColumnScale`'s in bases per column and `PixelScale`'s in bases per pixel. Then it calls `dataset.view.ensure_loaded` with `CachePolicy::VIEWER`, which reads files only when the region isn't already loaded, and pads each load so that nearby panning reuses the data.
 
 ## Where to change things
 

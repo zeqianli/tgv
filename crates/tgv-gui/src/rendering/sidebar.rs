@@ -59,7 +59,16 @@ pub fn render_sidebar(
         if focused {
             fill_rect(*section, to_hsla(fill), window);
         }
-        if matches!(
+        let highlighted = area_type
+            .focus_target()
+            .is_some_and(|target| mouse_state.is_divider_highlighted(&AreaType::Divider(target)));
+        if highlighted {
+            fill_rect(
+                Rect::new(section.x, section.bottom() - 2.0, section.width, 2.0),
+                to_hsla(palette.HIGHLIGHT_COLOR),
+                window,
+            );
+        } else if matches!(
             area_type,
             AreaType::Coverage(_) | AreaType::Variant(_) | AreaType::Bed(_)
         ) {

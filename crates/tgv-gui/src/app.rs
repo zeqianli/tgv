@@ -314,9 +314,11 @@ impl App {
         for effect in effects {
             match effect {
                 Effect::Ui(UiAction::UpdateLayout(update)) => {
-                    let (Some(layout), Some(resolved)) =
-                        (self.layout.as_mut(), self.resolved_layout.as_ref())
-                    else {
+                    let (Some(layout), Some(resolved), Some(frame)) = (
+                        self.layout.as_mut(),
+                        self.resolved_layout.as_mut(),
+                        self.frame.as_ref(),
+                    ) else {
                         continue;
                     };
                     match update {
@@ -328,6 +330,8 @@ impl App {
                             layout.resize_track(target, delta as f32, resolved)
                         }
                     }
+                    *resolved =
+                        layout.resolve(resolved.window, &frame.track_labels, &frame.track_rows);
                 }
                 Effect::Ui(UiAction::ContextMenuChanged) => {}
                 Effect::Ui(UiAction::CloseContextMenu) => self.context_menu = None,

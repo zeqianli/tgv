@@ -1,9 +1,6 @@
 use gv_core::prelude::*;
 pub use gv_viewer::layout::AreaType;
-use gv_viewer::{
-    message::FocusTarget, prelude::*, prepare::rows::TrackRows, settings::Settings,
-    viewport::RowLayout,
-};
+use gv_viewer::{message::FocusTarget, prelude::*, prepare::rows::TrackRows, settings::Settings};
 use std::{collections::HashMap, sync::Arc};
 
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
@@ -145,7 +142,7 @@ pub struct MainLayout {
 }
 
 impl MainLayout {
-    const ALIGNMENT_MIN_HEIGHT: f32 = ALIGNMENT_ROW_HEIGHT;
+    const TRACK_MIN_HEIGHT: f32 = ALIGNMENT_ROW_HEIGHT;
     const SIDEBAR_DEFAULT_WIDTH: f32 = 170.0;
     const SIDEBAR_MIN_WIDTH: f32 = 60.0;
     pub const SIDEBAR_DIVIDER_WIDTH: f32 = 4.0;
@@ -212,71 +209,49 @@ impl MainLayout {
         else {
             return;
         };
-        match self.tracks[index] {
-            AreaType::Alignment(id) => {
-                let alignments = self
-                    .tracks
-                    .iter()
-                    .filter_map(|area| match area {
-                        AreaType::Alignment(id) => Some(*id),
-                        _ => None,
-                    })
-                    .collect::<Vec<_>>();
-                let position = alignments
-                    .iter()
-                    .position(|&alignment| alignment == id)
-                    .expect("the alignment is in the layout");
-                if let Some(&lower) = alignments.get(position + 1) {
-                    self.resize_alignment_pair(id, lower, delta, resolved);
-                } else if let Some(previous) = position.checked_sub(1) {
-                    self.resize_alignment_pair(alignments[previous], id, -delta, resolved);
-                }
+        let minimum = |area: &AreaType| match area {
+            AreaType::Fill => Some(0.0),
+            area if area.rows_target().is_some() => Some(Self::TRACK_MIN_HEIGHT),
+            _ => None,
+        };
+        let mut heights = resolved
+            .areas
+            .iter()
+            .map(|(_, rect)| rect.height)
+            .collect::<Vec<_>>();
+        let fill = self.tracks.iter().position(|area| *area == AreaType::Fill);
+        let order = fill
+            .into_iter()
+            .chain((index + 1..self.tracks.len()).filter(|&other| Some(other) != fill))
+            .chain((0..index).rev().filter(|&other| Some(other) != fill))
+            .filter(|&other| minimum(&self.tracks[other]).is_some())
+            .collect::<Vec<_>>();
+        if delta > 0.0 {
+            let mut needed = delta;
+            for &other in &order {
+                let taken = (heights[other] - minimum(&self.tracks[other]).unwrap_or(0.0))
+                    .clamp(0.0, needed);
+                heights[other] -= taken;
+                needed -= taken;
             }
-            area => {
-                let current = resolved.areas[index].1.height;
-                let slack = resolved
-                    .areas
-                    .iter()
-                    .map(|(area, rect)| match area {
-                        AreaType::Alignment(_) => {
-                            (rect.height - Self::ALIGNMENT_MIN_HEIGHT).max(0.0)
-                        }
-                        AreaType::Fill => rect.height,
-                        _ => 0.0,
-                    })
-                    .sum::<f32>();
-                let delta = delta.clamp(-(current - row_height(&area)).max(0.0), slack);
-                if delta != 0.0 {
-                    self.track_heights[index] = Some(current + delta);
-                }
+            heights[index] += delta - needed;
+        } else {
+            let Some(&recipient) = order.first() else {
+                return;
+            };
+            let given = (heights[index] - Self::TRACK_MIN_HEIGHT).clamp(0.0, -delta);
+            heights[index] -= given;
+            heights[recipient] += given;
+        }
+        for (position, area) in self.tracks.iter().enumerate() {
+            if position == index
+                || matches!(area, AreaType::Alignment(_))
+                || (area.rows_target().is_some()
+                    && heights[position] != resolved.areas[position].1.height)
+            {
+                self.track_heights[position] = Some(heights[position]);
             }
         }
-    }
-
-    /// Moves `delta` pixels of height from the lower alignment to the upper one.
-    fn resize_alignment_pair(
-        &mut self,
-        upper: TrackId,
-        lower: TrackId,
-        delta: f32,
-        resolved: &ResolvedMainLayout,
-    ) {
-        let position = |id| {
-            self.tracks
-                .iter()
-                .position(|area| *area == AreaType::Alignment(id))
-        };
-        let (Some(upper_track), Some(lower_track)) = (position(upper), position(lower)) else {
-            return;
-        };
-        let upper_height = resolved.areas[upper_track].1.height;
-        let lower_height = resolved.areas[lower_track].1.height;
-        let delta = delta.clamp(
-            -(upper_height - Self::ALIGNMENT_MIN_HEIGHT).max(0.0),
-            (lower_height - Self::ALIGNMENT_MIN_HEIGHT).max(0.0),
-        );
-        self.track_heights[upper_track] = Some(upper_height + delta);
-        self.track_heights[lower_track] = Some(lower_height - delta);
     }
 
     /// Resolve the requested layout within the window. `labels` are the sidebar labels of the
@@ -309,13 +284,10 @@ impl MainLayout {
             .iter()
             .zip(&self.track_heights)
             .map(|(area, height)| match area.rows_target() {
-                Some(target) if !matches!(area, AreaType::Alignment(_)) => {
-                    let track_rows = rows[&target];
-                    Some(match (track_rows.layout, *height) {
-                        (RowLayout::Expanded, Some(requested)) => requested,
-                        _ => track_rows.units(EXPANDED_ROW_CAP) as f32 * row_height(area),
-                    })
-                }
+                Some(target) if !matches!(area, AreaType::Alignment(_)) => Some(
+                    height
+                        .unwrap_or(rows[&target].units(EXPANDED_ROW_CAP) as f32 * row_height(area)),
+                ),
                 _ => *height,
             })
             .collect::<Vec<_>>();

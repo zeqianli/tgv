@@ -12,7 +12,7 @@ use gv_viewer::{
 use ratatui::{buffer::Buffer, layout::Rect, style::Style};
 
 const MIN_AREA_WIDTH: u16 = 5;
-const MIN_AREA_HEIGHT: u16 = 2;
+const MIN_AREA_HEIGHT: u16 = 1;
 const ROW_HEIGHT: u16 = 2;
 
 struct TrackRenderContext {

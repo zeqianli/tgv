@@ -12,7 +12,7 @@ use gv_core::{message::Movement, prelude::*};
 use gv_viewer::{
     message::{
         Action, Anchor, ContextMenuTarget, FocusTarget, InputAction, InteractionAction,
-        NavigationAction, TrackAction, UpdateLayoutAction,
+        NavigationAction, UpdateLayoutAction,
     },
     prepare::hover,
     viewport::RowLayout,
@@ -101,9 +101,6 @@ impl MouseState {
                 let position = ((fraction * length as f64) as u64).clamp(1, length);
                 actions.push(Action::from(Movement::Position(position)).into());
             }
-            if let AreaType::Divider(target) = area {
-                self.drag_target = Some(DragTarget::Divider(target));
-            }
             // A double click zooms in around the point, as in IGV.
             if click_count == 2
                 && matches!(
@@ -119,6 +116,9 @@ impl MouseState {
             {
                 actions.push(GuiAction::ZoomAround { factor: 2.0, x });
             }
+        }
+        if let Some(target) = divider_at(layout, hovered, y) {
+            self.drag_target = Some(DragTarget::Divider(target));
         }
         Ok(actions)
     }
@@ -177,13 +177,7 @@ impl MouseState {
     ) -> Result<Vec<GuiAction>, crate::Error> {
         let mut actions = Vec::new();
         let hovered = layout.get_area_type_at_position(x, y);
-        self.hovered_divider = match hovered {
-            HoveringAreaType::Track(track_index) => match layout.areas[track_index].0 {
-                AreaType::Divider(target) => Some(target),
-                _ => None,
-            },
-            _ => None,
-        };
+        self.hovered_divider = divider_at(layout, hovered, y);
         if !left_pressed {
             actions.push(GuiAction::Hover(Self::describe(x, y, frame, layout, view)?));
             return Ok(actions);
@@ -196,15 +190,6 @@ impl MouseState {
                 .push(Action::from(UpdateLayoutAction::SetSidebarWidth(x.max(0.0) as u16)).into());
         } else if let Some(DragTarget::Divider(target)) = self.drag_target {
             let delta = (y - self.last_y).round() as i32;
-            if delta > 0 && frame.viewport.tracks[&target].rows == RowLayout::Collapsed {
-                actions.push(
-                    Action::Track(TrackAction::SetRowLayout {
-                        target,
-                        rows: RowLayout::Expanded,
-                    })
-                    .into(),
-                );
-            }
             if delta != 0 {
                 actions
                     .push(Action::from(UpdateLayoutAction::ResizeTrack { target, delta }).into());
@@ -407,6 +392,22 @@ fn read_at(
     let row = view.viewport.top(FocusTarget::Track(track))
         + ((y - area.y) / ALIGNMENT_ROW_HEIGHT) as usize;
     Ok(hover::read_at(&frame.state, index, left, right, row)?.map(|read_id| (index, read_id)))
+}
+
+fn divider_at(
+    layout: &ResolvedMainLayout,
+    hovered: HoveringAreaType,
+    y: f32,
+) -> Option<FocusTarget> {
+    match hovered {
+        HoveringAreaType::Track(_) | HoveringAreaType::Sidebar(_) => {
+            layout.areas.iter().find_map(|(area, rect)| match area {
+                AreaType::Divider(target) if y >= rect.y && y < rect.bottom() => Some(*target),
+                _ => None,
+            })
+        }
+        HoveringAreaType::SidebarDivider | HoveringAreaType::None => None,
+    }
 }
 
 fn scroll_target(area: &AreaType) -> Option<FocusTarget> {

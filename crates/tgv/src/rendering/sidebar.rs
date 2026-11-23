@@ -42,8 +42,15 @@ pub fn render_sidebar(
 ) -> Result<(), crate::Error> {
     let sidebar_style = Style::default().fg(Color::Gray);
     if layout.sidebar_width > 0 {
-        let separator_style = Style::default().fg(Color::DarkGray);
         for area in &layout.sidebar_section_dividers {
+            let highlighted = layout.areas.iter().any(|(area_type, rect)| {
+                rect.y == area.y && mouse_state.is_divider_highlighted(area_type)
+            });
+            let separator_style = if highlighted {
+                Style::default().bg(to_color(pallete.HIGHLIGHT_COLOR))
+            } else {
+                Style::default().fg(Color::DarkGray)
+            };
             buf.set_stringn(
                 area.x,
                 area.y,

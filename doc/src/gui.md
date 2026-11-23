@@ -57,7 +57,7 @@ keys and commands also provide these actions.
 | Gesture | Action |
 |---|---|
 | Drag | Pan. Over an alignment or an expanded track, a vertical drag also scrolls its rows. |
-| Drag the line below a track | Resize the track. Dragging a collapsed track's line down expands it. |
+| Drag the line below a track | Resize the track, down to one row. |
 | Horizontal scroll | Pan. |
 | Vertical scroll | Scroll the rows of the alignment or expanded track under the pointer. |
 | Pinch (macOS only) | Zoom around the pointer. |

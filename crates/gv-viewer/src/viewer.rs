@@ -1536,24 +1536,13 @@ impl<Z: Scale> Viewer<Z> {
         if !show_alignments {
             log::trace!("Skipping alignment data loads because zoom={zoom:?} is too far out");
         }
-        let show_indexed_features = zoom.shows_indexed_features();
         let files: Vec<RepositoryFileIndex> = self
             .dataset
             .tracks
             .entries
             .iter()
             .map(|entry| entry.repository_index)
-            .filter(|index| match index {
-                RepositoryFileIndex::Alignment(_) => show_alignments,
-                RepositoryFileIndex::Variant(i) => {
-                    show_indexed_features
-                        || !self.dataset.repository.variant_repositories[*i].is_indexed()
-                }
-                RepositoryFileIndex::Bed(i) => {
-                    show_indexed_features
-                        || !self.dataset.repository.bed_repositories[*i].is_indexed()
-                }
-            })
+            .filter(|index| show_alignments || !matches!(index, RepositoryFileIndex::Alignment(_)))
             .collect();
         self.dataset
             .view

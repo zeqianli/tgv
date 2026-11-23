@@ -31,10 +31,6 @@ pub trait Scale: Copy + Debug + Default + PartialEq + Send + 'static {
     /// Whether the reference sequence is drawn and loaded.
     fn shows_sequence(&self) -> bool;
 
-    /// Whether indexed variant and BED files are loaded. They can be too large to read for a
-    /// zoomed-out view.
-    fn shows_indexed_features(&self) -> bool;
-
     /// Bases per screen unit, as session files store it and agents see it.
     fn bases_per_unit(&self) -> f64;
 
@@ -49,10 +45,6 @@ pub struct ColumnScale(pub u64);
 impl ColumnScale {
     pub const MAX_TO_DISPLAY_ALIGNMENTS: u64 = 32;
     pub const MAX_TO_DISPLAY_SEQUENCES: u64 = 2;
-
-    /// Indexed variant and BED files can be too large to read for a zoomed-out view. At this
-    /// zoom, an 80-column track area shows 8 kb, and the viewer cache loads about 80 kb.
-    pub const MAX_TO_DISPLAY_INDEXED_FEATURES: u64 = 100;
 }
 
 impl Default for ColumnScale {
@@ -108,10 +100,6 @@ impl Scale for ColumnScale {
         self.0 <= Self::MAX_TO_DISPLAY_SEQUENCES
     }
 
-    fn shows_indexed_features(&self) -> bool {
-        self.0 <= Self::MAX_TO_DISPLAY_INDEXED_FEATURES
-    }
-
     fn bases_per_unit(&self) -> f64 {
         self.0 as f64
     }
@@ -140,7 +128,6 @@ impl PixelScale {
     /// out than in the TUI, because mismatches are computed against it.
     pub const MAX_TO_DISPLAY_ALIGNMENTS: f64 = 4.0;
     pub const MAX_TO_DISPLAY_SEQUENCES: f64 = 2.0;
-    pub const MAX_TO_DISPLAY_INDEXED_FEATURES: f64 = 12.5;
 
     pub fn pixels_per_base(&self) -> f64 {
         1.0 / self.bases_per_pixel
@@ -210,10 +197,6 @@ impl Scale for PixelScale {
 
     fn shows_sequence(&self) -> bool {
         self.bases_per_pixel <= Self::MAX_TO_DISPLAY_SEQUENCES
-    }
-
-    fn shows_indexed_features(&self) -> bool {
-        self.bases_per_pixel <= Self::MAX_TO_DISPLAY_INDEXED_FEATURES
     }
 
     fn bases_per_unit(&self) -> f64 {

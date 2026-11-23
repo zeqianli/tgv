@@ -213,7 +213,7 @@ pub struct MainLayout {
 }
 
 impl MainLayout {
-    const ALIGNMENT_MIN_HEIGHT: u16 = 1;
+    const TRACK_MIN_HEIGHT: u16 = 1;
     const SIDEBAR_DEFAULT_WIDTH: u16 = 18;
     const SIDEBAR_MIN_WIDTH: u16 = 6;
 
@@ -281,85 +281,48 @@ impl MainLayout {
         else {
             return;
         };
-        match self.tracks[index] {
-            AreaType::Alignment(id) => {
-                let alignments = self
-                    .tracks
-                    .iter()
-                    .filter_map(|area| match area {
-                        AreaType::Alignment(id) => Some(*id),
-                        _ => None,
-                    })
-                    .collect::<Vec<_>>();
-                let position = alignments
-                    .iter()
-                    .position(|&alignment| alignment == id)
-                    .expect("the alignment is in the layout");
-                if let Some(&lower) = alignments.get(position + 1) {
-                    self.resize_alignment_pair(id, lower, delta, resolved);
-                } else if let Some(previous) = position.checked_sub(1) {
-                    self.resize_alignment_pair(alignments[previous], id, -delta, resolved);
-                }
-            }
-            area => {
-                let current = resolved.areas[index].1.height;
-                let slack = resolved
-                    .areas
-                    .iter()
-                    .map(|(area, rect)| match area {
-                        AreaType::Alignment(_) => {
-                            rect.height.saturating_sub(Self::ALIGNMENT_MIN_HEIGHT) as i32
-                        }
-                        AreaType::Fill => rect.height as i32,
-                        _ => 0,
-                    })
-                    .sum::<i32>();
-                let delta = delta.clamp(-(current.saturating_sub(row_unit(&area)) as i32), slack);
-                if delta != 0 {
-                    self.track_heights[index] = Some((current as i32 + delta) as u16);
-                }
-            }
-        }
-    }
-
-    fn resize_alignment_pair(
-        &mut self,
-        upper: TrackId,
-        lower: TrackId,
-        delta_rows: i32,
-        resolved: &ResolvedMainLayout,
-    ) {
-        if delta_rows == 0 {
-            return;
-        }
-        let Some(upper_track) = self
-            .tracks
-            .iter()
-            .position(|area| *area == AreaType::Alignment(upper))
-        else {
-            return;
+        let minimum = |area: &AreaType| match area {
+            AreaType::Fill => Some(0),
+            area if area.rows_target().is_some() => Some(i32::from(Self::TRACK_MIN_HEIGHT)),
+            _ => None,
         };
-        let Some(lower_track) = self
-            .tracks
+        let fill = self.tracks.iter().position(|area| *area == AreaType::Fill);
+        let mut heights = resolved
+            .areas
             .iter()
-            .position(|area| *area == AreaType::Alignment(lower))
-        else {
-            return;
-        };
-        let upper_height = resolved.areas[upper_track].1.height;
-        let lower_height = resolved.areas[lower_track].1.height;
-        let minimum = if upper_height > 0 && lower_height > 0 {
-            Self::ALIGNMENT_MIN_HEIGHT
+            .map(|(_, rect)| i32::from(rect.height))
+            .collect::<Vec<_>>();
+        let order = fill
+            .into_iter()
+            .chain((index + 1..self.tracks.len()).filter(|&other| Some(other) != fill))
+            .chain((0..index).rev().filter(|&other| Some(other) != fill))
+            .filter(|&other| minimum(&self.tracks[other]).is_some())
+            .collect::<Vec<_>>();
+        if delta > 0 {
+            let mut needed = delta;
+            for &other in &order {
+                let taken =
+                    (heights[other] - minimum(&self.tracks[other]).unwrap_or(0)).clamp(0, needed);
+                heights[other] -= taken;
+                needed -= taken;
+            }
+            heights[index] += delta - needed;
         } else {
-            0
-        };
-        let actual_delta = delta_rows.clamp(
-            -(upper_height.saturating_sub(minimum) as i32),
-            lower_height.saturating_sub(minimum) as i32,
-        );
-        if actual_delta != 0 {
-            self.track_heights[upper_track] = Some((upper_height as i32 + actual_delta) as u16);
-            self.track_heights[lower_track] = Some((lower_height as i32 - actual_delta) as u16);
+            let Some(&recipient) = order.first() else {
+                return;
+            };
+            let given = (heights[index] - i32::from(Self::TRACK_MIN_HEIGHT)).clamp(0, -delta);
+            heights[index] -= given;
+            heights[recipient] += given;
+        }
+        for (position, area) in self.tracks.iter().enumerate() {
+            if position == index
+                || matches!(area, AreaType::Alignment(_))
+                || (area.rows_target().is_some()
+                    && heights[position] != i32::from(resolved.areas[position].1.height))
+            {
+                self.track_heights[position] = Some(heights[position] as u16);
+            }
         }
     }
 
@@ -421,11 +384,11 @@ impl MainLayout {
             if matches!(area, AreaType::Alignment(_)) {
                 continue;
             }
-            let track_rows = rows[&target];
-            let content = match (track_rows.layout, *height) {
-                (RowLayout::Expanded, Some(requested)) => requested,
-                _ => (track_rows.units(EXPANDED_ROW_CAP) as u16).saturating_mul(row_unit(area)),
-            };
+            if height.is_some() {
+                continue;
+            }
+            let content =
+                (rows[&target].units(EXPANDED_ROW_CAP) as u16).saturating_mul(row_unit(area));
             let label_lines = match area {
                 AreaType::Variant(id) | AreaType::Bed(id) if sidebar_width > 0 => {
                     wrap_sidebar_label(&file_names[id], sidebar_width)
@@ -458,7 +421,7 @@ impl MainLayout {
                 .iter_mut()
                 .take(available)
                 .for_each(|height| {
-                    *height = Self::ALIGNMENT_MIN_HEIGHT;
+                    *height = Self::TRACK_MIN_HEIGHT;
                 });
         } else if !alignment_tracks.is_empty() {
             let mut remaining = available;
@@ -466,10 +429,8 @@ impl MainLayout {
                 let reserved = alignment_tracks.len() - position - 1;
                 let maximum = remaining.saturating_sub(reserved);
                 let requested =
-                    self.track_heights[*track_index].unwrap_or(Self::ALIGNMENT_MIN_HEIGHT) as usize;
-                let height = requested
-                    .max(Self::ALIGNMENT_MIN_HEIGHT as usize)
-                    .min(maximum);
+                    self.track_heights[*track_index].unwrap_or(Self::TRACK_MIN_HEIGHT) as usize;
+                let height = requested.max(Self::TRACK_MIN_HEIGHT as usize).min(maximum);
                 alignment_heights[position] = height as u16;
                 remaining -= height;
             }

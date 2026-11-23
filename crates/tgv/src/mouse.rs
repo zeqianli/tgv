@@ -6,7 +6,7 @@ use gv_core::message::{Movement, Scroll};
 use gv_core::prelude::*;
 use gv_viewer::message::{
     Action, Anchor, ContextMenuTarget, FocusTarget, InputAction, InteractionAction,
-    NavigationAction, TrackAction, UpdateLayoutAction,
+    NavigationAction, UpdateLayoutAction,
 };
 use gv_viewer::prepare::hover;
 use gv_viewer::viewport::RowLayout;
@@ -120,10 +120,12 @@ impl MouseState {
         let column = alignment_view.zoom.0;
         let hovered = layout.get_area_type_at_position(event.column, event.row);
         self.hovered_divider = match hovered {
-            HoveringAreaType::Track(track_index) => match layout.areas[track_index].0 {
-                AreaType::Divider(target) => Some(target),
-                _ => None,
-            },
+            HoveringAreaType::Track(index) | HoveringAreaType::Sidebar(index) => {
+                match layout.areas[index].0 {
+                    AreaType::Divider(target) => Some(target),
+                    _ => None,
+                }
+            }
             _ => None,
         };
 
@@ -160,9 +162,9 @@ impl MouseState {
                         let position = ((fraction * length as f64) as u64).clamp(1, length);
                         messages.push(Movement::Position(position).into());
                     }
-                    if let AreaType::Divider(target) = area {
-                        self.drag_target = Some(DragTarget::Divider(target));
-                    }
+                }
+                if let Some(target) = self.hovered_divider {
+                    self.drag_target = Some(DragTarget::Divider(target));
                 }
             }
             MouseEventKind::Down(MouseButton::Right) => {
@@ -210,12 +212,6 @@ impl MouseState {
                     )));
                 } else if let Some(DragTarget::Divider(target)) = self.drag_target {
                     let delta = event.row as i32 - self.last_y as i32;
-                    if delta > 0 && alignment_view.tracks[&target].rows == RowLayout::Collapsed {
-                        messages.push(Action::Track(TrackAction::SetRowLayout {
-                            target,
-                            rows: RowLayout::Expanded,
-                        }));
-                    }
                     if delta != 0 {
                         messages.push(Action::from(UpdateLayoutAction::ResizeTrack {
                             target,
