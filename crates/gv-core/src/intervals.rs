@@ -4,7 +4,6 @@ use noodles;
 use polars::prelude::{DataFrame, DataType, Schema, SchemaRef};
 use std::sync::Arc;
 
-/// The common columns shared by genomic interval tables.
 pub struct IntervalSchema;
 
 impl IntervalSchema {
@@ -12,6 +11,7 @@ impl IntervalSchema {
     pub const CONTIG_INDEX: &'static str = "contig_index";
     pub const START: &'static str = "start";
     pub const END: &'static str = "end";
+    pub const Y: &'static str = "y";
 }
 
 impl TableSchema for IntervalSchema {
@@ -25,31 +25,23 @@ impl TableSchema for IntervalSchema {
     }
 }
 
-/// A columnar collection of one-based, inclusive genomic intervals.
 pub trait IntervalTable {
-    /// Select overlapping rows in deterministic genomic order.
-    /// Unknown contigs and reversed bounds yield an empty frame; a zero start is invalid.
     fn query(&self, contig_index: usize, start: u64, end: u64) -> Result<DataFrame, Error>;
 }
 
-/// A genomic region.
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct Region {
-    /// contig id. Need to read the header for full contig string name.
     pub focus: Focus,
-
-    /// End coordinate of a genome region.
-    /// 1-based, inclusive.
     pub half_width: u64,
 }
 
 impl Region {
-    /// The first position, 1-based and inclusive. Regions near a contig start are cut at 1.
+    /// 1-based and inclusive.
     pub fn start(&self) -> u64 {
         u64::max(1, self.focus.position.saturating_sub(self.half_width))
     }
 
-    /// The last position, 1-based and inclusive.
+    /// 1-based and inclusive.
     pub fn end(&self) -> u64 {
         self.focus.position + self.half_width
     }
@@ -58,7 +50,6 @@ impl Region {
         self.focus.contig_index
     }
 
-    /// The width before cutting at the contig start.
     pub fn length(&self) -> u64 {
         self.half_width * 2 + 1
     }
@@ -70,7 +61,6 @@ impl Region {
         Ok(noodles::core::Region::new(contig_name, start..=end))
     }
 
-    /// Validate and convert a InspectInterval (with explict contig names, start, and end) to a tgv Region query.
     pub fn try_from_contig_names_and_bounds(
         contig_name: &str,
         start: u64,
@@ -144,7 +134,6 @@ impl Focus {
         }
     }
 
-    /// Format the focus as `"contig_name:position"` using the provided contig header.
     pub fn to_locus_str(&self, contig_header: &ContigHeader) -> Result<String, Error> {
         let contig = contig_header.try_get(self.contig_index)?;
         Ok(format!("{}:{}", contig.name, self.position))

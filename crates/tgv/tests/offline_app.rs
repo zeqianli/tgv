@@ -85,7 +85,7 @@ async fn offline_sequence_navigates_and_zooms() {
     );
     assert_eq!(harness.app.viewer.viewport.focus.position, 33_121_140);
     assert_eq!(harness.app.viewer.viewport.zoom.0, initial_zoom.0 * 2);
-    assert_eq!(harness.app.viewer.viewport.top(0), 1);
+    assert_eq!(harness.app.viewer.viewport.top(FocusTarget::Track(0)), 1);
     assert!(harness.app.viewer.dataset.view.messages.is_empty());
 
     harness.close().await.unwrap();
@@ -140,7 +140,7 @@ async fn offline_sequence_updates_tracks_and_scenes() {
         })
         .collect::<String>();
     assert!(coordinate_text.starts_with("chr22:33121120"));
-    let depth_area = harness.app.resolved_layout.sidebar_alignment_depths[0].0;
+    let depth_area = harness.app.resolved_layout.sidebar_depths[0].0;
     let depth_text = (0..depth_area.width)
         .map(|column| {
             initial_buffer
@@ -390,28 +390,40 @@ async fn offline_tracks_open_and_remove_at_runtime() {
             (4, Bed(0)),
         ]
     );
-    assert_eq!(harness.app.viewer.viewport.y.len(), 3);
+    assert_eq!(harness.app.viewer.viewport.tracks.len(), 6);
     assert_eq!(
         harness.app.layout.tracks,
         vec![
             AreaType::Coordinate,
             AreaType::Coverage(0),
             AreaType::Alignment(0),
-            AreaType::AlignmentDivider { upper: 0, lower: 1 },
+            AreaType::Divider(FocusTarget::Track(0)),
             AreaType::Coverage(1),
             AreaType::Alignment(1),
+            AreaType::Divider(FocusTarget::Track(1)),
             AreaType::Variant(2),
-            AreaType::AlignmentDivider { upper: 1, lower: 3 },
+            AreaType::Divider(FocusTarget::Track(2)),
             AreaType::Coverage(3),
             AreaType::Alignment(3),
+            AreaType::Divider(FocusTarget::Track(3)),
             AreaType::Bed(4),
+            AreaType::Divider(FocusTarget::Track(4)),
             AreaType::Sequence,
             AreaType::Console,
             AreaType::Error,
         ]
     );
 
-    harness.app.viewer.viewport.y = vec![1, 2, 3];
+    for (id, top) in [(0, 1), (1, 2), (3, 3)] {
+        harness
+            .app
+            .viewer
+            .viewport
+            .tracks
+            .get_mut(&FocusTarget::Track(id))
+            .unwrap()
+            .top = top;
+    }
     harness.app.viewer.focused = FocusTarget::Track(3);
     harness
         .handle(vec![Action::Track(TrackAction::RemoveTrack {
@@ -434,12 +446,22 @@ async fn offline_tracks_open_and_remove_at_runtime() {
             (4, Bed(0)),
         ]
     );
-    assert_eq!(harness.app.viewer.viewport.y, vec![1, 3]);
+    assert_eq!(harness.app.viewer.viewport.top(FocusTarget::Track(0)), 1);
+    assert_eq!(harness.app.viewer.viewport.top(FocusTarget::Track(3)), 3);
+    assert!(
+        !harness
+            .app
+            .viewer
+            .viewport
+            .tracks
+            .contains_key(&FocusTarget::Track(1))
+    );
     assert_eq!(harness.app.viewer.focused, FocusTarget::Track(3));
     assert_eq!(harness.app.viewer.dataset.view.alignments.len(), 2);
     let layout_tracks = &harness.app.layout.tracks;
     assert!(!layout_tracks.contains(&AreaType::Alignment(1)));
-    assert!(layout_tracks.contains(&AreaType::AlignmentDivider { upper: 0, lower: 3 }));
+    assert!(!layout_tracks.contains(&AreaType::Divider(FocusTarget::Track(1))));
+    assert!(layout_tracks.contains(&AreaType::Divider(FocusTarget::Track(3))));
     assert_eq!(harness.app.layout.track_heights.len(), layout_tracks.len());
 
     let temp_dir = TempDir::new().unwrap();
@@ -485,7 +507,7 @@ async fn offline_track_open_errors_leave_tracks_unchanged(
         track_indexes(&harness),
         vec![(0, RepositoryFileIndex::Alignment(0))]
     );
-    assert_eq!(harness.app.viewer.viewport.y.len(), 1);
+    assert_eq!(harness.app.viewer.viewport.tracks.len(), 2);
 
     harness.close().await.unwrap();
 }

@@ -1,5 +1,6 @@
 //! Viewer interactions that open menus or read details.
 
+use crate::message::FocusTarget;
 use gv_core::track_registry::TrackId;
 use strum::Display;
 
@@ -23,20 +24,20 @@ pub struct Anchor {
     pub y: f32,
 }
 
-// Anchors come from whole cells or pixel positions, never from NaN.
 impl Eq for Anchor {}
 
 /// What a right click opened the context menu on.
 #[derive(Debug, Clone, Eq, PartialEq)]
 pub enum ContextMenuTarget {
-    /// An alignment track's reads or coverage. `position` is the clicked base, or `None` when
-    /// a column covers several bases.
     Alignment {
         track: TrackId,
         position: Option<u64>,
     },
-    /// The sidebar, and the file track whose section was clicked, if any.
-    Sidebar { track: Option<TrackId> },
-    /// A BED or variant track's row.
-    Track { track: TrackId },
+    Sidebar {
+        target: Option<FocusTarget>,
+    },
+    Track {
+        track: TrackId,
+    },
+    Reference,
 }

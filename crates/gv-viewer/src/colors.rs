@@ -83,9 +83,7 @@ mod named {
     pub const YELLOW_300: Rgb = Rgb::from_u32(0xfde047);
     pub const YELLOW_700: Rgb = Rgb::from_u32(0xa16207);
     pub const VIOLET_400: Rgb = Rgb::from_u32(0xa78bfa);
-    pub const VIOLET_900: Rgb = Rgb::from_u32(0x4c1d95);
     pub const INDIGO_400: Rgb = Rgb::from_u32(0x818cf8);
-    pub const INDIGO_900: Rgb = Rgb::from_u32(0x312e81);
     pub const SLATE_400: Rgb = Rgb::from_u32(0x94a3b8);
     pub const SLATE_700: Rgb = Rgb::from_u32(0x334155);
     pub const SLATE_800: Rgb = Rgb::from_u32(0x1e293b);
@@ -156,10 +154,8 @@ pub struct Palette {
     pub BASE_N: Rgb,
 
     // Intervals
-    pub VCF1: Rgb,
-    pub VCF2: Rgb,
-    pub BED1: Rgb,
-    pub BED2: Rgb,
+    pub VARIANT: Rgb,
+    pub BED: Rgb,
 
     // Context menu and sidebar
     pub MENU_BACKGROUND: Rgb,
@@ -345,10 +341,8 @@ pub const DARK_THEME: Palette = Palette {
     BASE_N: named::GRAY_300,
 
     // Intervals
-    VCF1: named::VIOLET_900,
-    VCF2: named::VIOLET_400,
-    BED1: named::INDIGO_900,
-    BED2: named::INDIGO_400,
+    VARIANT: named::VIOLET_400,
+    BED: named::INDIGO_400,
 
     MENU_BACKGROUND: named::SLATE_700,
     MENU_HOVER_BACKGROUND: named::SKY_700,

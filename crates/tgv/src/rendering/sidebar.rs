@@ -4,7 +4,7 @@ use crate::{
     mouse::MouseState,
     rendering::{TrackFocus, colors::Palette},
 };
-use gv_viewer::prepare::sidebar::{alignment_depth_description, describe_option};
+use gv_viewer::prepare::sidebar::{depth_description, describe_option};
 use gv_viewer::{keyboard::KeyboardState, layout::RenderEvent, message::FocusTarget};
 
 use gv_core::prelude::*;
@@ -128,12 +128,11 @@ pub fn render_sidebar(
                 _ => {}
             }
         }
-        for (area, id) in &layout.sidebar_alignment_depths {
-            let index = layout.track_registry.alignment_index(*id)?;
+        for (area, target) in &layout.sidebar_depths {
             buf.set_stringn(
                 area.x,
                 area.y,
-                alignment_depth_description(state, alignment_view, index)?,
+                depth_description(state, &layout.track_registry, alignment_view, *target)?,
                 area.width as usize,
                 sidebar_style,
             );

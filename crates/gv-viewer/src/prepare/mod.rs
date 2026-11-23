@@ -7,5 +7,6 @@ pub mod alignment;
 pub mod coordinate;
 pub mod coverage;
 pub mod hover;
+pub mod rows;
 pub mod sidebar;
 pub mod track;

@@ -1,7 +1,6 @@
 //! Front-end layout and widget actions.
 
-use super::Action;
-use gv_core::track_registry::TrackId;
+use super::{Action, FocusTarget};
 use strum::Display;
 
 /// An action that only a front end can apply, because it changes the front end's own layout or
@@ -24,10 +23,9 @@ pub enum UpdateLayoutAction {
     ToggleSidebar,
     /// Moves the sidebar's right edge to an x position.
     SetSidebarWidth(u16),
-    ResizeAlignmentPair {
-        upper: TrackId,
-        lower: TrackId,
-        delta_rows: i32,
+    ResizeTrack {
+        target: FocusTarget,
+        delta: i32,
     },
 }
 

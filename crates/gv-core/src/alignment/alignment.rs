@@ -7,6 +7,7 @@ use crate::error::Error;
 use crate::intervals::Region;
 use crate::message::{AlignmentFilter, AlignmentSort};
 use crate::sequence::Sequence;
+use crate::stacking::TrackBounds;
 use noodles::sam::alignment::RecordBuf;
 use polars::prelude::*;
 use std::sync::Arc;
@@ -511,58 +512,6 @@ pub(super) fn stack_tracks_by_sort_key(
         ) as u64;
     }
     Ok(ys)
-}
-
-/// One-based, inclusive occupied bounds of each zero-based stacking row.
-#[derive(Debug, Default)]
-pub(super) struct TrackBounds {
-    left: Vec<u64>,
-    right: Vec<u64>,
-
-    /// The largest left bound across rows.
-    ///
-    /// Coordinate-sorted items never end before an existing row starts, so this lets them
-    /// skip the left pass instead of scanning every row twice.
-    max_left: u64,
-}
-
-impl TrackBounds {
-    pub(super) fn with_capacity(capacity: usize) -> Self {
-        Self {
-            left: Vec::with_capacity(capacity),
-            right: Vec::with_capacity(capacity),
-            max_left: 0,
-        }
-    }
-
-    /// Open a new row holding [start, end], and return its index.
-    pub(super) fn push(&mut self, start: u64, end: u64) -> usize {
-        self.left.push(start);
-        self.right.push(end);
-        self.max_left = self.max_left.max(start);
-        self.left.len() - 1
-    }
-
-    /// Place [start, end] in the first row it fits before, then in the first row it fits
-    /// after, or else in a new row. Returns the row index.
-    pub(super) fn place(&mut self, start: u64, end: u64, min_gap: u64) -> usize {
-        if end + min_gap < self.max_left
-            && let Some(y) = self.left.iter().position(|&left| end + min_gap < left)
-        {
-            let previous = std::mem::replace(&mut self.left[y], start);
-            if previous == self.max_left {
-                self.max_left = self.left.iter().copied().max().unwrap_or(0);
-            }
-            return y;
-        }
-
-        if let Some(y) = self.right.iter().position(|&right| start > right + min_gap) {
-            self.right[y] = end;
-            return y;
-        }
-
-        self.push(start, end)
-    }
 }
 
 #[cfg(test)]

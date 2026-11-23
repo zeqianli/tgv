@@ -1,6 +1,9 @@
 use gv_core::prelude::*;
 pub use gv_viewer::layout::AreaType;
-use gv_viewer::{prelude::*, settings::Settings};
+use gv_viewer::{
+    message::FocusTarget, prelude::*, prepare::rows::TrackRows, settings::Settings,
+    viewport::RowLayout,
+};
 use std::{collections::HashMap, sync::Arc};
 
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
@@ -39,6 +42,17 @@ impl Rect {
 }
 
 pub const ALIGNMENT_ROW_HEIGHT: f32 = 12.0;
+pub const FEATURE_ROW_HEIGHT: f32 = 18.0;
+pub const GENE_ROW_HEIGHT: f32 = 40.0;
+pub const EXPANDED_ROW_CAP: usize = 8;
+
+pub fn row_height(area: &AreaType) -> f32 {
+    match area {
+        AreaType::Alignment(_) | AreaType::Coverage(_) => ALIGNMENT_ROW_HEIGHT,
+        AreaType::GeneTrack => GENE_ROW_HEIGHT,
+        _ => FEATURE_ROW_HEIGHT,
+    }
+}
 
 fn desired_height(area: &AreaType) -> Option<f32> {
     match area {
@@ -46,13 +60,13 @@ fn desired_height(area: &AreaType) -> Option<f32> {
         AreaType::Coordinate => Some(28.0),
         AreaType::Coverage(_) => Some(56.0),
         AreaType::Alignment(_) => None,
-        AreaType::AlignmentDivider { .. } => Some(6.0),
+        AreaType::Divider(_) => Some(6.0),
         AreaType::Sequence => Some(16.0),
-        AreaType::GeneTrack => Some(40.0),
+        AreaType::GeneTrack => None,
         AreaType::Console => Some(22.0),
         AreaType::Error => Some(22.0),
-        AreaType::Variant(_) => Some(18.0),
-        AreaType::Bed(_) => Some(18.0),
+        AreaType::Variant(_) => None,
+        AreaType::Bed(_) => None,
         AreaType::Fill => None,
     }
 }
@@ -187,8 +201,60 @@ impl MainLayout {
         }
     }
 
+    pub fn resize_track(&mut self, target: FocusTarget, delta: f32, resolved: &ResolvedMainLayout) {
+        if delta == 0.0 {
+            return;
+        }
+        let Some(index) = self
+            .tracks
+            .iter()
+            .position(|area| area.rows_target() == Some(target))
+        else {
+            return;
+        };
+        match self.tracks[index] {
+            AreaType::Alignment(id) => {
+                let alignments = self
+                    .tracks
+                    .iter()
+                    .filter_map(|area| match area {
+                        AreaType::Alignment(id) => Some(*id),
+                        _ => None,
+                    })
+                    .collect::<Vec<_>>();
+                let position = alignments
+                    .iter()
+                    .position(|&alignment| alignment == id)
+                    .expect("the alignment is in the layout");
+                if let Some(&lower) = alignments.get(position + 1) {
+                    self.resize_alignment_pair(id, lower, delta, resolved);
+                } else if let Some(previous) = position.checked_sub(1) {
+                    self.resize_alignment_pair(alignments[previous], id, -delta, resolved);
+                }
+            }
+            area => {
+                let current = resolved.areas[index].1.height;
+                let slack = resolved
+                    .areas
+                    .iter()
+                    .map(|(area, rect)| match area {
+                        AreaType::Alignment(_) => {
+                            (rect.height - Self::ALIGNMENT_MIN_HEIGHT).max(0.0)
+                        }
+                        AreaType::Fill => rect.height,
+                        _ => 0.0,
+                    })
+                    .sum::<f32>();
+                let delta = delta.clamp(-(current - row_height(&area)).max(0.0), slack);
+                if delta != 0.0 {
+                    self.track_heights[index] = Some(current + delta);
+                }
+            }
+        }
+    }
+
     /// Moves `delta` pixels of height from the lower alignment to the upper one.
-    pub fn resize_alignment_pair(
+    fn resize_alignment_pair(
         &mut self,
         upper: TrackId,
         lower: TrackId,
@@ -215,7 +281,12 @@ impl MainLayout {
 
     /// Resolve the requested layout within the window. `labels` are the sidebar labels of the
     /// file tracks, by track ID.
-    pub fn resolve(&self, window: Rect, labels: &HashMap<TrackId, String>) -> ResolvedMainLayout {
+    pub fn resolve(
+        &self,
+        window: Rect,
+        labels: &HashMap<TrackId, String>,
+        rows: &HashMap<FocusTarget, TrackRows>,
+    ) -> ResolvedMainLayout {
         let sidebar_width = if self.sidebar_visible {
             self.sidebar_width.min(window.width / 2.0)
         } else {
@@ -233,11 +304,26 @@ impl MainLayout {
             window.height,
         );
 
-        let fixed_height = self
+        let track_heights = self
             .tracks
             .iter()
             .zip(&self.track_heights)
-            .filter(|(area, _)| !matches!(area, AreaType::Alignment(_)))
+            .map(|(area, height)| match area.rows_target() {
+                Some(target) if !matches!(area, AreaType::Alignment(_)) => {
+                    let track_rows = rows[&target];
+                    Some(match (track_rows.layout, *height) {
+                        (RowLayout::Expanded, Some(requested)) => requested,
+                        _ => track_rows.units(EXPANDED_ROW_CAP) as f32 * row_height(area),
+                    })
+                }
+                _ => *height,
+            })
+            .collect::<Vec<_>>();
+        let fixed_height = self
+            .tracks
+            .iter()
+            .zip(&track_heights)
+            .filter(|(area, _)| !matches!(area, AreaType::Alignment(_) | AreaType::Fill))
             .filter_map(|(_, height)| *height)
             .sum::<f32>();
         let available = (main_area.height - fixed_height).max(0.0);
@@ -268,7 +354,7 @@ impl MainLayout {
         let areas = self
             .tracks
             .iter()
-            .zip(&self.track_heights)
+            .zip(&track_heights)
             .map(|(area, requested)| {
                 let height = match area {
                     AreaType::Alignment(_) => {
@@ -305,6 +391,10 @@ impl MainLayout {
                 && joins(next)
             {
                 bottom = next_rect.bottom();
+                index += 1;
+            }
+            if let Some((AreaType::Divider(_), divider)) = areas.get(index) {
+                bottom = divider.bottom();
                 index += 1;
             }
             sidebar_sections.push((

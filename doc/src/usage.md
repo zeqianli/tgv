@@ -59,7 +59,8 @@ Quit: `:q`
 tgv has two vim-like modes:
 
 - Normal mode moves along the genome. Word motions (`w`, `b`, `e`, and `ge`) move between the
-  focused track's features, and `j/k` scroll the focused track when it is an alignment.
+  focused track's features, and `j/k` scroll the focused track when it is an alignment or an
+  expanded track.
 - Insert mode, reached with `i` or `a`, edits the focused BED track at the cursor. `Esc`
   returns to normal mode.
 
@@ -83,7 +84,7 @@ mode shows the focused track's name at the right of the command row.
 | `w/b` | Beginning of the next / previous feature of the focused track | |
 | `e/ge` | End of the next / previous feature of the focused track | |
 | `W/B/E/gE` | Like `w/b/e/ge`, by genes on the reference and alignments | |
-| `gg/gG` | Scroll to the first / last alignment row | |
+| `gg/gG` | Scroll to the first / last row of the focused track | |
 | `Ctrl-j` / `Ctrl-k` | Focus the next / previous track. Stops at the first and last tracks. | `3 Ctrl-j` |
 | `Ctrl-w j/k` | The same as `Ctrl-j` / `Ctrl-k` | |
 | `Ctrl-w w/W` | Focus the next / previous track, wrapping around | |
@@ -183,11 +184,10 @@ Insert mode types no text, so it takes vim's editing keys. Counts come first, as
 ## Mouse and sidebar
 
 The sidebar starts open and shows the reference, current position, filenames,
-and alignment depths alongside their tracks. Drag its vertical divider to
-change its width. Drag a line between alignment tracks to resize the adjacent
-alignments. Filenames wrap within their track sections, which are separated by
-underscore lines. When the sidebar is hidden, its labels and alignment depths
-are hidden too. The command and message rows remain in the main track column.
+and the depths of alignments and expanded tracks alongside their tracks. Drag its
+vertical divider to change its width. Filenames wrap within their track sections,
+which are separated by underscore lines. When the sidebar is hidden, its labels and
+depths are hidden too. The command and message rows remain in the main track column.
 An alignment's display options, such as `Paired` or `Sorted by base at 88108`,
 are listed above its depth.
 
@@ -195,12 +195,25 @@ Click a track, or its section in the sidebar, to focus it. Click the sequence or
 focus the reference. Clicking another track in insert mode returns to normal mode. Hovering
 doesn't move the focus.
 
-Scroll the mouse wheel over an alignment to scroll its reads, whatever has focus. Hold Shift while
-scrolling, or scroll horizontally on a trackpad, to pan left and right. Drag an
-alignment track to pan in both directions, or drag a variant or BED track to
+Every track has a line below it. Drag the line to resize the track above it. An alignment
+trades height with the next alignment, and other tracks take height from the alignments.
+Dragging a collapsed track's line down expands the track.
+
+Scroll the mouse wheel over an alignment or an expanded track to scroll its rows, whatever has
+focus. Hold Shift while scrolling, or scroll horizontally on a trackpad, to pan left and right.
+Drag an alignment or an expanded track to pan in both directions, or drag a collapsed track to
 pan left and right.
 
 Click the cytoband to go to that part of the contig, keeping the zoom.
+
+### Collapsed and expanded tracks
+
+Gene, BED, and variant tracks start collapsed: they show one row, and where features overlap,
+only the features of the first row. Right-click the track, or its section in the sidebar, and
+choose **Expand overlapping features** to stack overlapping features on separate rows, as
+alignment reads are stacked. An expanded track grows to fit up to eight rows, scrolls like an
+alignment, and keeps the height you drag it to. Choose the item again to collapse the track.
+Session files don't save whether a track is expanded.
 
 Hover over a track for details on the message line: genes and exons, reference
 bases, coverage, variants, BED features, and reads. Over a read, it shows the

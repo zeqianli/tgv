@@ -3,6 +3,7 @@
 use crate::{
     error::Error,
     intervals::{IntervalSchema, IntervalTable, Region},
+    stacking::{STACKING_GAP, empty_with_rows, interval_depth, with_stacked_rows},
     table_schema::{ColumnDoc, TableSchema},
 };
 use polars::prelude::*;
@@ -20,7 +21,7 @@ pub struct GeneTable {
 impl Default for GeneTable {
     fn default() -> Self {
         Self {
-            data: GeneSchema::empty(),
+            data: empty_with_rows(GeneSchema::empty()),
             contig_index: 0,
             data_complete_left_bound: u64::MAX,
             data_complete_right_bound: 0,
@@ -59,22 +60,28 @@ impl GeneTable {
         loaded_bounds: (u64, u64),
     ) -> Result<Self, Error> {
         Ok(Self {
-            data: data
-                .lazy()
-                .sort(
-                    [
-                        GeneSchema::CONTIG_INDEX,
-                        GeneSchema::START,
-                        GeneSchema::END,
-                        GeneSchema::ROW_ID,
-                    ],
-                    SortMultipleOptions::default(),
-                )
-                .collect()?,
+            data: with_stacked_rows(
+                data.lazy()
+                    .sort(
+                        [
+                            GeneSchema::CONTIG_INDEX,
+                            GeneSchema::START,
+                            GeneSchema::END,
+                            GeneSchema::ROW_ID,
+                        ],
+                        SortMultipleOptions::default(),
+                    )
+                    .collect()?,
+                STACKING_GAP,
+            )?,
             contig_index,
             data_complete_left_bound: loaded_bounds.0,
             data_complete_right_bound: loaded_bounds.1,
         })
+    }
+
+    pub fn depth(&self) -> Result<usize, Error> {
+        interval_depth(&self.data)
     }
 
     pub fn has_complete_data(&self, region: &Region) -> bool {

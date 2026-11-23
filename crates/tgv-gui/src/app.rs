@@ -324,12 +324,8 @@ impl App {
                         UpdateLayoutAction::SetSidebarWidth(x) => {
                             layout.resize_sidebar_to(f32::from(x), resolved.window)
                         }
-                        UpdateLayoutAction::ResizeAlignmentPair {
-                            upper,
-                            lower,
-                            delta_rows,
-                        } => {
-                            layout.resize_alignment_pair(upper, lower, delta_rows as f32, resolved)
+                        UpdateLayoutAction::ResizeTrack { target, delta } => {
+                            layout.resize_track(target, delta as f32, resolved)
                         }
                     }
                 }
@@ -358,6 +354,7 @@ impl App {
                         );
                     }
                 }
+                Effect::RowsChanged => {}
                 Effect::SceneChanged => self.mouse_state = MouseState::default(),
             }
         }
@@ -668,7 +665,7 @@ impl Render for App {
         let palette: Palette = self.settings.palette;
 
         if let (Some(frame), Some(layout)) = (self.frame.clone(), &self.layout) {
-            let resolved = layout.resolve(window_rect, &frame.track_labels);
+            let resolved = layout.resolve(window_rect, &frame.track_labels, &frame.track_rows);
             if let Some(indicator) = &mut self.drop_indicator {
                 indicator.target =
                     resolved.drop_target(f32::from(window.mouse_position().y), &frame.track_order);

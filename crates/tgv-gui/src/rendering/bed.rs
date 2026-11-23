@@ -1,5 +1,7 @@
 use super::prelude::*;
+use crate::layout::FEATURE_ROW_HEIGHT;
 use gv_core::{bed::BedTable, strand::Strand};
+use gv_viewer::viewport::TrackView;
 
 /// The space between strand chevrons in a feature.
 const CHEVRON_SPACING: f32 = 24.0;
@@ -9,6 +11,7 @@ pub fn render_bed(
     area: &Rect,
     bed: &BedTable,
     view: &PixelView,
+    track_view: TrackView,
     palette: &Palette,
     window: &mut Window,
     cx: &mut App,
@@ -18,21 +21,21 @@ pub fn render_bed(
         render_zoom_in_notice(area, "BED features", window, cx)?;
         return Ok(());
     }
-    let colors = [palette.BED1, palette.BED2];
-    let text_y = area.y + (area.height - LINE_HEIGHT) / 2.0;
-    for (row, feature) in bed
-        .features(region.contig_index(), region.start(), region.end())?
-        .iter()
-        .enumerate()
-    {
+    let rows = track_view.visible_rows((area.height / FEATURE_ROW_HEIGHT).ceil() as usize);
+    for feature in bed.features(
+        region.contig_index(),
+        region.start(),
+        region.end(),
+        rows.clone(),
+    )? {
         let Some((x, width)) = view.span(feature.start, feature.end, area) else {
             continue;
         };
-        // Colors alternate by on-screen order, because row IDs of indexed files change between
-        // loads.
+        let row_top = area.y + (feature.y - rows.start) as f32 * FEATURE_ROW_HEIGHT;
+        let text_y = row_top + (FEATURE_ROW_HEIGHT - LINE_HEIGHT) / 2.0;
         fill_rect(
-            Rect::new(x, area.y + 2.0, width, area.height - 4.0),
-            to_hsla(colors[row % 2]),
+            Rect::new(x, row_top + 2.0, width, FEATURE_ROW_HEIGHT - 4.0),
+            to_hsla(palette.BED),
             window,
         );
         let name = feature.name.as_deref();

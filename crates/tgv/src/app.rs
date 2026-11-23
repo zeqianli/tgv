@@ -29,6 +29,7 @@ use gv_viewer::{
     message::{FocusTarget, SessionAction, UiAction, UpdateLayoutAction},
     popup::TextPopup,
     prelude::*,
+    prepare::rows,
 };
 use std::{sync::Arc, time::Duration};
 
@@ -74,9 +75,11 @@ impl App {
         terminal: &mut Terminal<B>,
     ) -> Result<(), crate::Error> {
         log::info!("Starting the app event loop");
+        let mut resolve_result = Ok(());
         terminal
-            .draw(|frame| self.resolve_layout(frame.area()))
+            .draw(|frame| resolve_result = self.resolve_layout(frame.area()))
             .map_err(crate::Error::DrawTerminal)?;
+        resolve_result?;
 
         self.start().await?;
 
@@ -215,7 +218,7 @@ impl App {
                     Ok(Event::Resize(width, height)) => {
                         log::debug!("Terminal resized to {width}x{height}");
                         self.mouse_state.last_hover = None;
-                        self.resolve_layout(Rect::new(0, 0, *width, *height));
+                        self.resolve_layout(Rect::new(0, 0, *width, *height))?;
                         self.viewer.self_correct()?;
                         self.viewer.load_data().await?;
                         Ok(vec![RenderEvent::All])
@@ -278,11 +281,17 @@ impl App {
     }
 
     /// Resolves the layout for a terminal size, and gives the viewer the new track width.
-    pub fn resolve_layout(&mut self, terminal_area: Rect) {
-        self.resolved_layout = self
-            .layout
-            .resolve(terminal_area, &self.viewer.dataset.repository);
+    pub fn resolve_layout(&mut self, terminal_area: Rect) -> Result<(), crate::Error> {
+        let rows = rows::track_rows(
+            &self.viewer.dataset.view,
+            &self.viewer.dataset.tracks,
+            &self.viewer.viewport,
+        )?;
+        self.resolved_layout =
+            self.layout
+                .resolve(terminal_area, &self.viewer.dataset.repository, &rows);
         self.viewer.width = f64::from(self.resolved_layout.main_area.width);
+        Ok(())
     }
 
     /// Serves the next session request, for hosts that drive the app without `run`.
@@ -336,21 +345,11 @@ impl App {
                         UpdateLayoutAction::SetSidebarWidth(column) => self
                             .layout
                             .resize_sidebar_to(column, self.resolved_layout.terminal_area),
-                        UpdateLayoutAction::ResizeAlignmentPair {
-                            upper,
-                            lower,
-                            delta_rows,
-                        } => self.layout.resize_alignment_pair(
-                            upper,
-                            lower,
-                            delta_rows,
-                            &self.resolved_layout,
-                        ),
+                        UpdateLayoutAction::ResizeTrack { target, delta } => self
+                            .layout
+                            .resize_track(target, delta, &self.resolved_layout),
                     }
-                    self.resolved_layout = self.layout.resolve(
-                        self.resolved_layout.terminal_area,
-                        &self.viewer.dataset.repository,
-                    );
+                    self.resolve_layout(self.resolved_layout.terminal_area)?;
                     self.viewer
                         .resize(f64::from(self.resolved_layout.main_area.width))
                         .await?;
@@ -387,8 +386,9 @@ impl App {
                         Arc::clone(&self.viewer.dataset.tracks),
                         &self.viewer.track_order,
                     );
-                    self.resolve_layout(self.resolved_layout.terminal_area);
+                    self.resolve_layout(self.resolved_layout.terminal_area)?;
                 }
+                Effect::RowsChanged => render_events.push(RenderEvent::All),
                 Effect::SceneChanged => self.mouse_state = MouseState::default(),
             }
         }
@@ -402,13 +402,16 @@ impl App {
     ) -> Result<(), crate::Error> {
         use crate::rendering::{render_contig_list, render_main};
         let full_render = vec![RenderEvent::All];
+        let previous_areas = std::mem::take(&mut self.resolved_layout.areas);
+        self.resolve_layout(buf.area)?;
         let render_events = if self.render_buffer.area != buf.area {
             self.render_buffer.resize(buf.area);
+            &full_render
+        } else if previous_areas != self.resolved_layout.areas {
             &full_render
         } else {
             render_events
         };
-        self.resolve_layout(buf.area);
         let focus = TrackFocus {
             target: self.viewer.focused,
             name: self.viewer.focus_name(),

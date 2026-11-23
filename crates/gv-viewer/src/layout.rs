@@ -1,8 +1,4 @@
-//! The areas a viewer shows, from top to bottom, and which of them need redrawing.
-//!
-//! Both front ends show the same areas in the same order. Each front end decides how tall they
-//! are and where they go on its screen.
-
+use crate::message::FocusTarget;
 use gv_core::{prelude::*, reference::Reference};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -11,7 +7,7 @@ pub enum AreaType {
     Coordinate,
     Coverage(TrackId),
     Alignment(TrackId),
-    AlignmentDivider { upper: TrackId, lower: TrackId },
+    Divider(FocusTarget),
     Sequence,
     GeneTrack,
     Console,
@@ -36,23 +32,21 @@ impl AreaType {
 
         areas.push(AreaType::Coordinate);
 
-        let mut last_alignment_id = None;
+        let mut has_alignment = false;
         for &id in track_order {
             match track_registry.get(id).repository_index {
                 RepositoryFileIndex::Alignment(_) => {
-                    if let Some(upper) = last_alignment_id {
-                        areas.push(AreaType::AlignmentDivider { upper, lower: id });
-                    }
                     areas.push(AreaType::Coverage(id));
                     areas.push(AreaType::Alignment(id));
-                    last_alignment_id = Some(id);
+                    has_alignment = true;
                 }
                 RepositoryFileIndex::Variant(_) => areas.push(AreaType::Variant(id)),
                 RepositoryFileIndex::Bed(_) => areas.push(AreaType::Bed(id)),
             }
+            areas.push(AreaType::Divider(FocusTarget::Track(id)));
         }
 
-        if last_alignment_id.is_none() {
+        if !has_alignment {
             areas.push(AreaType::Fill);
         }
         if reference.needs_sequence() {
@@ -60,11 +54,35 @@ impl AreaType {
         }
         if reference.needs_track() {
             areas.push(AreaType::GeneTrack);
+            areas.push(AreaType::Divider(FocusTarget::Reference));
         }
 
         areas.push(AreaType::Console);
         areas.push(AreaType::Error);
         areas
+    }
+}
+
+impl AreaType {
+    pub fn focus_target(&self) -> Option<FocusTarget> {
+        match self {
+            AreaType::Coverage(id)
+            | AreaType::Alignment(id)
+            | AreaType::Variant(id)
+            | AreaType::Bed(id) => Some(FocusTarget::Track(*id)),
+            AreaType::Sequence | AreaType::GeneTrack => Some(FocusTarget::Reference),
+            _ => None,
+        }
+    }
+
+    pub fn rows_target(&self) -> Option<FocusTarget> {
+        match self {
+            AreaType::Alignment(id) | AreaType::Variant(id) | AreaType::Bed(id) => {
+                Some(FocusTarget::Track(*id))
+            }
+            AreaType::GeneTrack => Some(FocusTarget::Reference),
+            _ => None,
+        }
     }
 }
 

@@ -45,7 +45,7 @@ use colors::{MUTED_TEXT, Palette, Rgb, to_hsla, to_hsla_with_alpha};
 use gpui::{
     App, Bounds, ContentMask, Font, SharedString, TextAlign, TextRun, Window, point, px, size,
 };
-use gv_viewer::{popup::TextPopup, prelude::*};
+use gv_viewer::{message::FocusTarget, popup::TextPopup, prelude::*};
 
 pub const FONT_SIZE: f32 = 12.0;
 pub const LINE_HEIGHT: f32 = 16.0;
@@ -311,7 +311,7 @@ pub fn render_main(
                             &state.alignments[index],
                             paired,
                             view,
-                            view.viewport.top(index),
+                            view.viewport.top(FocusTarget::Track(*id)),
                             palette,
                             window,
                             cx,
@@ -320,7 +320,7 @@ pub fn render_main(
                         render_zoom_in_notice(&rect, "alignments", window, cx)?;
                     }
                 }
-                AreaType::AlignmentDivider { .. } => {
+                AreaType::Divider(_) => {
                     let color = if mouse_state.is_divider_highlighted(area_type) {
                         palette.HIGHLIGHT_COLOR
                     } else {
@@ -337,7 +337,15 @@ pub fn render_main(
                         render_sequence(&rect, state, view, palette, window, cx)?;
                     }
                 }
-                AreaType::GeneTrack => render_track(&rect, state, view, palette, window, cx)?,
+                AreaType::GeneTrack => render_track(
+                    &rect,
+                    state,
+                    view,
+                    view.viewport.tracks[&FocusTarget::Reference],
+                    palette,
+                    window,
+                    cx,
+                )?,
                 AreaType::Console => {
                     if matches!(
                         frame.keyboard_state.mode,
@@ -359,7 +367,15 @@ pub fn render_main(
                 AreaType::Error => render_status_bar(&rect, state, status, window, cx)?,
                 AreaType::Variant(id) => {
                     let index = layout.track_registry.variant_index(*id)?;
-                    render_variants(&rect, &state.variants[index], view, palette, window, cx)?;
+                    render_variants(
+                        &rect,
+                        &state.variants[index],
+                        view,
+                        view.viewport.tracks[&FocusTarget::Track(*id)],
+                        palette,
+                        window,
+                        cx,
+                    )?;
                 }
                 AreaType::Bed(id) => {
                     let index = layout.track_registry.bed_index(*id)?;
@@ -367,6 +383,7 @@ pub fn render_main(
                         &rect,
                         &state.bed_intervals[index],
                         view,
+                        view.viewport.tracks[&FocusTarget::Track(*id)],
                         palette,
                         window,
                         cx,

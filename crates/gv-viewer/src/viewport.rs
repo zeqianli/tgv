@@ -1,14 +1,7 @@
-//! What part of the genome a viewer shows, independent of screen resolution.
-//!
-//! A [`Viewport`] holds the focus, the zoom, and each alignment track's vertical scroll. The
-//! zoom is a [`Scale`]: how many bases one screen unit covers. The terminal UI's unit is a
-//! column and its scale is a whole number of bases ([`ColumnScale`]). The window's unit is a
-//! pixel and its scale is continuous ([`PixelScale`]). The viewer reasons in bases, and each
-//! front end says how wide its track area is in its own units.
-
+use crate::message::FocusTarget;
 use gv_core::intervals::{Focus, Region};
 use gv_core::message::{Scroll, Zoom};
-use std::fmt::Debug;
+use std::{collections::HashMap, fmt::Debug, ops::Range};
 
 /// How many bases a screen unit covers, and what can be shown at that zoom.
 pub trait Scale: Copy + Debug + Default + PartialEq + Send + 'static {
@@ -234,31 +227,76 @@ impl Scale for PixelScale {
     }
 }
 
-/// The focus, the zoom, and each alignment track's vertical scroll.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum RowLayout {
+    Collapsed,
+    Expanded,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct TrackView {
+    pub top: usize,
+    pub rows: RowLayout,
+}
+
+impl TrackView {
+    pub fn new(rows: RowLayout) -> Self {
+        Self { top: 0, rows }
+    }
+
+    pub fn visible_rows(&self, area_rows: usize) -> Range<u64> {
+        match self.rows {
+            RowLayout::Collapsed => 0..1,
+            RowLayout::Expanded => self.top as u64..(self.top + area_rows) as u64,
+        }
+    }
+}
+
 #[derive(Clone, Debug, PartialEq)]
 pub struct Viewport<Z: Scale> {
     pub focus: Focus,
     pub zoom: Z,
-    /// The first row shown in each alignment track, by alignment index.
-    pub y: Vec<usize>,
+    pub tracks: HashMap<FocusTarget, TrackView>,
 }
 
 impl<Z: Scale> Viewport<Z> {
-    pub fn new(focus: Focus, zoom: Z, alignment_count: usize) -> Self {
+    pub fn new(focus: Focus, zoom: Z, tracks: HashMap<FocusTarget, TrackView>) -> Self {
         Self {
             focus,
             zoom,
-            y: vec![0; alignment_count],
+            tracks,
         }
     }
 
-    pub fn scroll(&mut self, index: usize, scroll: Scroll, depth: usize) {
-        match scroll {
-            Scroll::Up(n) => self.y[index] = self.y[index].saturating_sub(n),
-            Scroll::Down(n) => self.y[index] = self.y[index].saturating_add(n).min(depth),
-            Scroll::Top => self.y[index] = 0,
-            Scroll::Bottom => self.y[index] = depth.saturating_sub(1),
+    pub fn scroll(&mut self, target: FocusTarget, scroll: Scroll, depth: usize) {
+        let view = self
+            .tracks
+            .get_mut(&target)
+            .expect("every displayed track has a view");
+        if view.rows == RowLayout::Collapsed {
+            return;
         }
+        view.top = match scroll {
+            Scroll::Up(n) => view.top.saturating_sub(n),
+            Scroll::Down(n) => view.top.saturating_add(n).min(depth),
+            Scroll::Top => 0,
+            Scroll::Bottom => depth.saturating_sub(1),
+        };
+    }
+
+    pub fn set_rows(&mut self, target: FocusTarget, rows: RowLayout) {
+        let view = self
+            .tracks
+            .get_mut(&target)
+            .expect("every displayed track has a view");
+        view.rows = rows;
+        if rows == RowLayout::Collapsed {
+            view.top = 0;
+        }
+    }
+
+    pub fn top(&self, target: FocusTarget) -> usize {
+        self.tracks[&target].top
     }
 
     /// The region shown in a track area `width` units wide.
@@ -279,18 +317,6 @@ impl<Z: Scale> Viewport<Z> {
         self.zoom = self.zoom.zoom(&zoom, width)?;
         self.self_correct(width, contig_length);
         Ok(())
-    }
-
-    /// Set the top track # of the viewing window.
-    /// 0-based.
-    pub fn set_y(&mut self, index: usize, y: usize, depth: usize) {
-        self.y[index] = usize::min(y, depth.saturating_sub(1))
-    }
-
-    /// Top track # of the viewing window.
-    /// 0-based, inclusive.
-    pub fn top(&self, index: usize) -> usize {
-        self.y[index]
     }
 
     /// Moves the view within the contig: the zoom can't show more than the contig, the right

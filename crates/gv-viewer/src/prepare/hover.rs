@@ -7,6 +7,7 @@ use gv_core::prelude::*;
 use gv_core::{
     alignment::{BaseCoverage, ReadBase},
     gene::{GeneSchema, GeneSegmentSchema, query_segments},
+    stacking::filter_rows,
 };
 use itertools::Itertools;
 
@@ -77,8 +78,9 @@ pub fn describe_genes(
     contig_index: usize,
     left: u64,
     right: u64,
+    y: u64,
 ) -> Result<Vec<String>, crate::Error> {
-    let genes = state.track.query(contig_index, left, right)?;
+    let genes = filter_rows(state.track.query(contig_index, left, right)?, y..y + 1)?;
     let segments = query_segments(genes.clone(), left, right)?;
     let contig = &state.contig_header.contigs[contig_index].name;
     let locus = if left == right {
@@ -172,10 +174,11 @@ pub fn describe_variants(
     contig_index: usize,
     left: u64,
     right: u64,
+    y: u64,
 ) -> Result<Vec<String>, crate::Error> {
     let contig = &state.contig_header.contigs[contig_index].name;
     Ok(state.variants[index]
-        .variants(contig_index, left, right)?
+        .variants(contig_index, left, right, y..y + 1)?
         .into_iter()
         .map(|variant| {
             format!(
@@ -199,10 +202,11 @@ pub fn describe_bed(
     contig_index: usize,
     left: u64,
     right: u64,
+    y: u64,
 ) -> Result<Vec<String>, crate::Error> {
     let contig = &state.contig_header.contigs[contig_index].name;
     Ok(state.bed_intervals[index]
-        .features(contig_index, left, right)?
+        .features(contig_index, left, right, y..y + 1)?
         .into_iter()
         .map(|feature| {
             let name = feature
