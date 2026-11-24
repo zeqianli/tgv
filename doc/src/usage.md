@@ -40,6 +40,7 @@ For example, `tgv -g hg38 -r chr20:88108 /data/simple.bam /data/simple.vcf /data
 | `--host us\|eu\|auto` | UCSC mirror. Defaults to `auto`, which picks a mirror from the local time zone. |
 | `--cache-dir` _dir_ | Cache directory. Defaults to `~/.tgv`. |
 | `--phred 33\|64\|auto` | Base-quality encoding of the alignment files. Defaults to `auto`. |
+| `--min-mapq` _MAPQ_ | Skip alignments with a lower mapping quality, like `samtools view -q`. Alignments without a MAPQ (255) are kept. Defaults to 0, which keeps every alignment. |
 | `--resume` _session_ | Resume a saved [session](./session.md), by name or path. |
 | `--debug` | Write detailed logs. Intended for development. |
 

@@ -227,11 +227,13 @@ impl Repository {
         &mut self,
         file_path: &FilePath,
         quality_encoding: QualityEncodingSetting,
+        min_mapq: u8,
     ) -> Result<RepositoryFileIndex, Error> {
         Ok(match file_path {
             FilePath::AlignmentPath(alignment_path) => {
-                self.alignment_repositories
-                    .push(AlignmentRepository::new(alignment_path, quality_encoding).await?);
+                self.alignment_repositories.push(
+                    AlignmentRepository::new(alignment_path, quality_encoding, min_mapq).await?,
+                );
                 RepositoryFileIndex::Alignment(self.alignment_repositories.len() - 1)
             }
             FilePath::VariantPath(vcf_path) => {

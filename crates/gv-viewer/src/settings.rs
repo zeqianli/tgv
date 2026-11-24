@@ -87,6 +87,11 @@ pub struct ViewerArgs {
     #[arg(long, value_enum)]
     pub phred: Option<QualityEncodingSetting>,
 
+    /// Skip alignments with a mapping quality (MAPQ) below this value, as in `samtools view -q`.
+    /// Alignments without a MAPQ (255) are kept. Defaults to 0, which keeps every alignment.
+    #[arg(long = "min-mapq", value_name = "MAPQ")]
+    pub min_mapq: Option<u8>,
+
     /// Resume a saved session: a name in `~/.tgv/sessions/` or a path to a session TOML file.
     #[arg(long)]
     pub resume: Option<String>,
@@ -170,6 +175,10 @@ impl ViewerArgs {
 
         if let Some(phred) = self.phred {
             settings.core.quality_encoding = phred;
+        }
+
+        if let Some(min_mapq) = self.min_mapq {
+            settings.core.min_mapq = min_mapq;
         }
 
         settings.debug = self.debug_enabled();
@@ -293,6 +302,7 @@ impl TryFrom<&ViewerArgs> for Settings {
                 ucsc_host: cli.host.clone().unwrap_or(UcscHostCli::Auto).into(),
                 cache_dir,
                 quality_encoding: cli.phred.unwrap_or_default(),
+                min_mapq: cli.min_mapq.unwrap_or_default(),
             },
             files,
             initial_actions,

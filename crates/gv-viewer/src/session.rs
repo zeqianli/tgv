@@ -210,6 +210,7 @@ impl TryFrom<SessionFile> for Settings {
                 ucsc_host: session.ucsc_host,
                 cache_dir: gv_core::settings::Settings::default().cache_dir,
                 quality_encoding: Default::default(),
+                min_mapq: 0,
             },
             files: file_paths,
             initial_actions,

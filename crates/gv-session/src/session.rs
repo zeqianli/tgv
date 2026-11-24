@@ -402,7 +402,11 @@ impl Dataset {
         for file_path in file_paths {
             let index = self
                 .repository
-                .open_file(file_path, self.settings.quality_encoding)
+                .open_file(
+                    file_path,
+                    self.settings.quality_encoding,
+                    self.settings.min_mapq,
+                )
                 .await?;
             opened.push(index);
             self.repository.merge_contigs(index, view_contigs)?;
