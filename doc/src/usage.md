@@ -26,7 +26,7 @@ For example, `tgv -g hg38 -r chr20:88108 /data/simple.bam /data/simple.vcf /data
   - When a file can't be opened, the error names the URL that failed (the data file or its index) and gives S3's reason, such as a missing object or denied access.
 - Indexed variant and BED tracks show `zoom in to view …` when zoomed out beyond 100 bases per column, instead of loading a large region.
 - Custom FASTA and 2bit reference genomes are passed with `-g` / `--reference`, not as positional track files. FASTA references require a `.fai` index beside the FASTA file.
-- CRAM is not supported as a CLI input format. Configure CRAM tracks in a [session file](./session.md).
+- CRAM files are decoded with the FASTA reference passed with `-g` / `--reference`, which must be the FASTA the CRAM was encoded with and needs a `.fai` index. The CRAM index is inferred as `.cram.crai`. CRAM files in S3 aren't supported yet. To view a CRAM with a UCSC genome, such as `hg38` with its gene annotations, configure the track in a [session file](./session.md).
 
 ## Command-line options
 
