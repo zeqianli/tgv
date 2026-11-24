@@ -28,6 +28,10 @@ thiserror.workspace = true
 tokio.workspace = true
 unicode-width.workspace = true
 
+[target.'cfg(unix)'.dependencies]
+# Ctrl-Z raises SIGTSTP itself, because raw mode keeps the terminal from sending it.
+libc.workspace = true
+
 [[bench]]
 name = "render_bench"
 path = "bench/render_bench.rs"

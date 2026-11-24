@@ -4,6 +4,15 @@
 //! into actions, applies the effects the viewer leaves for the terminal, and draws.
 
 use crossterm::event::{self, Event, EventStream, KeyEventKind};
+#[cfg(unix)]
+use crossterm::{
+    event::{
+        DisableBracketedPaste, DisableMouseCapture, EnableBracketedPaste, EnableMouseCapture,
+        KeyboardEnhancementFlags, PopKeyboardEnhancementFlags, PushKeyboardEnhancementFlags,
+    },
+    execute,
+    terminal::{EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode, enable_raw_mode},
+};
 use futures::StreamExt;
 use ratatui::{Terminal, buffer::Buffer, layout::Rect, prelude::Backend};
 
@@ -35,6 +44,7 @@ pub struct App {
     pub context_menu: Option<ContextMenu>,
     /// The open text popup. While it is open, it blocks all other input.
     pub popup: Option<TextPopup>,
+    pub keyboard_enhanced: bool,
 
     render_buffer: Buffer,
 }
@@ -54,6 +64,7 @@ impl App {
             mouse_state: MouseState::default(),
             context_menu: None,
             popup: None,
+            keyboard_enhanced: false,
             render_buffer: Buffer::empty(Rect::default()),
         })
     }
@@ -138,6 +149,16 @@ impl App {
                 }
 
                 let events = match event {
+                    #[cfg(unix)]
+                    Ok(Event::Key(key_event))
+                        if key_event.kind == KeyEventKind::Press
+                            && key_event.code == event::KeyCode::Char('z')
+                            && key_event.modifiers.contains(event::KeyModifiers::CONTROL) =>
+                    {
+                        self.mouse_state.last_hover = None;
+                        self.suspend(terminal).map(|()| vec![RenderEvent::All])
+                    }
+
                     Ok(Event::Key(key_event)) if key_event.kind == KeyEventKind::Press => {
                         self.mouse_state.last_hover = None;
                         let actions = if self.popup.is_some() {
@@ -213,6 +234,39 @@ impl App {
             }
         }
         log::info!("The app event loop exited");
+        Ok(())
+    }
+
+    #[cfg(unix)]
+    fn suspend<B: Backend>(&self, terminal: &mut Terminal<B>) -> Result<(), crate::Error> {
+        if self.keyboard_enhanced {
+            execute!(std::io::stdout(), PopKeyboardEnhancementFlags)?;
+        }
+        execute!(
+            std::io::stdout(),
+            DisableMouseCapture,
+            DisableBracketedPaste,
+            LeaveAlternateScreen
+        )?;
+        disable_raw_mode()?;
+        terminal.show_cursor().map_err(crate::Error::DrawTerminal)?;
+
+        unsafe { libc::raise(libc::SIGTSTP) };
+
+        enable_raw_mode()?;
+        execute!(
+            std::io::stdout(),
+            EnterAlternateScreen,
+            EnableMouseCapture,
+            EnableBracketedPaste
+        )?;
+        if self.keyboard_enhanced {
+            execute!(
+                std::io::stdout(),
+                PushKeyboardEnhancementFlags(KeyboardEnhancementFlags::DISAMBIGUATE_ESCAPE_CODES)
+            )?;
+        }
+        terminal.clear().map_err(crate::Error::DrawTerminal)?;
         Ok(())
     }
 

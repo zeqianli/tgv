@@ -120,6 +120,7 @@ async fn main() -> Result<(), tgv::Error> {
         }
     };
     app.viewer.warn_shift_backspace = !keyboard_enhanced;
+    app.keyboard_enhanced = keyboard_enhanced;
     // Agents reach the viewer through `tgv mcp`; without the socket, the viewer still works.
     let socket = SessionSocket::bind(app.viewer.session.clone())
         .inspect_err(|e| log::warn!("Agents can't connect to this viewer: {e}"))
