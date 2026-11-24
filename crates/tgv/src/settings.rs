@@ -118,6 +118,7 @@ mod tests {
     use gv_core::message::Movement;
     use gv_core::prelude::*;
     use gv_core::settings::{AlignmentPath, BackendType, BamSource};
+    use gv_core::tracks::UcscHost;
     use rstest::rstest;
 
     fn bam(path: &str) -> AlignmentPath {
@@ -227,6 +228,10 @@ mod tests {
         #[case] expected_settings: Result<Settings, ()>,
     ) {
         let cli = Cli::parse_from(shlex::split(command_line).unwrap());
+        let expected_settings = expected_settings.map(|mut expected| {
+            expected.core.ucsc_host = UcscHost::auto();
+            expected
+        });
 
         let settings = Settings::try_from(cli);
 
