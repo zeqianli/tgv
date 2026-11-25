@@ -74,8 +74,6 @@ pub enum Error {
     Core(#[from] gv_core::Error),
 }
 
-// The viewer reads DataFrame columns and files with `?`, which used to convert through
-// `gv_core::Error`.
 impl From<PolarsError> for Error {
     fn from(error: PolarsError) -> Self {
         Self::Core(error.into())
@@ -88,7 +86,6 @@ impl From<std::string::FromUtf8Error> for Error {
     }
 }
 
-// The viewer answers session calls, and session replies carry the session's error type.
 impl From<Error> for gv_session::Error {
     fn from(error: Error) -> Self {
         match error {

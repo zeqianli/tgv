@@ -104,7 +104,6 @@ enum SearchLocus {
     },
 }
 
-/// Parse `1234` or `1000-2000`, allowing comma separators.
 fn parse_locus(locus: &str) -> Option<SearchLocus> {
     let number = |text: &str| text.trim().replace(',', "").parse::<u64>().ok();
     match locus.split_once('-') {

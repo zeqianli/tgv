@@ -1,5 +1,3 @@
-//! The input modes, and the command line that command and search mode share.
-
 use crate::message::{InputAction, NavigationAction};
 
 use crate::{
@@ -10,7 +8,6 @@ use crate::{
 use gv_core::prelude::*;
 use itertools::Itertools;
 
-/// The active input mode and the editing mode to resume after a temporary mode closes.
 #[derive(Debug, Clone, Copy, Eq, PartialEq)]
 pub enum InputMode {
     Editing(Mode),
@@ -28,13 +25,10 @@ impl From<Mode> for InputMode {
 #[derive(Debug, Clone)]
 pub struct KeyboardState {
     pub mode: InputMode,
-    /// The normal or insert mode command being typed.
     pub pending: PendingKeys,
     pub command: String,
     pub command_cursor: usize,
 
-    /// Index of the current focused contig.
-    /// Indexes in the contig list view is identical to the contig header.
     pub contig_list_cursor: usize,
 }
 
@@ -52,8 +46,6 @@ impl Default for KeyboardState {
 }
 
 impl KeyboardState {
-    /// The mode the screen shows: normal or insert mode. Command, search, and contig list input
-    /// show the mode they return to.
     pub fn shown_mode(&self) -> Mode {
         match self.mode {
             InputMode::Editing(mode)
@@ -63,7 +55,6 @@ impl KeyboardState {
         }
     }
 
-    /// Leaves insert mode for a track that no longer has the focus or was removed.
     pub fn leave_insert_mode(&mut self, track: TrackId) {
         if self.shown_mode() != Mode::Insert(track) {
             return;
@@ -89,7 +80,6 @@ impl KeyboardState {
 }
 
 impl KeyboardState {
-    /// Inserts pasted text into the command or search line.
     pub fn handle_paste(&mut self, text: &str) -> Vec<Action> {
         match self.mode {
             InputMode::Command(_) | InputMode::Search(_) => {
@@ -102,7 +92,6 @@ impl KeyboardState {
         }
     }
 
-    /// Move the selected contig up or down.
     fn handle_contig_list(
         &mut self,
         key_event: Key,

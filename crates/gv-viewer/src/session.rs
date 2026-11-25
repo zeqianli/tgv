@@ -17,9 +17,6 @@ use std::path::{Path, PathBuf};
 const MIN_SUPPORTED_VERSION: u32 = 1;
 const CURRENT_VERSION: u32 = 2;
 
-/// On-disk representation of a tgv session.
-///
-/// Serialize with [`toml::to_string_pretty`], deserialize with [`SessionFile::parse`].
 #[derive(Debug, Serialize, Deserialize)]
 pub struct SessionFile {
     pub version: u32,

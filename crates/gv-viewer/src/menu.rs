@@ -12,7 +12,6 @@ use gv_core::{
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum MenuItem {
-    /// An item that sends `action` when clicked. `None` shows the item as disabled.
     Entry {
         label: String,
         action: Option<Action>,
@@ -259,8 +258,6 @@ pub fn track_items(
     items
 }
 
-/// Items for the sidebar. A track's section has the track's items and, for a file track,
-/// items to insert a track next to it, then the sidebar's own.
 pub fn sidebar_items(track_items: Vec<MenuItem>, insert_beside: Option<TrackId>) -> Vec<MenuItem> {
     let mut items = track_items;
     if let Some(track) = insert_beside {
