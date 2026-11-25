@@ -1,8 +1,4 @@
 //! Session file support: read and write `~/.tgv/sessions/*.toml`.
-//!
-//! A session file is a snapshot of the current [`Viewer`] state that can be
-//! restored on the next launch. The file format is documented in the tgv
-//! book under "Session files".
 
 use crate::message::NavigationAction;
 use crate::{
@@ -21,9 +17,6 @@ use std::path::{Path, PathBuf};
 const MIN_SUPPORTED_VERSION: u32 = 1;
 const CURRENT_VERSION: u32 = 2;
 
-/// On-disk representation of a tgv session.
-///
-/// Serialize with [`toml::to_string_pretty`], deserialize with [`SessionFile::parse`].
 #[derive(Debug, Serialize, Deserialize)]
 pub struct SessionFile {
     pub version: u32,
@@ -121,8 +114,7 @@ impl SessionFile {
         if let Some(parent) = path.parent() {
             std::fs::create_dir_all(parent)?;
         }
-        let content =
-            toml::to_string_pretty(self).map_err(crate::Error::SerializeSession)?;
+        let content = toml::to_string_pretty(self).map_err(crate::Error::SerializeSession)?;
         std::fs::write(path, content)?;
         Ok(())
     }

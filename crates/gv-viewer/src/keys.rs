@@ -1,16 +1,3 @@
-//! The vim key grammar of normal and insert mode.
-//!
-//! The structure follows vim's own: [`PendingKeys`] holds a command while it is typed, like
-//! vim's `cmdarg_T` and `oparg_T`. That is a count, a prefix (`g` or `Ctrl-w`), and a pending
-//! operator with the count typed before it. Motions only describe where the cursor goes.
-//! `Viewer` resolves them against the focused track, and applies an operator to the range between the
-//! cursor and the motion's target, as vim's `do_pending_operator` does.
-//!
-//! Insert mode types no text, so it takes vim's normal-mode editing grammar: counts, `x`, `X`,
-//! and `d{motion}`. `Space` is the only typing key, and it paints.
-//!
-//! Keys are front-end neutral: each front end decodes its own key events into a [`Key`].
-
 use crate::keyboard::InputMode;
 use crate::message::{
     Action, ColumnSpan, CursorAfter, Direction, EditAction, FocusMove, InputAction, Motion,
@@ -50,7 +37,6 @@ impl std::fmt::Display for KeyCode {
     }
 }
 
-/// The modifier keys held with a key.
 #[derive(Debug, Clone, Copy, Default, Eq, PartialEq, Hash)]
 pub struct KeyModifiers {
     pub shift: bool,
@@ -76,7 +62,6 @@ impl KeyModifiers {
     };
 }
 
-/// A key press, decoded from a front end's key event.
 #[derive(Debug, Clone, Copy, Eq, PartialEq, Hash)]
 pub struct Key {
     pub code: KeyCode,
@@ -99,7 +84,6 @@ const LARGE_HORIZONTAL_STEP: u64 = 30;
 const LARGE_VERTICAL_STEP: usize = 30;
 const ZOOM_STEP: u64 = 2;
 
-/// The grammar a key is read with. Insert mode edits one BED track.
 #[derive(Debug, Clone, Copy, Eq, PartialEq)]
 pub enum Mode {
     Normal,
@@ -112,14 +96,11 @@ enum Prefix {
     CtrlW,
 }
 
-/// A command while it is typed.
 #[derive(Debug, Default, Clone)]
 pub struct PendingKeys {
     count: Option<usize>,
     prefix: Option<Prefix>,
-    /// The operator waiting for its motion, with the count typed before it.
     operator: Option<(Operator, Option<usize>)>,
-    /// The keys typed so far, for error messages, such as `3g`.
     typed: String,
 }
 
@@ -132,8 +113,6 @@ impl PendingKeys {
         *self = Self::default();
     }
 
-    /// Adds a key. Returns the actions of a completed command, or nothing while the command is
-    /// still being typed. A completed or invalid command clears the pending keys.
     pub fn push(&mut self, key: Key, mode: Mode) -> Result<Vec<Action>, crate::Error> {
         self.typed.push_str(&key_name(key));
         let result = self.interpret(key, mode);
@@ -143,7 +122,6 @@ impl PendingKeys {
         result.map(Option::unwrap_or_default)
     }
 
-    /// The count typed before the operator, times the count typed after it.
     fn total_count(&self) -> usize {
         let operator_count = self.operator.and_then(|(_, count)| count);
         operator_count.unwrap_or(1) * self.count.unwrap_or(1)

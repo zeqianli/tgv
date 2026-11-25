@@ -1,6 +1,10 @@
 use super::prelude::*;
+use crate::layout::GENE_ROW_HEIGHT;
 use gv_core::{prelude::*, strand::Strand};
-use gv_viewer::prepare::track::{Gene, SegmentKind};
+use gv_viewer::{
+    prepare::track::{Gene, SegmentKind},
+    viewport::TrackView,
+};
 
 /// Genes narrower than this show as one bar, without exons.
 const MIN_GENE_ON_SCREEN_WIDTH_TO_SHOW_EXONS: f32 = 30.0;
@@ -15,18 +19,22 @@ pub fn render_track(
     area: &Rect,
     state: &State,
     view: &PixelView,
+    track_view: TrackView,
     palette: &Palette,
     window: &mut Window,
     cx: &mut App,
 ) -> Result<(), crate::Error> {
-    let middle = area.y + EXON_HEIGHT / 2.0 + 2.0;
-    let label_y = area.y + EXON_HEIGHT + 4.0;
-    let mut right_most_label_x = f32::MIN;
+    let rows = track_view.visible_rows((area.height / GENE_ROW_HEIGHT).ceil() as usize);
+    let mut right_most_label_x = vec![f32::MIN; (rows.end - rows.start) as usize];
     let region = view.region(area);
-    for gene in Gene::in_region(state, &region)? {
+    for gene in Gene::in_region(state, &region, rows.clone())? {
         let Some((gene_x, gene_width)) = view.span(gene.start, gene.end, area) else {
             continue;
         };
+        let row = (gene.y - rows.start) as usize;
+        let row_top = area.y + row as f32 * GENE_ROW_HEIGHT;
+        let middle = row_top + EXON_HEIGHT / 2.0 + 2.0;
+        let label_y = row_top + EXON_HEIGHT + 4.0;
         let chevron = match gene.strand {
             Strand::Forward => "›",
             Strand::Reverse => "‹",
@@ -105,7 +113,7 @@ pub fn render_track(
         for (center, label) in labels {
             let width = TextContext::default().text(&label).width(window);
             let x = (center - width / 2.0).max(area.x);
-            if x > right_most_label_x + 6.0 && area.height >= label_y - area.y + LINE_HEIGHT {
+            if x > right_most_label_x[row] + 6.0 && label_y + LINE_HEIGHT <= area.bottom() {
                 TextContext::default().text(&label).color(TEXT).paint(
                     x,
                     label_y,
@@ -113,7 +121,7 @@ pub fn render_track(
                     window,
                     cx,
                 )?;
-                right_most_label_x = x + width;
+                right_most_label_x[row] = x + width;
             }
         }
     }

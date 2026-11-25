@@ -38,7 +38,11 @@ impl AppHarness {
 
     async fn initialize(&mut self) -> Result<(), tgv::Error> {
         self.terminal
-            .draw(|frame| self.app.resolve_layout(frame.area()))
+            .draw(|frame| {
+                self.app
+                    .resolve_layout(frame.area())
+                    .expect("layout resolves")
+            })
             .expect("initial layout draw");
 
         self.app.start().await?;

@@ -7,7 +7,8 @@ use crate::{
 };
 use gv_viewer::{
     message::FocusTarget,
-    prepare::sidebar::{alignment_depth_description, describe_option},
+    prepare::sidebar::{depth_description, describe_option},
+    viewport::RowLayout,
 };
 
 const PADDING: f32 = 6.0;
@@ -58,7 +59,16 @@ pub fn render_sidebar(
         if focused {
             fill_rect(*section, to_hsla(fill), window);
         }
-        if matches!(
+        let highlighted = area_type
+            .focus_target()
+            .is_some_and(|target| mouse_state.is_divider_highlighted(&AreaType::Divider(target)));
+        if highlighted {
+            fill_rect(
+                Rect::new(section.x, section.bottom() - 2.0, section.width, 2.0),
+                to_hsla(palette.HIGHLIGHT_COLOR),
+                window,
+            );
+        } else if matches!(
             area_type,
             AreaType::Coverage(_) | AreaType::Variant(_) | AreaType::Bed(_)
         ) {
@@ -113,7 +123,12 @@ pub fn render_sidebar(
             if area.height >= 2.0 * LINE_HEIGHT + PADDING {
                 TextContext::default()
                     .text(&fit(
-                        &alignment_depth_description(state, &view.viewport, index)?,
+                        &depth_description(
+                            state,
+                            &layout.track_registry,
+                            &view.viewport,
+                            FocusTarget::Track(id),
+                        )?,
                         width,
                     ))
                     .color(MUTED_TEXT)
@@ -126,7 +141,20 @@ pub fn render_sidebar(
                     )?;
             }
         } else {
-            let y = area.y + (area.height - LINE_HEIGHT) / 2.0;
+            let target = label
+                .area_type
+                .focus_target()
+                .expect("sidebar labels name file tracks");
+            let shows_depth = view.viewport.tracks[&target].rows == RowLayout::Expanded
+                && area.height >= 2.0 * LINE_HEIGHT + PADDING;
+            if shows_depth {
+                render_depth(state, layout, view, target, area, width, window, cx)?;
+            }
+            let y = if shows_depth {
+                area.y + PADDING
+            } else {
+                area.y + (area.height - LINE_HEIGHT) / 2.0
+            };
             if focused {
                 TextContext::default()
                     .text(&name)
@@ -166,7 +194,26 @@ pub fn render_sidebar(
             }
             // The reference's section names the genome beside the sequence and the genes.
             AreaType::Sequence | AreaType::GeneTrack => {
-                let y = section.y + (section.height - LINE_HEIGHT) / 2.0;
+                let shows_depth = view.viewport.tracks[&FocusTarget::Reference].rows
+                    == RowLayout::Expanded
+                    && section.height >= 2.0 * LINE_HEIGHT + PADDING;
+                if shows_depth {
+                    render_depth(
+                        state,
+                        layout,
+                        view,
+                        FocusTarget::Reference,
+                        *section,
+                        width,
+                        window,
+                        cx,
+                    )?;
+                }
+                let y = if shows_depth {
+                    section.y + PADDING
+                } else {
+                    section.y + (section.height - LINE_HEIGHT) / 2.0
+                };
                 let name = fit(&state.reference.to_string(), width);
                 if focus.target == FocusTarget::Reference {
                     TextContext::default()
@@ -194,5 +241,32 @@ pub fn render_sidebar(
         SEPARATOR
     };
     fill_rect(layout.sidebar_divider_area, to_hsla(divider), window);
+    Ok(())
+}
+
+#[allow(clippy::too_many_arguments)]
+fn render_depth(
+    state: &gv_core::state::State,
+    layout: &ResolvedMainLayout,
+    view: &PixelView,
+    target: FocusTarget,
+    area: Rect,
+    width: f32,
+    window: &mut Window,
+    cx: &mut App,
+) -> Result<(), crate::Error> {
+    TextContext::default()
+        .text(&fit(
+            &depth_description(state, &layout.track_registry, &view.viewport, target)?,
+            width,
+        ))
+        .color(MUTED_TEXT)
+        .paint(
+            area.x + PADDING,
+            area.bottom() - LINE_HEIGHT - PADDING,
+            LINE_HEIGHT,
+            window,
+            cx,
+        )?;
     Ok(())
 }

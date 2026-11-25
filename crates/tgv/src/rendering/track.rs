@@ -5,11 +5,15 @@ use crate::{
     rendering::colors::Palette,
 };
 use gv_core::{prelude::*, strand::Strand};
-use gv_viewer::prepare::track::{Gene, SegmentKind};
+use gv_viewer::{
+    prepare::track::{Gene, SegmentKind},
+    viewport::TrackView,
+};
 use ratatui::{buffer::Buffer, layout::Rect, style::Style};
 
 const MIN_AREA_WIDTH: u16 = 5;
-const MIN_AREA_HEIGHT: u16 = 2;
+const MIN_AREA_HEIGHT: u16 = 1;
+const ROW_HEIGHT: u16 = 2;
 
 struct TrackRenderContext {
     x: u16,
@@ -26,35 +30,29 @@ pub fn render_track(
     buf: &mut Buffer,
     state: &State,
     alignment_view: &AlignmentView,
+    track_view: TrackView,
     pallete: &Palette,
 ) -> Result<(), crate::Error> {
     if area.width < MIN_AREA_WIDTH || area.height < MIN_AREA_HEIGHT {
         return Ok(());
     }
 
-    let mut right_most_label_onscreen_x = 0;
+    let rows = track_view.visible_rows(area.height.div_ceil(ROW_HEIGHT) as usize);
+    let mut right_most_label_onscreen_x = vec![0; (rows.end - rows.start) as usize];
     let region = alignment_view.region(f64::from(area.width));
-    for gene in Gene::in_region(state, &region)? {
+    for gene in Gene::in_region(state, &region, rows.clone())? {
+        let row = (gene.y - rows.start) as usize;
+        let y = area.y + row as u16 * ROW_HEIGHT;
         for context in get_rendering_info(alignment_view, area, &gene, pallete) {
-            buf.set_string(
-                context.x + area.x,
-                area.y,
-                context.string.clone(),
-                context.style,
-            );
+            buf.set_string(context.x + area.x, y, context.string.clone(), context.style);
 
             if let Some((label_x, label)) = context.label_info
-                && area.height >= 2
-                && label_x > right_most_label_onscreen_x + 1
+                && y + 1 < area.bottom()
+                && label_x > right_most_label_onscreen_x[row] + 1
             {
-                right_most_label_onscreen_x = label_x + label.len() as u16 - 1;
+                right_most_label_onscreen_x[row] = label_x + label.len() as u16 - 1;
 
-                buf.set_string(
-                    label_x + area.x,
-                    area.y + 1,
-                    label.clone(),
-                    Style::default(),
-                );
+                buf.set_string(label_x + area.x, y + 1, label.clone(), Style::default());
             }
         }
     }

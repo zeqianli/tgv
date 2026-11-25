@@ -1,6 +1,7 @@
 use crate::{
     layout::{
         ALIGNMENT_ROW_HEIGHT, AreaType, HoveringAreaType, PixelView, Rect, ResolvedMainLayout,
+        row_height,
     },
     message::GuiAction,
     rendering::cytoband::CYTOBAND_TEXT_RIGHT_SPACING,
@@ -14,6 +15,7 @@ use gv_viewer::{
         NavigationAction, UpdateLayoutAction,
     },
     prepare::hover,
+    viewport::RowLayout,
 };
 
 const ZOOM_PER_PIXEL: f64 = 0.01;
@@ -21,7 +23,7 @@ const ZOOM_PER_PIXEL: f64 = 0.01;
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum DragTarget {
     Area(AreaType),
-    Divider(TrackId, TrackId),
+    Divider(FocusTarget),
     Sidebar,
 }
 
@@ -32,18 +34,17 @@ pub struct MouseState {
     last_x: f32,
     last_y: f32,
     dragged: bool,
-    pub hovered_divider: Option<(TrackId, TrackId)>,
-    /// Vertical scrolling that hasn't added up to a whole alignment row yet.
+    pub hovered_divider: Option<FocusTarget>,
+    /// Vertical scrolling that hasn't added up to a whole row yet.
     scroll_remainder: f32,
 }
 
 impl MouseState {
     pub fn is_divider_highlighted(&self, area_type: &AreaType) -> bool {
         match area_type {
-            AreaType::AlignmentDivider { upper, lower } => {
-                let pair = Some((*upper, *lower));
-                self.hovered_divider == pair
-                    || self.drag_target == Some(DragTarget::Divider(*upper, *lower))
+            AreaType::Divider(target) => {
+                self.hovered_divider == Some(*target)
+                    || self.drag_target == Some(DragTarget::Divider(*target))
             }
             _ => false,
         }
@@ -81,17 +82,10 @@ impl MouseState {
         self.dragged = false;
         // Clicking a track or its sidebar section focuses it. Hovering doesn't, so the
         // pointer can't undo a focus chosen with the keyboard.
-        match Self::hovered_area(layout, hovered) {
-            Some(
-                AreaType::Coverage(id)
-                | AreaType::Alignment(id)
-                | AreaType::Variant(id)
-                | AreaType::Bed(id),
-            ) => actions.push(Action::Input(InputAction::Focus(FocusTarget::Track(id))).into()),
-            Some(AreaType::Sequence | AreaType::GeneTrack) => {
-                actions.push(Action::Input(InputAction::Focus(FocusTarget::Reference)).into())
-            }
-            _ => {}
+        if let Some(target) =
+            Self::hovered_area(layout, hovered).and_then(|area| area.focus_target())
+        {
+            actions.push(Action::Input(InputAction::Focus(target)).into());
         }
         if let HoveringAreaType::Track(track_index) = hovered {
             let (area, rect) = layout.areas[track_index];
@@ -106,9 +100,6 @@ impl MouseState {
                 let fraction = f64::from(x - rect.x) / f64::from(bar_width);
                 let position = ((fraction * length as f64) as u64).clamp(1, length);
                 actions.push(Action::from(Movement::Position(position)).into());
-            }
-            if let AreaType::AlignmentDivider { upper, lower } = area {
-                self.drag_target = Some(DragTarget::Divider(upper, lower));
             }
             // A double click zooms in around the point, as in IGV.
             if click_count == 2
@@ -126,6 +117,9 @@ impl MouseState {
                 actions.push(GuiAction::ZoomAround { factor: 2.0, x });
             }
         }
+        if let Some(target) = divider_at(layout, hovered, y) {
+            self.drag_target = Some(DragTarget::Divider(target));
+        }
         Ok(actions)
     }
 
@@ -140,13 +134,7 @@ impl MouseState {
         let hovered = layout.get_area_type_at_position(x, y);
         let target = match hovered {
             HoveringAreaType::Sidebar(index) => Some(ContextMenuTarget::Sidebar {
-                track: match layout.sidebar_sections[index].0 {
-                    AreaType::Coverage(id)
-                    | AreaType::Alignment(id)
-                    | AreaType::Variant(id)
-                    | AreaType::Bed(id) => Some(id),
-                    _ => None,
-                },
+                target: layout.sidebar_sections[index].0.focus_target(),
             }),
             HoveringAreaType::Track(track_index) => match &layout.areas[track_index] {
                 (AreaType::Alignment(id) | AreaType::Coverage(id), area) => {
@@ -160,6 +148,7 @@ impl MouseState {
                 (AreaType::Bed(id) | AreaType::Variant(id), _) => {
                     Some(ContextMenuTarget::Track { track: *id })
                 }
+                (AreaType::Sequence | AreaType::GeneTrack, _) => Some(ContextMenuTarget::Reference),
                 _ => None,
             },
             _ => None,
@@ -188,13 +177,7 @@ impl MouseState {
     ) -> Result<Vec<GuiAction>, crate::Error> {
         let mut actions = Vec::new();
         let hovered = layout.get_area_type_at_position(x, y);
-        self.hovered_divider = match hovered {
-            HoveringAreaType::Track(track_index) => match layout.areas[track_index].0 {
-                AreaType::AlignmentDivider { upper, lower } => Some((upper, lower)),
-                _ => None,
-            },
-            _ => None,
-        };
+        self.hovered_divider = divider_at(layout, hovered, y);
         if !left_pressed {
             actions.push(GuiAction::Hover(Self::describe(x, y, frame, layout, view)?));
             return Ok(actions);
@@ -205,36 +188,38 @@ impl MouseState {
         if self.drag_target == Some(DragTarget::Sidebar) {
             actions
                 .push(Action::from(UpdateLayoutAction::SetSidebarWidth(x.max(0.0) as u16)).into());
-        } else if let Some(DragTarget::Divider(upper, lower)) = self.drag_target {
+        } else if let Some(DragTarget::Divider(target)) = self.drag_target {
             let delta = (y - self.last_y).round() as i32;
             if delta != 0 {
-                actions.push(
-                    Action::from(UpdateLayoutAction::ResizeAlignmentPair {
-                        upper,
-                        lower,
-                        delta_rows: delta,
-                    })
-                    .into(),
-                );
+                actions
+                    .push(Action::from(UpdateLayoutAction::ResizeTrack { target, delta }).into());
             } else {
                 // Keep the fraction of a pixel for the next move.
                 return Ok(actions);
             }
         } else if let Some(DragTarget::Area(area)) = self.drag_target {
             match area {
-                AreaType::Alignment(id) | AreaType::Coverage(id) => {
+                AreaType::Alignment(_)
+                | AreaType::Coverage(_)
+                | AreaType::Bed(_)
+                | AreaType::Variant(_)
+                | AreaType::GeneTrack => {
                     actions.push(GuiAction::Pan {
                         pixels: x - self.last_x,
                     });
                     // A drag keeps scrolling the track where it started, even if it crosses
                     // into another.
-                    actions.extend(self.scroll_rows(id, self.last_y - y));
+                    if let Some(target) = scroll_target(&area)
+                        && frame.viewport.tracks[&target].rows == RowLayout::Expanded
+                    {
+                        actions.extend(self.scroll_rows(
+                            target,
+                            row_height(&area),
+                            self.last_y - y,
+                        ));
+                    }
                 }
-                AreaType::Bed(_)
-                | AreaType::Variant(_)
-                | AreaType::Sequence
-                | AreaType::GeneTrack
-                | AreaType::Coordinate => actions.push(GuiAction::Pan {
+                AreaType::Sequence | AreaType::Coordinate => actions.push(GuiAction::Pan {
                     pixels: x - self.last_x,
                 }),
                 _ => {}
@@ -287,7 +272,7 @@ impl MouseState {
         let area = layout.areas[track_index].0;
         if matches!(
             area,
-            AreaType::Console | AreaType::Error | AreaType::AlignmentDivider { .. }
+            AreaType::Console | AreaType::Error | AreaType::Divider(_)
         ) {
             return Vec::new();
         }
@@ -301,27 +286,32 @@ impl MouseState {
         if dx != 0.0 {
             actions.push(GuiAction::Pan { pixels: dx });
         }
-        if let AreaType::Alignment(id) | AreaType::Coverage(id) = area {
-            actions.extend(self.scroll_rows(id, -dy));
+        if let Some(target) = scroll_target(&area) {
+            actions.extend(self.scroll_rows(target, row_height(&area), -dy));
         }
         actions
     }
 
-    /// Scrolls an alignment by whole rows, keeping the fraction for later. Positive pixels
-    /// scroll down.
-    fn scroll_rows(&mut self, track: TrackId, pixels: f32) -> Option<GuiAction> {
+    /// Scrolls a track by whole rows, keeping the fraction for later. Positive pixels scroll
+    /// down.
+    fn scroll_rows(
+        &mut self,
+        target: FocusTarget,
+        row_height: f32,
+        pixels: f32,
+    ) -> Option<GuiAction> {
         self.scroll_remainder += pixels;
-        let rows = (self.scroll_remainder / ALIGNMENT_ROW_HEIGHT).trunc();
+        let rows = (self.scroll_remainder / row_height).trunc();
         if rows == 0.0 {
             return None;
         }
-        self.scroll_remainder -= rows * ALIGNMENT_ROW_HEIGHT;
+        self.scroll_remainder -= rows * row_height;
         let scroll = if rows > 0.0 {
             Scroll::Down(rows as usize)
         } else {
             Scroll::Up(-rows as usize)
         };
-        Some(Action::Navigate(NavigationAction::ScrollAlignment { track, scroll }).into())
+        Some(Action::Navigate(NavigationAction::ScrollTrack { target, scroll }).into())
     }
 
     /// What the message line says about the data under the pointer.
@@ -351,7 +341,12 @@ impl MouseState {
                 )?],
                 None => Vec::new(),
             },
-            AreaType::GeneTrack => hover::describe_genes(state, contig_index, left, right)?,
+            AreaType::GeneTrack => {
+                match feature_row_at(view, area_type, FocusTarget::Reference, area, y) {
+                    Some(row) => hover::describe_genes(state, contig_index, left, right, row)?,
+                    None => Vec::new(),
+                }
+            }
             AreaType::Sequence => vec![hover::describe_sequence(state, left, right)],
             AreaType::Coverage(id) => {
                 let index = layout.track_registry.alignment_index(*id)?;
@@ -359,11 +354,19 @@ impl MouseState {
             }
             AreaType::Variant(id) => {
                 let index = layout.track_registry.variant_index(*id)?;
-                hover::describe_variants(state, index, contig_index, left, right)?
+                match feature_row_at(view, area_type, FocusTarget::Track(*id), area, y) {
+                    Some(row) => {
+                        hover::describe_variants(state, index, contig_index, left, right, row)?
+                    }
+                    None => Vec::new(),
+                }
             }
             AreaType::Bed(id) => {
                 let index = layout.track_registry.bed_index(*id)?;
-                hover::describe_bed(state, index, contig_index, left, right)?
+                match feature_row_at(view, area_type, FocusTarget::Track(*id), area, y) {
+                    Some(row) => hover::describe_bed(state, index, contig_index, left, right, row)?,
+                    None => Vec::new(),
+                }
             }
             _ => Vec::new(),
         };
@@ -386,8 +389,50 @@ fn read_at(
         return Ok(None);
     }
     let (left, right) = view.bases_at(x, area);
-    let row = view.viewport.top(index) + ((y - area.y) / ALIGNMENT_ROW_HEIGHT) as usize;
+    let row = view.viewport.top(FocusTarget::Track(track))
+        + ((y - area.y) / ALIGNMENT_ROW_HEIGHT) as usize;
     Ok(hover::read_at(&frame.state, index, left, right, row)?.map(|read_id| (index, read_id)))
+}
+
+fn divider_at(
+    layout: &ResolvedMainLayout,
+    hovered: HoveringAreaType,
+    y: f32,
+) -> Option<FocusTarget> {
+    match hovered {
+        HoveringAreaType::Track(_) | HoveringAreaType::Sidebar(_) => {
+            layout.areas.iter().find_map(|(area, rect)| match area {
+                AreaType::Divider(target) if y >= rect.y && y < rect.bottom() => Some(*target),
+                _ => None,
+            })
+        }
+        HoveringAreaType::SidebarDivider | HoveringAreaType::None => None,
+    }
+}
+
+fn scroll_target(area: &AreaType) -> Option<FocusTarget> {
+    match area {
+        AreaType::Coverage(id) => Some(FocusTarget::Track(*id)),
+        area => area.rows_target(),
+    }
+}
+
+fn feature_row_at(
+    view: &PixelView,
+    area_type: &AreaType,
+    target: FocusTarget,
+    area: &Rect,
+    y: f32,
+) -> Option<u64> {
+    if y < area.y {
+        return None;
+    }
+    let offset = ((y - area.y) / row_height(area_type)) as u64;
+    let track = view.viewport.tracks[&target];
+    match track.rows {
+        RowLayout::Collapsed => (offset == 0).then_some(0),
+        RowLayout::Expanded => Some(track.top as u64 + offset),
+    }
 }
 
 /// The zoom for a scale step, as the `z` and `o` keys send it.

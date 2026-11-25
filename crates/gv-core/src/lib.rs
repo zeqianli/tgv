@@ -26,6 +26,7 @@ pub mod reference;
 pub mod repository;
 pub mod sequence;
 pub mod settings;
+pub mod stacking;
 pub mod state;
 pub mod strand;
 pub mod table_schema;

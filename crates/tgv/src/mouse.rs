@@ -1,4 +1,6 @@
-use crate::layout::{AlignmentView, AreaType, CellView, HoveringAreaType, ResolvedMainLayout};
+use crate::layout::{
+    AlignmentView, AreaType, CellView, HoveringAreaType, ResolvedMainLayout, row_unit,
+};
 use crossterm::event::{KeyModifiers, MouseButton, MouseEvent, MouseEventKind};
 use gv_core::message::{Movement, Scroll};
 use gv_core::prelude::*;
@@ -7,6 +9,7 @@ use gv_viewer::message::{
     NavigationAction, UpdateLayoutAction,
 };
 use gv_viewer::prepare::hover;
+use gv_viewer::viewport::RowLayout;
 use ratatui::layout::Rect;
 
 /// Columns panned per Shift+wheel notch. A wheel notch is coarser than a trackpad's
@@ -26,17 +29,39 @@ fn read_at(
     let index = layout.track_registry.alignment_index(track)?;
     let (Some((left, right)), Some(y)) = (
         alignment_view.coordinates_of_onscreen_x(column, area),
-        alignment_view.coordinate_of_onscreen_y(index, row, area),
+        alignment_view.coordinate_of_onscreen_y(FocusTarget::Track(track), row, area),
     ) else {
         return Ok(None);
     };
     Ok(hover::read_at(state, index, left, right, y)?.map(|read_id| (index, read_id)))
 }
 
+fn feature_row_at(
+    alignment_view: &AlignmentView,
+    area_type: &AreaType,
+    target: FocusTarget,
+    area: &Rect,
+    row: u16,
+) -> Option<u64> {
+    let offset = u64::from(row.checked_sub(area.y)? / row_unit(area_type));
+    let view = alignment_view.tracks[&target];
+    match view.rows {
+        RowLayout::Collapsed => (offset == 0).then_some(0),
+        RowLayout::Expanded => Some(view.top as u64 + offset),
+    }
+}
+
+fn section_target(area: &AreaType) -> Option<FocusTarget> {
+    match area {
+        AreaType::Divider(target) => Some(*target),
+        area => area.focus_target(),
+    }
+}
+
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum DragTarget {
     Area(AreaType),
-    Divider(TrackId, TrackId),
+    Divider(FocusTarget),
     Sidebar,
 }
 
@@ -49,7 +74,7 @@ pub struct MouseState {
     /// Whether the pointer moved since the left button went down, which makes it a drag
     /// rather than a click.
     dragged: bool,
-    pub hovered_divider: Option<(TrackId, TrackId)>,
+    pub hovered_divider: Option<FocusTarget>,
 
     /// The cell of the last handled motion event. Terminals can report several motion events
     /// within one cell, which would otherwise repeat the hover lookup and redraw. Reset this
@@ -60,10 +85,9 @@ pub struct MouseState {
 impl MouseState {
     pub fn is_divider_highlighted(&self, area_type: &AreaType) -> bool {
         match area_type {
-            AreaType::AlignmentDivider { upper, lower } => {
-                let pair = Some((*upper, *lower));
-                self.hovered_divider == pair
-                    || self.drag_target == Some(DragTarget::Divider(*upper, *lower))
+            AreaType::Divider(target) => {
+                self.hovered_divider == Some(*target)
+                    || self.drag_target == Some(DragTarget::Divider(*target))
             }
             _ => false,
         }
@@ -96,10 +120,12 @@ impl MouseState {
         let column = alignment_view.zoom.0;
         let hovered = layout.get_area_type_at_position(event.column, event.row);
         self.hovered_divider = match hovered {
-            HoveringAreaType::Track(track_index) => match layout.areas[track_index].0 {
-                AreaType::AlignmentDivider { upper, lower } => Some((upper, lower)),
-                _ => None,
-            },
+            HoveringAreaType::Track(index) | HoveringAreaType::Sidebar(index) => {
+                match layout.areas[index].0 {
+                    AreaType::Divider(target) => Some(target),
+                    _ => None,
+                }
+            }
             _ => None,
         };
 
@@ -112,21 +138,10 @@ impl MouseState {
                 self.dragged = false;
                 // Clicking a track or its sidebar section focuses it. Hovering doesn't, so the
                 // pointer can't undo a focus chosen with the keyboard.
-                if let HoveringAreaType::Track(index) | HoveringAreaType::Sidebar(index) = hovered {
-                    match layout.areas[index].0 {
-                        AreaType::Coverage(id)
-                        | AreaType::Alignment(id)
-                        | AreaType::Variant(id)
-                        | AreaType::Bed(id) => {
-                            messages
-                                .push(Action::Input(InputAction::Focus(FocusTarget::Track(id))));
-                        }
-                        AreaType::Sequence | AreaType::GeneTrack => {
-                            messages
-                                .push(Action::Input(InputAction::Focus(FocusTarget::Reference)));
-                        }
-                        _ => {}
-                    }
+                if let HoveringAreaType::Track(index) | HoveringAreaType::Sidebar(index) = hovered
+                    && let Some(target) = layout.areas[index].0.focus_target()
+                {
+                    messages.push(Action::Input(InputAction::Focus(target)));
                 }
                 if let HoveringAreaType::Track(track_index) = hovered {
                     let area = layout.areas[track_index].0;
@@ -147,21 +162,15 @@ impl MouseState {
                         let position = ((fraction * length as f64) as u64).clamp(1, length);
                         messages.push(Movement::Position(position).into());
                     }
-                    if let AreaType::AlignmentDivider { upper, lower } = area {
-                        self.drag_target = Some(DragTarget::Divider(upper, lower));
-                    }
+                }
+                if let Some(target) = self.hovered_divider {
+                    self.drag_target = Some(DragTarget::Divider(target));
                 }
             }
             MouseEventKind::Down(MouseButton::Right) => {
                 let target = match hovered {
                     HoveringAreaType::Sidebar(index) => Some(ContextMenuTarget::Sidebar {
-                        track: match layout.areas[index].0 {
-                            AreaType::Coverage(id)
-                            | AreaType::Alignment(id)
-                            | AreaType::Variant(id)
-                            | AreaType::Bed(id) => Some(id),
-                            _ => None,
-                        },
+                        target: section_target(&layout.areas[index].0),
                     }),
                     HoveringAreaType::Track(track_index) => match &layout.areas[track_index] {
                         (AreaType::Alignment(id) | AreaType::Coverage(id), area) => {
@@ -175,6 +184,9 @@ impl MouseState {
                         }
                         (AreaType::Bed(id) | AreaType::Variant(id), _) => {
                             Some(ContextMenuTarget::Track { track: *id })
+                        }
+                        (AreaType::Sequence | AreaType::GeneTrack, _) => {
+                            Some(ContextMenuTarget::Reference)
                         }
                         _ => None,
                     },
@@ -198,46 +210,37 @@ impl MouseState {
                     messages.push(Action::from(UpdateLayoutAction::SetSidebarWidth(
                         event.column,
                     )));
-                } else if let Some(DragTarget::Divider(upper, lower)) = self.drag_target {
-                    let delta_rows = event.row as i32 - self.last_y as i32;
-                    if delta_rows != 0 {
-                        messages.push(Action::from(UpdateLayoutAction::ResizeAlignmentPair {
-                            upper,
-                            lower,
-                            delta_rows,
+                } else if let Some(DragTarget::Divider(target)) = self.drag_target {
+                    let delta = event.row as i32 - self.last_y as i32;
+                    if delta != 0 {
+                        messages.push(Action::from(UpdateLayoutAction::ResizeTrack {
+                            target,
+                            delta,
                         }));
                     }
                 } else if let Some(DragTarget::Area(area)) = self.drag_target {
-                    match area {
-                        AreaType::Alignment(id) | AreaType::Coverage(id) => {
-                            if event.column < self.last_x {
-                                messages.push(Movement::Right(column).into());
-                            } else if event.column > self.last_x {
-                                messages.push(Movement::Left(column).into());
-                            }
-                            // A drag keeps scrolling the track where it started, even if it
-                            // crosses into another.
-                            if event.row != self.last_y {
-                                messages.push(Action::Navigate(
-                                    NavigationAction::ScrollAlignment {
-                                        track: id,
-                                        scroll: if event.row > self.last_y {
-                                            Scroll::Up(1)
-                                        } else {
-                                            Scroll::Down(1)
-                                        },
-                                    },
-                                ));
-                            }
+                    let scroll_target = match area {
+                        AreaType::Coverage(id) => Some(FocusTarget::Track(id)),
+                        area => area.rows_target(),
+                    };
+                    if let Some(target) = scroll_target {
+                        if event.column < self.last_x {
+                            messages.push(Movement::Right(column).into());
+                        } else if event.column > self.last_x {
+                            messages.push(Movement::Left(column).into());
                         }
-                        AreaType::Bed(_) | AreaType::Variant(_) => {
-                            if event.column < self.last_x {
-                                messages.push(Movement::Right(column).into());
-                            } else if event.column > self.last_x {
-                                messages.push(Movement::Left(column).into());
-                            }
+                        // A drag keeps scrolling the track where it started, even if it
+                        // crosses into another.
+                        if event.row != self.last_y {
+                            messages.push(Action::Navigate(NavigationAction::ScrollTrack {
+                                target,
+                                scroll: if event.row > self.last_y {
+                                    Scroll::Up(1)
+                                } else {
+                                    Scroll::Down(1)
+                                },
+                            }));
                         }
-                        _ => {}
                     }
                 }
                 self.last_x = event.column;
@@ -298,9 +301,16 @@ impl MouseState {
                                 None => Vec::new(),
                             }
                         }
-                        AreaType::GeneTrack => {
-                            hover::describe_genes(state, contig_index, left, right)?
-                        }
+                        AreaType::GeneTrack => match feature_row_at(
+                            alignment_view,
+                            area_type,
+                            FocusTarget::Reference,
+                            area,
+                            event.row,
+                        ) {
+                            Some(y) => hover::describe_genes(state, contig_index, left, right, y)?,
+                            None => Vec::new(),
+                        },
                         AreaType::Sequence => vec![hover::describe_sequence(state, left, right)],
                         AreaType::Coverage(id) => {
                             let index = layout.track_registry.alignment_index(*id)?;
@@ -308,11 +318,38 @@ impl MouseState {
                         }
                         AreaType::Variant(id) => {
                             let index = layout.track_registry.variant_index(*id)?;
-                            hover::describe_variants(state, index, contig_index, left, right)?
+                            match feature_row_at(
+                                alignment_view,
+                                area_type,
+                                FocusTarget::Track(*id),
+                                area,
+                                event.row,
+                            ) {
+                                Some(y) => hover::describe_variants(
+                                    state,
+                                    index,
+                                    contig_index,
+                                    left,
+                                    right,
+                                    y,
+                                )?,
+                                None => Vec::new(),
+                            }
                         }
                         AreaType::Bed(id) => {
                             let index = layout.track_registry.bed_index(*id)?;
-                            hover::describe_bed(state, index, contig_index, left, right)?
+                            match feature_row_at(
+                                alignment_view,
+                                area_type,
+                                FocusTarget::Track(*id),
+                                area,
+                                event.row,
+                            ) {
+                                Some(y) => {
+                                    hover::describe_bed(state, index, contig_index, left, right, y)?
+                                }
+                                None => Vec::new(),
+                            }
                         }
                         _ => Vec::new(),
                     };
@@ -334,11 +371,13 @@ impl MouseState {
             }
             MouseEventKind::ScrollDown | MouseEventKind::ScrollUp => {
                 if let HoveringAreaType::Track(track_index) = hovered
-                    && let AreaType::Alignment(id) | AreaType::Coverage(id) =
-                        layout.areas[track_index].0
+                    && let Some(target) = match layout.areas[track_index].0 {
+                        AreaType::Coverage(id) => Some(FocusTarget::Track(id)),
+                        area => area.rows_target(),
+                    }
                 {
-                    messages.push(Action::Navigate(NavigationAction::ScrollAlignment {
-                        track: id,
+                    messages.push(Action::Navigate(NavigationAction::ScrollTrack {
+                        target,
                         scroll: if matches!(event.kind, MouseEventKind::ScrollDown) {
                             Scroll::Down(1)
                         } else {

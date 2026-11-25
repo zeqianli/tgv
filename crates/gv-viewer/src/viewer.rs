@@ -1,14 +1,3 @@
-//! The viewer: the dataset a front end shows, and everything about how it is shown that doesn't
-//! depend on the screen.
-//!
-//! [`Viewer`] owns the [`Dataset`], the viewport, the focus, the modes, and the jump history.
-//! It applies [`Action`]s from keys, the mouse, and agents, loads the
-//! data the viewport needs, and serves session requests. It also hosts the session, so agents
-//! reach it through its [`SessionHandle`].
-//!
-//! A front end tells the viewer how wide its track area is, in its own units, and applies the
-//! [`Effect`]s the viewer leaves for it, such as a layout change or a context menu to show.
-
 use crate::message::{
     EditAction, InputAction, InteractionAction, NavigationAction, SessionAction, TrackAction,
 };
@@ -24,9 +13,10 @@ use crate::{
         Direction, FocusMove, FocusTarget, Motion, Operator, UiAction,
     },
     popup::TextPopup,
+    prepare::rows,
     session::SessionFile,
     settings::Settings,
-    viewport::{Scale, Viewport},
+    viewport::{RowLayout, Scale, TrackView, Viewport},
 };
 use gv_core::{
     bed::BedEditKind,
@@ -40,6 +30,7 @@ use gv_session::{
 };
 use itertools::Itertools;
 use std::{
+    collections::HashMap,
     path::PathBuf,
     time::{Instant, SystemTime},
 };
@@ -67,6 +58,7 @@ pub enum Effect {
     /// File tracks were added, removed, or reordered. The front end rebuilds its layout from
     /// `Viewer::track_order`, and forgets pointer state that names tracks.
     TracksChanged,
+    RowsChanged,
     /// The scene changed, so pointer state from the old scene is stale.
     SceneChanged,
 }
@@ -97,8 +89,7 @@ pub struct Viewer<Z: Scale> {
     /// out its screen.
     pub width: f64,
     pub jumps: JumpList<Z>,
-    /// What word motions, insert mode, and `:w` act on. Normal mode scrolls the focused track
-    /// when it is an alignment.
+    /// What word motions, insert mode, and `:w` act on. Normal mode scrolls the focused track.
     pub focused: FocusTarget,
     /// File tracks in display order. The registry stays in ID order for lookups, so the order
     /// lives here.
@@ -142,7 +133,22 @@ impl<Z: Scale> Viewer<Z> {
         let zoom = settings
             .zoom
             .map_or_else(Z::default, Z::from_bases_per_unit);
-        let viewport = Viewport::new(focus, zoom, dataset.view.alignments.len());
+        let track_order = dataset
+            .tracks
+            .entries
+            .iter()
+            .map(|entry| entry.id)
+            .collect::<Vec<_>>();
+        let viewport = Viewport::new(
+            focus,
+            zoom,
+            track_order
+                .iter()
+                .map(|&id| FocusTarget::Track(id))
+                .chain([FocusTarget::Reference])
+                .map(|target| (target, default_track_view(&dataset.tracks, target)))
+                .collect::<HashMap<_, _>>(),
+        );
         log::info!(
             "Viewer state initialized: reference={} contigs={} alignment_tracks={} variant_tracks={} bed_tracks={} default_focus={:?} initial_zoom={:?} elapsed_ms={}",
             settings.core.reference,
@@ -155,12 +161,6 @@ impl<Z: Scale> Viewer<Z> {
             viewer_init_started.elapsed().as_millis(),
         );
 
-        let track_order = dataset
-            .tracks
-            .entries
-            .iter()
-            .map(|entry| entry.id)
-            .collect::<Vec<_>>();
         let (session, requests) = Session::channel();
         let mut viewer = Self {
             exit: false,
@@ -594,17 +594,11 @@ impl<Z: Scale> Viewer<Z> {
                 }
 
                 Action::Navigate(NavigationAction::Scroll(scroll)) => {
-                    // Normal mode scrolls the focused track when it is an alignment.
-                    if let FocusTarget::Track(id) = self.focused
-                        && let RepositoryFileIndex::Alignment(_) =
-                            self.dataset.tracks.get(id).repository_index
-                    {
-                        render_events.extend(self.scroll_alignment(id, scroll)?);
-                    }
+                    render_events.extend(self.scroll_track(self.focused, scroll)?);
                 }
 
-                Action::Navigate(NavigationAction::ScrollAlignment { track, scroll }) => {
-                    render_events.extend(self.scroll_alignment(track, scroll)?);
+                Action::Navigate(NavigationAction::ScrollTrack { target, scroll }) => {
+                    render_events.extend(self.scroll_track(target, scroll)?);
                 }
 
                 Action::Navigate(NavigationAction::Zoom(zoom)) => {
@@ -908,10 +902,25 @@ impl<Z: Scale> Viewer<Z> {
                     render_events.push(RenderEvent::AllTracks);
                     render_events.push(RenderEvent::Sidebar);
                 }
+                Action::Track(TrackAction::SetRowLayout { target, rows }) => {
+                    if self.is_alignment(target) {
+                        messages.push(
+                            "Alignment tracks always show their reads on separate rows."
+                                .to_string(),
+                        );
+                    } else {
+                        log::debug!("Setting row layout: target={target:?} rows={rows:?}");
+                        self.viewport.set_rows(target, rows);
+                        self.effects.push(Effect::RowsChanged);
+                        render_events.push(RenderEvent::All);
+                    }
+                }
                 Action::Interaction(InteractionAction::OpenContextMenu { target, anchor }) => {
                     let items = self.menu_items(target)?;
-                    self.effects.push(Effect::ShowContextMenu { items, anchor });
-                    render_events.push(RenderEvent::All);
+                    if !items.is_empty() {
+                        self.effects.push(Effect::ShowContextMenu { items, anchor });
+                        render_events.push(RenderEvent::All);
+                    }
                 }
                 Action::Interaction(InteractionAction::OpenReadDetails { track, read_id }) => {
                     let index = self.dataset.tracks.alignment_index(track)?;
@@ -955,11 +964,46 @@ impl<Z: Scale> Viewer<Z> {
                 items.extend(self.track_menu_items(track));
                 items
             }
-            ContextMenuTarget::Sidebar { track } => {
-                menu::sidebar_items(track.map(|id| (id, self.track_menu_items(id))))
+            ContextMenuTarget::Sidebar { target } => {
+                let items = match target {
+                    Some(target) => self.row_layout_items(target),
+                    None => Vec::new(),
+                };
+                match target {
+                    Some(FocusTarget::Track(id)) => menu::sidebar_items(
+                        items.into_iter().chain(self.track_menu_items(id)).collect(),
+                        Some(id),
+                    ),
+                    _ => menu::sidebar_items(items, None),
+                }
             }
-            ContextMenuTarget::Track { track } => self.track_menu_items(track),
+            ContextMenuTarget::Track { track } => self
+                .row_layout_items(FocusTarget::Track(track))
+                .into_iter()
+                .chain(self.track_menu_items(track))
+                .collect(),
+            ContextMenuTarget::Reference => self.row_layout_items(FocusTarget::Reference),
         })
+    }
+
+    fn row_layout_items(&self, target: FocusTarget) -> Vec<MenuItem> {
+        let shows_rows = match target {
+            FocusTarget::Reference => self.settings.core.reference.needs_track(),
+            FocusTarget::Track(_) => !self.is_alignment(target),
+        };
+        if shows_rows {
+            vec![menu::row_layout_item(
+                target,
+                self.viewport.tracks[&target].rows,
+            )]
+        } else {
+            Vec::new()
+        }
+    }
+
+    fn is_alignment(&self, target: FocusTarget) -> bool {
+        matches!(target, FocusTarget::Track(id)
+            if matches!(self.dataset.tracks.get(id).repository_index, RepositoryFileIndex::Alignment(_)))
     }
 
     /// The focus targets in display order: the file tracks, then the reference, which is drawn
@@ -1346,32 +1390,30 @@ impl<Z: Scale> Viewer<Z> {
         notes
     }
 
-    /// The number of rows of an alignment track, as it is shown: by pairs or by reads.
-    pub fn alignment_depth(&self, index: usize) -> Result<usize, crate::Error> {
-        Ok(match &self.dataset.view.paired_alignments[index] {
-            Some(paired) => paired.depth(),
-            None => self.dataset.view.alignments[index].depth(),
-        }?)
-    }
-
-    /// Scrolls an alignment track and returns the areas to redraw.
-    fn scroll_alignment(
+    fn scroll_track(
         &mut self,
-        id: TrackId,
+        target: FocusTarget,
         scroll: gv_core::message::Scroll,
     ) -> Result<Vec<RenderEvent>, crate::Error> {
-        let index = self.dataset.tracks.alignment_index(id)?;
-        let depth = self.alignment_depth(index)?;
-        let previous_y = self.viewport.y[index];
-        self.viewport.scroll(index, scroll.clone(), depth);
+        let depth = rows::depth(&self.dataset.view, &self.dataset.tracks, target)?;
+        let previous_top = self.viewport.top(target);
+        self.viewport.scroll(target, scroll.clone(), depth);
+        let top = self.viewport.top(target);
         log::debug!(
-            "Scroll applied: track={id} scroll={scroll:?} y_before={previous_y} y_after={}",
-            self.viewport.y[index],
+            "Scroll applied: target={target:?} scroll={scroll:?} top_before={previous_top} top_after={top}",
         );
-        Ok(vec![
-            RenderEvent::Area(AreaType::Alignment(id)),
-            RenderEvent::Sidebar,
-        ])
+        if top == previous_top {
+            return Ok(Vec::new());
+        }
+        let area = match target {
+            FocusTarget::Reference => AreaType::GeneTrack,
+            FocusTarget::Track(id) => match self.dataset.tracks.get(id).repository_index {
+                RepositoryFileIndex::Alignment(_) => AreaType::Alignment(id),
+                RepositoryFileIndex::Variant(_) => AreaType::Variant(id),
+                RepositoryFileIndex::Bed(_) => AreaType::Bed(id),
+            },
+        };
+        Ok(vec![RenderEvent::Area(area), RenderEvent::Sidebar])
     }
 
     /// Removes a track and returns the message to show. Without `force`, a track with unsaved
@@ -1396,10 +1438,7 @@ impl<Z: Scale> Viewer<Z> {
             self.track_clipboard = None;
         }
         self.keyboard_state.leave_insert_mode(id);
-        let entry = self.dataset.remove_track(id)?;
-        if let RepositoryFileIndex::Alignment(index) = entry.repository_index {
-            self.viewport.y.remove(index);
-        }
+        self.dataset.remove_track(id)?;
         log::info!("Removed track: id={id} file={name}");
         self.apply_track_change().await?;
         Ok(format!("Removed {name}."))
@@ -1425,9 +1464,6 @@ impl<Z: Scale> Viewer<Z> {
             self.track_order
                 .splice(position..position, ids.iter().copied());
         }
-        self.viewport
-            .y
-            .resize(self.dataset.view.alignments.len(), 0);
         self.apply_track_change().await?;
         self.dataset.view.messages = vec![match paths.as_slice() {
             [path] => format!("Opened {}.", file_name(path)),
@@ -1445,6 +1481,21 @@ impl<Z: Scale> Viewer<Z> {
             if !self.track_order.contains(&entry.id) {
                 self.track_order.push(entry.id);
             }
+        }
+        let targets = self
+            .track_order
+            .iter()
+            .map(|&id| FocusTarget::Track(id))
+            .chain([FocusTarget::Reference])
+            .collect::<Vec<_>>();
+        self.viewport
+            .tracks
+            .retain(|target, _| targets.contains(target));
+        for target in targets {
+            self.viewport
+                .tracks
+                .entry(target)
+                .or_insert_with(|| default_track_view(&self.dataset.tracks, target));
         }
         self.effects.push(Effect::TracksChanged);
         self.ensure_focus_in_order();
@@ -1474,24 +1525,13 @@ impl<Z: Scale> Viewer<Z> {
         if !show_alignments {
             log::trace!("Skipping alignment data loads because zoom={zoom:?} is too far out");
         }
-        let show_indexed_features = zoom.shows_indexed_features();
         let files: Vec<RepositoryFileIndex> = self
             .dataset
             .tracks
             .entries
             .iter()
             .map(|entry| entry.repository_index)
-            .filter(|index| match index {
-                RepositoryFileIndex::Alignment(_) => show_alignments,
-                RepositoryFileIndex::Variant(i) => {
-                    show_indexed_features
-                        || !self.dataset.repository.variant_repositories[*i].is_indexed()
-                }
-                RepositoryFileIndex::Bed(i) => {
-                    show_indexed_features
-                        || !self.dataset.repository.bed_repositories[*i].is_indexed()
-                }
-            })
+            .filter(|index| show_alignments || !matches!(index, RepositoryFileIndex::Alignment(_)))
             .collect();
         self.dataset
             .view
@@ -1542,5 +1582,18 @@ fn feature_count(features: usize) -> String {
     match features {
         1 => "1 feature".to_string(),
         features => format!("{features} features"),
+    }
+}
+fn default_track_view(tracks: &TrackRegistry, target: FocusTarget) -> TrackView {
+    match target {
+        FocusTarget::Track(id)
+            if matches!(
+                tracks.get(id).repository_index,
+                RepositoryFileIndex::Alignment(_)
+            ) =>
+        {
+            TrackView::new(RowLayout::Expanded)
+        }
+        _ => TrackView::new(RowLayout::Collapsed),
     }
 }

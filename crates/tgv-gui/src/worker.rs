@@ -4,6 +4,7 @@ use gv_viewer::{
     keyboard::KeyboardState,
     keys::Key,
     message::FocusTarget,
+    prepare::rows::{TrackRows, track_rows},
     settings::Settings,
     viewer::{Effect, Scene, Viewer},
     viewport::{PixelScale, Viewport},
@@ -39,6 +40,7 @@ pub struct Frame {
     /// Sidebar labels by track: the file name, with `● ` before tracks with unsaved changes.
     pub track_labels: HashMap<TrackId, String>,
     pub viewport: Viewport<PixelScale>,
+    pub track_rows: HashMap<FocusTarget, TrackRows>,
     pub keyboard_state: KeyboardState,
     pub focused: FocusTarget,
     pub focus_name: String,
@@ -66,6 +68,28 @@ impl Frame {
                 (entry.id, label)
             })
             .collect();
+        let track_rows = track_rows(
+            &viewer.dataset.view,
+            &viewer.dataset.tracks,
+            &viewer.viewport,
+        )
+        .unwrap_or_else(|error| {
+            log::warn!("Failed to count the rows of the tracks: {error}");
+            viewer
+                .viewport
+                .tracks
+                .iter()
+                .map(|(&target, view)| {
+                    (
+                        target,
+                        TrackRows {
+                            layout: view.rows,
+                            depth: 0,
+                        },
+                    )
+                })
+                .collect()
+        });
         Self {
             revision,
             state: viewer.dataset.view.clone(),
@@ -73,6 +97,7 @@ impl Frame {
             track_order: viewer.track_order.clone(),
             track_labels,
             viewport: viewer.viewport.clone(),
+            track_rows,
             keyboard_state: viewer.keyboard_state.clone(),
             focused: viewer.focused,
             focus_name: viewer.focus_name(),

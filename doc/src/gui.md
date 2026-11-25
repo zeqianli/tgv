@@ -56,14 +56,15 @@ keys and commands also provide these actions.
 
 | Gesture | Action |
 |---|---|
-| Drag | Pan. Over an alignment, a vertical drag also scrolls its reads. |
+| Drag | Pan. Over an alignment or an expanded track, a vertical drag also scrolls its rows. |
+| Drag the line below a track | Resize the track, down to one row. |
 | Horizontal scroll | Pan. |
-| Vertical scroll | Scroll the reads of the alignment under the pointer. |
+| Vertical scroll | Scroll the rows of the alignment or expanded track under the pointer. |
 | Pinch (macOS only) | Zoom around the pointer. |
 | `Ctrl` or `⌘` with a vertical scroll | Zoom around the pointer. |
 | Double click | Zoom in around the point. |
 | Click | Focus a track. A click on a read shows its record, and a click on the cytoband jumps there. |
-| Right click | Open the track's menu. |
+| Right click | Open the track's menu. On a gene, BED, or variant track, it expands or collapses overlapping features. |
 | Drop files | Open them where the highlighted gap shows: above or below the track under the pointer. |
 
 Hovering describes the read, base, gene, variant, or feature under the pointer in the message

@@ -165,7 +165,7 @@ pub fn render_main(
             AreaType::Alignment(id) => {
                 let index = layout.track_registry.alignment_index(*id)?;
                 if alignment_view.zoom.0 <= ColumnScale::MAX_TO_DISPLAY_ALIGNMENTS {
-                    let top = alignment_view.top(index);
+                    let top = alignment_view.top(FocusTarget::Track(*id));
                     if state.alignment_options[index].contains(&AlignmentDisplayOption::ViewAsPairs)
                     {
                         let paired_alignment = state.paired_alignments[index]
@@ -193,7 +193,7 @@ pub fn render_main(
                     }
                 }
             }
-            AreaType::AlignmentDivider { .. } => render_alignment_divider(
+            AreaType::Divider(_) => render_divider(
                 rect,
                 buf,
                 pallete,
@@ -205,7 +205,14 @@ pub fn render_main(
                 }
             }
             AreaType::GeneTrack => {
-                render_track(rect, buf, state, alignment_view, pallete)?;
+                render_track(
+                    rect,
+                    buf,
+                    state,
+                    alignment_view,
+                    alignment_view.tracks[&FocusTarget::Reference],
+                    pallete,
+                )?;
             }
             AreaType::Console => {
                 if matches!(
@@ -230,21 +237,37 @@ pub fn render_main(
             AreaType::Variant(id) => {
                 let index = layout.track_registry.variant_index(*id)?;
                 if let Some(variants) = state.variants.get(index) {
-                    render_variants(rect, buf, variants, alignment_view, pallete)?;
+                    render_variants(
+                        rect,
+                        buf,
+                        variants,
+                        alignment_view,
+                        alignment_view.tracks[&FocusTarget::Track(*id)],
+                        pallete,
+                    )?;
                 }
             }
             AreaType::Bed(id) => {
                 let index = layout.track_registry.bed_index(*id)?;
                 if let Some(bed_intervals) = state.bed_intervals.get(index) {
-                    render_bed(rect, buf, bed_intervals, alignment_view, pallete)?;
+                    render_bed(
+                        rect,
+                        buf,
+                        bed_intervals,
+                        alignment_view,
+                        alignment_view.tracks[&FocusTarget::Track(*id)],
+                        pallete,
+                    )?;
                 }
-                // Insert mode draws the cursor as one reversed cell.
+                // Insert mode draws the cursor as one reversed column.
                 if keyboard_state.shown_mode() == gv_viewer::keys::Mode::Insert(*id)
                     && let OnScreenCoordinate::OnScreen(x) =
                         alignment_view.onscreen_x_coordinate(alignment_view.focus.position, rect)
                 {
-                    buf[(rect.x + x as u16, rect.y)]
-                        .set_style(Style::default().add_modifier(Modifier::REVERSED));
+                    for y in rect.top()..rect.bottom() {
+                        buf[(rect.x + x as u16, y)]
+                            .set_style(Style::default().add_modifier(Modifier::REVERSED));
+                    }
                 }
             }
             AreaType::Fill => {}
@@ -261,7 +284,7 @@ pub fn render_main(
     Ok(())
 }
 
-fn render_alignment_divider(area: &Rect, buf: &mut Buffer, palette: &Palette, highlighted: bool) {
+fn render_divider(area: &Rect, buf: &mut Buffer, palette: &Palette, highlighted: bool) {
     let style = if highlighted {
         Style::default().bg(to_color(palette.HIGHLIGHT_COLOR))
     } else {

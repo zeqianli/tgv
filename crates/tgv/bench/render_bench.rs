@@ -104,7 +104,7 @@ async fn main() {
         app,
         buffer: Buffer::empty(Rect::new(0, 0, WIDTH, HEIGHT)),
     };
-    bench.app.resolve_layout(bench.buffer.area);
+    bench.app.resolve_layout(bench.buffer.area).unwrap();
     bench.app.start().await.expect("initial load");
     bench.render(&vec![RenderEvent::All]);
     println!(

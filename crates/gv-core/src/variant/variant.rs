@@ -3,11 +3,12 @@
 use crate::{
     error::Error,
     intervals::{IntervalSchema, IntervalTable, Region},
+    stacking::{STACKING_GAP, empty_with_rows, filter_rows, interval_depth, with_stacked_rows},
     table_schema::{ColumnDoc, TableSchema},
 };
 use noodles::vcf;
 use polars::prelude::*;
-use std::sync::Arc;
+use std::{ops::Range, sync::Arc};
 
 /// Variants overlapping the loaded region of one track.
 #[derive(Debug, Clone)]
@@ -96,7 +97,7 @@ impl TableSchema for VariantSchema {
 impl Default for VariantTable {
     fn default() -> Self {
         Self {
-            data: VariantSchema::empty(),
+            data: empty_with_rows(VariantSchema::empty()),
             contig_index: 0,
             data_complete_left_bound: u64::MAX,
             data_complete_right_bound: 0,
@@ -130,6 +131,10 @@ impl IntervalTable for VariantTable {
 
 impl VariantTable {
     /// Whether the table holds every record overlapping the region.
+    pub fn depth(&self) -> Result<usize, Error> {
+        interval_depth(&self.data)
+    }
+
     pub fn has_complete_data(&self, region: &Region) -> bool {
         region.contig_index() == self.contig_index
             && region.start() >= self.data_complete_left_bound
@@ -230,7 +235,7 @@ impl VariantTable {
             )
             .collect()?;
         Ok(Self {
-            data,
+            data: with_stacked_rows(data, STACKING_GAP)?,
             contig_index,
             data_complete_left_bound: loaded_bounds.0,
             data_complete_right_bound: loaded_bounds.1,
@@ -240,11 +245,15 @@ impl VariantTable {
     /// Wraps a frame holding every record of one contig, read before contig indexes were known.
     pub(super) fn whole_contig(data: &DataFrame, contig_index: usize) -> Result<Self, Error> {
         Ok(Self {
-            data: data
-                .clone()
-                .lazy()
-                .with_columns([lit(contig_index as u64).alias(VariantSchema::CONTIG_INDEX)])
-                .collect()?,
+            data: with_stacked_rows(
+                data.clone()
+                    .lazy()
+                    .with_columns([lit(contig_index as u64)
+                        .cast(DataType::UInt64)
+                        .alias(VariantSchema::CONTIG_INDEX)])
+                    .collect()?,
+                STACKING_GAP,
+            )?,
             contig_index,
             data_complete_left_bound: 1,
             data_complete_right_bound: u64::MAX,
@@ -256,6 +265,7 @@ impl VariantTable {
 pub struct Variant {
     pub start: u64,
     pub end: u64,
+    pub y: u64,
     pub reference: String,
     pub alternates: Vec<String>,
     pub quality: Option<f32>,
@@ -267,10 +277,12 @@ impl VariantTable {
         contig_index: usize,
         start: u64,
         end: u64,
+        rows: Range<u64>,
     ) -> Result<Vec<Variant>, Error> {
-        let rows = crate::intervals::IntervalTable::query(self, contig_index, start, end)?;
+        let rows = filter_rows(self.query(contig_index, start, end)?, rows)?;
         let starts = rows.column(VariantSchema::START)?.u64()?;
         let ends = rows.column(VariantSchema::END)?.u64()?;
+        let ys = rows.column(IntervalSchema::Y)?.u64()?;
         let references = rows.column(VariantSchema::REFERENCE)?.str()?;
         let alternates = rows.column(VariantSchema::ALTERNATE)?.list()?;
         let qualities = rows.column(VariantSchema::QUALITY_SCORE)?.f32()?;
@@ -294,6 +306,9 @@ impl VariantTable {
                     })?,
                     end: ends.get(row).ok_or(Error::NullValue {
                         column: VariantSchema::END,
+                    })?,
+                    y: ys.get(row).ok_or(Error::NullValue {
+                        column: IntervalSchema::Y,
                     })?,
                     reference: references
                         .get(row)
@@ -345,7 +360,7 @@ mod tests {
         )
         .unwrap();
         VariantTable {
-            data,
+            data: with_stacked_rows(data, STACKING_GAP).unwrap(),
             ..VariantTable::default()
         }
     }
@@ -365,6 +380,7 @@ mod tests {
     fn variant(
         start: u64,
         end: u64,
+        y: u64,
         reference: &str,
         alternates: &[&str],
         quality: Option<f32>,
@@ -372,6 +388,7 @@ mod tests {
         Variant {
             start,
             end,
+            y,
             reference: reference.to_string(),
             alternates: alternates.iter().map(|allele| allele.to_string()).collect(),
             quality,
@@ -380,14 +397,14 @@ mod tests {
 
     #[rstest]
     #[case::whole_contig(0, 1, 1000, vec![
-        variant(100, 100, "A", &["T"], Some(30.0)),
-        variant(101, 103, "AC", &["G", "C"], None),
-        variant(200, 200, "G", &[], Some(10.0)),
+        variant(100, 100, 0, "A", &["T"], Some(30.0)),
+        variant(101, 103, 1, "AC", &["G", "C"], None),
+        variant(200, 200, 0, "G", &[], Some(10.0)),
     ])]
-    #[case::overlap_by_end(0, 102, 150, vec![variant(101, 103, "AC", &["G", "C"], None)])]
-    #[case::single_base(0, 200, 200, vec![variant(200, 200, "G", &[], Some(10.0))])]
+    #[case::overlap_by_end(0, 102, 150, vec![variant(101, 103, 1, "AC", &["G", "C"], None)])]
+    #[case::single_base(0, 200, 200, vec![variant(200, 200, 0, "G", &[], Some(10.0))])]
     #[case::between_variants(0, 104, 199, vec![])]
-    #[case::other_contig(1, 1, 1000, vec![variant(100, 100, "T", &["A"], Some(5.0))])]
+    #[case::other_contig(1, 1, 1000, vec![variant(100, 100, 0, "T", &["A"], Some(5.0))])]
     #[case::reversed_bounds(0, 200, 100, vec![])]
     fn variants(
         #[case] contig_index: usize,
@@ -396,21 +413,23 @@ mod tests {
         #[case] expected: Vec<Variant>,
     ) {
         assert_eq!(
-            sample().variants(contig_index, start, end).unwrap(),
+            sample()
+                .variants(contig_index, start, end, 0..u64::MAX)
+                .unwrap(),
             expected
         );
     }
 
     #[test]
     fn variants_reject_a_zero_start() {
-        assert!(sample().variants(0, 0, 100).is_err());
+        assert!(sample().variants(0, 0, 100, 0..u64::MAX).is_err());
     }
 
     #[test]
     fn variants_report_a_missing_reference() {
         let table = table(vec![None], vec![alleles(&[Some("T")])]);
         assert!(matches!(
-            table.variants(0, 1, 1000),
+            table.variants(0, 1, 1000, 0..u64::MAX),
             Err(Error::NullValue {
                 column: VariantSchema::REFERENCE
             })
@@ -421,7 +440,7 @@ mod tests {
     fn variants_report_a_missing_alternate_allele() {
         let table = table(vec![Some("A")], vec![alleles(&[Some("T"), None])]);
         assert!(matches!(
-            table.variants(0, 1, 1000),
+            table.variants(0, 1, 1000, 0..u64::MAX),
             Err(Error::NullValue {
                 column: VariantSchema::ALTERNATE
             })

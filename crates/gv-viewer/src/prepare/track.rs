@@ -2,10 +2,12 @@
 
 use gv_core::{
     gene::{GeneSchema, GeneSegmentSchema, query_segments},
+    intervals::IntervalSchema,
     prelude::*,
+    stacking::filter_rows,
     strand::Strand,
 };
-use std::collections::HashMap;
+use std::{collections::HashMap, ops::Range};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SegmentKind {
@@ -29,6 +31,7 @@ pub struct GeneSegment {
 pub struct Gene {
     pub start: u64,
     pub end: u64,
+    pub y: u64,
     pub name: String,
     pub strand: Strand,
     pub has_exons: bool,
@@ -36,11 +39,19 @@ pub struct Gene {
 }
 
 impl Gene {
-    /// The genes overlapping a region, in table order, with their segments within the region.
-    pub fn in_region(state: &State, region: &Region) -> Result<Vec<Gene>, crate::Error> {
-        let rows = state
-            .track
-            .query(region.contig_index(), region.start(), region.end())?;
+    /// The genes overlapping a region on `rows`, in table order, with their segments within the
+    /// region.
+    pub fn in_region(
+        state: &State,
+        region: &Region,
+        rows: Range<u64>,
+    ) -> Result<Vec<Gene>, crate::Error> {
+        let rows = filter_rows(
+            state
+                .track
+                .query(region.contig_index(), region.start(), region.end())?,
+            rows,
+        )?;
         let segments = query_segments(rows.clone(), region.start(), region.end())?;
         let segment_gene_ids = segments.column(GeneSegmentSchema::GENE_ROW_ID)?.u64()?;
         let segment_starts = segments.column(GeneSegmentSchema::START)?.u64()?;
@@ -79,6 +90,7 @@ impl Gene {
         let ids = rows.column(GeneSchema::ROW_ID)?.u64()?;
         let starts = rows.column(GeneSchema::START)?.u64()?;
         let ends = rows.column(GeneSchema::END)?.u64()?;
+        let ys = rows.column(IntervalSchema::Y)?.u64()?;
         let names = rows.column(GeneSchema::NAME)?.str()?;
         let strands = rows.column(GeneSchema::STRAND)?.str()?;
         let has_exons = rows.column(GeneSchema::HAS_EXONS)?.bool()?;
@@ -88,6 +100,7 @@ impl Gene {
                 Ok(Gene {
                     start: starts.get(row).expect("gene starts are non-null"),
                     end: ends.get(row).expect("gene ends are non-null"),
+                    y: ys.get(row).expect("gene rows are non-null"),
                     name: names.get(row).expect("gene names are non-null").to_owned(),
                     strand: Strand::from_str(
                         strands

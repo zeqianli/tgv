@@ -22,7 +22,7 @@ pub struct BasesPerUnit(pub f64);
 // Zooms are computed from finite screen sizes, never NaN.
 impl Eq for BasesPerUnit {}
 
-/// A vertical scroll of an alignment track. The front end decides which track it applies to.
+/// A vertical scroll of a track. The front end decides which track it applies to.
 #[derive(Debug, Clone, Eq, PartialEq, Display)]
 pub enum Scroll {
     /// Scroll up by n rows.
@@ -33,37 +33,29 @@ pub enum Scroll {
     Bottom,
 }
 
-/// The features that word motions (`w`, `b`, `e`, and `ge`) move between.
 #[derive(Debug, Clone, Copy, Eq, PartialEq)]
 pub enum FeatureSource {
     Exons,
     Genes,
-    /// A BED track, by BED repository index.
+    /// A BED track with BED repository index.
     Bed(usize),
-    /// A variant track, by variant repository index.
+    /// A variant track with variant repository index.
     Variants(usize),
 }
 
-/// A word motion: to a start or an end, forward or backward.
 #[derive(Debug, Clone, Copy, Eq, PartialEq)]
 pub enum WordMotion {
-    /// `w`.
     NextStart,
-    /// `e`.
     NextEnd,
-    /// `b`.
     PreviousStart,
-    /// `ge`.
     PreviousEnd,
 }
 
 impl WordMotion {
-    /// Whether the motion moves toward higher positions.
     pub fn forward(self) -> bool {
         matches!(self, Self::NextStart | Self::NextEnd)
     }
 
-    /// Whether the motion lands on feature starts, rather than ends.
     pub fn to_start(self) -> bool {
         matches!(self, Self::NextStart | Self::PreviousStart)
     }
@@ -130,48 +122,36 @@ pub enum AlignmentFilter {
     /// Always false (filtered out)
     False,
 
-    /// Start in a range (1-based, both-inclusive)
     #[strum(to_string = "Starts in [{0},{1}]")]
     StartsIn(usize, usize),
-    /// Ends in a range (1-based, both-inclusive)
     #[strum(to_string = "Ends in [{0},{1}]")]
     EndsIn(usize, usize),
-    /// Overlaps a range (1-based, both-inclusive)
     #[strum(to_string = "Overlaps [{0},{1}]")]
     Overlaps(usize, usize),
 
-    /// Strand
     #[strum(to_string = "Strand={0}")]
     Strand(Strand),
 
-    /// Base at position (1-based) equal to the character
     #[strum(to_string = "Base({0})={1}")]
     Base(u64, char),
 
     BaseAtCurrentPosition(char),
 
-    /// Base at position (1-based is softclip)
     #[strum(to_string = "Base({0})=SOFTCLIP")]
     BaseSoftclip(u64),
 
     BaseAtCurrentPositionSoftClip,
 
-    /// MAPQ greater or equal than
     MappingQualityGE(u16),
 
-    /// MAPQ smaller or equal than
     MappingQualityLE(u16),
 
-    /// All bits in the flag are 1 (equivalent to samtools view -f)
     FlagsAll(u32),
 
-    /// Any bits in the flag are 1 (equivalent to samtools view -rf)
     FlagsAny(u32),
 
-    /// Exact flag match
     FlagsEqual(u32),
 
-    /// Tag equal to the value
     Tag(String, String),
 
     #[strum(to_string = "NOT({0})")]
@@ -218,69 +198,32 @@ impl AlignmentFilter {
     }
 }
 
-/// Sort alignment options
-/// Reference: https://github.com/igvteam/igv/blob/main/src/main/java/org/broad/igv/sam/SortOption.java
-///
-
 #[derive(Debug, Clone, Eq, PartialEq, Display, Default)]
 pub enum AlignmentSort {
-    /// Default
     #[default]
     Default,
-
-    /// Alignment start of reads covering a position
     #[strum(to_string = "Start({0})")]
     Start(u64),
-
-    /// Stand of reads at the current location
     StrandAtCurrentBase,
-
-    /// Stand of reads covering a location
     #[strum(to_string = "Strand({0})")]
     StrandAt(u64),
-
-    /// Base of reads at the current location
     BaseAtCurrentPosition,
-
-    /// Stand of reads covering a location
     #[strum(to_string = "Base({0})")]
     BaseAt(u64),
-
-    /// MAPQ of reads covering a position, highest first
     #[strum(to_string = "MAPQ({0})")]
     MappingQuality(u64),
-
-    ///?
     Sample,
-
-    ///?
     ReadGroup,
-
-    /// First in pair, second in pair, unpaired
     ReadOrder,
-
-    /// Name of reads covering a position
     #[strum(to_string = "ReadName({0})")]
     ReadName(u64),
-
-    /// alignment_end - alignment_start
     AlignedReadLength,
-
-    /// Insert size of reads covering a position, largest first
     #[strum(to_string = "InsertSize({0})")]
     InsertSize(u64),
-
-    /// ?
     ChromosomeOfMate,
-
-    ///?
     Tag,
-
-    /// Sort by 0 first and then 1
     #[strum(to_string = "{0}, {1}")]
     Then(Box<AlignmentSort>, Box<AlignmentSort>),
-
-    /// Reverse ordering
     #[strum(to_string = "{0} (DESC)")]
     Reverse(Box<AlignmentSort>),
 }

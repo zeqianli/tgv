@@ -3,11 +3,12 @@
 use crate::{
     error::Error,
     intervals::{IntervalSchema, IntervalTable, Region},
+    stacking::{STACKING_GAP, empty_with_rows, filter_rows, interval_depth, with_stacked_rows},
     table_schema::{ColumnDoc, TableSchema},
 };
 use noodles::bed::{self, feature::record::Strand};
 use polars::prelude::*;
-use std::{io, sync::Arc};
+use std::{io, ops::Range, sync::Arc};
 
 /// BED features overlapping the loaded region of one track.
 #[derive(Debug, Clone)]
@@ -85,7 +86,7 @@ impl TableSchema for BedSchema {
 impl Default for BedTable {
     fn default() -> Self {
         Self {
-            data: BedSchema::empty(),
+            data: empty_with_rows(BedSchema::empty()),
             contig_index: 0,
             data_complete_left_bound: u64::MAX,
             data_complete_right_bound: 0,
@@ -119,6 +120,10 @@ impl IntervalTable for BedTable {
 
 impl BedTable {
     /// Whether the table holds every feature overlapping the region.
+    pub fn depth(&self) -> Result<usize, Error> {
+        interval_depth(&self.data)
+    }
+
     pub fn has_complete_data(&self, region: &Region) -> bool {
         region.contig_index() == self.contig_index
             && region.start() >= self.data_complete_left_bound
@@ -128,11 +133,15 @@ impl BedTable {
     /// Wraps a frame holding every feature of one contig, read before contig indexes were known.
     pub(super) fn whole_contig(data: &DataFrame, contig_index: usize) -> Result<Self, Error> {
         Ok(Self {
-            data: data
-                .clone()
-                .lazy()
-                .with_columns([lit(contig_index as u64).alias(BedSchema::CONTIG_INDEX)])
-                .collect()?,
+            data: with_stacked_rows(
+                data.clone()
+                    .lazy()
+                    .with_columns([lit(contig_index as u64)
+                        .cast(DataType::UInt64)
+                        .alias(BedSchema::CONTIG_INDEX)])
+                    .collect()?,
+                STACKING_GAP,
+            )?,
             contig_index,
             data_complete_left_bound: 1,
             data_complete_right_bound: u64::MAX,
@@ -287,7 +296,7 @@ impl BedColumns {
             )
             .collect()?;
         Ok(BedTable {
-            data,
+            data: with_stacked_rows(data, STACKING_GAP)?,
             contig_index,
             data_complete_left_bound: loaded_bounds.0,
             data_complete_right_bound: loaded_bounds.1,
@@ -326,6 +335,7 @@ where
 pub struct BedFeature {
     pub start: u64,
     pub end: u64,
+    pub y: u64,
     pub name: Option<String>,
     pub strand: Option<crate::strand::Strand>,
 }
@@ -336,10 +346,12 @@ impl BedTable {
         contig_index: usize,
         start: u64,
         end: u64,
+        rows: Range<u64>,
     ) -> Result<Vec<BedFeature>, Error> {
-        let rows = self.query(contig_index, start, end)?;
+        let rows = filter_rows(self.query(contig_index, start, end)?, rows)?;
         let starts = rows.column(BedSchema::START)?.u64()?;
         let ends = rows.column(BedSchema::END)?.u64()?;
+        let ys = rows.column(IntervalSchema::Y)?.u64()?;
         let names = rows.column(BedSchema::NAME)?.str()?;
         let strands = rows.column(BedSchema::STRAND)?.str()?;
         (0..rows.height())
@@ -350,6 +362,9 @@ impl BedTable {
                     })?,
                     end: ends.get(row).ok_or(Error::NullValue {
                         column: BedSchema::END,
+                    })?,
+                    y: ys.get(row).ok_or(Error::NullValue {
+                        column: IntervalSchema::Y,
                     })?,
                     name: names
                         .get(row)
@@ -391,7 +406,7 @@ mod tests {
         )
         .unwrap();
         BedTable {
-            data,
+            data: with_stacked_rows(data, STACKING_GAP).unwrap(),
             ..BedTable::default()
         }
     }
@@ -405,6 +420,7 @@ mod tests {
         BedFeature {
             start,
             end,
+            y: 0,
             name: name.map(str::to_string),
             strand,
         }
@@ -438,13 +454,15 @@ mod tests {
         #[case] expected: Vec<BedFeature>,
     ) {
         assert_eq!(
-            table().features(contig_index, start, end).unwrap(),
+            table()
+                .features(contig_index, start, end, 0..u64::MAX)
+                .unwrap(),
             expected
         );
     }
 
     #[test]
     fn features_reject_a_zero_start() {
-        assert!(table().features(0, 0, 100).is_err());
+        assert!(table().features(0, 0, 100, 0..u64::MAX).is_err());
     }
 }

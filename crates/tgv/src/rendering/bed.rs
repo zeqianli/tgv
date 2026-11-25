@@ -5,6 +5,7 @@ use crate::{
     rendering::{colors::Palette, render_zoom_in_notice},
 };
 use gv_core::{bed::BedTable, strand::Strand};
+use gv_viewer::viewport::TrackView;
 use ratatui::{
     buffer::Buffer,
     layout::Rect,
@@ -16,6 +17,7 @@ pub fn render_bed(
     buf: &mut Buffer,
     bed: &BedTable,
     alignment_view: &AlignmentView,
+    track_view: TrackView,
     palette: &Palette,
 ) -> Result<(), crate::Error> {
     let region = alignment_view.region(f64::from(area.width));
@@ -23,12 +25,14 @@ pub fn render_bed(
         render_zoom_in_notice(area, buf, "BED features");
         return Ok(());
     }
-    let colors = [to_color(palette.BED1), to_color(palette.BED2)];
-    for (row, feature) in bed
-        .features(region.contig_index(), region.start(), region.end())?
-        .iter()
-        .enumerate()
-    {
+    let rows = track_view.visible_rows(area.height as usize);
+    let style = Style::default().bg(to_color(palette.BED)).fg(Color::White);
+    for feature in bed.features(
+        region.contig_index(),
+        region.start(),
+        region.end(),
+        rows.clone(),
+    )? {
         let start = alignment_view.onscreen_x_coordinate(feature.start, area);
         let end = alignment_view.onscreen_x_coordinate(feature.end, area);
         let Some((x, width)) = OnScreenCoordinate::onscreen_start_and_length(&start, &end, area)
@@ -50,13 +54,11 @@ pub fn render_bed(
             let offset = (width - name.len()) / 2;
             text.splice(offset..offset + name.len(), name.chars());
         }
-        // Colors alternate by on-screen order, because row IDs of indexed files change between
-        // loads.
         buf.set_string(
             area.x + x,
-            area.y,
+            area.y + (feature.y - rows.start) as u16,
             text.into_iter().collect::<String>(),
-            Style::default().bg(colors[row % 2]).fg(Color::White),
+            style,
         );
     }
     Ok(())

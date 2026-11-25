@@ -1,25 +1,27 @@
-//! What the sidebar says about an alignment track.
+//! What the sidebar says about a track.
 
-use crate::viewport::{Scale, Viewport};
+use crate::{
+    message::FocusTarget,
+    prepare::rows,
+    viewport::{Scale, Viewport},
+};
 use gv_core::{
     message::{AlignmentDisplayOption, AlignmentFilter, AlignmentSort},
     prelude::*,
 };
 
-/// How far down an alignment track's rows the view is, such as `25% (10 / 40)`.
-pub fn alignment_depth_description<Z: Scale>(
+/// How far down a track's rows the view is, such as `25% (10 / 40)`.
+pub fn depth_description<Z: Scale>(
     state: &State,
-    alignment_view: &Viewport<Z>,
-    index: usize,
+    tracks: &TrackRegistry,
+    viewport: &Viewport<Z>,
+    target: FocusTarget,
 ) -> Result<String, crate::Error> {
-    let depth = match &state.paired_alignments[index] {
-        Some(paired) => paired.depth()?,
-        None => state.alignments[index].depth()?,
-    };
+    let depth = rows::depth(state, tracks, target)?;
     Ok(if depth == 0 {
         "0% (0 / 0)".to_string()
     } else {
-        let y = usize::min(alignment_view.top(index), depth.saturating_sub(1)) + 1;
+        let y = usize::min(viewport.top(target), depth.saturating_sub(1)) + 1;
         format!("{}% ({} / {})", y as u128 * 100 / depth as u128, y, depth)
     })
 }

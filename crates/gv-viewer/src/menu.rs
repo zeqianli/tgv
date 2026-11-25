@@ -1,9 +1,9 @@
-//! The items of right-click context menus.
-//!
-//! A menu is built once when it opens, from the clicked target and the current state. Each
-//! front end draws the items and turns clicks on them into their actions.
-
-use crate::message::{Action, AlignmentOptionUpdate, TrackAction, UiAction, UpdateLayoutAction};
+use crate::{
+    message::{
+        Action, AlignmentOptionUpdate, FocusTarget, TrackAction, UiAction, UpdateLayoutAction,
+    },
+    viewport::RowLayout,
+};
 use gv_core::{
     alignment::{Alignment, BaseCoverage},
     message::{AlignmentDisplayOption, AlignmentFilter, AlignmentSort},
@@ -12,7 +12,6 @@ use gv_core::{
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum MenuItem {
-    /// An item that sends `action` when clicked. `None` shows the item as disabled.
     Entry {
         label: String,
         action: Option<Action>,
@@ -208,6 +207,20 @@ pub fn alignment_items(
     Ok(items)
 }
 
+pub fn row_layout_item(target: FocusTarget, rows: RowLayout) -> MenuItem {
+    let (label, next) = match rows {
+        RowLayout::Collapsed => ("Expand overlapping features", RowLayout::Expanded),
+        RowLayout::Expanded => ("✓ Expand overlapping features", RowLayout::Collapsed),
+    };
+    MenuItem::entry(
+        label,
+        Some(Action::Track(TrackAction::SetRowLayout {
+            target,
+            rows: next,
+        })),
+    )
+}
+
 /// Items that act on a file track: copying it, pasting the copied track below it, and
 /// removing it. `copied` is the copied track's name. A modified track is removed without
 /// writing, and its item says so.
@@ -245,12 +258,9 @@ pub fn track_items(
     items
 }
 
-/// Items for the sidebar. A file track's section has the track's items and items to insert
-/// a track next to it, then the sidebar's own.
-pub fn sidebar_items(track: Option<(TrackId, Vec<MenuItem>)>) -> Vec<MenuItem> {
-    let mut items = Vec::new();
-    if let Some((track, track_items)) = track {
-        items.extend(track_items);
+pub fn sidebar_items(track_items: Vec<MenuItem>, insert_beside: Option<TrackId>) -> Vec<MenuItem> {
+    let mut items = track_items;
+    if let Some(track) = insert_beside {
         items.push(MenuItem::entry(
             "Insert track above",
             Some(Action::Track(TrackAction::NewTrackBeside {
