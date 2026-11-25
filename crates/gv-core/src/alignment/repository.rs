@@ -14,7 +14,7 @@ use noodles::fasta::{self as fasta, repository::adapters::IndexedReader as Fasta
 use noodles::sam::Header;
 use noodles::{
     bam::{self, bai},
-    sam::alignment::RecordBuf,
+    sam::alignment::{RecordBuf, record::MappingQuality},
 };
 use opendal::Operator;
 use std::fs;
@@ -188,16 +188,19 @@ pub struct AlignmentRepository {
     pub source: AlignmentRepositoryEnum,
     /// An automatic setting resolves at the first load with qualities and stays fixed after.
     pub quality_encoding: QualityEncodingSetting,
+    pub min_mapq: u8,
 }
 
 impl AlignmentRepository {
     pub async fn new(
         alignment_path: &AlignmentPath,
         quality_encoding: QualityEncodingSetting,
+        min_mapq: u8,
     ) -> Result<Self, Error> {
         Ok(Self {
             source: AlignmentRepositoryEnum::new(alignment_path).await?,
             quality_encoding,
+            min_mapq,
         })
     }
 
@@ -215,6 +218,7 @@ impl AlignmentRepository {
                 contig_name,
                 reference_sequence,
                 &mut self.quality_encoding,
+                self.min_mapq,
             )
             .await
     }
@@ -279,6 +283,7 @@ impl AlignmentRepositoryEnum {
         contig_name: Option<&str>,
         reference_sequence: &Sequence,
         quality_encoding: &mut QualityEncodingSetting,
+        min_mapq: u8,
     ) -> Result<Alignment, Error> {
         let started = Instant::now();
         let (source_kind, data_path, index_path) = match self {
@@ -306,6 +311,8 @@ impl AlignmentRepositoryEnum {
             .map(|name| region.to_noodles_region(name))
             .transpose()?;
 
+        let passes_mapq =
+            |mapq: Option<MappingQuality>| mapq.is_none_or(|mapq| u8::from(mapq) >= min_mapq);
         let mut records = Vec::new();
         let mut batch = Vec::with_capacity(RECORD_BATCH_SIZE);
         let mut tables = AlignmentTables::default();
@@ -328,6 +335,9 @@ impl AlignmentRepositoryEnum {
                             .records();
 
                         while let Some(record) = query.try_next().await? {
+                            if !passes_mapq(record.mapping_quality()) {
+                                continue;
+                            }
                             batch.push(RecordBuf::try_from_alignment_record(
                                 &inner.header,
                                 &record,
@@ -356,6 +366,9 @@ impl AlignmentRepositoryEnum {
                             .records();
 
                         while let Some(record) = query.try_next().await.map_err(&read_error)? {
+                            if !passes_mapq(record.mapping_quality()) {
+                                continue;
+                            }
                             batch.push(RecordBuf::try_from_alignment_record(
                                 &inner.header,
                                 &record,
@@ -375,7 +388,11 @@ impl AlignmentRepositoryEnum {
                         let query = inner.reader.query(&inner.header, &query_region)?;
 
                         for record in query {
-                            batch.push(record?);
+                            let record = record?;
+                            if !passes_mapq(record.mapping_quality()) {
+                                continue;
+                            }
+                            batch.push(record);
                             if batch.len() == RECORD_BATCH_SIZE {
                                 tables = tables.add_records(
                                     &batch,

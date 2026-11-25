@@ -107,6 +107,8 @@ pub struct Settings {
 
     /// The base-quality encoding of every alignment file.
     pub quality_encoding: QualityEncodingSetting,
+
+    pub min_mapq: u8,
     //pub palette: Palette,
 }
 
@@ -118,6 +120,7 @@ impl Default for Settings {
             ucsc_host: UcscHost::default(),
             cache_dir: shellexpand::tilde("~/.tgv").to_string(),
             quality_encoding: QualityEncodingSetting::default(),
+            min_mapq: 0,
         }
     }
 }
