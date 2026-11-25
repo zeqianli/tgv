@@ -26,7 +26,7 @@ use crate::{
 use gv_session::ViewerKind;
 use gv_viewer::{
     layout::RenderEvent,
-    message::{FocusTarget, UiAction, UpdateLayoutAction},
+    message::{FocusTarget, SessionAction, UiAction, UpdateLayoutAction},
     popup::TextPopup,
     prelude::*,
 };
@@ -153,6 +153,14 @@ impl App {
                     {
                         self.mouse_state.last_hover = None;
                         self.suspend(terminal).map(|()| vec![RenderEvent::All])
+                    }
+
+                    Ok(Event::Key(key_event))
+                        if key_event.kind == KeyEventKind::Press
+                            && key_event.code == event::KeyCode::Char('c')
+                            && key_event.modifiers.contains(event::KeyModifiers::CONTROL) =>
+                    {
+                        self.handle(vec![Action::Session(SessionAction::Quit)]).await
                     }
 
                     Ok(Event::Key(key_event)) if key_event.kind == KeyEventKind::Press => {

@@ -93,6 +93,7 @@ mode shows the focused track's name at the right of the command row.
 | `u` / `Ctrl-r` | Go back / forward through jumps: searches, contig and gene jumps, cytoband clicks, and agent moves | |
 | `Esc` | Clear a pending count or `g` | |
 | `Ctrl-z` | Suspend tgv to the shell. Resume it with `fg`. | |
+| `Ctrl-c` | Quit, the same as `:q` | |
 | `_number_` + `_movement_` | Move by `_number_` steps | `20h`: left by 20 bases |
 
 What the word motions move between depends on the focused track:
