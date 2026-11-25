@@ -23,7 +23,10 @@ use gpui::{
     ScrollWheelEvent, TestAppContext, TouchPhase, VisualTestContext, point, px,
 };
 use gv_core::message::AlignmentDisplayOption;
-use gv_viewer::prepare::{alignment::AlignmentScene, track::Gene};
+use gv_viewer::{
+    message::FocusTarget,
+    prepare::{alignment::AlignmentScene, track::Gene},
+};
 use std::time::{Duration, Instant};
 use tgv_gui::{
     app::App,
@@ -189,7 +192,8 @@ fn main() {
         let mut samples = Vec::with_capacity(iterations);
         for _ in 0..iterations {
             let started = Instant::now();
-            let _ = Gene::in_region(&frame.state, &region).expect("genes");
+            let gene_rows = view.viewport.tracks[&FocusTarget::Reference].visible_rows(1);
+            let _ = Gene::in_region(&frame.state, &region, gene_rows).expect("genes");
             samples.push(started.elapsed());
         }
         report("genes", &mut samples);
