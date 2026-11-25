@@ -1,8 +1,3 @@
-//! The items of right-click context menus.
-//!
-//! A menu is built once when it opens, from the clicked target and the current state. Each
-//! front end draws the items and turns clicks on them into their actions.
-
 use crate::{
     message::{
         Action, AlignmentOptionUpdate, FocusTarget, TrackAction, UiAction, UpdateLayoutAction,

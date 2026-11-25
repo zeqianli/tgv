@@ -33,7 +33,6 @@ pub enum Action {
     Edit(EditAction),
     Track(TrackAction),
     Interaction(InteractionAction),
-    /// An action that only the front end applies.
     Ui(UiAction),
 }
 

@@ -1,14 +1,3 @@
-//! The viewer: the dataset a front end shows, and everything about how it is shown that doesn't
-//! depend on the screen.
-//!
-//! [`Viewer`] owns the [`Dataset`], the viewport, the focus, the modes, and the jump history.
-//! It applies [`Action`]s from keys, the mouse, and agents, loads the
-//! data the viewport needs, and serves session requests. It also hosts the session, so agents
-//! reach it through its [`SessionHandle`].
-//!
-//! A front end tells the viewer how wide its track area is, in its own units, and applies the
-//! [`Effect`]s the viewer leaves for it, such as a layout change or a context menu to show.
-
 use crate::message::{
     EditAction, InputAction, InteractionAction, NavigationAction, SessionAction, TrackAction,
 };

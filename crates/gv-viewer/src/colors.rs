@@ -1,14 +1,8 @@
-//! The color palette that both front ends draw with.
-//!
-//! Colors are plain RGB, so the palette doesn't depend on a terminal or window library. Each
-//! front end converts them to its own color type when it draws.
-
 use gv_core::cytoband::Stain;
 use noodles::sam::record::data::field::value::base_modifications::group::{
     Modification, modification,
 };
 
-/// A color as red, green, and blue components.
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Hash)]
 pub struct Rgb {
     pub r: u8,
@@ -31,28 +25,21 @@ impl Rgb {
     }
 }
 
-/// Text that is less important than the data, such as sidebar notes.
 pub const MUTED_TEXT: Rgb = Rgb::from_u32(0x9ca3af);
 
-/// The window's main text color.
 pub const TEXT: Rgb = Rgb::from_u32(0xe5e5e5);
 
-/// Lines between sidebar sections.
 pub const SEPARATOR: Rgb = Rgb::from_u32(0x3f3f46);
 
-/// The command line's cursor.
 pub const CURSOR_COLOR: Rgb = Rgb::from_u32(0xcd3131);
 
 pub const READ_BASE_LETTER: Rgb = Rgb::from_u32(0x111111);
 
-/// Tailwind and terminal colors that the dark theme uses, by name.
 mod named {
     use super::Rgb;
 
     pub const WHITE: Rgb = Rgb::from_u32(0xffffff);
 
-    // The default dark colors of common terminals, for the colors that were named terminal
-    // colors before the palette became RGB.
     pub const RED: Rgb = Rgb::from_u32(0xcd3131);
     pub const LIGHT_RED: Rgb = Rgb::from_u32(0xf14c4c);
     pub const LIGHT_GREEN: Rgb = Rgb::from_u32(0x23d18b);
@@ -97,13 +84,10 @@ mod named {
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 #[allow(non_snake_case)]
 pub struct Palette {
-    /// Track alternating colors
     pub background: Rgb,
 
-    // Alignment
     pub MATCH_COLOR: Rgb,
     pub MATCH_FG_COLOR: Rgb,
-    /// The body of a read with mapping quality 0.
     pub ZERO_MAPQ_COLOR: Rgb,
 
     pub MISMATCH_COLOR: Rgb,
@@ -162,15 +146,10 @@ pub struct Palette {
     pub MENU_HOVER_BACKGROUND: Rgb,
     pub MENU_FOREGROUND: Rgb,
     pub MENU_DISABLED_FOREGROUND: Rgb,
-    /// Alignment display options listed in the sidebar.
     pub SIDEBAR_OPTION_COLOR: Rgb,
-    /// The focused track's sidebar section in normal mode.
     pub FOCUS_NORMAL: Rgb,
-    /// The focused track's sidebar section in insert mode, and the mode line.
     pub FOCUS_INSERT: Rgb,
-    /// The insert mode line.
     pub MODE_INSERT: Rgb,
-    /// Where dropped files go, in the window.
     pub DROP_TARGET: Rgb,
 
     // Gene track
@@ -181,21 +160,14 @@ pub struct Palette {
     pub INTRON_FOREGROUND_COLOR: Rgb,
 
     // Base modifications (MM/ML tags)
-    /// 5mC high probability (>70%): warm orange
     pub MOD_5MC_HIGH: Rgb,
-    /// 5mC medium probability (30-70%): muted yellow
     pub MOD_5MC_MED: Rgb,
-    /// 5mC low probability (<30%): cool blue
     pub MOD_5MC_LOW: Rgb,
-    /// 5hmC: teal/cyan
     pub MOD_5HMC: Rgb,
-    /// 6mA: purple
     pub MOD_6MA: Rgb,
 }
 
 impl Palette {
-    /// Mismatched bases with a Phred quality below this are dimmed. IGV shades bases below 20
-    /// by default.
     const SHADED_MISMATCH_QUALITY: u8 = 20;
 
     pub fn softclip_color(&self, base: u8) -> Rgb {
@@ -229,14 +201,10 @@ impl Palette {
         }
     }
 
-    /// Whether a mismatched base is dimmed. Low-quality bases are dimmed, so likely sequencing
-    /// errors stand out less. A missing quality, 255 in BAM, is not shaded.
     pub fn is_mismatch_shaded(quality: Option<u8>) -> bool {
         matches!(quality, Some(quality) if quality < Self::SHADED_MISMATCH_QUALITY)
     }
 
-    /// Returns the background color for a base modification given its type and
-    /// probability (0-255 from the ML tag, where 255 = fully modified).
     pub fn modification_color(&self, modification: &Modification, probability: u8) -> Rgb {
         // FIXME: colors for other modifications
         match *modification {
@@ -255,9 +223,7 @@ impl Palette {
         }
     }
 
-    /// Returns the color associated with the stain type.
     pub fn cytoband_color(&self, stain: Stain) -> Rgb {
-        // FIXME: This function is AI code. I haven't verified the correctness.
         match stain {
             Stain::Gneg => Rgb::from_u32(0xffffff),
             Stain::Gpos(p) => {
@@ -285,7 +251,6 @@ impl Palette {
 }
 
 pub const DARK_THEME: Palette = Palette {
-    // FIXME: use standard ATCG colors, same as IGV
     background: Rgb::from_u32(0x1e1e1e),
 
     // Alignment
@@ -362,9 +327,9 @@ pub const DARK_THEME: Palette = Palette {
     INTRON_FOREGROUND_COLOR: named::BLUE_300,
 
     // Base modifications
-    MOD_5MC_HIGH: named::ORANGE_600, // >70% — warm orange (highly methylated)
-    MOD_5MC_MED: named::YELLOW_700,  // 30-70% — muted yellow (ambiguous)
-    MOD_5MC_LOW: named::BLUE_700,    // <30% — cool blue (unmethylated)
-    MOD_5HMC: named::TEAL_500,       // 5hmC — teal
-    MOD_6MA: named::PURPLE_600,      // 6mA — purple
+    MOD_5MC_HIGH: named::ORANGE_600,
+    MOD_5MC_MED: named::YELLOW_700,
+    MOD_5MC_LOW: named::BLUE_700,
+    MOD_5HMC: named::TEAL_500,
+    MOD_6MA: named::PURPLE_600,
 };

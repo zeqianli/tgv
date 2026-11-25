@@ -1,22 +1,6 @@
-//! Parsing for command mode (`:`) and search mode (`/`) input.
-
 use crate::message::{Action, NavigationAction, SessionAction, TrackAction};
 use gv_core::message::{AlignmentDisplayOption, Movement, Zoom};
 
-/// Parse command mode input. Supported commands:
-/// - `:q`: Quit, unless a track has unsaved changes. `:q!` quits anyway.
-/// - `:w [path]`: Write the focused BED track to its file, or to the path.
-/// - `:wa`: Write every modified BED track.
-/// - `:wq [path]`, `:wqa`, `:xa`: Write, then quit.
-/// - `:ws [name|path]`: Save the session. Without an argument, save to the active session.
-/// - `:wsq [name|path]`: Save the session and quit.
-/// - `:new`: Create an untitled BED track below the focused track.
-/// - `:e PATH…`, `:open PATH…`: Add file tracks. Paths use shell quoting, and `~` expands to the
-///   home directory.
-/// - `:paired`: Show alignments as read pairs.
-/// - `:clear`, `:default`: Restore the default alignment display.
-///
-/// The front end handles commands that only change its own view, such as listing contigs.
 pub fn parse(input: &str) -> Result<Vec<Action>, crate::Error> {
     let input = input.trim();
     match input {
@@ -70,14 +54,6 @@ pub fn parse(input: &str) -> Result<Vec<Action>, crate::Error> {
     Err(crate::Error::UnknownCommand(input.to_string()))
 }
 
-/// Parse search mode input into messages. Supported targets:
-/// - `/1234`: Go to position 1234 on the current contig.
-/// - `/chr1:1234`: Go to position 1234 on contig `chr1`.
-/// - `/chr1:1000-2000`, `/1000-2000`: Show a 1-based, inclusive region, centered and zoomed to
-///   fit.
-/// - `/TP53`: Go to a gene.
-///
-/// Positions may use comma separators, such as `chr1:1,000,000`.
 pub fn parse_search(input: &str) -> Result<Vec<Action>, crate::Error> {
     let input = input.trim();
     let invalid = || crate::Error::InvalidSearch(input.to_string());

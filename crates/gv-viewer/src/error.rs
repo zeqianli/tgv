@@ -1,5 +1,3 @@
-//! Errors from the shared viewer: commands, keys, settings, session files, and the viewport.
-
 use crate::keys::Key;
 use polars::prelude::PolarsError;
 

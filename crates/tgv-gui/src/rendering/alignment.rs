@@ -1,6 +1,3 @@
-//! Draws an alignment track's scene in layer order.
-//! Each layer preserves source-table order, so later records overwrite earlier ones.
-
 use super::prelude::*;
 use crate::{
     layout::ALIGNMENT_ROW_HEIGHT,
@@ -12,9 +9,7 @@ use gv_viewer::{
     prepare::alignment::{AlignmentScene, BaseRun, RowSpan},
 };
 
-/// The gap between two stacking rows.
 const ROW_GAP: f32 = 2.0;
-/// The width of a read's strand arrow.
 const ARROW_WIDTH: f32 = 4.0;
 
 /// Render visible reads from the zero-based `top` row, followed by annotations. With `paired`,

@@ -18,8 +18,6 @@ pub enum AreaType {
 }
 
 impl AreaType {
-    /// The areas for a reference and file tracks in display order: the cytoband and the ruler,
-    /// each file track, the reference rows, and then the console and the message line.
     pub fn for_tracks(
         reference: &Reference,
         track_registry: &TrackRegistry,
@@ -86,15 +84,10 @@ impl AreaType {
     }
 }
 
-/// After event handling, which areas needs re-rendering.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum RenderEvent {
     Area(AreaType),
     Sidebar,
-
-    /// All track areas.
     AllTracks,
-
-    /// All track areas and the sidebar
     All,
 }
