@@ -517,12 +517,8 @@ impl MainLayout {
                 .iter()
                 .enumerate()
                 .filter_map(|(index, (_, section))| {
-                    (separator_after(index) && section.height > 0).then_some(Rect::new(
-                        terminal_area.x,
-                        section.bottom() - 1,
-                        sidebar_width,
-                        1,
-                    ))
+                    (separator_after(index) && section.height > 0)
+                        .then(|| Rect::new(terminal_area.x, section.bottom() - 1, sidebar_width, 1))
                 })
                 .collect()
         };
@@ -534,10 +530,12 @@ impl MainLayout {
                     return None;
                 };
                 let reserved = u16::from(separator_after(index));
-                (sidebar_width > 0 && section.height > reserved).then_some((
-                    Rect::new(section.x, section.bottom() - reserved - 1, section.width, 1),
-                    *id,
-                ))
+                (sidebar_width > 0 && section.height > reserved).then(|| {
+                    (
+                        Rect::new(section.x, section.bottom() - reserved - 1, section.width, 1),
+                        *id,
+                    )
+                })
             })
             .collect();
         let sidebar_labels = sections
