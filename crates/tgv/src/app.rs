@@ -4,6 +4,14 @@
 //! into actions, applies the effects the viewer leaves for the terminal, and draws.
 
 use crossterm::event::{self, Event, EventStream, KeyEventKind};
+use crossterm::{
+    event::{
+        DisableBracketedPaste, DisableMouseCapture, EnableBracketedPaste, EnableMouseCapture,
+        KeyboardEnhancementFlags, PopKeyboardEnhancementFlags, PushKeyboardEnhancementFlags,
+    },
+    execute,
+    terminal::{EnterAlternateScreen, enable_raw_mode},
+};
 use futures::StreamExt;
 use ratatui::{Terminal, buffer::Buffer, layout::Rect, prelude::Backend};
 
@@ -18,7 +26,7 @@ use crate::{
 use gv_session::ViewerKind;
 use gv_viewer::{
     layout::RenderEvent,
-    message::{FocusTarget, UiAction, UpdateLayoutAction},
+    message::{FocusTarget, SessionAction, UiAction, UpdateLayoutAction},
     popup::TextPopup,
     prelude::*,
 };
@@ -138,6 +146,23 @@ impl App {
                 }
 
                 let events = match event {
+                    Ok(Event::Key(key_event))
+                        if key_event.kind == KeyEventKind::Press
+                            && key_event.code == event::KeyCode::Char('z')
+                            && key_event.modifiers.contains(event::KeyModifiers::CONTROL) =>
+                    {
+                        self.mouse_state.last_hover = None;
+                        self.suspend(terminal).map(|()| vec![RenderEvent::All])
+                    }
+
+                    Ok(Event::Key(key_event))
+                        if key_event.kind == KeyEventKind::Press
+                            && key_event.code == event::KeyCode::Char('c')
+                            && key_event.modifiers.contains(event::KeyModifiers::CONTROL) =>
+                    {
+                        self.handle(vec![Action::Session(SessionAction::Quit)]).await
+                    }
+
                     Ok(Event::Key(key_event)) if key_event.kind == KeyEventKind::Press => {
                         self.mouse_state.last_hover = None;
                         let actions = if self.popup.is_some() {
@@ -213,6 +238,35 @@ impl App {
             }
         }
         log::info!("The app event loop exited");
+        Ok(())
+    }
+
+    fn suspend<B: Backend>(&self, terminal: &mut Terminal<B>) -> Result<(), crate::Error> {
+        execute!(
+            std::io::stdout(),
+            PopKeyboardEnhancementFlags,
+            DisableMouseCapture,
+            DisableBracketedPaste
+        )?;
+        ratatui::restore();
+        terminal.show_cursor().map_err(crate::Error::DrawTerminal)?;
+
+        if let Err(e) = std::process::Command::new("kill")
+            .args(["-TSTP", &std::process::id().to_string()])
+            .status()
+        {
+            log::warn!("Couldn't suspend tgv: {e}");
+        }
+
+        enable_raw_mode()?;
+        execute!(
+            std::io::stdout(),
+            EnterAlternateScreen,
+            EnableMouseCapture,
+            EnableBracketedPaste,
+            PushKeyboardEnhancementFlags(KeyboardEnhancementFlags::DISAMBIGUATE_ESCAPE_CODES)
+        )?;
+        terminal.clear().map_err(crate::Error::DrawTerminal)?;
         Ok(())
     }
 
