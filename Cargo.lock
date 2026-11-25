@@ -8426,7 +8426,6 @@ dependencies = [
  "gv-viewer",
  "insta",
  "itertools 0.13.0",
- "libc",
  "log",
  "polars",
  "ratatui",
