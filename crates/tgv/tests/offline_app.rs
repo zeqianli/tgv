@@ -589,3 +589,22 @@ async fn agent_queries_leave_the_view_and_cannot_replace_the_dataset() {
 
     harness.close().await.unwrap();
 }
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn hgvs_search_reports_unsupported_reference() {
+    let args = offline_case_args(None, "-g ecoli --offline --cache-dir tests/data/cache");
+    let mut harness = AppHarness::from_args(&args).await.unwrap();
+    let actions = gv_viewer::command::parse_search("NM_004985.5:c.35G>A").unwrap();
+    harness.handle(actions).await.unwrap();
+    assert!(
+        harness
+            .app
+            .viewer
+            .dataset
+            .view
+            .messages
+            .iter()
+            .any(|message| message.contains("only available for hg38 and hg19"))
+    );
+    harness.close().await.unwrap();
+}

@@ -56,6 +56,12 @@ pub fn parse(input: &str) -> Result<Vec<Action>, crate::Error> {
 
 pub fn parse_search(input: &str) -> Result<Vec<Action>, crate::Error> {
     let input = input.trim();
+    if let Some((accession, description)) = gv_core::hgvs::split(input) {
+        return Ok(vec![Action::Navigate(NavigationAction::Hgvs {
+            accession: accession.to_string(),
+            description: description.to_string(),
+        })]);
+    }
     let invalid = || crate::Error::InvalidSearch(input.to_string());
     if input.is_empty() {
         return Err(invalid());
@@ -213,6 +219,14 @@ mod tests {
     #[case("TP53", Some(vec![Movement::Gene("TP53".to_string()).into()]))]
     #[case("HLA-A", Some(vec![Movement::Gene("HLA-A".to_string()).into()]))]
     #[case("", None)]
+    #[case("NM_004985.5:c.35G>A", Some(vec![Action::Navigate(NavigationAction::Hgvs {
+        accession: "NM_004985.5".to_string(),
+        description: "c.35G>A".to_string(),
+    })]))]
+    #[case(" KRAS:p.12 ", Some(vec![Action::Navigate(NavigationAction::Hgvs {
+        accession: "KRAS".to_string(),
+        description: "p.12".to_string(),
+    })]))]
     #[case("chr1:invalid", None)]
     #[case("chr1:200-100", None)]
     #[case("chr1:0-100", None)]

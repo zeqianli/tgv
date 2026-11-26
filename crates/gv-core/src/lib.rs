@@ -4,6 +4,7 @@ pub mod contig_header;
 pub mod cytoband;
 pub mod error;
 pub use error::Error;
+pub mod hgvs;
 pub mod intervals;
 pub mod logging;
 pub mod message;

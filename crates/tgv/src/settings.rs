@@ -49,6 +49,9 @@ pub enum Commands {
         /// Select the UCSC download source.
         #[arg(long, value_enum, default_value_t)]
         source: UCSCDownloadSourceCli,
+
+        #[arg(long, help = "Skip the HGVS reference data (about 6 GB)")]
+        no_hgvs: bool,
     },
 
     /// List reference genomes.

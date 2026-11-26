@@ -20,9 +20,12 @@ use crate::{
 };
 use gv_core::{
     bed::BedEditKind,
+    gene::GeneSchema,
+    hgvs::{Engine, GenomicSpan},
     message::{AlignmentDisplayOption, FeatureSource, Movement, Zoom},
     prelude::*,
     settings::file_name,
+    tracks::TrackService,
 };
 use gv_session::{
     BedWrite, Dataset, InspectInterval, NavigateRequest, Request, Requests, Session, SessionHandle,
@@ -30,7 +33,7 @@ use gv_session::{
 };
 use itertools::Itertools;
 use std::{
-    collections::HashMap,
+    collections::{HashMap, VecDeque},
     path::PathBuf,
     time::{Instant, SystemTime},
 };
@@ -110,6 +113,7 @@ pub struct Viewer<Z: Scale> {
     /// Sends requests to this viewer, for agents and tests.
     pub session: SessionHandle,
     requests: Requests,
+    hgvs: Option<Engine>,
 
     pub scene: Scene,
 
@@ -180,6 +184,7 @@ impl<Z: Scale> Viewer<Z> {
             pending_open: None,
             session,
             requests,
+            hgvs: None,
             settings,
             keyboard_state: KeyboardState::default(),
             scene: Scene::Main,
@@ -229,6 +234,50 @@ impl<Z: Scale> Viewer<Z> {
     /// Waits for the next session request.
     pub async fn next_request(&mut self) -> Option<Request> {
         self.requests.recv().await
+    }
+
+    async fn resolve_hgvs_search(
+        &mut self,
+        accession: String,
+        description: &str,
+    ) -> Result<GenomicSpan, crate::Error> {
+        if self.hgvs.is_none() {
+            self.hgvs = Some(Engine::load(
+                &self.settings.core.reference,
+                &self.settings.core.cache_dir,
+            )?);
+        }
+        let is_accession = ["NC_", "NT_", "NW_", "NM_", "NR_", "XM_", "XR_", "ENST"]
+            .iter()
+            .any(|prefix| accession.starts_with(prefix));
+        let accession = if is_accession {
+            accession
+        } else {
+            let rows = self
+                .dataset
+                .repository
+                .track_service_checked()?
+                .query_gene_name(
+                    &self.dataset.view.reference,
+                    &accession,
+                    &self.dataset.view.contig_header,
+                )
+                .await?;
+            rows.column(GeneSchema::ID)?
+                .str()?
+                .get(0)
+                .map(str::to_owned)
+                .ok_or_else(|| {
+                    gv_core::Error::ValueError(format!(
+                        "{accession} has no RefSeq Select transcript."
+                    ))
+                })?
+        };
+        Ok(self
+            .hgvs
+            .as_ref()
+            .expect("HGVS engine was loaded")
+            .locate(&accession, description)?)
     }
 
     /// Serves the next session request, for hosts that drive the viewer without an event loop.
@@ -433,7 +482,8 @@ impl<Z: Scale> Viewer<Z> {
         // as repeated motion within a cell, keep the current messages on screen.
         let mut messages = Vec::new();
 
-        for action in actions {
+        let mut actions = VecDeque::from(actions);
+        while let Some(action) = actions.pop_front() {
             if !matches!(
                 action,
                 Action::Edit(EditAction::EditColumns { typing: true, .. })
@@ -441,6 +491,31 @@ impl<Z: Scale> Viewer<Z> {
                 self.edit_typing = false;
             }
             match action {
+                Action::Navigate(NavigationAction::Hgvs {
+                    accession,
+                    description,
+                }) => match self.resolve_hgvs_search(accession, &description).await {
+                    Ok(span) => {
+                        self.dataset.view.messages.clear();
+                        render_events.push(RenderEvent::Area(AreaType::Error));
+                        if span.end > span.start {
+                            actions.push_front(
+                                Zoom::Fit {
+                                    bases: span.end - span.start + 1,
+                                }
+                                .into(),
+                            );
+                        }
+                        actions.push_front(
+                            Movement::ContigNamePosition(
+                                span.contig,
+                                span.start + (span.end - span.start) / 2,
+                            )
+                            .into(),
+                        );
+                    }
+                    Err(error) => messages.push(error.to_string()),
+                },
                 Action::Navigate(NavigationAction::Move(movement)) => {
                     self.apply_movement(movement).await?;
                     render_events.push(RenderEvent::AllTracks);
@@ -515,7 +590,7 @@ impl<Z: Scale> Viewer<Z> {
                             Some(unsaved) => messages.extend([written, unsaved]),
                             None => self.exit = true,
                         },
-                        Err(error) => messages.push(error),
+                        Err(error) => messages.push(error.to_string()),
                     }
                 }
 

@@ -17,6 +17,7 @@ aws-credential-types.workspace = true
 bigtools.workspace = true
 chrono.workspace = true
 clap.workspace = true
+ferro-hgvs.workspace = true
 futures.workspace = true
 itertools.workspace = true
 log.workspace = true

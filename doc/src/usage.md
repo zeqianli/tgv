@@ -47,7 +47,7 @@ For example, `tgv -g hg38 -r chr20:88108 /data/simple.bam /data/simple.vcf /data
 Subcommands:
 
 - `tgv list` lists common reference genome names. `tgv list --all` lists all UCSC assemblies.
-- `tgv download <reference>` downloads reference data to the cache, for use with `--offline`.
+- `tgv download <reference>` downloads reference data to the cache, for use with `--offline`. For hg38 and hg19 it also prepares HGVS data, requiring about 6 GB; pass `--no-hgvs` to skip it.
 - `tgv mcp` (or `tgv serve`) runs the [local MCP server](./server.md).
 
 Each run writes a log file to `~/.tgv/<timestamp>.log`.
@@ -172,6 +172,8 @@ Insert mode types no text, so it takes vim's editing keys. Counts come first, as
 | `Esc` | Return to normal or insert mode, whichever you came from | |
 
 ### Search mode
+
+With HGVS data prepared, `/` also accepts RefSeq genomic and transcript expressions, and gene-based coding or protein positions, such as `NC_000012.12:g.25245350`, `NM_004985.5:c.35G>A`, and `KRAS:p.12`. HGVS search uses local hg38 or hg19 data and may take several seconds to load it on first use. Gene searches use the preferred transcript in the configured gene track.
 
 | Command | Notes | Example |
 |---------|-------------|---------|

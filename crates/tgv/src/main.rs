@@ -36,15 +36,21 @@ async fn main() -> Result<(), tgv::Error> {
             reference,
             cache_dir,
             source,
+            no_hgvs,
         }) => {
             log::info!("Starting download for reference {reference}");
             let cache_dir = shellexpand::tilde(&cache_dir).to_string();
-            let downloader = UCSCDownloader::new(
-                reference.parse::<Reference>()?,
-                &cache_dir,
-                (*source).into(),
-            )?;
+            let reference = reference.parse::<Reference>()?;
+            let downloader = UCSCDownloader::new(reference.clone(), &cache_dir, (*source).into())?;
             downloader.download().await?;
+            if !no_hgvs && matches!(reference, Reference::Hg38 | Reference::Hg19) {
+                println!(
+                    "Preparing HGVS data in {} (about 6 GB; use --no-hgvs to skip).",
+                    gv_core::hgvs::data_dir(&reference, &cache_dir).display()
+                );
+                tokio::task::spawn_blocking(move || gv_core::hgvs::prepare(&reference, &cache_dir))
+                    .await??;
+            }
             return Ok(());
         }
         Some(Commands::List { all }) => {
@@ -87,6 +93,8 @@ async fn main() -> Result<(), tgv::Error> {
         settings.test_mode,
     );
 
+    #[cfg(unix)]
+    let _stderr = StderrRedirect::new(&log_path)?;
     let mut terminal = ratatui::init();
 
     set_panic_hook();
@@ -187,4 +195,34 @@ fn set_panic_hook() {
             eprintln!("Error disabling mouse capture and bracketed paste: {err}");
         }
     }));
+}
+
+#[cfg(unix)]
+struct StderrRedirect(std::os::fd::OwnedFd);
+
+#[cfg(unix)]
+impl StderrRedirect {
+    fn new(path: &std::path::Path) -> std::io::Result<Self> {
+        use std::os::fd::{AsRawFd, FromRawFd};
+        let log = std::fs::OpenOptions::new().append(true).open(path)?;
+        let saved = unsafe { libc::dup(libc::STDERR_FILENO) };
+        if saved < 0 {
+            return Err(std::io::Error::last_os_error());
+        }
+        let saved = unsafe { std::os::fd::OwnedFd::from_raw_fd(saved) };
+        if unsafe { libc::dup2(log.as_raw_fd(), libc::STDERR_FILENO) } < 0 {
+            return Err(std::io::Error::last_os_error());
+        }
+        Ok(Self(saved))
+    }
+}
+
+#[cfg(unix)]
+impl Drop for StderrRedirect {
+    fn drop(&mut self) {
+        use std::os::fd::AsRawFd;
+        unsafe {
+            libc::dup2(self.0.as_raw_fd(), libc::STDERR_FILENO);
+        }
+    }
 }
