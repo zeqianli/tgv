@@ -1,0 +1,8 @@
+{
+  "manifest_schema_version": 4,
+  "prepared_at": "2026-11-26T00:00:00+00:00",
+  "transcript_fastas": ["transcripts/transcripts.fna"],
+  "transcript_count": 3,
+  "available_prefixes": [],
+  "cdot_json": "cdot/cdot.refseq.GRCh38.json"
+}

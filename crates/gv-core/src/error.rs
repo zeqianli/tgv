@@ -4,6 +4,9 @@ use std::path::PathBuf;
 #[derive(Debug, thiserror::Error)]
 #[allow(clippy::enum_variant_names)]
 pub enum Error {
+    #[error(transparent)]
+    FerroHgvs(#[from] ferro_hgvs::FerroError),
+
     #[error("CLI error: {0}")]
     CliError(String),
 

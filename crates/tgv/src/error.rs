@@ -35,6 +35,9 @@ pub enum Error {
     #[error(transparent)]
     Viewer(#[from] gv_viewer::Error),
 
+    #[error("HGVS preparation task failed: {0}")]
+    HgvsTask(#[from] tokio::task::JoinError),
+
     #[error(transparent)]
     Core(#[from] gv_core::Error),
 }

@@ -163,7 +163,8 @@ impl App {
                             && key_event.code == event::KeyCode::Char('c')
                             && key_event.modifiers.contains(event::KeyModifiers::CONTROL) =>
                     {
-                        self.handle(vec![Action::Session(SessionAction::Quit)]).await
+                        self.handle(vec![Action::Session(SessionAction::Quit)])
+                            .await
                     }
 
                     Ok(Event::Key(key_event)) if key_event.kind == KeyEventKind::Press => {

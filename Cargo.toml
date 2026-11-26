@@ -22,6 +22,7 @@ chrono = { version = "0", features = ["clock"] }
 clap = { version = "4", features = ["derive"] }
 # Match the versions ratatui uses, so the TUI shares one copy of each.
 crossterm = "0.28"
+ferro-hgvs = { version = "1", default-features = false }
 futures = "0"
 # The GUI's UI framework. Only `tgv-gui` depends on it, so the `tgv` binary stays free of it.
 # Metal shaders compile when the app starts, so building doesn't need Xcode's Metal toolchain.
