@@ -47,9 +47,11 @@ impl DatasetRequest {
             });
         }
         let files =
-            classify_and_build_tracks(&self.files).map_err(|error| Error::InvalidInput {
-                field: "files",
-                message: error.to_string(),
+            classify_and_build_tracks(&self.files, &settings.reference).map_err(|error| {
+                Error::InvalidInput {
+                    field: "files",
+                    message: error.to_string(),
+                }
             })?;
         Ok((settings, files))
     }

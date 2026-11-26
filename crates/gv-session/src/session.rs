@@ -340,7 +340,8 @@ impl Dataset {
 
     /// Classifies paths by file type, then adds them like [`Dataset::add_file_paths`].
     pub async fn add_files(&mut self, files: &[String]) -> Result<Vec<TrackId>, gv_core::Error> {
-        self.add_file_paths(classify_and_build_tracks(files)?).await
+        self.add_file_paths(classify_and_build_tracks(files, &self.settings.reference)?)
+            .await
     }
 
     /// Opens files and appends them as tracks with fresh IDs, in order.
@@ -767,7 +768,11 @@ mod tests {
     }
 
     async fn covid_dataset() -> Dataset {
-        let files = classify_and_build_tracks(&[format!("{DATA}/covid.sorted.bam")]).unwrap();
+        let files = classify_and_build_tracks(
+            &[format!("{DATA}/covid.sorted.bam")],
+            &covid_settings().reference,
+        )
+        .unwrap();
         Dataset::new(covid_settings(), files).await.unwrap()
     }
 

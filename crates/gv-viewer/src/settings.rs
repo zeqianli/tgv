@@ -37,10 +37,11 @@ impl From<UcscHostCli> for UcscHost {
 /// The command line options that open a viewer, shared by every front end.
 #[derive(Args, Clone, Debug)]
 pub struct ViewerArgs {
-    /// Input files. Supported track formats: .bam, .vcf, .vcf.gz, .vcf.bgz, .bcf, .bed, .bed.gz, .bb, .bigbed.
+    /// Input files. Supported track formats: .bam, .cram, .vcf, .vcf.gz, .vcf.bgz, .bcf, .bed, .bed.gz, .bb, .bigbed.
     /// Bgzipped VCF and BED files with a .tbi or .csi index, BCF files with a .csi index, and
     /// bigBed files load by region.
-    /// BAM index files are inferred automatically as .bam.bai.
+    /// BAM index files are inferred automatically as .bam.bai, and CRAM index files as .cram.crai.
+    /// CRAM files are decoded with the FASTA reference passed with -g.
     /// To set the viewer reference, including a custom FASTA or 2bit file, use -g.
     #[arg(value_name = "files")]
     pub files: Vec<String>,
@@ -152,7 +153,7 @@ impl ViewerArgs {
 
         // Track override: if any files were provided, replace all session tracks.
         if !self.files.is_empty() {
-            settings.files = classify_and_build_tracks(&self.files)?;
+            settings.files = classify_and_build_tracks(&self.files, &settings.core.reference)?;
         }
 
         // Backend override: only when explicitly requested.
@@ -289,7 +290,7 @@ impl TryFrom<&ViewerArgs> for Settings {
             return Err(crate::Error::NoInput);
         }
 
-        let files = classify_and_build_tracks(&cli.files)?;
+        let files = classify_and_build_tracks(&cli.files, &reference)?;
 
         let cache_dir =
             shellexpand::tilde(cli.cache_dir.as_deref().unwrap_or("~/.tgv")).to_string();

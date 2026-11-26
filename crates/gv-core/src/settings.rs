@@ -136,7 +136,10 @@ pub const BED_EXTENSIONS: [&str; 4] = [".bed", ".bed.gz", ".bb", ".bigbed"];
 /// Classify input files and build the track paths.
 ///
 /// Returns file paths in the same order as the input paths.
-pub fn classify_and_build_tracks(files: &[String]) -> Result<Vec<FilePath>, Error> {
+pub fn classify_and_build_tracks(
+    files: &[String],
+    reference: &Reference,
+) -> Result<Vec<FilePath>, Error> {
     for file in files {
         let lower = file.to_lowercase();
         if lower.ends_with(".fa")
@@ -148,9 +151,11 @@ pub fn classify_and_build_tracks(files: &[String]) -> Result<Vec<FilePath>, Erro
                 "FASTA reference files must be passed with -g/--reference, not as positional input files.".to_string(),
             ));
         } else if lower.ends_with(".cram") {
-            return Err(Error::CliError(
-                "CRAM format is not yet supported as a CLI input format.".to_string(),
-            ));
+            if !matches!(reference, Reference::BYOIndexedFasta(_)) {
+                return Err(Error::CliError(format!(
+                    "CRAM file {file} needs the FASTA reference it was encoded with. Pass it with -g/--reference, with a .fai index beside it."
+                )));
+            }
         } else if !(lower.ends_with(".bam")
             || VARIANT_EXTENSIONS
                 .iter()
@@ -160,7 +165,7 @@ pub fn classify_and_build_tracks(files: &[String]) -> Result<Vec<FilePath>, Erro
                 .any(|extension| lower.ends_with(extension)))
         {
             return Err(Error::CliError(format!(
-                "Unrecognized file format: {}. Supported track formats: .bam, {}, {}. Use -g for custom FASTA or 2bit reference genomes.",
+                "Unrecognized file format: {}. Supported track formats: .bam, .cram, {}, {}. Use -g for custom FASTA or 2bit reference genomes.",
                 file,
                 VARIANT_EXTENSIONS.join(", "),
                 BED_EXTENSIONS.join(", "),
@@ -181,6 +186,15 @@ pub fn classify_and_build_tracks(files: &[String]) -> Result<Vec<FilePath>, Erro
                 } else {
                     BamSource::Local
                 },
+            }));
+        } else if lower.ends_with(".cram")
+            && let Reference::BYOIndexedFasta(fasta) = reference
+        {
+            file_paths.push(FilePath::AlignmentPath(AlignmentPath::Cram {
+                path: file.clone(),
+                crai: format!("{file}.crai"),
+                fasta: fasta.clone(),
+                fai: format!("{fasta}.fai"),
             }));
         } else if VARIANT_EXTENSIONS
             .iter()
