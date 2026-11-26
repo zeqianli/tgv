@@ -1,0 +1,461 @@
+{
+ "cdot_version": "0.2.32",
+ "genes": {
+  "1956": {
+   "aliases": "ERBB, ERBB1, ERRP, HER1, NISBD2, NNCIS, PIG61, mENA",
+   "biotype": [
+    "mRNA",
+    "protein_coding"
+   ],
+   "description": "epidermal growth factor receptor",
+   "gene_symbol": "EGFR",
+   "hgnc": "3236",
+   "map_location": "7p11.2",
+   "source": [
+    "BestRefSeq%2CGnomon"
+   ],
+   "summary": "The protein encoded by this gene is a transmembrane glycoprotein that is a member of the protein kinase superfamily. This protein is a receptor for members of the epidermal growth factor family. EGFR is a cell surface protein that binds to epidermal growth factor, thus inducing receptor dimerization and tyrosine autophosphorylation leading to cell proliferation. Mutations in this gene are associated with lung cancer. EGFR is a component of the cytokine storm which contributes to a severe form of Coronavirus Disease 2019 (COVID-19) resulting from infection with severe acute respiratory syndrome coronavirus-2 (SARS-CoV-2). [provided by RefSeq, Jul 2020]",
+   "url": "https://ftp.ncbi.nlm.nih.gov/genomes/all/annotation_releases/9606/GCF_000001405.40-RS_2025_08/GCF_000001405.40_GRCh38.p14_genomic.gff.gz"
+  },
+  "3845": {
+   "aliases": "'C-K-RAS, C-K-RAS, CFC2, K-RAS2A, K-RAS2B, K-RAS4A, K-RAS4B, K-Ras, K-Ras 2, KI-RAS, KRAS1, KRAS2, NS, NS3, OES, RALD, RASK2, c-Ki-ras, c-Ki-ras2",
+   "biotype": [
+    "mRNA",
+    "protein_coding"
+   ],
+   "description": "KRAS proto-oncogene, GTPase",
+   "gene_symbol": "KRAS",
+   "hgnc": "6407",
+   "map_location": "12p12.1",
+   "source": [
+    "BestRefSeq%2CGnomon"
+   ],
+   "summary": "This gene, a Kirsten ras oncogene homolog from the mammalian ras gene family, encodes a protein that is a member of the small GTPase superfamily. A single amino acid substitution is responsible for an activating mutation. The transforming protein that results is implicated in various malignancies, including lung adenocarcinoma, mucinous adenoma, ductal carcinoma of the pancreas and colorectal carcinoma. Alternative splicing leads to variants encoding two isoforms that differ in the C-terminal region. [provided by RefSeq, Jul 2008]",
+   "url": "https://ftp.ncbi.nlm.nih.gov/genomes/all/annotation_releases/9606/GCF_000001405.40-RS_2025_08/GCF_000001405.40_GRCh38.p14_genomic.gff.gz"
+  },
+  "6023": {
+   "aliases": "CHH, NME1, RMRPR, RRP2",
+   "biotype": [
+    "RNase_MRP_RNA",
+    "ncRNA"
+   ],
+   "description": "RNA component of mitochondrial RNA processing endoribonuclease",
+   "gene_symbol": "RMRP",
+   "hgnc": "10031",
+   "map_location": "9p13.3",
+   "source": [
+    "BestRefSeq"
+   ],
+   "summary": "This gene encodes the RNA component of mitochondrial RNA processing endoribonuclease, which cleaves mitochondrial RNA at a priming site of mitochondrial DNA replication. This RNA also interacts with the telomerase reverse transcriptase catalytic subunit to form a distinct ribonucleoprotein complex that has RNA-dependent RNA polymerase activity and produces double-stranded RNAs that can be processed into small interfering RNA. Mutations in this gene are associated with cartilage-hair hypoplasia.[provided by RefSeq, Mar 2010]",
+   "url": "https://ftp.ncbi.nlm.nih.gov/genomes/all/annotation_releases/9606/GCF_000001405.40-RS_2025_08/GCF_000001405.40_GRCh38.p14_genomic.gff.gz"
+  }
+ },
+ "genome_builds": [
+  "GRCh38"
+ ],
+ "metadata": {
+  "cdot_version": "0.2.32",
+  "genome_builds": [
+   "GRCh38"
+  ],
+  "input_files": [
+   "refseq/GRCh38/cdot-0.2.32_uta.Homo_sapiens_GRCh38_UTA_20241220.json.gz",
+   "refseq/GRCh38/cdot-0.2.32.Homo_sapiens_GRCh38_RefSeq_106.gff3.json.gz",
+   "refseq/GRCh38/cdot-0.2.32.Homo_sapiens_GRCh38_RefSeq_107.gff3.json.gz",
+   "refseq/GRCh38/cdot-0.2.32.Homo_sapiens_GRCh38_RefSeq_108.gff3.json.gz",
+   "refseq/GRCh38/cdot-0.2.32.Homo_sapiens_GRCh38_RefSeq_109.gff3.json.gz",
+   "refseq/GRCh38/cdot-0.2.32.Homo_sapiens_GRCh38_RefSeq_109.GCF.gff.json.gz",
+   "refseq/GRCh38/cdot-0.2.32.Homo_sapiens_GRCh38_RefSeq_109.20190607.gff.json.gz",
+   "refseq/GRCh38/cdot-0.2.32.Homo_sapiens_GRCh38_RefSeq_109.20190905.gff.json.gz",
+   "refseq/GRCh38/cdot-0.2.32.Homo_sapiens_GRCh38_RefSeq_109.20191205.gff.json.gz",
+   "refseq/GRCh38/cdot-0.2.32.Homo_sapiens_GRCh38_RefSeq_109.20200228.gff.json.gz",
+   "refseq/GRCh38/cdot-0.2.32.Homo_sapiens_GRCh38_RefSeq_109.20200522.gff.json.gz",
+   "refseq/GRCh38/cdot-0.2.32.Homo_sapiens_GRCh38_RefSeq_109.20200815.gff.json.gz",
+   "refseq/GRCh38/cdot-0.2.32.Homo_sapiens_GRCh38_RefSeq_109.20201120.gff.json.gz",
+   "refseq/GRCh38/cdot-0.2.32.Homo_sapiens_GRCh38_RefSeq_109.20210226.gff.json.gz",
+   "refseq/GRCh38/cdot-0.2.32.Homo_sapiens_GRCh38_RefSeq_109.20210514.gff.json.gz",
+   "refseq/GRCh38/cdot-0.2.32.Homo_sapiens_GRCh38_RefSeq_109.20211119.gff.json.gz",
+   "refseq/GRCh38/cdot-0.2.32.Homo_sapiens_GRCh38_RefSeq_110.gff.json.gz",
+   "refseq/GRCh38/cdot-0.2.32.Homo_sapiens_GRCh38_RefSeq_RS_2023_03.gff.json.gz",
+   "refseq/GRCh38/cdot-0.2.32.Homo_sapiens_GRCh38_RefSeq_RS_2023_10.gff.json.gz",
+   "refseq/GRCh38/cdot-0.2.32.Homo_sapiens_GRCh38_RefSeq_RS_2024_08.gff.json.gz",
+   "refseq/GRCh38/cdot-0.2.32.Homo_sapiens_GRCh38_RefSeq_RS_2025_08.gff.json.gz"
+  ],
+  "method": "Merge historical",
+  "sys.argv": "/home/dlawrence/localwork/cdot/generate_transcript_data/cdot_json.py merge_historical refseq/GRCh38/cdot-0.2.32_uta.Homo_sapiens_GRCh38_UTA_20241220.json.gz refseq/GRCh38/cdot-0.2.32.Homo_sapiens_GRCh38_RefSeq_106.gff3.json.gz refseq/GRCh38/cdot-0.2.32.Homo_sapiens_GRCh38_RefSeq_107.gff3.json.gz refseq/GRCh38/cdot-0.2.32.Homo_sapiens_GRCh38_RefSeq_108.gff3.json.gz refseq/GRCh38/cdot-0.2.32.Homo_sapiens_GRCh38_RefSeq_109.gff3.json.gz refseq/GRCh38/cdot-0.2.32.Homo_sapiens_GRCh38_RefSeq_109.GCF.gff.json.gz refseq/GRCh38/cdot-0.2.32.Homo_sapiens_GRCh38_RefSeq_109.20190607.gff.json.gz refseq/GRCh38/cdot-0.2.32.Homo_sapiens_GRCh38_RefSeq_109.20190905.gff.json.gz refseq/GRCh38/cdot-0.2.32.Homo_sapiens_GRCh38_RefSeq_109.20191205.gff.json.gz refseq/GRCh38/cdot-0.2.32.Homo_sapiens_GRCh38_RefSeq_109.20200228.gff.json.gz refseq/GRCh38/cdot-0.2.32.Homo_sapiens_GRCh38_RefSeq_109.20200522.gff.json.gz refseq/GRCh38/cdot-0.2.32.Homo_sapiens_GRCh38_RefSeq_109.20200815.gff.json.gz refseq/GRCh38/cdot-0.2.32.Homo_sapiens_GRCh38_RefSeq_109.20201120.gff.json.gz refseq/GRCh38/cdot-0.2.32.Homo_sapiens_GRCh38_RefSeq_109.20210226.gff.json.gz refseq/GRCh38/cdot-0.2.32.Homo_sapiens_GRCh38_RefSeq_109.20210514.gff.json.gz refseq/GRCh38/cdot-0.2.32.Homo_sapiens_GRCh38_RefSeq_109.20211119.gff.json.gz refseq/GRCh38/cdot-0.2.32.Homo_sapiens_GRCh38_RefSeq_110.gff.json.gz refseq/GRCh38/cdot-0.2.32.Homo_sapiens_GRCh38_RefSeq_RS_2023_03.gff.json.gz refseq/GRCh38/cdot-0.2.32.Homo_sapiens_GRCh38_RefSeq_RS_2023_10.gff.json.gz refseq/GRCh38/cdot-0.2.32.Homo_sapiens_GRCh38_RefSeq_RS_2024_08.gff.json.gz refseq/GRCh38/cdot-0.2.32.Homo_sapiens_GRCh38_RefSeq_RS_2025_08.gff.json.gz --genome-build=GRCh38 --output refseq/cdot-0.2.32.refseq.GRCh38.json.gz",
+  "url_counts": {
+   "https://ftp.ncbi.nlm.nih.gov/genomes/all/annotation_releases/9606/109.20190607/GCF_000001405.39_GRCh38.p13/GCF_000001405.39_GRCh38.p13_genomic.gff.gz": 3876,
+   "https://ftp.ncbi.nlm.nih.gov/genomes/all/annotation_releases/9606/109.20190905/GCF_000001405.39_GRCh38.p13/GCF_000001405.39_GRCh38.p13_genomic.gff.gz": 1943,
+   "https://ftp.ncbi.nlm.nih.gov/genomes/all/annotation_releases/9606/109.20191205/GCF_000001405.39_GRCh38.p13/GCF_000001405.39_GRCh38.p13_genomic.gff.gz": 1581,
+   "https://ftp.ncbi.nlm.nih.gov/genomes/all/annotation_releases/9606/109.20200228/GCF_000001405.39_GRCh38.p13/GCF_000001405.39_GRCh38.p13_genomic.gff.gz": 1645,
+   "https://ftp.ncbi.nlm.nih.gov/genomes/all/annotation_releases/9606/109.20200522/GCF_000001405.39_GRCh38.p13/GCF_000001405.39_GRCh38.p13_genomic.gff.gz": 12841,
+   "https://ftp.ncbi.nlm.nih.gov/genomes/all/annotation_releases/9606/109.20200815/GCF_000001405.39_GRCh38.p13/GCF_000001405.39_GRCh38.p13_genomic.gff.gz": 1667,
+   "https://ftp.ncbi.nlm.nih.gov/genomes/all/annotation_releases/9606/109.20201120/GCF_000001405.39_GRCh38.p13/GCF_000001405.39_GRCh38.p13_genomic.gff.gz": 939,
+   "https://ftp.ncbi.nlm.nih.gov/genomes/all/annotation_releases/9606/109.20210226/GCF_000001405.39_GRCh38.p13/GCF_000001405.39_GRCh38.p13_genomic.gff.gz": 1425,
+   "https://ftp.ncbi.nlm.nih.gov/genomes/all/annotation_releases/9606/109.20210514/GCF_000001405.39_GRCh38.p13/GCF_000001405.39_GRCh38.p13_genomic.gff.gz": 2131,
+   "https://ftp.ncbi.nlm.nih.gov/genomes/all/annotation_releases/9606/109.20211119/GCF_000001405.39_GRCh38.p13/GCF_000001405.39_GRCh38.p13_genomic.gff.gz": 75738,
+   "https://ftp.ncbi.nlm.nih.gov/genomes/all/annotation_releases/9606/109/GCF_000001405.38_GRCh38.p12/GCF_000001405.38_GRCh38.p12_genomic.gff.gz": 38043,
+   "https://ftp.ncbi.nlm.nih.gov/genomes/all/annotation_releases/9606/110/GCF_000001405.40_GRCh38.p14/GCF_000001405.40_GRCh38.p14_genomic.gff.gz": 3641,
+   "https://ftp.ncbi.nlm.nih.gov/genomes/all/annotation_releases/9606/GCF_000001405.40-RS_2023_03/GCF_000001405.40_GRCh38.p14_genomic.gff.gz": 2178,
+   "https://ftp.ncbi.nlm.nih.gov/genomes/all/annotation_releases/9606/GCF_000001405.40-RS_2023_10/GCF_000001405.40_GRCh38.p14_genomic.gff.gz": 414,
+   "https://ftp.ncbi.nlm.nih.gov/genomes/all/annotation_releases/9606/GCF_000001405.40-RS_2024_08/GCF_000001405.40_GRCh38.p14_genomic.gff.gz": 1927,
+   "https://ftp.ncbi.nlm.nih.gov/genomes/all/annotation_releases/9606/GCF_000001405.40-RS_2025_08/GCF_000001405.40_GRCh38.p14_genomic.gff.gz": 178369,
+   "https://ftp.ncbi.nlm.nih.gov/genomes/archive/old_refseq/Homo_sapiens/ARCHIVE/ANNOTATION_RELEASE.106/GFF/ref_GRCh38_top_level.gff3.gz": 34396,
+   "https://ftp.ncbi.nlm.nih.gov/genomes/archive/old_refseq/Homo_sapiens/ARCHIVE/ANNOTATION_RELEASE.107/GFF/ref_GRCh38.p2_top_level.gff3.gz": 72137,
+   "https://ftp.ncbi.nlm.nih.gov/genomes/archive/old_refseq/Homo_sapiens/ARCHIVE/ANNOTATION_RELEASE.108/GFF/ref_GRCh38.p7_top_level.gff3.gz": 45908,
+   "postgresql://uta.biocommons.org/uta_20241220": 1720
+  }
+ },
+ "transcripts": {
+  "NM_004985.5": {
+   "biotype": [
+    "mRNA"
+   ],
+   "gene_name": "KRAS",
+   "gene_version": "3845",
+   "genome_builds": {
+    "GRCh38": {
+     "cds_end": 25245384,
+     "cds_start": 25209794,
+     "contig": "NC_000012.12",
+     "exons": [
+      [
+       25205245,
+       25209911,
+       4,
+       641,
+       5306,
+       null
+      ],
+      [
+       25225613,
+       25225773,
+       3,
+       481,
+       640,
+       null
+      ],
+      [
+       25227233,
+       25227412,
+       2,
+       302,
+       480,
+       null
+      ],
+      [
+       25245273,
+       25245395,
+       1,
+       180,
+       301,
+       null
+      ],
+      [
+       25250750,
+       25250929,
+       0,
+       1,
+       179,
+       null
+      ]
+     ],
+     "note": "isoform b is encoded by transcript variant b",
+     "strand": "-",
+     "tag": "MANE Select",
+     "url": "https://ftp.ncbi.nlm.nih.gov/genomes/all/annotation_releases/9606/GCF_000001405.40-RS_2025_08/GCF_000001405.40_GRCh38.p14_genomic.gff.gz"
+    }
+   },
+   "hgnc": "6407",
+   "id": "NM_004985.5",
+   "protein": "NP_004976.2",
+   "source": [
+    "BestRefSeq"
+   ],
+   "start_codon": 190,
+   "stop_codon": 757
+  },
+  "NM_005228.5": {
+   "biotype": [
+    "mRNA"
+   ],
+   "gene_name": "EGFR",
+   "gene_version": "1956",
+   "genome_builds": {
+    "GRCh38": {
+     "cds_end": 55205617,
+     "cds_start": 55019277,
+     "contig": "NC_000007.14",
+     "exons": [
+      [
+       55019016,
+       55019365,
+       0,
+       1,
+       349,
+       null
+      ],
+      [
+       55142285,
+       55142437,
+       1,
+       350,
+       501,
+       null
+      ],
+      [
+       55143304,
+       55143488,
+       2,
+       502,
+       685,
+       null
+      ],
+      [
+       55146605,
+       55146740,
+       3,
+       686,
+       820,
+       null
+      ],
+      [
+       55151293,
+       55151362,
+       4,
+       821,
+       889,
+       null
+      ],
+      [
+       55152545,
+       55152664,
+       5,
+       890,
+       1008,
+       null
+      ],
+      [
+       55154010,
+       55154152,
+       6,
+       1009,
+       1150,
+       null
+      ],
+      [
+       55155829,
+       55155946,
+       7,
+       1151,
+       1267,
+       null
+      ],
+      [
+       55156532,
+       55156659,
+       8,
+       1268,
+       1394,
+       null
+      ],
+      [
+       55156758,
+       55156832,
+       9,
+       1395,
+       1468,
+       null
+      ],
+      [
+       55157662,
+       55157753,
+       10,
+       1469,
+       1559,
+       null
+      ],
+      [
+       55160138,
+       55160338,
+       11,
+       1560,
+       1759,
+       null
+      ],
+      [
+       55161498,
+       55161631,
+       12,
+       1760,
+       1892,
+       null
+      ],
+      [
+       55163732,
+       55163823,
+       13,
+       1893,
+       1983,
+       null
+      ],
+      [
+       55165279,
+       55165437,
+       14,
+       1984,
+       2141,
+       null
+      ],
+      [
+       55171174,
+       55171213,
+       15,
+       2142,
+       2180,
+       null
+      ],
+      [
+       55172982,
+       55173124,
+       16,
+       2181,
+       2322,
+       null
+      ],
+      [
+       55173920,
+       55174043,
+       17,
+       2323,
+       2445,
+       null
+      ],
+      [
+       55174721,
+       55174820,
+       18,
+       2446,
+       2544,
+       null
+      ],
+      [
+       55181292,
+       55181478,
+       19,
+       2545,
+       2730,
+       null
+      ],
+      [
+       55191718,
+       55191874,
+       20,
+       2731,
+       2886,
+       null
+      ],
+      [
+       55192765,
+       55192841,
+       21,
+       2887,
+       2962,
+       null
+      ],
+      [
+       55198716,
+       55198863,
+       22,
+       2963,
+       3109,
+       null
+      ],
+      [
+       55200315,
+       55200413,
+       23,
+       3110,
+       3207,
+       null
+      ],
+      [
+       55201187,
+       55201355,
+       24,
+       3208,
+       3375,
+       null
+      ],
+      [
+       55201734,
+       55201782,
+       25,
+       3376,
+       3423,
+       null
+      ],
+      [
+       55202516,
+       55202625,
+       26,
+       3424,
+       3532,
+       null
+      ],
+      [
+       55205255,
+       55211628,
+       27,
+       3533,
+       9905,
+       null
+      ]
+     ],
+     "note": "isoform a precursor is encoded by transcript variant 1",
+     "strand": "+",
+     "tag": "MANE Select",
+     "url": "https://ftp.ncbi.nlm.nih.gov/genomes/all/annotation_releases/9606/GCF_000001405.40-RS_2025_08/GCF_000001405.40_GRCh38.p14_genomic.gff.gz"
+    }
+   },
+   "hgnc": "3236",
+   "id": "NM_005228.5",
+   "protein": "NP_005219.2",
+   "source": [
+    "BestRefSeq"
+   ],
+   "start_codon": 261,
+   "stop_codon": 3894
+  },
+  "NR_003051.4": {
+   "biotype": [
+    "RNase_MRP_RNA",
+    "ncRNA"
+   ],
+   "gene_name": "RMRP",
+   "gene_version": "6023",
+   "genome_builds": {
+    "GRCh38": {
+     "contig": "NC_000009.12",
+     "exons": [
+      [
+       35657749,
+       35658019,
+       0,
+       1,
+       270,
+       null
+      ]
+     ],
+     "strand": "-",
+     "url": "https://ftp.ncbi.nlm.nih.gov/genomes/all/annotation_releases/9606/GCF_000001405.40-RS_2025_08/GCF_000001405.40_GRCh38.p14_genomic.gff.gz"
+    }
+   },
+   "hgnc": "10031",
+   "id": "NR_003051.4",
+   "source": [
+    "BestRefSeq"
+   ]
+  }
+ }
+}
